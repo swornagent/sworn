@@ -496,8 +496,9 @@ func (provider *journeyProvider) submissionArguments(
 		SchemaVersion:  driver.SubmissionSchemaVersion,
 		InvocationID:   prompt.InvocationID,
 		Responsibility: prompt.Responsibility,
-		Summary:        "Deterministic production journey " + string(prompt.Responsibility) + ".",
-		Detail:         "Sealed through the common configured production driver registry.",
+		Summary: "Deterministic production journey " + string(prompt.Responsibility) +
+			", padded so every scripted responsibility this deterministic production journey drives clears the submission content floor for its coverage across the registry.",
+		Detail: "Sealed through the common configured production driver registry, padded so every scripted responsibility this deterministic production journey drives clears the submission detail content floor for its coverage.\n",
 	}
 	var err error
 	switch prompt.Responsibility {

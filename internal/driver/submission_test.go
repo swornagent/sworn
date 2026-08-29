@@ -126,8 +126,8 @@ func submissionFixture(
 		SchemaVersion:  SubmissionSchemaVersion,
 		InvocationID:   invocationID,
 		Responsibility: responsibility,
-		Summary:        "Compact responsibility summary.",
-		Detail:         "Bounded LF-only detail.\n",
+		Summary:        "Compact responsibility summary padded so every floored responsibility this shared fixture drives clears the submission content floor for permission and correction-accounting coverage.",
+		Detail:         "Bounded LF-only detail padded so every floored responsibility this shared fixture drives clears the detail content floor while exercising submission-permission acceptance and rejection coverage across these tests.\n",
 	}
 	var err error
 	switch responsibility {
@@ -250,6 +250,68 @@ func TestSubmissionRejectsWrongResponsibilityDecisionAndExactBytes(t *testing.T)
 			seal, _, err := server.Submit(body)
 			if !IsCode(err, "SUBMISSION_REJECTED") || seal.Accepted {
 				t.Fatalf("seal = %#v, error = %v", seal, err)
+			}
+		})
+	}
+}
+
+func TestDecisionFailScopeIsAdditiveToWorkVerificationFailOnly(t *testing.T) {
+	t.Parallel()
+	_, verifierRequest := permissionFixture(t, RoleVerifier, WorkVerification)
+	valid := submissionFixture(t, verifierRequest.InvocationID, WorkVerification, DecisionFail)
+	valid.Decision.Scope = FailScopeEvidence
+	body, err := EncodeSubmission(valid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(body, []byte(`"scope":"evidence"`)) {
+		t.Fatalf("encoded submission omits scope: %s", body)
+	}
+	decoded, err := DecodeSubmission(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Decision.Scope != FailScopeEvidence {
+		t.Fatalf("decoded scope = %q, want evidence", decoded.Decision.Scope)
+	}
+
+	unspecified := submissionFixture(t, verifierRequest.InvocationID, WorkVerification, DecisionFail)
+	unspecifiedBody, err := EncodeSubmission(unspecified)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(unspecifiedBody, []byte(`"scope"`)) {
+		t.Fatalf("zero-value scope is not omitted: %s", unspecifiedBody)
+	}
+
+	tests := map[string]Submission{
+		"pass outcome": func() Submission {
+			value := submissionFixture(t, verifierRequest.InvocationID, WorkVerification, DecisionPass)
+			value.Decision.Scope = FailScopeEvidence
+			return value
+		}(),
+		"assembly verification": func() Submission {
+			value := submissionFixture(t, verifierRequest.InvocationID, AssemblyVerification, DecisionFail)
+			value.Decision.Scope = FailScopeEvidence
+			return value
+		}(),
+		"captain review": func() Submission {
+			value := submissionFixture(t, verifierRequest.InvocationID, CaptainReview, DecisionRevise)
+			value.Decision.Scope = FailScopeEvidence
+			return value
+		}(),
+		"unknown scope literal": func() Submission {
+			value := submissionFixture(t, verifierRequest.InvocationID, WorkVerification, DecisionFail)
+			value.Decision.Scope = DecisionFailScope("code")
+			return value
+		}(),
+	}
+	for name, submission := range tests {
+		name, submission := name, submission
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if err := ValidateSubmission(submission); err == nil {
+				t.Fatalf("%s: submission with non-empty scope accepted", name)
 			}
 		})
 	}

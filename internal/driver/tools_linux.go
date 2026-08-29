@@ -502,7 +502,7 @@ func runToolBash(
 		} else if info.Mode().IsRegular() {
 			maskFile, openErr := os.Open(os.DevNull)
 			if openErr != nil {
-				return nil, 0, fail("PROCESS_START_FAILED")
+				return nil, 0, failSandboxStart("sandbox_start.mask_devnull_open", openErr)
 			}
 			fd := 6 + len(maskFiles)
 			maskFiles = append(maskFiles, maskFile)
@@ -541,7 +541,7 @@ func runToolBash(
 	command.Env = []string{}
 	statusReader, statusWriter, err := os.Pipe()
 	if err != nil {
-		return nil, 0, fail("PROCESS_START_FAILED")
+		return nil, 0, failSandboxStart("sandbox_start.status_pipe_create", err)
 	}
 	defer statusReader.Close()
 	defer statusWriter.Close()
@@ -556,7 +556,7 @@ func runToolBash(
 	command.Stdout = &output
 	command.Stderr = &output
 	if err := command.Start(); err != nil {
-		return nil, 0, fail("PROCESS_START_FAILED")
+		return nil, 0, failSandboxStart("sandbox_start.bwrap_exec_start", err)
 	}
 	_ = statusWriter.Close()
 	_, group, statusErr := readSandboxProcessGroup(
@@ -567,7 +567,11 @@ func runToolBash(
 	if statusErr != nil {
 		_ = syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
 		_ = command.Wait()
-		return nil, 0, fail("PROCESS_START_FAILED")
+		// readSandboxProcessGroup (aws_chain_linux.go, out of this slice's
+		// scope) already flattens its own JSON/syscall failure to a bare
+		// PROCESS_START_FAILED, so no kernel cause survives to extract
+		// here: this site's Detail carries its distinct name only.
+		return nil, 0, failSandboxStart("sandbox_start.process_group_handshake_read", statusErr)
 	}
 	runErr := command.Wait()
 	_ = syscall.Kill(-group, syscall.SIGTERM)

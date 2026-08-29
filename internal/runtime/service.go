@@ -221,23 +221,24 @@ type sealedRecord struct {
 }
 
 type implementationCycle struct {
-	Release        string        `json:"release"`
-	GitIdentity    gitx.Identity `json:"git_identity"`
-	Slice          string        `json:"slice"`
-	Binds          string        `json:"binds"`
-	Before         string        `json:"before"`
-	Plan           string        `json:"plan"`
-	ReleaseHead    string        `json:"release_head"`
-	TargetHead     string        `json:"target_head"`
-	Track          string        `json:"track"`
-	TrackRef       string        `json:"track_ref"`
-	TrackHead      string        `json:"track_head"`
-	RefreshFrom    string        `json:"refresh_from,omitempty"`
-	Base           string        `json:"base,omitempty"`
-	DispatchWork   string        `json:"dispatch_work"`
-	DispatchEffect string        `json:"dispatch_effect"`
-	PreparedWork   string        `json:"prepared_work"`
-	PreparedEffect string        `json:"prepared_effect"`
+	Release         string        `json:"release"`
+	GitIdentity     gitx.Identity `json:"git_identity"`
+	Slice           string        `json:"slice"`
+	Binds           string        `json:"binds"`
+	Before          string        `json:"before"`
+	Plan            string        `json:"plan"`
+	ReleaseHead     string        `json:"release_head"`
+	TargetHead      string        `json:"target_head"`
+	Track           string        `json:"track"`
+	TrackRef        string        `json:"track_ref"`
+	TrackHead       string        `json:"track_head"`
+	RefreshFrom     string        `json:"refresh_from,omitempty"`
+	RefreshEvidence bool          `json:"refresh_evidence,omitempty"`
+	Base            string        `json:"base,omitempty"`
+	DispatchWork    string        `json:"dispatch_work"`
+	DispatchEffect  string        `json:"dispatch_effect"`
+	PreparedWork    string        `json:"prepared_work"`
+	PreparedEffect  string        `json:"prepared_effect"`
 }
 
 const planProposalVersion = "sworn.plan-proposal/v1"

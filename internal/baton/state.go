@@ -1804,6 +1804,11 @@ func validateSliceHistory(
 				bound.Receipt.Result == "proceed" && *bound.Receipt.Attempt == attempt
 			retry := sameLineage && bound.Receipt.Role == "verifier" &&
 				bound.Receipt.Result == "fail" && *bound.Receipt.Attempt == attempt-1
+			// evidenceReseal is earned by the bound verifier/fail receipt's
+			// own durable FailScope, never by this submitting receipt, so a
+			// re-sealed candidate cannot claim its way past CHANGED_CANDIDATE.
+			evidenceReseal := retry && bound.Receipt.FailScope != nil &&
+				*bound.Receipt.FailScope == "evidence"
 			candidateRefresh := false
 			if sameLineage &&
 				bound.Receipt.Role == "implementer" &&
@@ -1852,7 +1857,8 @@ func validateSliceHistory(
 				)
 			}
 			if receipt.Candidate == nil || receipt.ProductTree == nil ||
-				entry.Parent != *receipt.Candidate || *receipt.Candidate == receipt.Binds {
+				entry.Parent != *receipt.Candidate ||
+				(*receipt.Candidate == receipt.Binds && !evidenceReseal) {
 				return SliceHistory{}, recordFail("CHANGED_CANDIDATE", "candidate "+entry.OID+" has invalid Git evidence")
 			}
 			deferConsumingEvidence := len(planned.Slice.Consumes) > 0 &&

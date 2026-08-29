@@ -60,6 +60,7 @@ type AppendReceiptInput struct {
 	Base         string
 	Candidate    string
 	CheckResults []byte
+	FailScope    string `json:"FailScope,omitempty"`
 }
 
 type PrepareAssemblyInput struct {
@@ -916,9 +917,18 @@ func (a *Actions) appendReceipt(
 			}
 			attempt, binds, candidate, productTree, checksDigest :=
 				*evidence.Attempt, current.OID, *evidence.Candidate, *evidence.ProductTree, checks
+			if err := a.checkEvidenceBackstop(
+				state, sliceID, resultName, release, attempt, candidate, contract, checkBytes,
+			); err != nil {
+				return ActionResult{}, err
+			}
 			common.Role, common.Result, common.Attempt, common.Binds = role, resultName, &attempt, binds
 			common.Candidate, common.ProductTree, common.Inputs, common.Checks =
 				&candidate, &productTree, cloneInputs(evidence.Inputs), &checksDigest
+			if resultName == "fail" && input.FailScope != "" {
+				failScope := input.FailScope
+				common.FailScope = &failScope
+			}
 			receipt, parent = common, ownerHead
 			if ownerHead != current.OID {
 				return ActionResult{}, recordFail("CHANGED_OWNER_HEAD", ownerRef+" changed after its candidate receipt")
@@ -1035,6 +1045,81 @@ func (a *Actions) appendReceipt(
 		Subject: parsed.Subject, Detail: parsed.Detail, Receipt: parsed.Receipt,
 	}
 	return appendReceiptResult(true, ownerRef, entry), nil
+}
+
+// checkEvidenceBackstop is the durable fail-closed source of truth for
+// S5-A3's check-evidence provenance rule, applied to a slice verifier
+// receipt (role == "verifier", sliceID != ""). It is deliberately
+// conditional on checkBytes actually parsing as a well-formed
+// sworn.check-results/v1 manifest: bytes that do not parse are read as
+// opaque, pre-existing-shape evidence - exactly what every submission
+// carried before this slice, and exactly what a submission that bypasses the
+// real driver producer (internal/runtime's own fixtures, which construct
+// Checks bytes by hand and never run a real Bash call) still carries - and
+// the branch falls back to today's unchanged behavior for them. Only a
+// genuine manifest, which the driver now builds unconditionally for every
+// real WorkVerification submission, is ever held to completeness or binding.
+func (a *Actions) checkEvidenceBackstop(
+	state State,
+	sliceID, resultName, release string,
+	attempt int64,
+	candidate, contractDigest string,
+	checkBytes []byte,
+) error {
+	results, err := ParseCheckResults(checkBytes)
+	if err != nil {
+		return nil
+	}
+	if results.Release != "" && results.Release != release {
+		return recordFail("STALE_BINDING", "check results release does not match")
+	}
+	if results.Slice != "" && results.Slice != sliceID {
+		return recordFail("STALE_BINDING", "check results slice does not match")
+	}
+	if results.Attempt != 0 && results.Attempt != attempt {
+		return recordFail("STALE_BINDING", "check results attempt does not match")
+	}
+	if results.Candidate != "" && results.Candidate != candidate {
+		return recordFail("STALE_BINDING", "check results candidate does not match")
+	}
+	if results.ContractDigest != "" && results.ContractDigest != contractDigest {
+		return recordFail("STALE_BINDING", "check results contract digest does not match")
+	}
+	if resultName != "pass" {
+		return nil
+	}
+	if len(state.Plan.History) == 0 {
+		return recordFail("CONTRACT_RESOLUTION_FAILED", "plan has no admitted history")
+	}
+	currentPlan := state.Plan.History[len(state.Plan.History)-1].Plan
+	resolved, err := currentPlan.ResolveSliceContractAtHead(
+		UseGitRepository(a.repository.git),
+		sliceID,
+		state.Refs.Release.Head,
+		state.Refs.Target.Head,
+	)
+	if err != nil {
+		return recordWrap("CONTRACT_RESOLUTION_FAILED", "resolve slice contract for check evidence", err)
+	}
+	if len(resolved.HostChecks) != 0 {
+		return nil
+	}
+	for _, declared := range resolved.Checks {
+		covered := false
+		for _, entry := range results.Entries {
+			if entry.Outcome == CheckOutcomePass && CheckCommandCovers(declared, entry.Check) {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			return recordFail(
+				"CHECK_EVIDENCE_INCOMPLETE",
+				"declared check has no covering pass entry: "+declared,
+			)
+		}
+	}
+	return nil
 }
 
 func exactRetry(

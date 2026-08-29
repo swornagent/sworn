@@ -185,6 +185,15 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 								code: effect.ErrorCode, detail: detail,
 							}
 						}
+					} else if effect.ErrorCode == "EMPTY_CANDIDATE" {
+						// EMPTY_CANDIDATE is raised via a plain fail(...)
+						// with no structured Result to render (unlike
+						// CANDIDATE_SCOPE_FAILED's named paths), so the
+						// code alone already fully explains the cause.
+						exhaustionRefusals[work] = exhaustionRefusalFacts{
+							code:   effect.ErrorCode,
+							detail: "EMPTY_CANDIDATE: implementation produced no change to seal",
+						}
 					}
 				}
 			}

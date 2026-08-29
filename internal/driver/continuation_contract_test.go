@@ -218,8 +218,8 @@ func continuationContractObservation(
 		SchemaVersion:  SubmissionSchemaVersion,
 		InvocationID:   invocation.Request.InvocationID,
 		Responsibility: descriptor.Responsibility,
-		Summary:        "Continuation contract fixture.",
-		Detail:         "Bounded fixture detail.\n",
+		Summary:        "Continuation contract fixture summary padded so every responsibility this scripted continuation-contract adapter drives clears the submission content floor for its single-shot dispatch.",
+		Detail:         "Bounded fixture detail for the continuation contract adapter padded so every responsibility this test drives clears the detail content floor while the one-shot contract observation replays deterministically.\n",
 	}
 	switch descriptor.Responsibility {
 	case PlannerProposal:
