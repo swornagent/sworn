@@ -260,6 +260,28 @@ func (provider *recoveryE2EProvider) workerResponse(
 		return provider.plannerResponse(prompt, turn)
 	}
 	if prompt.Responsibility != driver.ImplementerImplementation {
+		// S5-A3: a WorkVerification pass claim must carry engine-recorded
+		// evidence covering the declared check, so the scripted verifier
+		// runs the declared check first (|| true keeps the wrapper's exit
+		// honest to the covers rule's documented trailing-token tolerance)
+		// and submits on the following turn.
+		if prompt.Responsibility == driver.WorkVerification {
+			switch {
+			case turn == 1 && prompt.Recovery == nil:
+				return "Bash", map[string]any{
+					"script": "check one.txt || true",
+				}, nil
+			case turn == 2 && prompt.Recovery == nil:
+				arguments, err := provider.submissionArguments(prompt)
+				return "sworn_submit", arguments, err
+			}
+			return "", nil, fmt.Errorf(
+				"unexpected %s turn=%d recovery=%t",
+				prompt.Responsibility,
+				turn,
+				prompt.Recovery != nil,
+			)
+		}
 		if turn != 1 || prompt.Recovery != nil {
 			return "", nil, fmt.Errorf(
 				"unexpected %s turn=%d recovery=%t",

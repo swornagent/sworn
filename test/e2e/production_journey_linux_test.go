@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -208,7 +209,43 @@ func (provider *journeyProvider) serve(
 				}
 			}
 		}
+	} else if prompt.Responsibility == driver.WorkVerification {
+		// S5-A3: a WorkVerification pass claim needs engine-recorded
+		// evidence covering the declared "check <slice>" check, and the
+		// submission protocol requires a terminal call to be alone in its
+		// turn, so the scripted verifier runs checks in a non-terminal turn
+		// (|| true rides the covers rule's documented trailing-token
+		// tolerance) and submits on the request carrying the results back.
+		// The evidence accumulator is session-scoped: a rehydrated verifier
+		// replays its transcript without the recorded runs, so the script
+		// is driven by the request's own shape, never a turn counter. A
+		// check_evidence_incomplete refusal newer than the last evidence
+		// run re-runs exactly the check the refusal names (the engine's
+		// legible refusal is the recovery input, which is the S2/S5 design
+		// working as intended); a fresh session with no tool responses runs
+		// one check per known slice, since the prompt does not name the
+		// slice under verification (the invocation id's second segment is
+		// the lane, which only sometimes shares its name); anything else
+		// submits.
+		refusal := bytes.LastIndex(body, []byte("check_evidence_incomplete"))
+		rerun := bytes.LastIndex(body, []byte("|| true"))
+		fresh := len(toolResults) == 0 &&
+			!bytes.Contains(body, []byte(`"functionResponse"`))
+		if refusal >= 0 && refusal > rerun {
+			named := journeyNamedCheckPattern.Find(body[refusal:])
+			if named == nil {
+				err = fmt.Errorf("refusal named no re-runnable check")
+			} else {
+				toolName = "Bash"
+				arguments = map[string]any{
+					"script": string(named) + " || true",
+				}
+			}
+		} else if fresh {
+			toolName = "evidence-batch"
+		}
 	} else if prompt.Responsibility != driver.ImplementerImplementation &&
+		prompt.Responsibility != driver.WorkVerification &&
 		turn != 1 {
 		err = fmt.Errorf(
 			"unexpected extra turn %d for %s",
@@ -230,21 +267,48 @@ func (provider *journeyProvider) serve(
 		provider.mu.Unlock()
 	}
 	callID := journeyCallID(prompt.InvocationID, turn)
+	type journeyToolCall struct {
+		id        string
+		name      string
+		arguments map[string]any
+	}
+	calls := []journeyToolCall{{id: callID, name: toolName, arguments: arguments}}
+	if toolName == "evidence-batch" {
+		slices := make([]string, 0, len(provider.paths()))
+		for slice := range provider.paths() {
+			slices = append(slices, slice)
+		}
+		sort.Strings(slices)
+		calls = calls[:0]
+		for index, slice := range slices {
+			calls = append(calls, journeyToolCall{
+				id:   fmt.Sprintf("%s-ev%d", callID, index),
+				name: "Bash",
+				arguments: map[string]any{
+					"script": "check " + slice + " || true",
+				},
+			})
+		}
+	}
 	writer.Header().Set("Content-Type", "application/json")
 	if family == driver.ProfileOpenAIHTTP {
-		argumentBody, _ := json.Marshal(arguments)
+		toolCalls := make([]any, 0, len(calls))
+		for _, call := range calls {
+			argumentBody, _ := json.Marshal(call.arguments)
+			toolCalls = append(toolCalls, map[string]any{
+				"id": call.id, "type": "function",
+				"function": map[string]any{
+					"name":      call.name,
+					"arguments": string(argumentBody),
+				},
+			})
+		}
 		_ = json.NewEncoder(writer).Encode(map[string]any{
 			"choices": []any{map[string]any{
 				"message": map[string]any{
-					"role":    "assistant",
-					"content": nil,
-					"tool_calls": []any{map[string]any{
-						"id": callID, "type": "function",
-						"function": map[string]any{
-							"name":      toolName,
-							"arguments": string(argumentBody),
-						},
-					}},
+					"role":       "assistant",
+					"content":    nil,
+					"tool_calls": toolCalls,
 				},
 				"finish_reason": "tool_calls",
 			}},
@@ -254,15 +318,19 @@ func (provider *journeyProvider) serve(
 		})
 		return
 	}
+	functionParts := make([]any, 0, len(calls))
+	for _, call := range calls {
+		functionParts = append(functionParts, map[string]any{
+			"functionCall": map[string]any{
+				"id": call.id, "name": call.name, "args": call.arguments,
+			},
+		})
+	}
 	_ = json.NewEncoder(writer).Encode(map[string]any{
 		"candidates": []any{map[string]any{
 			"content": map[string]any{
-				"role": "model",
-				"parts": []any{map[string]any{
-					"functionCall": map[string]any{
-						"id": callID, "name": toolName, "args": arguments,
-					},
-				}},
+				"role":  "model",
+				"parts": functionParts,
 			},
 			"finishReason": "STOP",
 		}},
@@ -364,26 +432,44 @@ func validateGeminiJourneyContinuation(
 	if promptContent == 0 {
 		return nil
 	}
-	if promptContent != 2 || promptPart != 1 ||
-		len(contents) < 3 ||
+	// A continuation resume is the transcript's last content: the prior
+	// model turn's tool responses in order, then the continuation text.
+	// Admitted prior turns are the S5-A3 verifier's evidence batch (one
+	// Bash call per known slice) and a submit, whose single response must
+	// be the engine's "accepted"; a transcript may carry several such
+	// exchanges (evidence, submit, then the verifier-flow resume), so the
+	// resume validates against the model turn immediately before it,
+	// wherever in the transcript that is.
+	if promptContent < 2 ||
 		contents[0].Role != "user" ||
 		len(contents[0].Parts) != 1 ||
 		contents[0].Parts[0].Text == nil ||
-		contents[1].Role != "model" ||
-		len(contents[1].Parts) != 1 ||
-		contents[1].Parts[0].FunctionCall == nil ||
-		contents[1].Parts[0].FunctionCall.Name != "sworn_submit" ||
-		resume.Role != "user" ||
-		len(resume.Parts) != 2 ||
-		resume.Parts[0].FunctionResponse == nil {
-		return fmt.Errorf("invalid Gemini continuation prefix")
+		resume.Role != "user" {
+		return fmt.Errorf(
+			"invalid Gemini continuation prefix content=%d of %d",
+			promptContent, len(contents),
+		)
 	}
-	call := contents[1].Parts[0].FunctionCall
-	result := resume.Parts[0].FunctionResponse
-	if call.ID == "" ||
-		result.Name != call.Name ||
-		result.Response.Result != "accepted" {
-		return fmt.Errorf("invalid Gemini accepted submission result")
+	prior := contents[promptContent-1]
+	if prior.Role != "model" || len(prior.Parts) == 0 ||
+		len(resume.Parts) != len(prior.Parts)+1 ||
+		promptPart != len(resume.Parts)-1 {
+		return fmt.Errorf(
+			"invalid Gemini continuation resume: %d prior parts, %d resume parts, prompt part %d",
+			len(prior.Parts), len(resume.Parts), promptPart,
+		)
+	}
+	for index, part := range prior.Parts {
+		call := part.FunctionCall
+		result := resume.Parts[index].FunctionResponse
+		if call == nil || call.ID == "" ||
+			result == nil || result.Name != call.Name {
+			return fmt.Errorf("invalid Gemini continuation result binding")
+		}
+		if call.Name == "sworn_submit" &&
+			result.Response.Result != "accepted" {
+			return fmt.Errorf("invalid Gemini accepted submission result")
+		}
 	}
 	return nil
 }
@@ -498,7 +584,10 @@ func (provider *journeyProvider) submissionArguments(
 		Responsibility: prompt.Responsibility,
 		Summary: "Deterministic production journey " + string(prompt.Responsibility) +
 			", padded so every scripted responsibility this deterministic production journey drives clears the submission content floor for its coverage across the registry.",
-		Detail: "Sealed through the common configured production driver registry, padded so every scripted responsibility this deterministic production journey drives clears the submission detail content floor for its coverage.\n",
+		// No trailing newline: the delegated captain decision command
+		// re-carries this detail and validCaptainDecisionText refuses
+		// leading or trailing whitespace.
+		Detail: "Sealed through the common configured production driver registry, padded so every scripted responsibility this deterministic production journey drives clears the submission detail content floor for its coverage.",
 	}
 	var err error
 	switch prompt.Responsibility {
@@ -565,6 +654,11 @@ func (provider *journeyProvider) submissionArguments(
 	}
 	return map[string]any{"submission": value}, nil
 }
+
+// journeyNamedCheckPattern extracts the declared check a
+// check_evidence_incomplete refusal names in its paths, in the "check <id>"
+// shape every scenario in this harness declares.
+var journeyNamedCheckPattern = regexp.MustCompile(`check [A-Za-z0-9_.-]+`)
 
 func journeyCallID(invocationID string, turn int) string {
 	sum := sha256.Sum256([]byte(invocationID))
@@ -1231,11 +1325,15 @@ func runConfiguredProductionJourney(t *testing.T, repair bool) {
 	// The Planner spends two extra provider turns before its submission: one
 	// to read the repository, one to present its summary as a human-only
 	// turn.
+	// S5-A3 evidence turns add one provider request per verification
+	// (see the usage pin below); dispatch cardinality is unchanged.
 	wantInvocations := 18
-	wantHTTPCalls := 24
+	wantHTTPCalls := 28
 	if repair {
 		wantInvocations = 20
-		wantHTTPCalls = 27
+		// Repair evidence cycles vary with restart timing; the exact
+		// request count is asserted by the usage-economics check below.
+		wantHTTPCalls = -1
 	}
 	if len(driverEffects) != wantInvocations ||
 		len(contexts) != wantInvocations {
@@ -1273,36 +1371,53 @@ func runConfiguredProductionJourney(t *testing.T, repair bool) {
 			reasoningTokens += *usage.ReasoningTokens
 		}
 	}
-	wantInputTokens, wantOutputTokens := int64(168), int64(120)
-	wantReasoningTokens := int64(51)
-	wantReasoningReported := 13
+	// S5-A3 gave every scripted WorkVerification a preceding declared-check
+	// Bash turn, so each verification adds one provider request (7 input, 5
+	// output, 3 reasoning on the Gemini verifier lane); the dispatch count -
+	// and so the reasoning-reported count - is unchanged.
 	if repair {
-		wantInputTokens, wantOutputTokens = 189, 135
-		wantReasoningTokens = 60
-		wantReasoningReported = 15
-	}
-	if inputTokens != wantInputTokens ||
-		outputTokens != wantOutputTokens ||
-		reasoningTokens != wantReasoningTokens ||
-		reasoningReported != wantReasoningReported {
+		// The repair journey's S5-A3 evidence cycles vary with restart
+		// timing - a rehydrated verifier re-runs its checks on the named
+		// refusal - so the exact request count is not stable run to run.
+		// The scripted provider's fixed economics (7 input, 5 output per
+		// request; 3 reasoning per Gemini request) still pin the shape,
+		// and the floor is the pre-evidence total plus the four
+		// unconditional evidence turns.
+		if inputTokens < 217 || inputTokens%7 != 0 ||
+			outputTokens*7 != inputTokens*5 ||
+			reasoningTokens%3 != 0 ||
+			reasoningReported != 15 {
+			t.Fatalf(
+				"production repair usage input=%d output=%d reasoning=%d/%d",
+				inputTokens,
+				outputTokens,
+				reasoningTokens,
+				reasoningReported,
+			)
+		}
+	} else if inputTokens != 196 ||
+		outputTokens != 140 ||
+		reasoningTokens != 63 ||
+		reasoningReported != 13 {
 		t.Fatalf(
-			"production usage input=%d output=%d reasoning=%d/%d, want %d/%d reasoning=%d/%d",
+			"production usage input=%d output=%d reasoning=%d/%d, want 196/140 reasoning=63/13",
 			inputTokens,
 			outputTokens,
 			reasoningTokens,
 			reasoningReported,
-			wantInputTokens,
-			wantOutputTokens,
-			wantReasoningTokens,
-			wantReasoningReported,
 		)
 	}
 
 	provider.mu.Lock()
 	defer provider.mu.Unlock()
+	// A refusal-driven evidence re-run submits again after the named
+	// refusal, so the repair journey's submission count can exceed its
+	// invocation count; every journey still submits at least once per
+	// invocation.
 	if len(provider.turns) != wantInvocations ||
-		provider.submissions != wantInvocations ||
-		provider.httpCalls != wantHTTPCalls {
+		provider.submissions < wantInvocations ||
+		(wantHTTPCalls >= 0 && provider.submissions != wantInvocations) ||
+		(wantHTTPCalls >= 0 && provider.httpCalls != wantHTTPCalls) {
 		t.Fatalf(
 			"provider turns=%d submissions=%d calls=%d",
 			len(provider.turns),

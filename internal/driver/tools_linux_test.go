@@ -5,8 +5,10 @@ package driver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -1138,7 +1140,33 @@ func withReducedNoFileLimit(t *testing.T, extra uint64) {
 	if err != nil {
 		t.Fatalf("open anchor descriptor: %v", err)
 	}
-	defer anchor.Close()
+	// The anchor stays open for the whole test: closing it on helper
+	// return frees its own slot, silently widening the budget to extra+1
+	// whenever no runtime allocation happens to reclaim it first - the
+	// exhaustion then lands one raise site later than the one provoked.
+	t.Cleanup(func() { _ = anchor.Close() })
+	// The kernel hands out the lowest free descriptor, so any hole below
+	// the anchor (hosts whose shells inherit a sparse table) silently
+	// widens the budget and moves the provoked exhaustion to a later
+	// raise site than the one under test. Plug every hole for the test's
+	// duration so the anchor-number calibration holds on any host.
+	var pluggers []*os.File
+	for {
+		plug, plugErr := os.Open(os.DevNull)
+		if plugErr != nil {
+			t.Fatalf("plug descriptor-table hole: %v", plugErr)
+		}
+		if plug.Fd() > anchor.Fd() {
+			_ = plug.Close()
+			break
+		}
+		pluggers = append(pluggers, plug)
+	}
+	t.Cleanup(func() {
+		for _, plug := range pluggers {
+			_ = plug.Close()
+		}
+	})
 	var original syscall.Rlimit
 	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &original); err != nil {
 		t.Fatalf("getrlimit RLIMIT_NOFILE: %v", err)
@@ -1161,12 +1189,21 @@ func withReducedNoFileLimit(t *testing.T, extra uint64) {
 // tight fd budget and fail at the wrong site.
 func warmUpBashSandbox(t *testing.T, session *toolSession) {
 	t.Helper()
-	result := executeToolJSON(t, session, "warmup", "Bash", map[string]any{
-		"script": "true",
-	})
-	if result.Failed {
-		t.Fatalf("warm-up Bash call failed: %#v", result)
+	// A loaded runner can fail the warm-up itself with the spontaneous
+	// sandbox-start class (sworn#251) before any provocation begins; the
+	// warm-up is plumbing, not the assertion, so it retries briefly.
+	var result providerToolResult
+	for attempt := 0; attempt < 5; attempt++ {
+		result = executeToolJSON(
+			t, session, fmt.Sprintf("warmup-%d", attempt), "Bash",
+			map[string]any{"script": "true"},
+		)
+		if !result.Failed {
+			return
+		}
+		time.Sleep(time.Duration(attempt+1) * 100 * time.Millisecond)
 	}
+	t.Fatalf("warm-up Bash call failed: %#v", result)
 }
 
 func sandboxStartDetailFromResult(t *testing.T, result providerToolResult) sandboxStartDetail {
@@ -1290,17 +1327,88 @@ func TestToolBashNamesProcessGroupHandshakeReadSite(t *testing.T) {
 	}
 	defer session.Close()
 	warmUpBashSandbox(t, session)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
-	defer cancel()
 	body, err := json.Marshal(map[string]any{"script": "sleep 1"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := session.execute(ctx, providerToolCall{
-		ID: "bash-handshake", Name: "Bash", Arguments: body,
-	})
-	envelope := sandboxStartDetailFromResult(t, result)
-	if envelope.Check != "sandbox_start.process_group_handshake_read" {
-		t.Fatalf("check = %q, content = %q", envelope.Check, result.Content)
+	// The provocation must land a kill after command.Start succeeds and
+	// before bwrap writes its info-fd JSON. That window is milliseconds of
+	// namespace setup on a slow host and sub-millisecond on a warm one, so
+	// no fixed context deadline hits it portably. Instead a watcher SIGKILLs
+	// the bwrap child the instant it appears in the process table: the dying
+	// process closes the info fd before reporting, and the handshake read
+	// fails by the distinct mechanism under test. If the kill occasionally
+	// lands after the report instead, that attempt takes a different path
+	// and the next attempt retries; a regression that stops naming the site
+	// fails every attempt and still reds.
+	var last providerToolResult
+	for attempt := 0; attempt < 10; attempt++ {
+		taskDirs, _ := os.ReadDir("/proc/self/task")
+		childrenPaths := make([]string, 0, len(taskDirs))
+		for _, task := range taskDirs {
+			childrenPaths = append(
+				childrenPaths,
+				"/proc/self/task/"+task.Name()+"/children",
+			)
+		}
+		baseline := map[string]bool{}
+		for _, path := range childrenPaths {
+			listing, _ := os.ReadFile(path)
+			for _, pid := range strings.Fields(string(listing)) {
+				baseline[pid] = true
+			}
+		}
+		stop := make(chan struct{})
+		go func() {
+			// Tight sweep over the per-thread children lists: a handful of
+			// small reads per iteration, so the SIGKILL lands microseconds
+			// after fork instead of after a full /proc walk.
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				for _, path := range childrenPaths {
+					listing, readErr := os.ReadFile(path)
+					if readErr != nil {
+						continue
+					}
+					for _, pid := range strings.Fields(string(listing)) {
+						if baseline[pid] {
+							continue
+						}
+						target, convErr := strconv.Atoi(pid)
+						if convErr == nil {
+							_ = syscall.Kill(target, syscall.SIGKILL)
+						}
+						return
+					}
+				}
+			}
+		}()
+		result := session.execute(context.Background(), providerToolCall{
+			ID:        fmt.Sprintf("bash-handshake-%d", attempt),
+			Name:      "Bash",
+			Arguments: body,
+		})
+		close(stop)
+		last = result
+		if !result.Failed {
+			continue
+		}
+		if !strings.HasPrefix(
+			string(result.Content), "error:PROCESS_START_FAILED detail=",
+		) {
+			continue
+		}
+		envelope := sandboxStartDetailFromResult(t, result)
+		if envelope.Check == "sandbox_start.process_group_handshake_read" {
+			return
+		}
 	}
+	t.Fatalf(
+		"no attempt named the handshake-read site; last content = %q",
+		string(last.Content),
+	)
 }

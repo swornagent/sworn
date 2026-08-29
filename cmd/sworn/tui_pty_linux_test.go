@@ -396,6 +396,14 @@ func (p *tuiAnswerProvider) serve(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		case driver.WorkVerification:
+			// S5-A3: a WorkVerification pass claim needs engine-recorded
+			// evidence covering the fixture plan's declared check ("true"),
+			// so the scripted verifier runs it and submits next turn.
+			if turn == 1 {
+				toolName = "Bash"
+				arguments = map[string]any{"script": "true"}
+				break
+			}
 			toolName = "sworn_submit"
 			rawChecks := []byte("work verification checks\n")
 			sum := sha256.Sum256(rawChecks)
