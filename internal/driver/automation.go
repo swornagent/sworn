@@ -182,24 +182,55 @@ func ValidateRecoveryInvocation(value RecoveryInvocation) error {
 }
 
 func ValidateRecoveryDecision(value RecoveryDecision) error {
-	if value.SchemaVersion != RecoveryDecisionSchemaVersion ||
-		validateIdentity(value.InvocationID) != nil {
-		return fail("INVALID_RECOVERY_DECISION")
+	if value.SchemaVersion != RecoveryDecisionSchemaVersion {
+		return failRecoveryDecision("recovery_decision.schema_version")
+	}
+	if validateIdentity(value.InvocationID) != nil {
+		return failRecoveryDecision("recovery_decision.invocation_id")
 	}
 	switch value.Action {
 	case RecoveryResumeWorker:
 		if value.Answer == nil ||
 			validateAutomationMessage(*value.Answer, false) != nil {
-			return fail("INVALID_RECOVERY_DECISION")
+			return failRecoveryDecision("recovery_decision.resume_worker_answer_required")
 		}
 	case RecoveryAskCaptain, RecoveryRetryOperationally, RecoveryPauseForHuman:
 		if value.Answer != nil {
-			return fail("INVALID_RECOVERY_DECISION")
+			return failRecoveryDecision("recovery_decision.action_forbids_answer")
 		}
 	default:
-		return fail("INVALID_RECOVERY_DECISION")
+		return failRecoveryDecision("recovery_decision.action_unknown")
 	}
 	return nil
+}
+
+// validRecoveryDecisionCheck is the closed vocabulary of
+// ValidateRecoveryDecision's named refusal reasons, in the S1/S2 family
+// idiom (validSandboxStartCheck, submissionRefusalDetail): a dotted
+// <family>.<check> name, never derived from submitted bytes. This Detail
+// never crosses normalizeAdapterError's funnel, so unlike those families it
+// carries no structured envelope and needs no funnel-side re-validation.
+// resume_worker_answer_required names one refusal reason for two distinct
+// causes - value.Answer == nil (no answer given) and a non-nil Answer
+// failing validateAutomationMessage (a malformed answer) - deliberately,
+// per the Captain's ruling that a single name for both is acceptable as
+// long as it is documented rather than implied to distinguish them.
+func validRecoveryDecisionCheck(check string) bool {
+	switch check {
+	case
+		"recovery_decision.schema_version",
+		"recovery_decision.invocation_id",
+		"recovery_decision.resume_worker_answer_required",
+		"recovery_decision.action_forbids_answer",
+		"recovery_decision.action_unknown":
+		return true
+	default:
+		return false
+	}
+}
+
+func failRecoveryDecision(check string) error {
+	return &ContractError{Code: "INVALID_RECOVERY_DECISION", Detail: check}
 }
 
 // RecoveryAnswerForInvocation validates a direct recovery answer against the
@@ -249,24 +280,48 @@ func ValidateAdvisoryInvocation(value AdvisoryInvocation) error {
 }
 
 func ValidateAdvisoryResult(value AdvisoryResult) error {
-	if value.SchemaVersion != AdvisoryResultSchemaVersion ||
-		validateIdentity(value.InvocationID) != nil {
-		return fail("INVALID_ADVISORY_RESULT")
+	if value.SchemaVersion != AdvisoryResultSchemaVersion {
+		return failAdvisoryResult("advisory_result.schema_version")
+	}
+	if validateIdentity(value.InvocationID) != nil {
+		return failAdvisoryResult("advisory_result.invocation_id")
 	}
 	switch value.Outcome {
 	case AdvisoryAnswer:
 		if value.Answer == nil ||
 			validateAutomationMessage(*value.Answer, false) != nil {
-			return fail("INVALID_ADVISORY_RESULT")
+			return failAdvisoryResult("advisory_result.outcome_answer_required")
 		}
 	case AdvisoryCannotAnswer:
 		if value.Answer != nil {
-			return fail("INVALID_ADVISORY_RESULT")
+			return failAdvisoryResult("advisory_result.outcome_forbids_answer")
 		}
 	default:
-		return fail("INVALID_ADVISORY_RESULT")
+		return failAdvisoryResult("advisory_result.outcome_unknown")
 	}
 	return nil
+}
+
+// validAdvisoryResultCheck is ValidateAdvisoryResult's counterpart to
+// validRecoveryDecisionCheck, same idiom and same caveat:
+// outcome_answer_required names one refusal reason for both a missing and a
+// malformed answer.
+func validAdvisoryResultCheck(check string) bool {
+	switch check {
+	case
+		"advisory_result.schema_version",
+		"advisory_result.invocation_id",
+		"advisory_result.outcome_answer_required",
+		"advisory_result.outcome_forbids_answer",
+		"advisory_result.outcome_unknown":
+		return true
+	default:
+		return false
+	}
+}
+
+func failAdvisoryResult(check string) error {
+	return &ContractError{Code: "INVALID_ADVISORY_RESULT", Detail: check}
 }
 
 func EncodeRecoveryInvocation(value RecoveryInvocation) ([]byte, error) {
@@ -393,7 +448,7 @@ func validateAutomationInvocation(value AutomationInvocation) error {
 	}
 	if selection.Profile != value.Selected.Profile.Key ||
 		selection.Model != value.Selected.Model {
-		return fail("AUTOMATION_BINDING_MISMATCH")
+		return fail("AUTOMATION_SELECTION_MISMATCH")
 	}
 	return nil
 }
@@ -420,9 +475,11 @@ func ValidateAutomationObservation(
 	}
 	if invocation.Recovery != nil {
 		if observation.Advisory != nil ||
-			ValidateRecoveryDecision(*observation.Recovery) != nil ||
-			observation.Recovery.InvocationID != invocation.Recovery.InvocationID {
+			ValidateRecoveryDecision(*observation.Recovery) != nil {
 			return fail("INVALID_AUTOMATION_OBSERVATION")
+		}
+		if observation.Recovery.InvocationID != invocation.Recovery.InvocationID {
+			return fail("AUTOMATION_INVOCATION_ID_MISMATCH")
 		}
 		if observation.Recovery.Action == RecoveryResumeWorker {
 			if _, err := RecoveryAnswerForInvocation(
@@ -435,9 +492,11 @@ func ValidateAutomationObservation(
 		return nil
 	}
 	if observation.Recovery != nil ||
-		ValidateAdvisoryResult(*observation.Advisory) != nil ||
-		observation.Advisory.InvocationID != invocation.Advisory.InvocationID {
+		ValidateAdvisoryResult(*observation.Advisory) != nil {
 		return fail("INVALID_AUTOMATION_OBSERVATION")
+	}
+	if observation.Advisory.InvocationID != invocation.Advisory.InvocationID {
+		return fail("AUTOMATION_INVOCATION_ID_MISMATCH")
 	}
 	return nil
 }
@@ -717,7 +776,7 @@ func (adapter *loopAdapter) invokeAutomation(
 		}
 		if err := conversation.appendResults([]providerToolResult{{
 			ID: call.ID, Name: call.Name,
-			Content: []byte("error:" + contractCode(terminalErr)),
+			Content: toolErrorContent(terminalErr),
 			Failed:  true,
 		}}); err != nil {
 			return AutomationObservation{}, err
@@ -775,9 +834,14 @@ func decodeAutomationTerminal(
 		var decision RecoveryDecision
 		err = json.Unmarshal(body, &decision)
 		clearBytes(body)
-		if err != nil || ValidateRecoveryDecision(decision) != nil ||
-			decision.InvocationID != invocation.Recovery.InvocationID {
-			return AutomationObservation{}, fail("AUTOMATION_BINDING_MISMATCH")
+		if err != nil {
+			return AutomationObservation{}, fail("INVALID_FIELD")
+		}
+		if err := ValidateRecoveryDecision(decision); err != nil {
+			return AutomationObservation{}, err
+		}
+		if decision.InvocationID != invocation.Recovery.InvocationID {
+			return AutomationObservation{}, fail("AUTOMATION_INVOCATION_ID_MISMATCH")
 		}
 		observation.Recovery = &decision
 		return observation, nil
@@ -801,9 +865,14 @@ func decodeAutomationTerminal(
 	var result AdvisoryResult
 	err = json.Unmarshal(body, &result)
 	clearBytes(body)
-	if err != nil || ValidateAdvisoryResult(result) != nil ||
-		result.InvocationID != invocation.Advisory.InvocationID {
-		return AutomationObservation{}, fail("AUTOMATION_BINDING_MISMATCH")
+	if err != nil {
+		return AutomationObservation{}, fail("INVALID_FIELD")
+	}
+	if err := ValidateAdvisoryResult(result); err != nil {
+		return AutomationObservation{}, err
+	}
+	if result.InvocationID != invocation.Advisory.InvocationID {
+		return AutomationObservation{}, fail("AUTOMATION_INVOCATION_ID_MISMATCH")
 	}
 	observation.Advisory = &result
 	return observation, nil

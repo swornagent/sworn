@@ -98,9 +98,14 @@ type ContractError struct {
 	// PROVIDER_AUTHORIZATION_FAILED, PROVIDER_REQUEST_REJECTED,
 	// PROVIDER_UNAVAILABLE, PROVIDER_ERROR, PROVIDER_TRANSPORT_FAILED) as
 	// bounded provider/native-stderr text, and beside NATIVE_SURFACE_INVALID
-	// and PROCESS_START_FAILED as their own structured envelopes - in every
+	// and PROCESS_START_FAILED as their own structured envelopes, in every
 	// case only after normalizeAdapterError re-validates it at the
-	// dispatcher boundary.
+	// dispatcher boundary. A Detail that never reaches normalizeAdapterError
+	// - CONTINUATION_INVALID, the submission-refusal family, and
+	// INVALID_RECOVERY_DECISION/INVALID_ADVISORY_RESULT's automation Detail
+	// among them - is same-process loop-correction or refusal text instead:
+	// constructed and consumed within this package, so it needs no funnel
+	// re-validation.
 	Detail string
 	// RetryAfter is the provider-advised pacing for a retryable rejection
 	// (429 RetryInfo body or Retry-After header). Zero when no usable delay
