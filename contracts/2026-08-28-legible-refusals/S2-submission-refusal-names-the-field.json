@@ -2,7 +2,10 @@
  "outcome": "A rejected submission tells the worker what refused it, so there is nothing left to bisect: the submit path names the failing field or bound back to the model in its correction, the correction loop stops treating the first schema-valid payload as the authoritative answer, and a payload whose own summary declares itself a probe can never seal as a design, an implementation, or a captain decision - closing sworn#245, whose six placeholder seals across four native-lane-honesty runs included a captain PROCEED whose entire content was the string \"probe: minimal submission to isolate field validation\".",
  "scope": {
   "include": [
-   "internal/driver"
+   "internal/driver",
+   "cmd/sworn/tui_pty_linux_test.go",
+   "test/e2e/production_journey_linux_test.go",
+   "test/e2e/turn_recovery_linux_test.go"
   ],
   "exclude": [
    "the provider-side tool schema and the sworn_submit input schema string (unchanged; this slice changes what a rejection says, not what a submission may contain)",
@@ -13,7 +16,7 @@
   "waivers": [
    {
     "package": "cmd/sworn",
-    "reason": "its tests reach internal/driver by import only; no cmd test pins submission validation or correction accounting"
+    "reason": "its tests reach internal/driver by import only; the widened scope raises the below-floor submission fixtures in cmd/sworn/tui_pty_linux_test.go in place, and no other cmd test pins submission validation or correction accounting"
    },
    {
     "package": "internal/cockpit",
@@ -44,7 +47,7 @@
   },
   {
    "id": "A3",
-   "text": "A content floor stays as defence in depth, and says so. The operator patch carried during native-lane-honesty (a floor rejecting a summary under 120 bytes or a detail under 200 bytes for planner_proposal, implementer_design, implementer_implementation, captain_review and work_verification, via the bounded-correction path, with assembly_verification exempt) lands as product with its refusal named per A1. It is explicitly the second line, not the first: the release's own evidence is that a floor alone is insufficient, because the next probe padded past it while self-declaring as \"isolation test summary padded to reasonable length to avoid floor issues\". Pinned by tests over the floor boundaries and by a test asserting a padded self-declared probe is still refused by A2."
+   "text": "A content floor stays as defence in depth, and says so. The operator patch carried during native-lane-honesty (a floor rejecting a summary under 120 bytes or a detail under 200 bytes for planner_proposal, implementer_design, implementer_implementation, captain_review and work_verification, via the bounded-correction path, with assembly_verification exempt) lands as product with its refusal named per A1. It is explicitly the second line, not the first: the release's own evidence is that a floor alone is insufficient, because the next probe padded past it while self-declaring as \"isolation test summary padded to reasonable length to avoid floor issues\". Because the floor lands on the real submit path, every existing fixture below it that the path refuses is raised in place rather than waived, reshaped or rerouted - in internal/driver's own tests and in the three widened files (cmd/sworn/tui_pty_linux_test.go, test/e2e/production_journey_linux_test.go, test/e2e/turn_recovery_linux_test.go) - and a raised fixture stays the same fixture: the same test, the same responsibility, the same shape, with only its summary and detail lifted above the floor. Pinned by tests over the floor boundaries, by a test asserting a padded self-declared probe is still refused by A2, and by the slice's checks passing over the widened scope."
   },
   {
    "id": "A4",
@@ -61,7 +64,8 @@
   "A named refusal must not become a wider admission. Every check that refuses today still refuses after this slice; the only change is that the refusal says why. A reader must be able to confirm from the diff that no validation was relaxed to make a message easier to produce.",
   "The name reaches the model, not only the journal. A refusal whose detail is durable but invisible to the worker leaves the bisecting incentive exactly where it was, which is the defect.",
   "No submitted byte is trusted on the way back out: a refusal message may quote a field name or a bound, never the offending payload content, so a malformed or hostile submission cannot use the correction channel as an echo surface.",
-  "The probe guard reads the worker's own declaration, never a heuristic about quality. Refusing short or unhelpful work is A3's bounded floor; A2 refuses only a payload that says of itself that it is a probe or a test of the submit surface, so honest short work is never silently discarded as suspected probing."
+  "The probe guard reads the worker's own declaration, never a heuristic about quality. Refusing short or unhelpful work is A3's bounded floor; A2 refuses only a payload that says of itself that it is a probe or a test of the submit surface, so honest short work is never silently discarded as suspected probing.",
+  "The widened scope widens no admission: no submission-refusal code is added to detailPreservingCode or plainDetailCode in internal/driver/pacing.go, because plainDetailCode is detailPreservingCode minus NATIVE_SURFACE_INVALID and any code added there would let adapter-supplied text ride it past the dispatcher funnel through normalizeAdapterError's plain-detail branch - codes that today always drop it."
  ],
  "depends_on": [],
  "consumes": []

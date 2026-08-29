@@ -1,10 +1,10 @@
 ```sworn-release-manifest-v1
 {
-  "approval_ref": "operator://2026-08-28-legible-refusals/1",
-  "previous_plan": null,
+  "approval_ref": "operator://2026-08-28-legible-refusals/2",
+  "previous_plan": "6f7585403208243e1f549efcff03fb4659cc2f31",
   "release": "2026-08-28-legible-refusals",
   "repository": "sworn",
-  "revision": 1,
+  "revision": 2,
   "schema_version": "sworn.release-manifest/v1",
   "target_ref": "refs/heads/release/v1.0.0",
   "tracks": [
@@ -49,16 +49,19 @@
           "consumes": [],
           "contract_path": "contracts/2026-08-28-legible-refusals/S2-submission-refusal-names-the-field.json",
           "depends_on": [],
-          "digest": "sha256:7522004dc91e7fdf7687ff7f979e54727e4e4164a071f8140c69b738c342f9c6",
+          "digest": "sha256:8399ed8abf8d9f5139fc5dad7bfe5d24742c6132d5952bc79867ede222458c72",
           "id": "S2-submission-refusal-names-the-field",
           "outcome": "A rejected submission tells the worker what refused it, so there is nothing left to bisect: the submit path names the failing field or bound back to the model in its correction, the correction loop stops treating the first schema-valid payload as the authoritative answer, and a payload whose own summary declares itself a probe can never seal as a design, an implementation, or a captain decision - closing sworn#245, whose six placeholder seals across four native-lane-honesty runs included a captain PROCEED whose entire content was the string \"probe: minimal submission to isolate field validation\".",
           "touchpoints": [
-            "internal/driver"
+            "internal/driver",
+            "cmd/sworn/tui_pty_linux_test.go",
+            "test/e2e/production_journey_linux_test.go",
+            "test/e2e/turn_recovery_linux_test.go"
           ],
           "waivers": [
             {
               "package": "cmd/sworn",
-              "reason": "its tests reach internal/driver by import only; no cmd test pins submission validation or correction accounting"
+              "reason": "its tests reach internal/driver by import only; the widened scope raises the below-floor submission fixtures in cmd/sworn/tui_pty_linux_test.go in place, and no other cmd test pins submission validation or correction accounting"
             },
             {
               "package": "internal/cockpit",
