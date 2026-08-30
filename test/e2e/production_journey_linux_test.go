@@ -56,6 +56,7 @@ type journeyProvider struct {
 	httpCalls        int
 	submissions      int
 	captainPlanCalls int
+	evidenceReruns   map[string]int
 }
 
 type journeyPrompt struct {
@@ -232,8 +233,26 @@ func (provider *journeyProvider) serve(
 		fresh := len(toolResults) == 0 &&
 			!bytes.Contains(body, []byte(`"functionResponse"`))
 		if refusal >= 0 && refusal > rerun {
+			// Bounded: on a loaded runner the sandbox start itself fails
+			// intermittently (the sworn#251 class), and an unbounded
+			// refusal-driven retry then spins the dispatch into its
+			// 200-turn economy budget. Three attempts make an
+			// intermittent start failure vanishingly unlikely to exhaust;
+			// a persistent one fails loud with the cause named.
+			provider.mu.Lock()
+			if provider.evidenceReruns == nil {
+				provider.evidenceReruns = map[string]int{}
+			}
+			provider.evidenceReruns[prompt.InvocationID]++
+			reruns := provider.evidenceReruns[prompt.InvocationID]
+			provider.mu.Unlock()
 			named := journeyNamedCheckPattern.Find(body[refusal:])
-			if named == nil {
+			if reruns > 3 {
+				err = fmt.Errorf(
+					"evidence rerun cap for %s: check %q still uncovered after %d re-runs (sandbox starts likely failing)",
+					prompt.InvocationID, string(named), reruns-1,
+				)
+			} else if named == nil {
 				err = fmt.Errorf("refusal named no re-runnable check")
 			} else {
 				toolName = "Bash"
