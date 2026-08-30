@@ -266,21 +266,24 @@ func (provider *recoveryE2EProvider) workerResponse(
 		// honest to the covers rule's documented trailing-token tolerance)
 		// and submits on the following turn.
 		if prompt.Responsibility == driver.WorkVerification {
-			switch {
-			case turn == 1 && prompt.Recovery == nil:
+			if prompt.Recovery != nil {
+				return "", nil, fmt.Errorf(
+					"unexpected %s turn=%d recovery=true",
+					prompt.Responsibility,
+					turn,
+				)
+			}
+			// Turn 1 records the declared check's evidence; every later
+			// turn submits. The verifier flow legitimately resumes the
+			// session after an accepted submit (a third turn), so no
+			// upper bound on the turn counter is honest here.
+			if turn == 1 {
 				return "Bash", map[string]any{
 					"script": "check one.txt || true",
 				}, nil
-			case turn == 2 && prompt.Recovery == nil:
-				arguments, err := provider.submissionArguments(prompt)
-				return "sworn_submit", arguments, err
 			}
-			return "", nil, fmt.Errorf(
-				"unexpected %s turn=%d recovery=%t",
-				prompt.Responsibility,
-				turn,
-				prompt.Recovery != nil,
-			)
+			arguments, err := provider.submissionArguments(prompt)
+			return "sworn_submit", arguments, err
 		}
 		if turn != 1 || prompt.Recovery != nil {
 			return "", nil, fmt.Errorf(
