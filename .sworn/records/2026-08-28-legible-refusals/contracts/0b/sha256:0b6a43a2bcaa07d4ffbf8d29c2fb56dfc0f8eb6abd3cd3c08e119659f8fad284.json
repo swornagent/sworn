@@ -1,0 +1,70 @@
+{
+ "outcome": "Correct work stops being stranded by a receipt: a verifier can say that the implementation stands and only its evidence failed, a remediation answering that can re-seal the unchanged candidate with a truthful receipt instead of staging nothing and dying EMPTY_CANDIDATE, and an exhaustion park caused by empty candidates names its cause on the durable record - closing sworn#246, which in native-lane-honesty burned two full try budgets across two journals and cost an operator track reset that discarded 734 lines of verifier-confirmed-correct code.",
+ "scope": {
+  "include": [
+   "internal/driver",
+   "internal/baton",
+   "internal/runtime"
+  ],
+  "exclude": [
+   "the seal's emptiness rule itself (internal/gitx/workspaces.go:1196 stays: a seal that changes nothing is still refused, and this slice never makes an empty diff into a silent success)",
+   "the record-root guard (workspaces.go:1173-1195 refuses staged paths under the record root with AUTHORITY_PATH_CHANGED; a worker hand-editing its own receipt into the workspace remains refused, and is not the mechanism here)",
+   "the verifier's judgement of what constitutes adequate evidence (unchanged; this slice gives that judgement somewhere honest to land, it does not redefine it)",
+   "internal/gitx (the refresh-seal path at workspaces.go:1255-1264 already compares against an explicit prior candidate and is reused as-is, not modified)"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach internal/driver, internal/baton and internal/runtime by import only; no cmd test pins the verifier-fail remediation transition"
+   },
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach internal/runtime and internal/driver by import only; no cockpit test pins remediation sealing"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach internal/runtime via internal/cockpit by import only; no observe test pins remediation sealing"
+   },
+   {
+    "package": "internal/skill",
+    "reason": "its tests reach internal/baton by import only; no skill test pins verification evidence or the remediation transition"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach internal/runtime via internal/cockpit by import only; no tui test pins remediation sealing"
+   },
+   {
+    "package": "tools/batongolden",
+    "reason": "its tests reach internal/baton by import only; it regenerates baton golden fixtures and pins no behaviour this slice changes"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "A verifier can name what failed. Today a decision carries an outcome and nothing else - internal/driver/submission.go:73-75 is Decision{Outcome} over the vocabulary proceed|revise|escalate|pass|fail|blocked at :62-71, and internal/baton/receipts.go:29-48 has no scope or reason field either, so free-text Summary and Detail are the only carriers and no production reader consults them: internal/runtime/scheduler.go:2301 and dispatch.go:2554-2556 both branch on == DecisionFail alone, and internal/baton/state.go:2958 switches on role/result only. After this slice a fail can state that the candidate's code satisfies acceptance and only its evidence did not, additively, so an existing consumer that reads the outcome is unaffected. The native-lane-honesty verifier already made exactly this distinction in prose - it confirmed the code satisfied S5's criteria on independent inspection and re-run checks, then failed the receipt - and had nowhere structured to put it. Pinned by tests over the additive shape and its round trip through the receipt."
+  },
+  {
+   "id": "A2",
+   "text": "A receipt-scoped remediation can re-seal unchanged work. When the prior verification failed as evidence-only, the remediation dispatch may seal a candidate identical to the one it started from, carrying a new, truthful receipt, and the run proceeds to re-verification. The deadlock this removes is mechanical: verifier/fail sets stage implement, next implementer, outcome fail (internal/baton/state.go:2958-2962); the track head still carries the failed candidate and candidateHeadRefresh requires an outcome of stale (internal/runtime/track_base.go:85-105), so the refresh path is never taken; the workspace is materialized at the current track head (internal/gitx/workspaces.go:932-941) where the code is already correct; the implementer therefore stages nothing and the plain seal refuses EMPTY_CANDIDATE (workspaces.go:1196-1197); three tries later scheduler.go:2394-2601 returns EFFECT_PARKED. Nothing about that sequence is wrong except that the loop has no way to express the only fix the situation needs. Pinned by an end-to-end test over the full receipt-scoped fail then re-seal then pass cycle."
+  },
+  {
+   "id": "A3",
+   "text": "An empty-candidate exhaustion park says so. A park reached by repeated EMPTY_CANDIDATE today carries no code and no detail: the identical-failure guard never sees it, because identicalFailureParkCrossings skips any effect whose kind is not driver.dispatch (internal/runtime/economy_guards.go:305-317) and the failures are on the git.seal effect, so only the /t3 exhaustion scan catches it (internal/runtime/status.go:167-176); and the park diagnostic is enriched only for CANDIDATE_SCOPE_FAILED (status.go:180-187), leaving exhaustionCode and exhaustionDetail empty for every other cause. After this slice the operator reading the board learns that the work parked because its candidates were empty, which is the difference between the diagnosis that took two runs in native-lane-honesty and one that takes a glance. Pinned by a test asserting an empty-candidate exhaustion park carries its cause and code."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./internal/runtime ./internal/driver ./internal/baton",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools"
+ ],
+ "constraints": [
+  "A re-seal is earned by the prior verification, never claimed by the worker. The permission to seal an unchanged candidate comes from the recorded receipt-scoped failure that preceded it; an implementer cannot assert its own way into sealing no work, and a code-scoped failure still requires a code change.",
+  "Exactly-once and lineage are untouched: a re-sealed candidate is a new attempt with its own receipt and its own identity, never an in-place edit of a sealed one, and the durable record still shows every attempt that was made.",
+  "The emptiness refusal survives for every other case. A seal that changes nothing, outside an earned receipt-scoped remediation, is still EMPTY_CANDIDATE - this slice adds one narrow, recorded exception, and a reader must be able to confirm from the diff that the general rule is intact.",
+  "The additive decision field must not become a second outcome vocabulary. It qualifies a fail; it never introduces a new terminal state, and no existing consumer of the outcome changes behaviour as a result of this slice."
+ ],
+ "depends_on": [],
+ "consumes": []
+}

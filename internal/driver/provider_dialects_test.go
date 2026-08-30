@@ -1527,8 +1527,8 @@ func dialectSubmissionArguments(invocationID string) string {
 		SchemaVersion:  SubmissionSchemaVersion,
 		InvocationID:   invocationID,
 		Responsibility: ImplementerDesign,
-		Summary:        "Recorded provider-dialect certification probe.",
-		Detail:         "The fixture-serving round tripper replayed the recorded wire dialect.\n",
+		Summary:        "Recorded provider-dialect certification probe. Padded past the submission content floor so this fixture clears A3 without losing its own certification identity or wording.",
+		Detail:         "The fixture-serving round tripper replayed the recorded wire dialect. Padded past the submission detail content floor so this fixture clears A3 while still asserting the exact replayed dialect behaviour under test.\n",
 	}
 	body, err := EncodeSubmission(submission)
 	if err != nil {

@@ -1814,6 +1814,10 @@ func (s *Service) resumeAnsweredWorker(
 			SchemaVersion: driver.RecoverableTurnInputSchemaVersion,
 			Kind:          driver.RecoverableInputAnswer,
 			Answer:        attention.Answer,
+			Fact: &driver.AutomationFact{
+				Name:  driver.FactOperatorAnswer,
+				Value: attention.Answer,
+			},
 		},
 		true,
 	)

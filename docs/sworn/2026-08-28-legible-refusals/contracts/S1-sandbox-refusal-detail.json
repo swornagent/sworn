@@ -1,0 +1,64 @@
+{
+ "outcome": "A Bash-tool sandbox that refuses to start says which of its six distinct failures happened and what the kernel told it: every PROCESS_START_FAILED raise site carries a named check in the established surface-detail idiom and a bounded, secret-free rendering of the underlying error, so one failing run names the mechanism instead of costing a diagnosis round to guess it - closing the observability half of sworn#251, where four CI occurrences across four different tests could not be told apart because six mechanisms share one bare code.",
+ "scope": {
+  "include": [
+   "internal/driver"
+  ],
+  "exclude": [
+   "the root cause of the CI failures themselves (this slice makes the class diagnosable; the fix follows the evidence it produces, and a speculative retry or bound would mask the mechanism before it is named)",
+   "the bwrap argument construction, containment policy, and mask semantics (unchanged byte for byte; this slice adds detail to refusals, never widens what the sandbox admits)",
+   "the PROCESS_START_FAILED sites outside the Bash tool surface (internal/driver/invoke.go and aws_chain_linux.go raise the same code on unrelated paths and are not this slice's seam)",
+   "sworn#223, the CI provisioning step hanging before any test runs (adjacent and already tracked, a different mechanism at a different layer)"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach internal/driver by import only; no cmd test pins Bash-tool sandbox start failures"
+   },
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach internal/driver by import only; no cockpit test pins sandbox start failures"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach internal/driver via internal/cockpit by import only; no observe test pins sandbox start failures"
+   },
+   {
+    "package": "internal/runtime",
+    "reason": "its tests reach internal/driver by import only; no runtime test pins Bash-tool sandbox start failures"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach internal/driver via internal/cockpit by import only; no tui test pins sandbox start failures"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "Every Bash-tool sandbox start refusal names its site. The six raise sites that today emit a bare fail(\"PROCESS_START_FAILED\") each carry a distinct named check, in the same idiom the native surface already uses for dispatch.process_signaled: newToolSession's invocation-scratch creation (internal/driver/tools.go:131) and its home/tmp surface creation (:137), and runToolBash's mask open of os.DevNull (internal/driver/tools_linux.go:505), status pipe creation (:544), bwrap exec start (:559), and process-group handshake read (:570). The sixth is materially distinct from the fifth and must not be folded into it: at :570 the sandbox process has already started and then failed to report its group, which is a different mechanism from failing to exec at all. The code string PROCESS_START_FAILED is unchanged at every site, so no caller, classifier, or existing test that matches on it moves. Pinned by a test that exercises each site's guard and asserts its distinct name."
+  },
+  {
+   "id": "A2",
+   "text": "The kernel's own reason survives, bounded and secret-free. Each of the six sites today discards the error it received - os.MkdirTemp, os.Mkdir, os.Open, os.Pipe, exec.Cmd.Start, and the process-group read all return an error whose errno is the fact a diagnosis needs, and every one is dropped on the floor. After this slice the refusal carries a bounded rendering of that error alongside the named check, passing the same validation the driver already applies to adapter-supplied bytes before they reach a durable record: length-bounded, and carrying no path, credential, or environment value that the existing redaction set covers. R5-S6 is what makes this safe to add - sanitizeFailedObservation no longer flattens a non-admitted diagnostic to adapter_failed with zeroed facts - so the detail reaches the operator instead of being scrubbed at the boundary it was added for. Pinned by a test that induces a start failure and finds both the named check and the bounded cause on the durable record."
+  },
+  {
+   "id": "A3",
+   "text": "The evidence is reachable without a rebuild. A sandbox start refusal is legible from the surfaces an operator already reads - the tool result the worker receives and the durable observation - so the next occurrence of the sworn#251 class on a hosted runner is diagnosable from the CI log and the journal alone, with no operator instrumentation binary of the kind contract-identity needed for its stream-cap hunt. Pinned by a test asserting the named check and bounded cause are present on the tool result surface a worker sees, not only in an internal error value."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./internal/driver",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools"
+ ],
+ "constraints": [
+  "Diagnosis only, never mitigation: this slice must not add a retry, a backoff, a concurrency bound, or a timeout change to any sandbox start path. The class is intermittent and load-dependent, and a mitigation landed before the mechanism is named would hide it - the same trap that let the contract-identity stream cap survive two wrong theories.",
+  "The refusal code PROCESS_START_FAILED is a contract surface: it stays byte-identical at all six sites, and the added detail is additive. No existing classifier branch, retry policy, or test that keys off the code may change behaviour as a result of this slice.",
+  "Every added byte is validated before it can reach a durable record. An error string from the kernel is adapter-adjacent input, not trusted text: it is bounded and passed through the existing redaction before it is stored, and dropped entirely if validation fails, never stored raw on the reasoning that errno strings look harmless.",
+  "The sandbox's containment posture is untouched. No bwrap argument, mount, mask, capability, or environment variable changes; a reader must be able to confirm from the diff that this slice only adds names and bounded causes to refusals already being raised."
+ ],
+ "depends_on": [],
+ "consumes": []
+}

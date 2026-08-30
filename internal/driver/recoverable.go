@@ -46,6 +46,12 @@ type RecoverableTurnInput struct {
 	SchemaVersion string               `json:"schema_version"`
 	Kind          RecoverableInputKind `json:"kind"`
 	Answer        string               `json:"answer,omitempty"`
+	// Fact attests that Answer was admitted through the operator answer
+	// path for this attention, not what an automation-relayed resume
+	// produced. It is never routed through validateAutomationFacts: that
+	// validator bounds a RecoveryInvocation's own facts, a fact this input
+	// never carries.
+	Fact *AutomationFact `json:"fact,omitempty"`
 	// TargetBinding is runtime-only authority. It never reaches an adapter;
 	// an exact recovered terminal handoff may use it to retain the same
 	// private state for its admitted continuation flow.
@@ -66,6 +72,12 @@ func ValidateRecoverableTurnInput(value RecoverableTurnInput) error {
 			return fail("INVALID_RECOVERABLE_INPUT")
 		}
 	default:
+		return fail("INVALID_RECOVERABLE_INPUT")
+	}
+	if value.Fact != nil &&
+		(value.Kind != RecoverableInputAnswer ||
+			value.Fact.Name != FactOperatorAnswer ||
+			value.Fact.Value != value.Answer) {
 		return fail("INVALID_RECOVERABLE_INPUT")
 	}
 	return nil
@@ -465,6 +477,10 @@ func prepareRecoverableInvocation(
 	}
 	copy := *input
 	copy.TargetBinding = nil
+	if input.Fact != nil {
+		factCopy := *input.Fact
+		copy.Fact = &factCopy
+	}
 	invocation.recoverableInput = &copy
 	return nil
 }

@@ -200,8 +200,8 @@ func main() {
 		"schema_version": "sworn.submission/v1",
 		"invocation_id":  prompt.InvocationID,
 		"responsibility": prompt.Responsibility,
-		"summary":        "Deterministic native continuation fixture.",
-		"detail":         "Bounded fixture detail.\n",
+		"summary":        "Deterministic native continuation fixture submission padded so every probe-driven responsibility clears the submission content floor.",
+		"detail":         "Bounded fixture detail for the native continuation probe, padded past the two-hundred-byte submission detail content floor so probe-driven dispatches complete without reserving a bounded correction step that host-side fixtures with no recovery hook cannot grant.\n",
 	}
 	if prompt.Responsibility == "implementer_implementation" ||
 		prompt.Responsibility == "work_verification" {

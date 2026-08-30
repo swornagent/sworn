@@ -1078,6 +1078,7 @@ func modelPrompt(invocation Invocation) ([]byte, error) {
 		Recovery          *struct {
 			Kind    RecoverableInputKind `json:"kind"`
 			Content string               `json:"content"`
+			Fact    *AutomationFact      `json:"fact,omitempty"`
 		} `json:"recovery,omitempty"`
 	}
 	envelope := promptEnvelope{
@@ -1106,8 +1107,11 @@ func modelPrompt(invocation Invocation) ([]byte, error) {
 		envelope.Recovery = &struct {
 			Kind    RecoverableInputKind `json:"kind"`
 			Content string               `json:"content"`
+			Fact    *AutomationFact      `json:"fact,omitempty"`
 		}{
-			Kind: invocation.recoverableInput.Kind, Content: content,
+			Kind:    invocation.recoverableInput.Kind,
+			Content: content,
+			Fact:    invocation.recoverableInput.Fact,
 		}
 	}
 	body, err := json.Marshal(envelope)

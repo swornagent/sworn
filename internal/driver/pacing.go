@@ -208,13 +208,14 @@ func providerLimitHard(retryAfterHeader string, body []byte) bool {
 
 // detailPreservingCode reports whether code belongs to the family whose
 // bounded Detail may ride past the dispatcher boundary
-// (S5-provider-limit-evidence, widened by S4-refusal-taxonomy A3/A4): the
-// five provider status codes carry the status envelope's plain
-// error.message; PROVIDER_TRANSPORT_FAILED carries a bounded native-stderr
-// tail in the same plain shape; NATIVE_SURFACE_INVALID carries a distinct
-// structured {"check":...,"head":...} envelope, re-validated by its own
-// structural check rather than validateText. Every other code keeps
-// dropping adapter text exactly as before.
+// (S5-provider-limit-evidence, widened by S4-refusal-taxonomy A3/A4 and
+// S1-sandbox-refusal-detail): the five provider status codes carry the
+// status envelope's plain error.message; PROVIDER_TRANSPORT_FAILED carries
+// a bounded native-stderr tail in the same plain shape; NATIVE_SURFACE_INVALID
+// and PROCESS_START_FAILED each carry their own distinct structured
+// {"check":...,...} envelope, re-validated by their own structural check
+// rather than validateText. Every other code keeps dropping adapter text
+// exactly as before.
 func detailPreservingCode(code string) bool {
 	switch code {
 	case "PROVIDER_LIMITED",
@@ -223,7 +224,8 @@ func detailPreservingCode(code string) bool {
 		"PROVIDER_UNAVAILABLE",
 		"PROVIDER_ERROR",
 		"PROVIDER_TRANSPORT_FAILED",
-		"NATIVE_SURFACE_INVALID":
+		"NATIVE_SURFACE_INVALID",
+		"PROCESS_START_FAILED":
 		return true
 	default:
 		return false
@@ -231,10 +233,12 @@ func detailPreservingCode(code string) bool {
 }
 
 // plainDetailCode reports whether code's Detail is the plain, single-line,
-// control-free provider/native-stderr text validateText already governs
-// (as opposed to NATIVE_SURFACE_INVALID's structured envelope).
+// control-free provider/native-stderr text validateText already governs (as
+// opposed to NATIVE_SURFACE_INVALID's and PROCESS_START_FAILED's structured
+// envelopes).
 func plainDetailCode(code string) bool {
-	return detailPreservingCode(code) && code != "NATIVE_SURFACE_INVALID"
+	return detailPreservingCode(code) &&
+		code != "NATIVE_SURFACE_INVALID" && code != "PROCESS_START_FAILED"
 }
 
 // hardLimited reports whether an error classifies as hard provider

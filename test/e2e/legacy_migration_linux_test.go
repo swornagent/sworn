@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -212,9 +213,24 @@ func TestRealBinaryLegacyBatonHistoryResumesUnderSwornAuthority(t *testing.T) {
 	if err := os.MkdirAll(emptyHome, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// The Baton-free PATH deliberately carries only git, which leaves
+	// bubblewrap undiscoverable and every Bash tool call refused with
+	// ISOLATION_UNAVAILABLE - and S5-A3's evidence gate then blocks every
+	// verification pass. The engine's own SWORN_BWRAP override names the
+	// host's trusted bubblewrap without widening the PATH.
+	bubblewrap, err := exec.LookPath("bwrap")
+	if err != nil {
+		t.Fatalf("host bubblewrap unavailable for the legacy resume: %v", err)
+	}
+	shell, err := exec.LookPath("sh")
+	if err != nil {
+		t.Fatalf("host shell unavailable for the legacy resume: %v", err)
+	}
 	environment := map[string]string{
 		"HOME":                     emptyHome,
 		"PATH":                     pathDir,
+		"SWORN_BWRAP":              bubblewrap,
+		"SWORN_SH":                 shell,
 		"SWORN_JOURNEY_OPENAI_KEY": journeyOpenAISecret,
 		"SWORN_JOURNEY_GEMINI_KEY": journeyGeminiSecret,
 	}

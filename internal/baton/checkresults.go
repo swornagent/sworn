@@ -3,6 +3,7 @@ package baton
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 )
 
@@ -22,6 +23,10 @@ const (
 	// command's output was truncated at the runner's output cap. An entry
 	// whose output contains this marker is never read as the full output.
 	HostCheckTruncationPrefix = "[sworn: output truncated"
+	// MaxCheckCommandBytes bounds one entry's Check field. Exported so a
+	// producer can truncate a long recorded command before encoding rather
+	// than let it poison the whole manifest with an opaque encode failure.
+	MaxCheckCommandBytes = 2_048
 )
 
 const (
@@ -54,7 +59,13 @@ var checkOutcomes = map[string]bool{
 // submitted. The two are mutually exclusive by field shape, so a manifest
 // cannot launder one into the other.
 type CheckResultEntry struct {
-	Check        string `json:"check"`
+	Check string `json:"check"`
+	// Provenance and Outcome are exactly what was observed, never an
+	// inference: Outcome is the exit status of the recorded command as it
+	// actually ran, so a pipeline (`check | head`) or `check || true` that
+	// masks a failing check's real exit code still records pass here - the
+	// manifest reports what the sandbox observed, never what the check
+	// "really" did.
 	Provenance   string `json:"provenance"`
 	Outcome      string `json:"outcome"`
 	ExitCode     *int   `json:"exit_code,omitempty"`
@@ -99,11 +110,20 @@ func EncodeCheckResults(value CheckResults) ([]byte, error) {
 // ParseCheckResults admits one sworn.check-results/v1 manifest, failing closed
 // on any entry whose provenance is absent, unknown, or inconsistent with its
 // other fields. Host entries must carry exit_code, output_digest and
-// host_effect and must not carry role_digest; role entries must carry
-// role_digest and must not carry any host-only field. When a host entry
-// embeds its full (non-truncated) output, the output_digest must match it
-// exactly; a truncated entry must carry the truthful truncation marker and is
-// never read as full output.
+// host_effect and must not carry role_digest; role entries must carry at
+// least one of role_digest, output or diagnostic, and must not carry any
+// host-only field. When a host entry embeds its full (non-truncated) output,
+// the output_digest must match it exactly; a truncated entry must carry the
+// truthful truncation marker and is never read as full output.
+//
+// Release, slice, attempt, candidate and contract_digest stay structurally
+// required keys (the shape stays self-describing), but each admits its own
+// zero value (empty string, or 0 for attempt) as "not asserted by the
+// producer": a manifest a driver mints in-turn has no authoritative source
+// for these and must never guess one. Each is still validated in its full
+// exact form whenever it is non-zero, so a manifest that does assert every
+// field (buildHostCheckResultsManifest's own host-boundary manifests always
+// do) parses exactly as it always has.
 func ParseCheckResults(raw []byte) (CheckResults, error) {
 	if len(raw) > MaxEvidenceBytes {
 		return CheckResults{}, recordFail("RESOURCE_LIMIT", fmt.Sprintf("check results exceed %d bytes", MaxEvidenceBytes))
@@ -130,23 +150,23 @@ func ParseCheckResults(raw []byte) (CheckResults, error) {
 	if schema != CheckResultsVersion {
 		return CheckResults{}, recordFail("INVALID_FIELD", "check_results.schema_version must be "+CheckResultsVersion)
 	}
-	release, err := identity(object["release"], "check_results.release")
+	release, err := identityOrZero(object["release"], "check_results.release")
 	if err != nil {
 		return CheckResults{}, err
 	}
-	slice, err := identity(object["slice"], "check_results.slice")
+	slice, err := identityOrZero(object["slice"], "check_results.slice")
 	if err != nil {
 		return CheckResults{}, err
 	}
-	attempt, err := safeInteger(object["attempt"], "check_results.attempt", 1)
+	attempt, err := safeInteger(object["attempt"], "check_results.attempt", 0)
 	if err != nil {
 		return CheckResults{}, err
 	}
-	candidate, err := objectID(object["candidate"], "check_results.candidate")
+	candidate, err := objectIDOrZero(object["candidate"], "check_results.candidate")
 	if err != nil {
 		return CheckResults{}, err
 	}
-	contractDigest, err := digestString(object["contract_digest"], "check_results.contract_digest")
+	contractDigest, err := digestStringOrZero(object["contract_digest"], "check_results.contract_digest")
 	if err != nil {
 		return CheckResults{}, err
 	}
@@ -182,7 +202,7 @@ func parseCheckResultEntry(value any, label string) (CheckResultEntry, error) {
 	if err := exactKeys(object, []string{"check", "provenance", "outcome"}, optional, label); err != nil {
 		return CheckResultEntry{}, err
 	}
-	check, err := requiredString(object["check"], label+".check", 1, 2_048)
+	check, err := requiredString(object["check"], label+".check", 1, MaxCheckCommandBytes)
 	if err != nil {
 		return CheckResultEntry{}, err
 	}
@@ -274,21 +294,39 @@ func parseCheckResultEntry(value any, label string) (CheckResultEntry, error) {
 			}
 		}
 	case CheckProvenanceRole:
+		// A role entry's outcome need not be pass - a verifier that ran a
+		// declared check and watched it fail must be able to record that
+		// honestly rather than fabricate a pass, provided it says why.
+		if outcome != CheckOutcomePass && entry.Diagnostic == "" {
+			return CheckResultEntry{}, recordFail(
+				"MISSING_FIELD",
+				label+" role entry with a non-pass outcome requires diagnostic",
+			)
+		}
+		// role_digest covers the full recorded (redacted) output, never
+		// only the bounded Output excerpt; a cut excerpt is a truncation of
+		// display content, not of what role_digest attests to.
 		if entry.Truncated {
-			return CheckResultEntry{}, recordFail("INVALID_FIELD", label+" role entry cannot be truncated")
+			if entry.Output == "" || !strings.Contains(entry.Output, HostCheckTruncationPrefix) {
+				return CheckResultEntry{}, recordFail(
+					"INVALID_FIELD",
+					label+" truncated output must carry the truthful truncation marker",
+				)
+			}
 		}
-		if outcome != CheckOutcomePass {
-			return CheckResultEntry{}, recordFail("INVALID_FIELD", label+" role entry outcome must be pass")
+		if raw, ok := object["role_digest"]; ok {
+			roleDigest, err := digestString(raw, label+".role_digest")
+			if err != nil {
+				return CheckResultEntry{}, err
+			}
+			entry.RoleDigest = roleDigest
 		}
-		rawDigest, ok := object["role_digest"]
-		if !ok {
-			return CheckResultEntry{}, recordFail("MISSING_FIELD", label+" role entry requires role_digest")
+		if entry.RoleDigest == "" && entry.Output == "" && entry.Diagnostic == "" {
+			return CheckResultEntry{}, recordFail(
+				"MISSING_FIELD",
+				label+" role entry requires role_digest, output, or diagnostic",
+			)
 		}
-		roleDigest, err := digestString(rawDigest, label+".role_digest")
-		if err != nil {
-			return CheckResultEntry{}, err
-		}
-		entry.RoleDigest = roleDigest
 		for _, forbidden := range []string{
 			"exit_code", "output_digest", "host_effect",
 		} {
@@ -303,4 +341,96 @@ func parseCheckResultEntry(value any, label string) (CheckResultEntry, error) {
 		return CheckResultEntry{}, recordFail("INVALID_FIELD", label+".provenance is invalid")
 	}
 	return entry, nil
+}
+
+// identityOrZero, objectIDOrZero and digestStringOrZero admit the empty
+// string as "not asserted" beside their normal identity/objectID/digestString
+// exact form, for the five check-results binding fields a driver-built
+// manifest may leave unasserted (ParseCheckResults's own doc comment).
+func identityOrZero(value any, label string) (string, error) {
+	if text, ok := value.(string); ok && text == "" {
+		return "", nil
+	}
+	return identity(value, label)
+}
+
+func objectIDOrZero(value any, label string) (string, error) {
+	if text, ok := value.(string); ok && text == "" {
+		return "", nil
+	}
+	return objectID(value, label)
+}
+
+func digestStringOrZero(value any, label string) (string, error) {
+	if text, ok := value.(string); ok && text == "" {
+		return "", nil
+	}
+	return digestString(value, label)
+}
+
+// CheckCommandCovers reports whether recorded is an actual sandboxed run of
+// the declared check string: PATH=... is sandbox plumbing and is dropped, a
+// leading run of KEY=VALUE assignments is kept verbatim (they are part of a
+// declared check's own identity, e.g. GOFLAGS=), the first remaining token -
+// the binary - is compared by base name so an absolute path invocation (the
+// only way to reach an off-PATH toolchain under a sandbox that does not put
+// it on PATH) still matches a bare-name declared check, and every following
+// declared token must appear verbatim at the same position. Trailing tokens
+// after the declared check's own length are never compared, so an ordinary
+// redirect-to-a-file-and-tail wrapper does not defeat coverage.
+func CheckCommandCovers(declared, recorded string) bool {
+	declaredTokens := strings.Fields(declared)
+	recordedTokens := strings.Fields(recorded)
+	if len(declaredTokens) == 0 || len(recordedTokens) < len(declaredTokens) {
+		return false
+	}
+	if recordedTokens[0] == "" {
+		return false
+	}
+	if strings.HasPrefix(recordedTokens[0], "PATH=") {
+		recordedTokens = recordedTokens[1:]
+		if len(recordedTokens) < len(declaredTokens) {
+			return false
+		}
+	}
+	index := 0
+	for index < len(recordedTokens) && index < len(declaredTokens) &&
+		isEnvAssignment(declaredTokens[index]) &&
+		recordedTokens[index] == declaredTokens[index] {
+		index++
+	}
+	if index >= len(recordedTokens) || index >= len(declaredTokens) {
+		return false
+	}
+	if filepath.Base(recordedTokens[index]) != declaredTokens[index] {
+		return false
+	}
+	index++
+	for index < len(declaredTokens) {
+		if index >= len(recordedTokens) || recordedTokens[index] != declaredTokens[index] {
+			return false
+		}
+		index++
+	}
+	return true
+}
+
+// isEnvAssignment reports whether token has the shape of a leading
+// environment-variable assignment (KEY=..., KEY drawn from
+// [A-Za-z_][A-Za-z0-9_]*), applied only to leading declared tokens so a
+// check with no env prefix (e.g. gofmt -l ...) is unaffected.
+func isEnvAssignment(token string) bool {
+	equals := strings.IndexByte(token, '=')
+	if equals <= 0 {
+		return false
+	}
+	for index := 0; index < equals; index++ {
+		char := token[index]
+		letter := (char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z') || char == '_'
+		digit := char >= '0' && char <= '9'
+		if !letter && !(digit && index > 0) {
+			return false
+		}
+	}
+	return true
 }

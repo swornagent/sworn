@@ -302,7 +302,7 @@ func (session *nativeAutomationSession) execute(
 			session.terminalErr = fail("AUTOMATION_CORRECTIONS_EXHAUSTED")
 			err = session.terminalErr
 		}
-		result.Content = []byte("error:" + contractCode(err))
+		result.Content = toolErrorContent(err)
 		result.Failed = true
 		return result
 	}

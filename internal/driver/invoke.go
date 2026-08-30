@@ -548,6 +548,10 @@ func normalizeAdapterError(err error) error {
 				if detail, ok := revalidateNativeSurfaceDetail(contractErr.Detail); ok {
 					return &ContractError{Code: contractErr.Code, Detail: detail, Kind: kind}
 				}
+			} else if contractErr.Code == "PROCESS_START_FAILED" {
+				if detail, ok := revalidateSandboxStartDetail(contractErr.Detail); ok {
+					return &ContractError{Code: contractErr.Code, Detail: detail, Kind: kind}
+				}
 			} else if plainDetailCode(contractErr.Code) &&
 				validateText(contractErr.Detail, maxProviderErrorDetailBytes, false) == nil {
 				// Bounded, re-validated provider or native-stderr words ride
@@ -679,7 +683,16 @@ func validAdapterErrorCode(code string) bool {
 		"INVALID_AUTOMATION_MESSAGE",
 		"INVALID_AUTOMATION_VALUE",
 		"INVALID_AUTOMATION_OBSERVATION",
+		// AUTOMATION_BINDING_MISMATCH is retained as an admitted wire value
+		// with no current raise site: this package's every prior use of it
+		// was a misnamed selection, decode, validation, or identity-echo
+		// condition (see AUTOMATION_SELECTION_MISMATCH and
+		// AUTOMATION_INVOCATION_ID_MISMATCH), not a genuine
+		// AutomationBinding mismatch. Do not delete this entry on the
+		// mistaken belief it is unused dead code.
 		"AUTOMATION_BINDING_MISMATCH",
+		"AUTOMATION_SELECTION_MISMATCH",
+		"AUTOMATION_INVOCATION_ID_MISMATCH",
 		"AUTOMATION_PROTOCOL_FAILED",
 		"AUTOMATION_CORRECTIONS_EXHAUSTED",
 		"AUTOMATION_UNSUPPORTED",

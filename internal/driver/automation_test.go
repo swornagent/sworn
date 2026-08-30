@@ -3,8 +3,10 @@ package driver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func automationBindingFixture() AutomationBinding {
@@ -526,3 +528,419 @@ func TestNativeRuntimeDoesNotRequirePreflightCertificate(t *testing.T) {
 }
 
 func pointerTo[T any](value T) *T { return &value }
+
+// TestValidRecoveryDecisionAndAdvisoryResultCheckCloseTheVocabulary pins
+// A2's closed vocabulary of named refusal reasons, in the same idiom as
+// TestValidSandboxStartCheckClosesTheVocabulary.
+func TestValidRecoveryDecisionAndAdvisoryResultCheckCloseTheVocabulary(t *testing.T) {
+	t.Parallel()
+	admittedRecovery := []string{
+		"recovery_decision.schema_version",
+		"recovery_decision.invocation_id",
+		"recovery_decision.resume_worker_answer_required",
+		"recovery_decision.action_forbids_answer",
+		"recovery_decision.action_unknown",
+	}
+	for _, check := range admittedRecovery {
+		if !validRecoveryDecisionCheck(check) {
+			t.Fatalf("admitted recovery check rejected: %q", check)
+		}
+	}
+	admittedAdvisory := []string{
+		"advisory_result.schema_version",
+		"advisory_result.invocation_id",
+		"advisory_result.outcome_answer_required",
+		"advisory_result.outcome_forbids_answer",
+		"advisory_result.outcome_unknown",
+	}
+	for _, check := range admittedAdvisory {
+		if !validAdvisoryResultCheck(check) {
+			t.Fatalf("admitted advisory check rejected: %q", check)
+		}
+	}
+	for _, rejected := range []string{
+		"", "recovery_decision.", "recovery_decision.unknown",
+		"advisory_result.unknown", "RECOVERY_DECISION.SCHEMA_VERSION",
+	} {
+		if validRecoveryDecisionCheck(rejected) {
+			t.Fatalf("unadmitted recovery check accepted: %q", rejected)
+		}
+		if validAdvisoryResultCheck(rejected) {
+			t.Fatalf("unadmitted advisory check accepted: %q", rejected)
+		}
+	}
+	for _, cross := range admittedRecovery {
+		if validAdvisoryResultCheck(cross) {
+			t.Fatalf("recovery check accepted by advisory vocabulary: %q", cross)
+		}
+	}
+	for _, cross := range admittedAdvisory {
+		if validRecoveryDecisionCheck(cross) {
+			t.Fatalf("advisory check accepted by recovery vocabulary: %q", cross)
+		}
+	}
+}
+
+func automationSelectedFixture(t *testing.T) (SelectedProfile, ModelSelection) {
+	t.Helper()
+	adapter := processAdapterFixture(t, "automation-adapter", "sworn.automation.test")
+	selection := ModelSelection{Profile: "automation", Model: "small-model"}
+	registry, err := NewSelectionRegistry(
+		[]ProfileConfig{{
+			Key:     selection.Profile,
+			Adapter: adapter.Identity().Key,
+			Network: NetworkNone,
+		}},
+		[]Adapter{adapter},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, err := registry.ResolveSelection(selection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return selected, selection
+}
+
+// TestAutomationSelectionMismatchIsNoLongerReportedAsABinding pins A1's
+// third collapsed site: a profile/model selection mismatch is not a genuine
+// AutomationBinding mismatch and must stop reporting as one.
+func TestAutomationSelectionMismatchIsNoLongerReportedAsABinding(t *testing.T) {
+	t.Parallel()
+	selected, selection := automationSelectedFixture(t)
+	recovery := recoveryInvocationFixture(selection)
+	recovery.Selection.Model = "wrong-model"
+	err := validateAutomationInvocation(AutomationInvocation{
+		Selected: selected,
+		Recovery: &recovery,
+	})
+	if !IsCode(err, "AUTOMATION_SELECTION_MISMATCH") {
+		t.Fatalf("selection mismatch error = %v", err)
+	}
+	if IsCode(err, "AUTOMATION_BINDING_MISMATCH") {
+		t.Fatalf("selection mismatch still reports as a binding mismatch: %v", err)
+	}
+}
+
+// TestDecodeAutomationTerminalDistinguishesCollapsedConditions pins A1's
+// other two collapsed sites (recovery and advisory): a JSON type-decode
+// failure, a shape/rule violation, and an invocation-id echo mismatch must
+// report as distinct, accurate codes instead of one shared
+// AUTOMATION_BINDING_MISMATCH.
+func TestDecodeAutomationTerminalDistinguishesCollapsedConditions(t *testing.T) {
+	t.Parallel()
+	selected, selection := automationSelectedFixture(t)
+	recovery := recoveryInvocationFixture(selection)
+	advisory := AdvisoryInvocation{
+		SchemaVersion: AdvisoryInvocationSchemaVersion,
+		InvocationID:  "advisory-1",
+		Binding:       recovery.Binding,
+		Selection:     selection,
+		Question:      "Which admitted fact answers the worker?",
+		Facts:         recovery.Facts,
+	}
+	answer := recovery.Facts[3].Value
+
+	t.Run("recovery", func(t *testing.T) {
+		t.Parallel()
+		invocation := AutomationInvocation{Selected: selected, Recovery: &recovery}
+
+		malformed, err := json.Marshal(map[string]any{
+			"decision": map[string]any{
+				"schema_version": RecoveryDecisionSchemaVersion,
+				"invocation_id":  123,
+				"action":         "resume_worker",
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := decodeAutomationTerminal(
+			time.Now(), invocation, malformed, Usage{}, false, 0, 0,
+		); !IsCode(err, "INVALID_FIELD") {
+			t.Fatalf("malformed invocation_id type error = %v", err)
+		}
+
+		ruleViolation, err := json.Marshal(map[string]any{
+			"decision": RecoveryDecision{
+				SchemaVersion: RecoveryDecisionSchemaVersion,
+				InvocationID:  recovery.InvocationID,
+				Action:        RecoveryAskCaptain,
+				Answer:        &answer,
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = decodeAutomationTerminal(
+			time.Now(), invocation, ruleViolation, Usage{}, false, 0, 0,
+		)
+		var contractErr *ContractError
+		if !errors.As(err, &contractErr) ||
+			contractErr.Code != "INVALID_RECOVERY_DECISION" ||
+			contractErr.Detail != "recovery_decision.action_forbids_answer" {
+			t.Fatalf("rule-violation error = %v", err)
+		}
+
+		mismatched, err := json.Marshal(map[string]any{
+			"decision": RecoveryDecision{
+				SchemaVersion: RecoveryDecisionSchemaVersion,
+				InvocationID:  "not-" + recovery.InvocationID,
+				Action:        RecoveryResumeWorker,
+				Answer:        &answer,
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := decodeAutomationTerminal(
+			time.Now(), invocation, mismatched, Usage{}, false, 0, 0,
+		); !IsCode(err, "AUTOMATION_INVOCATION_ID_MISMATCH") {
+			t.Fatalf("invocation-id mismatch error = %v", err)
+		}
+	})
+
+	t.Run("advisory", func(t *testing.T) {
+		t.Parallel()
+		invocation := AutomationInvocation{Selected: selected, Advisory: &advisory}
+
+		malformed, err := json.Marshal(map[string]any{
+			"result": map[string]any{
+				"schema_version": AdvisoryResultSchemaVersion,
+				"invocation_id":  123,
+				"outcome":        "answer",
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := decodeAutomationTerminal(
+			time.Now(), invocation, malformed, Usage{}, false, 0, 0,
+		); !IsCode(err, "INVALID_FIELD") {
+			t.Fatalf("malformed invocation_id type error = %v", err)
+		}
+
+		ruleViolation, err := json.Marshal(map[string]any{
+			"result": AdvisoryResult{
+				SchemaVersion: AdvisoryResultSchemaVersion,
+				InvocationID:  advisory.InvocationID,
+				Outcome:       AdvisoryCannotAnswer,
+				Answer:        &answer,
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = decodeAutomationTerminal(
+			time.Now(), invocation, ruleViolation, Usage{}, false, 0, 0,
+		)
+		var contractErr *ContractError
+		if !errors.As(err, &contractErr) ||
+			contractErr.Code != "INVALID_ADVISORY_RESULT" ||
+			contractErr.Detail != "advisory_result.outcome_forbids_answer" {
+			t.Fatalf("rule-violation error = %v", err)
+		}
+
+		mismatched, err := json.Marshal(map[string]any{
+			"result": AdvisoryResult{
+				SchemaVersion: AdvisoryResultSchemaVersion,
+				InvocationID:  "not-" + advisory.InvocationID,
+				Outcome:       AdvisoryCannotAnswer,
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := decodeAutomationTerminal(
+			time.Now(), invocation, mismatched, Usage{}, false, 0, 0,
+		); !IsCode(err, "AUTOMATION_INVOCATION_ID_MISMATCH") {
+			t.Fatalf("invocation-id mismatch error = %v", err)
+		}
+	})
+}
+
+// TestAutomationInvocationIDMismatchReportsIdenticallyThroughDecodeAndObservation
+// pins A3: the identity-echo condition must report the same way from
+// decodeAutomationTerminal and from ValidateAutomationObservation's
+// duplicate post-hoc check, for both the recovery and advisory branches.
+func TestAutomationInvocationIDMismatchReportsIdenticallyThroughDecodeAndObservation(
+	t *testing.T,
+) {
+	t.Parallel()
+	selected, selection := automationSelectedFixture(t)
+	recovery := recoveryInvocationFixture(selection)
+	answer := recovery.Facts[3].Value
+
+	t.Run("recovery", func(t *testing.T) {
+		t.Parallel()
+		invocation := AutomationInvocation{Selected: selected, Recovery: &recovery}
+		decision := RecoveryDecision{
+			SchemaVersion: RecoveryDecisionSchemaVersion,
+			InvocationID:  "not-" + recovery.InvocationID,
+			Action:        RecoveryResumeWorker,
+			Answer:        &answer,
+		}
+		arguments, err := json.Marshal(map[string]any{"decision": decision})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, decodeErr := decodeAutomationTerminal(
+			time.Now(), invocation, arguments, Usage{}, false, 0, 0,
+		)
+		observationErr := ValidateAutomationObservation(invocation, AutomationObservation{
+			TransportStatus: Completed,
+			Usage: UsageReceipt{
+				TokenStatus: UsageUnavailable, CostStatus: UsageUnavailable,
+			},
+			Diagnostic: Diagnostic{Code: "none"},
+			Recovery:   &decision,
+		})
+		if !IsCode(decodeErr, "AUTOMATION_INVOCATION_ID_MISMATCH") ||
+			!IsCode(observationErr, "AUTOMATION_INVOCATION_ID_MISMATCH") {
+			t.Fatalf(
+				"decode error = %v, observation error = %v",
+				decodeErr, observationErr,
+			)
+		}
+	})
+
+	t.Run("advisory", func(t *testing.T) {
+		t.Parallel()
+		advisory := AdvisoryInvocation{
+			SchemaVersion: AdvisoryInvocationSchemaVersion,
+			InvocationID:  "advisory-1",
+			Binding:       recovery.Binding,
+			Selection:     selection,
+			Question:      "Which admitted fact answers the worker?",
+			Facts:         recovery.Facts,
+		}
+		invocation := AutomationInvocation{Selected: selected, Advisory: &advisory}
+		result := AdvisoryResult{
+			SchemaVersion: AdvisoryResultSchemaVersion,
+			InvocationID:  "not-" + advisory.InvocationID,
+			Outcome:       AdvisoryCannotAnswer,
+		}
+		arguments, err := json.Marshal(map[string]any{"result": result})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, decodeErr := decodeAutomationTerminal(
+			time.Now(), invocation, arguments, Usage{}, false, 0, 0,
+		)
+		observationErr := ValidateAutomationObservation(invocation, AutomationObservation{
+			TransportStatus: Completed,
+			Usage: UsageReceipt{
+				TokenStatus: UsageUnavailable, CostStatus: UsageUnavailable,
+			},
+			Diagnostic: Diagnostic{Code: "none"},
+			Advisory:   &result,
+		})
+		if !IsCode(decodeErr, "AUTOMATION_INVOCATION_ID_MISMATCH") ||
+			!IsCode(observationErr, "AUTOMATION_INVOCATION_ID_MISMATCH") {
+			t.Fatalf(
+				"decode error = %v, observation error = %v",
+				decodeErr, observationErr,
+			)
+		}
+	})
+}
+
+// TestAutomationRecoveryRefusalNamesTheViolatedRule pins A2: the tool-result
+// feedback a recovery worker receives names the violated rule (here,
+// ask_captain carrying an answer, the exact sworn#250 shape), not a bare
+// unnamed code.
+func TestAutomationRecoveryRefusalNamesTheViolatedRule(t *testing.T) {
+	t.Parallel()
+	selection := ModelSelection{Profile: "automation", Model: "small-model"}
+	corrected := recoveryInvocationFixture(selection)
+
+	violatingAnswer := "unearned answer"
+	violating, err := json.Marshal(map[string]any{
+		"decision": RecoveryDecision{
+			SchemaVersion: RecoveryDecisionSchemaVersion,
+			InvocationID:  corrected.InvocationID,
+			Action:        RecoveryAskCaptain,
+			Answer:        &violatingAnswer,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	correctedAnswer := corrected.Facts[3].Value
+	valid, err := json.Marshal(map[string]any{
+		"decision": RecoveryDecision{
+			SchemaVersion: RecoveryDecisionSchemaVersion,
+			InvocationID:  corrected.InvocationID,
+			Action:        RecoveryResumeWorker,
+			Answer:        &correctedAnswer,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	conversation := &automationTestConversation{calls: [][]providerToolCall{
+		{{ID: "decision-1", Name: "sworn_recovery_decide", Arguments: violating}},
+		{{ID: "decision-2", Name: "sworn_recovery_decide", Arguments: valid}},
+	}}
+	adapter, err := newLoopAdapter(
+		"automation-adapter",
+		"sworn.automation.test",
+		"1.0.0",
+		ProfileOpenAIHTTP,
+		ProfileSurfaceOpenAIChat,
+		providerDialectOpenAIChat,
+		map[string]string{"fixture": "automation"},
+		func(
+			body []byte,
+			model string,
+			definitions []providerToolDefinition,
+			_ Limits,
+		) (providerConversation, error) {
+			conversation.definitions = append(
+				[]providerToolDefinition(nil),
+				definitions...,
+			)
+			return conversation, nil
+		},
+		automationTestTransport{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentialRef := "automation-credential"
+	registry, err := NewSelectionRegistry(
+		[]ProfileConfig{{
+			Key: "automation", Adapter: "automation-adapter",
+			Network: NetworkRequired, CredentialRef: &credentialRef,
+		}},
+		[]Adapter{adapter},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, err := registry.ResolveSelection(selection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocation := AutomationInvocation{Selected: selected, Recovery: &corrected}
+	observation, err := (Dispatcher{}).InvokeAutomation(
+		context.Background(),
+		invocation,
+	)
+	if err != nil || observation.Recovery == nil ||
+		observation.Recovery.Action != RecoveryResumeWorker {
+		t.Fatalf("observation = %#v, error = %v", observation, err)
+	}
+	if len(conversation.results) != 1 || len(conversation.results[0]) != 1 {
+		t.Fatalf("fed-back results = %#v", conversation.results)
+	}
+	want := "error:INVALID_RECOVERY_DECISION detail=recovery_decision.action_forbids_answer"
+	if got := string(conversation.results[0][0].Content); got != want {
+		t.Fatalf("feedback = %q, want %q", got, want)
+	}
+	if !conversation.results[0][0].Failed {
+		t.Fatal("feedback not marked failed")
+	}
+}

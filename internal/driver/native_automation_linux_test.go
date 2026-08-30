@@ -185,3 +185,44 @@ func TestNativeAutomationSessionExposesOnlyItsOneTerminal(t *testing.T) {
 		t.Fatalf("observation = %#v, error = %v", observation, err)
 	}
 }
+
+// TestNativeAutomationSessionFeedbackNamesTheViolatedRule pins A2's native
+// equivalent: nativeAutomationSession.execute's tool-result feedback names
+// the violated rule, not a bare unnamed code.
+func TestNativeAutomationSessionFeedbackNamesTheViolatedRule(t *testing.T) {
+	base, _, _ := memoryInvocationFixture(t)
+	selection := ModelSelection{
+		Profile: base.Selected.Profile.Key,
+		Model:   base.Selected.Model,
+	}
+	invocation := AutomationInvocation{
+		Selected: base.Selected,
+		Recovery: pointerTo(recoveryInvocationFixture(selection)),
+	}
+	session, err := newNativeAutomationSession(time.Now(), invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definitions := session.brokerToolDefinitions()
+	violatingAnswer := "unearned answer"
+	arguments, err := json.Marshal(map[string]any{
+		"decision": RecoveryDecision{
+			SchemaVersion: RecoveryDecisionSchemaVersion,
+			InvocationID:  invocation.Recovery.InvocationID,
+			Action:        RecoveryAskCaptain,
+			Answer:        &violatingAnswer,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := session.execute(context.Background(), providerToolCall{
+		ID:        "native-terminal-1",
+		Name:      definitions[0].Name,
+		Arguments: arguments,
+	})
+	want := "error:INVALID_RECOVERY_DECISION detail=recovery_decision.action_forbids_answer"
+	if !result.Failed || string(result.Content) != want {
+		t.Fatalf("feedback = %#v, want %q", result, want)
+	}
+}

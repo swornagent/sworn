@@ -5,10 +5,14 @@ package driver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/swornagent/sworn/internal/gitx"
 )
@@ -64,8 +68,8 @@ func TestSparseToolSubmissionNormalizesAndRemainsFailClosed(t *testing.T) {
 		"schema_version": SubmissionSchemaVersion,
 		"invocation_id":  "sparse-design",
 		"responsibility": ImplementerDesign,
-		"summary":        "Design complete.",
-		"detail":         "",
+		"summary":        "Design complete summary padded so the sparse decode test clears the submission content floor for its normalize-and-fail-closed coverage across every responsibility this test exercises.",
+		"detail":         "Bounded detail padded so the sparse decode test clears the detail content floor for its normalize-and-fail-closed coverage across every responsibility this test exercises in turn, well past the two-hundred-byte bound.\n",
 	}
 	submission, err := decodeToolSubmission(sparse)
 	if err != nil || submission.Plan != nil ||
@@ -665,8 +669,8 @@ func TestSwornSubmitAcceptsExactBytesByScratchPath(t *testing.T) {
 			"schema_version": SubmissionSchemaVersion,
 			"invocation_id":  invocation.Request.InvocationID,
 			"responsibility": string(PlannerProposal),
-			"summary":        "Compact responsibility summary.",
-			"detail":         "",
+			"summary":        "Compact responsibility summary padded so the scratch-path exact-bytes submission test clears the submission content floor for its path-materialization coverage.",
+			"detail":         "Bounded detail padded so the scratch-path exact-bytes submission test clears the detail content floor for its path-materialization coverage across this fixture, well past the two-hundred-byte length bound.\n",
 			"plan": map[string]any{
 				"byte_count": len(plan),
 				"digest":     Digest(plan),
@@ -707,8 +711,8 @@ func TestSwornSubmitPathRefusesSymlinkEscapeFromScratch(t *testing.T) {
 			"schema_version": SubmissionSchemaVersion,
 			"invocation_id":  invocation.Request.InvocationID,
 			"responsibility": string(PlannerProposal),
-			"summary":        "Compact responsibility summary.",
-			"detail":         "",
+			"summary":        "Compact responsibility summary padded so the scratch-path exact-bytes submission test clears the submission content floor for its path-materialization coverage.",
+			"detail":         "Bounded detail padded so the scratch-path exact-bytes submission test clears the detail content floor for its path-materialization coverage across this fixture, well past the two-hundred-byte length bound.\n",
 			"plan": map[string]any{
 				"byte_count": len(plan),
 				"digest":     Digest(plan),
@@ -1113,4 +1117,298 @@ func executeToolJSON(
 	return session.execute(context.Background(), providerToolCall{
 		ID: id, Name: name, Arguments: body,
 	})
+}
+
+// withReducedNoFileLimit lowers RLIMIT_NOFILE (process-wide) so exactly
+// extra new file descriptors are admitted beyond whatever is open right
+// now, restoring the original limit on cleanup. The anchor is a freshly
+// opened descriptor's own number (via Fd()), not a count of entries under
+// /proc/self/fd: re-reading that directory to count descriptors opens (and
+// by the time it returns, closes) one of its own, which measures a moving
+// target rather than a stable one. The brief sleep before opening the
+// anchor lets the Go runtime's own lazy first-use descriptors (the
+// netpoller epoll instance, allocated on a process's first blocking
+// operation) appear before measurement, so they are never mistaken for
+// budget available to the code under test - both effects were observed
+// directly while calibrating this helper. Callers must not run in
+// parallel with other tests: the limit is process-global for the whole
+// test binary.
+func withReducedNoFileLimit(t *testing.T, extra uint64) {
+	t.Helper()
+	time.Sleep(5 * time.Millisecond)
+	anchor, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatalf("open anchor descriptor: %v", err)
+	}
+	// The anchor stays open for the whole test: closing it on helper
+	// return frees its own slot, silently widening the budget to extra+1
+	// whenever no runtime allocation happens to reclaim it first - the
+	// exhaustion then lands one raise site later than the one provoked.
+	t.Cleanup(func() { _ = anchor.Close() })
+	// The kernel hands out the lowest free descriptor, so any hole below
+	// the anchor (hosts whose shells inherit a sparse table) silently
+	// widens the budget and moves the provoked exhaustion to a later
+	// raise site than the one under test. Plug every hole for the test's
+	// duration so the anchor-number calibration holds on any host.
+	var pluggers []*os.File
+	for {
+		plug, plugErr := os.Open(os.DevNull)
+		if plugErr != nil {
+			t.Fatalf("plug descriptor-table hole: %v", plugErr)
+		}
+		if plug.Fd() > anchor.Fd() {
+			_ = plug.Close()
+			break
+		}
+		pluggers = append(pluggers, plug)
+	}
+	t.Cleanup(func() {
+		for _, plug := range pluggers {
+			_ = plug.Close()
+		}
+	})
+	var original syscall.Rlimit
+	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &original); err != nil {
+		t.Fatalf("getrlimit RLIMIT_NOFILE: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := syscall.Setrlimit(syscall.RLIMIT_NOFILE, &original); err != nil {
+			t.Fatalf("restore RLIMIT_NOFILE: %v", err)
+		}
+	})
+	reduced := syscall.Rlimit{Cur: uint64(anchor.Fd()) + 1 + extra, Max: original.Max}
+	if err := syscall.Setrlimit(syscall.RLIMIT_NOFILE, &reduced); err != nil {
+		t.Fatalf("setrlimit RLIMIT_NOFILE: %v", err)
+	}
+}
+
+// warmUpBashSandbox runs one trivial Bash call under the unrestricted
+// limit so trustedBubblewrap's sync.Once capability probe (process_linux.go)
+// has already fired before a test tightens RLIMIT_NOFILE: the probe spawns
+// its own bwrap subprocess and would otherwise compete with the test's own
+// tight fd budget and fail at the wrong site.
+func warmUpBashSandbox(t *testing.T, session *toolSession) {
+	t.Helper()
+	// A loaded runner can fail the warm-up itself with the spontaneous
+	// sandbox-start class (sworn#251) before any provocation begins; the
+	// warm-up is plumbing, not the assertion, so it retries briefly.
+	var result providerToolResult
+	for attempt := 0; attempt < 5; attempt++ {
+		result = executeToolJSON(
+			t, session, fmt.Sprintf("warmup-%d", attempt), "Bash",
+			map[string]any{"script": "true"},
+		)
+		if !result.Failed {
+			return
+		}
+		time.Sleep(time.Duration(attempt+1) * 100 * time.Millisecond)
+	}
+	t.Fatalf("warm-up Bash call failed: %#v", result)
+}
+
+func sandboxStartDetailFromResult(t *testing.T, result providerToolResult) sandboxStartDetail {
+	t.Helper()
+	if !result.Failed {
+		t.Fatalf("expected a failed result, got %#v", result)
+	}
+	content := string(result.Content)
+	prefix := "error:PROCESS_START_FAILED detail="
+	if !strings.HasPrefix(content, prefix) {
+		t.Fatalf("content = %q, want prefix %q", content, prefix)
+	}
+	var envelope sandboxStartDetail
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(content, prefix)), &envelope); err != nil {
+		t.Fatalf("content = %q: %v", content, err)
+	}
+	return envelope
+}
+
+// TestToolBashNamesMaskDevnullOpenSite is the A1/A2/A3 proof for
+// tools_linux.go:505: a masked reserved name that exists as a regular file
+// (the same fixture TestBashGitMaskMaterializesAsHonestEmptyRegularFile
+// uses to reach the mask-open branch at all) combined with a RLIMIT_NOFILE
+// budget that admits exactly the two directory pins runToolBash opens
+// first (workspace, inputs) fails the mask's os.Open(os.DevNull) with a
+// real kernel EMFILE, named on the tool result surface the worker sees.
+func TestToolBashNamesMaskDevnullOpenSite(t *testing.T) {
+	requireTrustedContainment(t)
+	invocation, _, _ := memoryInvocationFixture(t)
+	if err := os.WriteFile(
+		filepath.Join(invocation.HostWorkspace, ".git"), []byte("x"), 0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	warmUpBashSandbox(t, session)
+	withReducedNoFileLimit(t, 2)
+	result := executeToolJSON(t, session, "bash-mask-devnull", "Bash", map[string]any{
+		"script": "true",
+	})
+	envelope := sandboxStartDetailFromResult(t, result)
+	if envelope.Check != "sandbox_start.mask_devnull_open" {
+		t.Fatalf("check = %q, content = %q", envelope.Check, result.Content)
+	}
+	if envelope.Cause == "" {
+		t.Fatalf("no kernel cause carried: %q", result.Content)
+	}
+}
+
+// TestToolBashNamesStatusPipeCreateSite is the A1/A2/A3 proof for
+// tools_linux.go:544: with no masked regular file in the workspace (the
+// mask loop makes no extra opens), a RLIMIT_NOFILE budget admitting exactly
+// the two directory pins fails the status-pipe os.Pipe with a real kernel
+// EMFILE, named on the tool result surface the worker sees.
+func TestToolBashNamesStatusPipeCreateSite(t *testing.T) {
+	requireTrustedContainment(t)
+	invocation, _, _ := memoryInvocationFixture(t)
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	warmUpBashSandbox(t, session)
+	withReducedNoFileLimit(t, 2)
+	result := executeToolJSON(t, session, "bash-status-pipe", "Bash", map[string]any{
+		"script": "true",
+	})
+	envelope := sandboxStartDetailFromResult(t, result)
+	if envelope.Check != "sandbox_start.status_pipe_create" {
+		t.Fatalf("check = %q, content = %q", envelope.Check, result.Content)
+	}
+	if envelope.Cause == "" {
+		t.Fatalf("no kernel cause carried: %q", result.Content)
+	}
+}
+
+// TestToolBashNamesBwrapExecStartSite is the A1/A2/A3 proof for
+// tools_linux.go:559: a RLIMIT_NOFILE budget admitting the two directory
+// pins plus the status pipe pair, but nothing more, fails command.Start
+// itself (its own internal stdout/stderr pipe setup) with a real kernel
+// EMFILE, named on the tool result surface the worker sees.
+func TestToolBashNamesBwrapExecStartSite(t *testing.T) {
+	requireTrustedContainment(t)
+	invocation, _, _ := memoryInvocationFixture(t)
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	warmUpBashSandbox(t, session)
+	withReducedNoFileLimit(t, 4)
+	result := executeToolJSON(t, session, "bash-exec-start", "Bash", map[string]any{
+		"script": "true",
+	})
+	envelope := sandboxStartDetailFromResult(t, result)
+	if envelope.Check != "sandbox_start.bwrap_exec_start" {
+		t.Fatalf("check = %q, content = %q", envelope.Check, result.Content)
+	}
+}
+
+// TestToolBashNamesProcessGroupHandshakeReadSite is the A1 proof for
+// tools_linux.go:570: a per-call context that expires a few milliseconds
+// after the sandboxed process starts - long enough for command.Start to
+// succeed, far short of readSandboxProcessGroup's processTerminationGrace
+// window - kills bwrap before it reports its child PID, so the handshake
+// read fails distinctly from a failed exec (site 5). Unlike every other
+// site, no cause is asserted: readSandboxProcessGroup's own raise sites
+// live in aws_chain_linux.go, out of this slice's scope, and already
+// flatten to a bare PROCESS_START_FAILED before this call site ever sees
+// the underlying JSON/syscall error (see the comment at the call site).
+func TestToolBashNamesProcessGroupHandshakeReadSite(t *testing.T) {
+	requireTrustedContainment(t)
+	invocation, _, _ := memoryInvocationFixture(t)
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	warmUpBashSandbox(t, session)
+	body, err := json.Marshal(map[string]any{"script": "sleep 1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The provocation must land a kill after command.Start succeeds and
+	// before bwrap writes its info-fd JSON. That window is milliseconds of
+	// namespace setup on a slow host and sub-millisecond on a warm one, so
+	// no fixed context deadline hits it portably. Instead a watcher SIGKILLs
+	// the bwrap child the instant it appears in the process table: the dying
+	// process closes the info fd before reporting, and the handshake read
+	// fails by the distinct mechanism under test. If the kill occasionally
+	// lands after the report instead, that attempt takes a different path
+	// and the next attempt retries; a regression that stops naming the site
+	// fails every attempt and still reds.
+	var last providerToolResult
+	for attempt := 0; attempt < 10; attempt++ {
+		taskDirs, _ := os.ReadDir("/proc/self/task")
+		childrenPaths := make([]string, 0, len(taskDirs))
+		for _, task := range taskDirs {
+			childrenPaths = append(
+				childrenPaths,
+				"/proc/self/task/"+task.Name()+"/children",
+			)
+		}
+		baseline := map[string]bool{}
+		for _, path := range childrenPaths {
+			listing, _ := os.ReadFile(path)
+			for _, pid := range strings.Fields(string(listing)) {
+				baseline[pid] = true
+			}
+		}
+		stop := make(chan struct{})
+		go func() {
+			// Tight sweep over the per-thread children lists: a handful of
+			// small reads per iteration, so the SIGKILL lands microseconds
+			// after fork instead of after a full /proc walk.
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				for _, path := range childrenPaths {
+					listing, readErr := os.ReadFile(path)
+					if readErr != nil {
+						continue
+					}
+					for _, pid := range strings.Fields(string(listing)) {
+						if baseline[pid] {
+							continue
+						}
+						target, convErr := strconv.Atoi(pid)
+						if convErr == nil {
+							_ = syscall.Kill(target, syscall.SIGKILL)
+						}
+						return
+					}
+				}
+			}
+		}()
+		result := session.execute(context.Background(), providerToolCall{
+			ID:        fmt.Sprintf("bash-handshake-%d", attempt),
+			Name:      "Bash",
+			Arguments: body,
+		})
+		close(stop)
+		last = result
+		if !result.Failed {
+			continue
+		}
+		if !strings.HasPrefix(
+			string(result.Content), "error:PROCESS_START_FAILED detail=",
+		) {
+			continue
+		}
+		envelope := sandboxStartDetailFromResult(t, result)
+		if envelope.Check == "sandbox_start.process_group_handshake_read" {
+			return
+		}
+	}
+	t.Fatalf(
+		"no attempt named the handshake-read site; last content = %q",
+		string(last.Content),
+	)
 }

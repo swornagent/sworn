@@ -1,0 +1,64 @@
+{
+ "outcome": "The automation lane stops telling a worker its binding was wrong when the binding was never the problem: AUTOMATION_BINDING_MISMATCH stops standing for three unrelated failures and a fourth unrelated condition, a refused recovery decision names which field disagreed, and the recovery lane's escalation path becomes usable again - closing sworn#250, where a worker reported copying its binding verbatim, was told the binding mismatched, and could not have been right or wrong because the decide tool has no binding field at all.",
+ "scope": {
+  "include": [
+   "internal/driver"
+  ],
+  "exclude": [
+   "the recovery decision vocabulary and the actions a recovery role may take (ValidateRecoveryDecision's rules are correct; this slice is about how their refusal is reported, not what they permit)",
+   "the automation invocation identity derivation itself (automationInvocationID in internal/runtime is the sole producer and stays as it is; this slice does not introduce a second derivation)",
+   "the exactly-once accounting that makes a recovery decision callable once (untouched: a worker that is refused legibly must still not get a second decision it did not earn)",
+   "the submission and sandbox refusal boundaries (sworn#245 and sworn#251 are the same shape at their own seams and are separate slices in this release)"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach internal/driver by import only; no cmd test pins automation decision validation"
+   },
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach internal/driver by import only; no cockpit test pins automation decision validation"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach internal/driver via internal/cockpit by import only; no observe test pins automation decision validation"
+   },
+   {
+    "package": "internal/runtime",
+    "reason": "its tests reach internal/driver by import only; no runtime test pins the automation decision decode path"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach internal/driver via internal/cockpit by import only; no tui test pins automation decision validation"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "One code stops meaning four things. decodeAutomationTerminal's recovery branch (internal/driver/automation.go:777-781) today collapses a JSON decode failure, a ValidateRecoveryDecision failure, and an invocation-id mismatch into a single AUTOMATION_BINDING_MISMATCH, its advisory sibling (:804-806) does the same, and validateAutomationInvocation (:394-396) raises the identical code for a profile-or-model selection mismatch that has nothing to do with a binding. After this slice each of those conditions is distinguishable on the durable record, and a decision refused for its shape is never reported as a binding problem. Pinned by tests over each condition asserting distinct, accurate reporting."
+  },
+  {
+   "id": "A2",
+   "text": "A refused decision names what to change. The refusal a recovery worker receives - fed back as error text at internal/driver/automation.go:718-723 and its native equivalent at native_linux.go:298-308 - names the field or rule that refused, so the sworn#250 worker's position becomes impossible: it reported copying the invocation_id and binding verbatim and being told the binding mismatched, when the decide tool's own schema (swornRecoveryDecisionInputSchema, automation.go:27) admits only schema_version, invocation_id, action and answer with additionalProperties false. It had no binding to copy, and an unrelated shape rule - ask_captain carrying an answer, or resume_worker carrying none (automation.go:184-203) - is the likely refusal it was never told about. Pinned by a test that submits each shape violation and finds the violated rule named."
+  },
+  {
+   "id": "A3",
+   "text": "The identity check says what it actually checks. Validation compares the echoed invocation_id to the process-local copy by string equality and never re-derives it from the binding, so no worker can compute or verify the relationship: the honest report for a mismatch names the echoed identity as wrong, not the binding as mismatched. The duplicate post-hoc check in ValidateAutomationObservation (automation.go:421-426) raises a different code, INVALID_AUTOMATION_OBSERVATION, for the identical condition; after this slice the same condition reports the same way from both sites. Pinned by a test asserting a wrong echoed identity reports identically through the decode path and the observation-validation path."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./internal/driver",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools"
+ ],
+ "constraints": [
+  "Legibility must not widen admission: every decision refused today is still refused, and a worker learning why must never become a worker learning how to get an unearned decision accepted. The exactly-once property of a recovery decision is untouched.",
+  "No second derivation of the automation invocation identity is introduced. The defect is that a refusal misnames itself, not that the identity is computed in the wrong place; adding a second producer would create the drift class this project has already paid for repeatedly.",
+  "A refusal message quotes rule and field names, never the worker's submitted payload, so the error channel cannot be used as an echo surface.",
+  "Existing contract codes remain valid values on the wire. Conditions gain accurate reporting; a caller or classifier that matches on AUTOMATION_BINDING_MISMATCH for a genuine binding mismatch continues to see it."
+ ],
+ "depends_on": [],
+ "consumes": []
+}

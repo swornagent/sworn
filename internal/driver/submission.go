@@ -70,8 +70,23 @@ const (
 	DecisionBlocked  DecisionOutcome = "blocked"
 )
 
+// DecisionFailScope qualifies a WorkVerification fail. It is additive: it
+// never introduces a new terminal state alongside DecisionOutcome's six
+// values, and every existing outcome-branching consumer is unaffected.
+type DecisionFailScope string
+
+const (
+	FailScopeUnspecified DecisionFailScope = ""
+	FailScopeEvidence    DecisionFailScope = "evidence"
+)
+
+func (scope DecisionFailScope) valid() bool {
+	return scope == FailScopeUnspecified || scope == FailScopeEvidence
+}
+
 type Decision struct {
-	Outcome DecisionOutcome `json:"outcome"`
+	Outcome DecisionOutcome   `json:"outcome"`
+	Scope   DecisionFailScope `json:"scope,omitempty"`
 }
 
 func NewDecision(outcome DecisionOutcome) (*Decision, error) {
@@ -171,7 +186,7 @@ func DecodeSubmission(body []byte) (Submission, error) {
 		}
 	}
 	if root["decision"] != nil {
-		if _, err := closedObject(root["decision"], []string{"outcome"}, nil); err != nil {
+		if _, err := closedObject(root["decision"], []string{"outcome"}, []string{"scope"}); err != nil {
 			return Submission{}, err
 		}
 	}
@@ -190,77 +205,115 @@ func DecodeSubmission(body []byte) (Submission, error) {
 
 func ValidateSubmission(submission Submission) error {
 	if submission.SchemaVersion != SubmissionSchemaVersion {
-		return fail("INVALID_VERSION")
+		return submissionValidateError("INVALID_VERSION", "schema_version")
 	}
 	if err := validateIdentity(submission.InvocationID); err != nil {
-		return err
+		return submissionValidateWrap(err, "invocation_id")
 	}
 	if !submission.Responsibility.valid() {
-		return fail("INVALID_RESPONSIBILITY")
+		return submissionValidateError("INVALID_RESPONSIBILITY", "responsibility")
 	}
 	if !utf8.ValidString(submission.Summary) ||
 		len([]byte(submission.Summary)) > MaxSubmissionSummaryBytes ||
 		strings.TrimSpace(submission.Summary) == "" {
-		return fail("INVALID_SUMMARY")
+		return submissionValidateError("INVALID_SUMMARY", "summary")
 	}
 	if err := validateSubmissionDetail(submission.Detail); err != nil {
-		return err
+		return submissionValidateWrap(err, "detail")
 	}
 	if submission.Plan != nil {
 		if err := validateExactBytes(*submission.Plan, MaxPlanBytes, true); err != nil {
-			return err
+			return submissionValidateWrap(err, "plan")
 		}
 		planBody, _ := base64.StdEncoding.Strict().DecodeString(submission.Plan.Bytes)
 		if err := validatePlanBytes(planBody); err != nil {
-			return err
+			return submissionValidateWrap(err, "plan")
 		}
 	}
 	if submission.Checks != nil {
 		if err := validateExactBytes(*submission.Checks, MaxCheckBytes, false); err != nil {
-			return err
+			return submissionValidateWrap(err, "checks")
 		}
 	}
-	if submission.Decision != nil && !submission.Decision.Outcome.valid() {
-		return fail("INVALID_DECISION")
+	if submission.Decision != nil &&
+		(!submission.Decision.Outcome.valid() || !submission.Decision.Scope.valid()) {
+		return submissionValidateError("INVALID_DECISION", "decision")
 	}
 	for path, contract := range submission.Contracts {
 		if validateText(path, MaxToolPathBytes, false) != nil || contract == nil {
-			return fail("INVALID_EXACT_BYTES")
+			return submissionValidateError("INVALID_EXACT_BYTES", "contracts entry")
 		}
 		if err := validateExactBytes(*contract, MaxPlanBytes, true); err != nil {
-			return err
+			return submissionValidateWrap(err, "contracts entry")
 		}
 	}
 
 	switch submission.Responsibility {
 	case PlannerProposal:
-		if submission.Plan == nil || submission.Checks != nil || submission.Decision != nil {
-			return fail("SUBMISSION_SHAPE_MISMATCH")
+		switch {
+		case submission.Plan == nil:
+			return submissionShapeMismatch("plan")
+		case submission.Checks != nil:
+			return submissionShapeMismatch("checks")
+		case submission.Decision != nil:
+			return submissionShapeMismatch("decision")
 		}
 	case ImplementerDesign:
-		if submission.Plan != nil || submission.Checks != nil || submission.Decision != nil ||
-			submission.Contracts != nil {
-			return fail("SUBMISSION_SHAPE_MISMATCH")
+		switch {
+		case submission.Plan != nil:
+			return submissionShapeMismatch("plan")
+		case submission.Checks != nil:
+			return submissionShapeMismatch("checks")
+		case submission.Decision != nil:
+			return submissionShapeMismatch("decision")
+		case submission.Contracts != nil:
+			return submissionShapeMismatch("contracts")
 		}
 	case ImplementerImplementation:
-		if submission.Plan != nil || submission.Checks == nil || submission.Decision != nil ||
-			submission.Contracts != nil {
-			return fail("SUBMISSION_SHAPE_MISMATCH")
+		switch {
+		case submission.Plan != nil:
+			return submissionShapeMismatch("plan")
+		case submission.Checks == nil:
+			return submissionShapeMismatch("checks")
+		case submission.Decision != nil:
+			return submissionShapeMismatch("decision")
+		case submission.Contracts != nil:
+			return submissionShapeMismatch("contracts")
 		}
 	case CaptainReview, CaptainPlanReview:
-		if submission.Plan != nil || submission.Checks != nil ||
-			submission.Decision == nil || !submission.Decision.Outcome.captain() ||
-			submission.Contracts != nil {
-			return fail("SUBMISSION_SHAPE_MISMATCH")
+		switch {
+		case submission.Plan != nil:
+			return submissionShapeMismatch("plan")
+		case submission.Checks != nil:
+			return submissionShapeMismatch("checks")
+		case submission.Decision == nil:
+			return submissionShapeMismatch("decision")
+		case !submission.Decision.Outcome.captain():
+			return submissionShapeMismatch("decision")
+		case submission.Decision.Scope != FailScopeUnspecified:
+			return submissionShapeMismatch("decision")
+		case submission.Contracts != nil:
+			return submissionShapeMismatch("contracts")
 		}
 	case WorkVerification, AssemblyVerification:
-		if submission.Plan != nil || submission.Checks == nil ||
-			submission.Decision == nil || !submission.Decision.Outcome.verifier() ||
-			submission.Contracts != nil {
-			return fail("SUBMISSION_SHAPE_MISMATCH")
+		switch {
+		case submission.Plan != nil:
+			return submissionShapeMismatch("plan")
+		case submission.Checks == nil:
+			return submissionShapeMismatch("checks")
+		case submission.Decision == nil:
+			return submissionShapeMismatch("decision")
+		case !submission.Decision.Outcome.verifier():
+			return submissionShapeMismatch("decision")
+		case submission.Decision.Scope != FailScopeUnspecified &&
+			(submission.Responsibility != WorkVerification ||
+				submission.Decision.Outcome != DecisionFail):
+			return submissionShapeMismatch("decision")
+		case submission.Contracts != nil:
+			return submissionShapeMismatch("contracts")
 		}
 	default:
-		return fail("INVALID_RESPONSIBILITY")
+		return submissionValidateError("INVALID_RESPONSIBILITY", "responsibility")
 	}
 	return nil
 }
@@ -493,9 +546,11 @@ func (permission SubmissionPermission) validate(submission Submission) error {
 	if err := ValidateSubmission(submission); err != nil {
 		return err
 	}
-	if submission.InvocationID != permission.descriptor.InvocationID ||
-		submission.Responsibility != permission.descriptor.Responsibility {
-		return fail("SUBMISSION_BINDING_MISMATCH")
+	switch {
+	case submission.InvocationID != permission.descriptor.InvocationID:
+		return submissionPermissionMismatch("invocation_id")
+	case submission.Responsibility != permission.descriptor.Responsibility:
+		return submissionPermissionMismatch("responsibility")
 	}
 	return nil
 }

@@ -2294,7 +2294,8 @@ func (s *Service) advanceSlice(ctx context.Context, engine *engine, owner journa
 		appendErr := s.appendReceipt(ctx, engine, owner, state, before, baton.AppendReceiptInput{
 			Release: state.Release, Slice: sliceID, Role: "verifier",
 			Result: string(submission.Decision.Outcome), Summary: submission.Summary,
-			Detail: []byte(submission.Detail), Candidate: candidate, CheckResults: checks})
+			Detail: []byte(submission.Detail), Candidate: candidate, CheckResults: checks,
+			FailScope: string(submission.Decision.Scope)})
 		if appendErr != nil {
 			return discardVerifier(appendErr)
 		}
@@ -2411,7 +2412,9 @@ func (s *Service) implementSlice(ctx context.Context, engine *engine, owner jour
 			preparedWork = workIdentity(workID, "git.seal.prepared")
 			childEpoch, childTry = epoch, try
 		}
-		refresh := candidateHeadRefresh(state, slice)
+		headRefresh := candidateHeadRefresh(state, slice)
+		evidenceRefresh := !headRefresh && evidenceOnlyReseal(state, slice)
+		refresh := headRefresh || evidenceRefresh
 		cycle := implementationCycle{
 			Release: state.Release, GitIdentity: engine.manifest.value.GitIdentity, Slice: sliceID,
 			Binds: slice.CurrentReceipt.OID, Before: before,
@@ -2430,8 +2433,15 @@ func (s *Service) implementSlice(ctx context.Context, engine *engine, owner jour
 				childTry,
 			),
 		}
-		if refresh {
+		if headRefresh {
 			cycle.RefreshFrom = slice.CurrentReceipt.OID
+		} else if evidenceRefresh {
+			refreshFrom, err := evidenceResealBase(engine, slice)
+			if err != nil {
+				return err
+			}
+			cycle.RefreshFrom = refreshFrom.String()
+			cycle.RefreshEvidence = true
 		}
 		if len(slice.Location.Slice.Consumes) > 0 {
 			if slice.PreparedBase == "" ||
@@ -2923,9 +2933,14 @@ func sealedRecordFromCandidate(candidate gitx.SealedCandidate) sealedRecord {
 }
 
 func sealedRecordMatchesCycle(record sealedRecord, cycle implementationCycle) bool {
+	// The third conjunct is cycle self-consistency, not the authority check:
+	// an evidence-only reseal's RefreshFrom is necessarily an ancestor of
+	// Binds, never equal to it. The value's legitimacy for this slice is
+	// re-derived independently from fresh durable state in
+	// implementationRefreshBase and claimPreparedImplementation.
 	baseMatches := record.Before == cycle.TrackHead &&
 		record.RefreshFrom == cycle.RefreshFrom &&
-		(cycle.RefreshFrom == "" || cycle.RefreshFrom == cycle.Binds)
+		(cycle.RefreshFrom == "" || cycle.RefreshFrom == cycle.Binds || cycle.RefreshEvidence)
 	return record.Slice == cycle.Slice && record.Binds == cycle.Binds &&
 		baseMatches && record.Receipt.Release == cycle.Release &&
 		record.Receipt.Slice == cycle.Slice && record.Receipt.Role == "implementer" &&
@@ -3140,12 +3155,28 @@ func implementationRefreshBase(
 	}
 	current, ok := state.Slice(cycle.Slice)
 	track, trackOK := state.Track(cycle.Track)
-	if !ok || !trackOK ||
-		!candidateHeadRefresh(state, current) ||
-		current.CurrentReceipt == nil ||
-		current.CurrentReceipt.OID != cycle.Binds ||
-		current.CurrentReceipt.OID != cycle.RefreshFrom ||
-		track.Head != cycle.TrackHead {
+	if !ok || !trackOK || track.Head != cycle.TrackHead {
+		return gitx.OID{}, false, runtimeFail("STALE_DISPATCH", nil)
+	}
+	switch {
+	case !cycle.RefreshEvidence && candidateHeadRefresh(state, current):
+		if current.CurrentReceipt == nil ||
+			current.CurrentReceipt.OID != cycle.Binds ||
+			current.CurrentReceipt.OID != cycle.RefreshFrom {
+			return gitx.OID{}, false, runtimeFail("STALE_DISPATCH", nil)
+		}
+	case cycle.RefreshEvidence && evidenceOnlyReseal(state, current):
+		if current.CurrentReceipt == nil || current.CurrentReceipt.OID != cycle.Binds {
+			return gitx.OID{}, false, runtimeFail("STALE_DISPATCH", nil)
+		}
+		expected, err := evidenceResealBase(engine, current)
+		if err != nil {
+			return gitx.OID{}, false, err
+		}
+		if expected.String() != cycle.RefreshFrom {
+			return gitx.OID{}, false, runtimeFail("STALE_DISPATCH", nil)
+		}
+	default:
 		return gitx.OID{}, false, runtimeFail("STALE_DISPATCH", nil)
 	}
 	refreshFrom, err := gitx.ParseOID(
@@ -3183,8 +3214,10 @@ func (s *Service) claimPreparedImplementation(
 	scopeBase := prepared.Before.String()
 	if !prepared.RefreshFrom.IsZero() {
 		current, ok := state.Slice(cycle.Slice)
-		if !ok ||
-			!candidateHeadRefresh(state, current) ||
+		refreshEligible := ok &&
+			((!cycle.RefreshEvidence && candidateHeadRefresh(state, current)) ||
+				(cycle.RefreshEvidence && evidenceOnlyReseal(state, current)))
+		if !refreshEligible ||
 			prepared.RefreshFrom.String() != cycle.RefreshFrom ||
 			prepared.Before.String() != cycle.TrackHead {
 			return sealedRecord{}, journal.Claim{},

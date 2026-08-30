@@ -326,8 +326,8 @@ func (p *tuiAnswerProvider) serve(w http.ResponseWriter, r *http.Request) {
 					"schema_version": driver.SubmissionSchemaVersion,
 					"invocation_id":  prompt.InvocationID,
 					"responsibility": prompt.Responsibility,
-					"summary":        "Planner proposal",
-					"detail":         "Detail",
+					"summary":        "Planner proposal padded past the one-hundred-twenty-byte submission content floor for its scripted PTY coverage of the interactive worker loop.",
+					"detail":         "Detail for the scripted PTY planner turn. Padded past the two-hundred-byte submission detail content floor so this fixture clears A3 for its scripted PTY coverage of the interactive worker loop end to end.\n",
 				},
 			}
 		case driver.ImplementerDesign:
@@ -337,8 +337,8 @@ func (p *tuiAnswerProvider) serve(w http.ResponseWriter, r *http.Request) {
 					"schema_version": driver.SubmissionSchemaVersion,
 					"invocation_id":  prompt.InvocationID,
 					"responsibility": prompt.Responsibility,
-					"summary":        "Implementer design",
-					"detail":         "Detail",
+					"summary":        "Implementer design padded past the one-hundred-twenty-byte submission content floor for its scripted PTY coverage of the interactive worker loop.",
+					"detail":         "Detail for the scripted PTY implementer design turn. Padded past the two-hundred-byte submission detail content floor so this fixture clears A3 for its scripted PTY coverage of the interactive worker loop end to end.\n",
 				},
 			}
 		case driver.CaptainReview:
@@ -348,8 +348,8 @@ func (p *tuiAnswerProvider) serve(w http.ResponseWriter, r *http.Request) {
 					"schema_version": driver.SubmissionSchemaVersion,
 					"invocation_id":  prompt.InvocationID,
 					"responsibility": prompt.Responsibility,
-					"summary":        "Captain review",
-					"detail":         "Detail",
+					"summary":        "Captain review padded past the one-hundred-twenty-byte submission content floor for its scripted PTY coverage of the interactive worker loop.",
+					"detail":         "Detail for the scripted PTY captain review turn. Padded past the two-hundred-byte submission detail content floor so this fixture clears A3 for its scripted PTY coverage of the interactive worker loop end to end.\n",
 					"decision":       map[string]any{"outcome": "proceed"},
 				},
 			}
@@ -384,8 +384,8 @@ func (p *tuiAnswerProvider) serve(w http.ResponseWriter, r *http.Request) {
 							"schema_version": driver.SubmissionSchemaVersion,
 							"invocation_id":  prompt.InvocationID,
 							"responsibility": prompt.Responsibility,
-							"summary":        "Implementer implementation with answer",
-							"detail":         "Detail",
+							"summary":        "Implementer implementation with answer padded past the one-hundred-twenty-byte submission content floor for its scripted PTY coverage of the interactive worker loop.",
+							"detail":         "Detail for the scripted PTY implementer implementation turn. Padded past the two-hundred-byte submission detail content floor so this fixture clears A3 for its scripted PTY coverage of the interactive worker loop, well past the bound.\n",
 							"checks": map[string]any{
 								"byte_count": len(rawChecks),
 								"digest":     "sha256:" + hex.EncodeToString(sum[:]),
@@ -396,6 +396,14 @@ func (p *tuiAnswerProvider) serve(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		case driver.WorkVerification:
+			// S5-A3: a WorkVerification pass claim needs engine-recorded
+			// evidence covering the fixture plan's declared check ("true"),
+			// so the scripted verifier runs it and submits next turn.
+			if turn == 1 {
+				toolName = "Bash"
+				arguments = map[string]any{"script": "true"}
+				break
+			}
 			toolName = "sworn_submit"
 			rawChecks := []byte("work verification checks\n")
 			sum := sha256.Sum256(rawChecks)
@@ -404,8 +412,8 @@ func (p *tuiAnswerProvider) serve(w http.ResponseWriter, r *http.Request) {
 					"schema_version": driver.SubmissionSchemaVersion,
 					"invocation_id":  prompt.InvocationID,
 					"responsibility": prompt.Responsibility,
-					"summary":        "Work verification pass",
-					"detail":         "Detail",
+					"summary":        "Work verification pass padded past the one-hundred-twenty-byte submission content floor for its scripted PTY coverage of the interactive worker loop.",
+					"detail":         "Detail for the scripted PTY work verification turn. Padded past the two-hundred-byte submission detail content floor so this fixture clears A3 for its scripted PTY coverage of the interactive worker loop end to end.\n",
 					"decision":       map[string]any{"outcome": "pass"},
 					"checks": map[string]any{
 						"byte_count": len(rawChecks),

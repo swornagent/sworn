@@ -1,0 +1,68 @@
+{
+ "outcome": "A rejected submission tells the worker what refused it, so there is nothing left to bisect: the submit path names the failing field or bound back to the model in its correction, the correction loop stops treating the first schema-valid payload as the authoritative answer, and a payload whose own summary declares itself a probe can never seal as a design, an implementation, or a captain decision - closing sworn#245, whose six placeholder seals across four native-lane-honesty runs included a captain PROCEED whose entire content was the string \"probe: minimal submission to isolate field validation\".",
+ "scope": {
+  "include": [
+   "internal/driver"
+  ],
+  "exclude": [
+   "the provider-side tool schema and the sworn_submit input schema string (unchanged; this slice changes what a rejection says, not what a submission may contain)",
+   "the yield path and its recoverable-input shapes (a yield is not a submission and its correction accounting is R3-S7's seam)",
+   "operator patch 8 as it stands (the content floor is the seed for A3, not the mechanism: a floor raises the price of probing and the native-lane-honesty run showed the next probe simply padded past it)",
+   "the automation and sandbox refusal boundaries (sworn#250 and sworn#251 are the same shape at different seams and are their own slices in this release)"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach internal/driver by import only; no cmd test pins submission validation or correction accounting"
+   },
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach internal/driver by import only; no cockpit test pins submission validation"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach internal/driver via internal/cockpit by import only; no observe test pins submission validation"
+   },
+   {
+    "package": "internal/runtime",
+    "reason": "its tests reach internal/driver by import only; no runtime test pins submission validation or the correction loop"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach internal/driver via internal/cockpit by import only; no tui test pins submission validation"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "A rejection names what refused it. Every refusal path in toolSession.submit (internal/driver/tools.go, from the decodeStrict bound through closedObject, materializeExactBytesPaths, decodeToolSubmission, the planner scope-lint branch, EncodeSubmission, Permission.validate and the YIELD_FIRST_REQUIRED branch) returns, through rejectSubmission, a correction the model can act on: which field, or which bound, refused - not a bare code. The bisecting behaviour this slice exists to remove is a rational response to an unnamed refusal, so the measure of A1 is that a worker never needs a second submission to learn what was wrong with the first. Pinned by tests over each refusal branch asserting the named field or bound reaches the correction the model receives."
+  },
+  {
+   "id": "A2",
+   "text": "A probe cannot become a work product. The correction loop stops treating the first schema-valid payload as the final answer: a submission whose own summary or detail declares it a probe or a test of the submit surface is refused as a correction rather than sealed, and never becomes a sealed_driver_handoff. The models are already honest about this - every one of the six native-lane-honesty placeholder seals said so in its own summary field (\"test\", and \"probe: minimal submission to isolate field validation\" on the captain review that then sealed as a PROCEED) - so the engine reading its own record is the whole mechanism. Pinned by a test that submits each of the observed real-world probe payloads verbatim and finds a correction and no seal."
+  },
+  {
+   "id": "A3",
+   "text": "A content floor stays as defence in depth, and says so. The operator patch carried during native-lane-honesty (a floor rejecting a summary under 120 bytes or a detail under 200 bytes for planner_proposal, implementer_design, implementer_implementation, captain_review and work_verification, via the bounded-correction path, with assembly_verification exempt) lands as product with its refusal named per A1. It is explicitly the second line, not the first: the release's own evidence is that a floor alone is insufficient, because the next probe padded past it while self-declaring as \"isolation test summary padded to reasonable length to avoid floor issues\". Pinned by tests over the floor boundaries and by a test asserting a padded self-declared probe is still refused by A2."
+  },
+  {
+   "id": "A4",
+   "text": "Corrections stay bounded and honest. A refusal that names a field consumes one bounded correction and keeps the session alive exactly as rejectSubmission does today (internal/driver/tools.go, submitCorrections against MaxSubmissionCorrections), never consumes a dispatch try, and never converts a nameable refusal into a terminal SUBMISSION_CORRECTIONS_EXHAUSTED that a worker could not have avoided. Every correction is durably accounted on the existing recovery-step surface so the operator can see a worker being told the same thing repeatedly. Pinned by a test asserting a named refusal costs one correction and no try, and that a worker acting on the name succeeds on its next submission."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./internal/driver",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools"
+ ],
+ "constraints": [
+  "A named refusal must not become a wider admission. Every check that refuses today still refuses after this slice; the only change is that the refusal says why. A reader must be able to confirm from the diff that no validation was relaxed to make a message easier to produce.",
+  "The name reaches the model, not only the journal. A refusal whose detail is durable but invisible to the worker leaves the bisecting incentive exactly where it was, which is the defect.",
+  "No submitted byte is trusted on the way back out: a refusal message may quote a field name or a bound, never the offending payload content, so a malformed or hostile submission cannot use the correction channel as an echo surface.",
+  "The probe guard reads the worker's own declaration, never a heuristic about quality. Refusing short or unhelpful work is A3's bounded floor; A2 refuses only a payload that says of itself that it is a probe or a test of the submit surface, so honest short work is never silently discarded as suspected probing."
+ ],
+ "depends_on": [],
+ "consumes": []
+}

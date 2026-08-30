@@ -137,8 +137,10 @@ func TestDriverLivePlannerProposalScopeLintRefusalAndWaiver(t *testing.T) {
 		Name:      "sworn_submit",
 		Arguments: rawArgs,
 	})
-	if !res.Failed || string(res.Content) != "error:UNDER_DERIVED_SCOPE" {
-		t.Fatalf("expected error:UNDER_DERIVED_SCOPE, got: failed=%v content=%s", res.Failed, string(res.Content))
+	wantScopeLintContent := "error:UNDER_DERIVED_SCOPE detail=" +
+		submissionRefusalDetailBytes("submit.plan_scope_lint", "", "", []string{"internal/driver"})
+	if !res.Failed || string(res.Content) != wantScopeLintContent {
+		t.Fatalf("expected %s, got: failed=%v content=%s", wantScopeLintContent, res.Failed, string(res.Content))
 	}
 
 	// 2. Waived plan: touches internal/baton, with waiver for internal/driver

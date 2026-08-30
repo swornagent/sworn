@@ -1,0 +1,73 @@
+{
+ "outcome": "A guard that cannot run stops passing for one: a test that pins a named acceptance criterion fails loudly where it would have skipped, host-keyed fixtures stop being the only path to the surfaces they guard, and a verifier's check evidence carries provenance - which command ran, where, and what it actually observed - so \"the checks passed\" can no longer stand in for \"the criterion was exercised\", closing sworn#249 and the fourth instance of a class that has now cost two releases.",
+ "scope": {
+  "include": [
+   "internal/driver",
+   "internal/baton"
+  ],
+  "exclude": [
+   "the multi-verifier fan-out and stakes-gated verify topology (the in-engine-learning spec sequences it after the substrate is stable; this slice makes a single verifier's evidence honest, which is its prerequisite)",
+   "rewriting the existing driver test corpus (the skip-prone fixtures are made honest and given a non-host path; converting every test that uses them is not this slice's work)",
+   "the vendor CLI closure and pin policy themselves (R5-S1 settled admission; this slice is about tests that cannot reach it, not about what it admits)",
+   "CI workflow configuration (a loud skip must be visible wherever the suite runs, including locally; making it a workflow concern would leave the operator host blind, which is where the native-lane-honesty instance was missed)"
+  ],
+  "waivers": [
+   {
+    "package": "cmd/sworn",
+    "reason": "its tests reach internal/driver and internal/baton by import only; no cmd test pins skip policy or check-evidence provenance"
+   },
+   {
+    "package": "internal/cockpit",
+    "reason": "its tests reach internal/driver by import only; no cockpit test pins skip policy or check evidence"
+   },
+   {
+    "package": "internal/observe",
+    "reason": "its tests reach internal/driver via internal/cockpit by import only; no observe test pins skip policy"
+   },
+   {
+    "package": "internal/runtime",
+    "reason": "its tests reach internal/driver and internal/baton by import only; no runtime test pins skip policy or check-evidence provenance"
+   },
+   {
+    "package": "internal/skill",
+    "reason": "its tests reach internal/baton by import only; no skill test pins verification evidence or the remediation transition"
+   },
+   {
+    "package": "internal/tui",
+    "reason": "its tests reach internal/driver via internal/cockpit by import only; no tui test pins skip policy"
+   },
+   {
+    "package": "tools/batongolden",
+    "reason": "its tests reach internal/baton by import only; it regenerates baton golden fixtures and pins no behaviour this slice changes"
+   }
+  ]
+ },
+ "acceptance": [
+  {
+   "id": "A1",
+   "text": "A criterion-guarding test cannot skip silently. The eleven t.Skip sites in the internal/driver test corpus are triaged into two kinds and treated differently: an environment-optional test may still skip, and a test that is the pin for a named acceptance criterion fails instead, naming the criterion it was supposed to exercise. The two host-keyed fixture roots are the live case - exactNativeConfigFixture skips whenever exactClaudeBinary or exactCodexBinary is absent (internal/driver/native_linux_test.go:28-29, hardcoded paths under a single operator's snap and nvm trees) - and sworn#248 shipped unguarded through exactly that door: the only test near the certify credential branch skipped everywhere, including CI and including the operator host that authored it. Pinned by a test asserting a criterion-guarding fixture reports a failure, not a skip, when its precondition is absent."
+  },
+  {
+   "id": "A2",
+   "text": "A criterion has a path that runs everywhere. Any acceptance criterion whose only pin today is a host-keyed fixture gains a test built on an in-repo fixture that runs on any host - the pattern proven while fixing sworn#248, where the certify guard was rebuilt on the nativecontinuation probe after the house fixture silently skipped, and the probe was taught to answer --version so it could clear the readiness gate ahead of the branch under test. The host-keyed fixtures remain for what genuinely needs a real vendor binary; they stop being the sole guard for anything. Pinned by the certify-path guard and the native readiness guards running green on a host with neither vendor CLI present."
+  },
+  {
+   "id": "A3",
+   "text": "Check evidence carries provenance. A verification submission's checks payload records, for each listed command, that it ran and what was observed - not only a pass verdict - so a verifier's claim is auditable against the contract's own checks list rather than taken on trust. The class this closes is four instances deep: R3-S1's credential-preflight tests were defective from birth and silently skipped by the verifier environment, R3-S7 and R3-S8 carried check evidence that could not have come from a clean listed-command run, R3's assembly verification did not execute the full suite, and R5-S4's signalled-child acceptance was pinned by a fixture that could never reach the classifier it named. Pinned by a test over the evidence shape and by a verification whose evidence omits a listed command being refused."
+  }
+ ],
+ "checks": [
+  "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+  "GOFLAGS=-buildvcs=false go test -count=1 -race ./internal/driver ./internal/baton",
+  "GOFLAGS=-buildvcs=false go vet ./...",
+  "gofmt -l ./cmd ./internal ./tools"
+ ],
+ "constraints": [
+  "A loud skip must not become a broken suite on an ordinary host. The triage is the substance of A1: an environment-optional test that legitimately cannot run anywhere but one machine stays a skip, and only a criterion's designated pin is promoted to a failure. Getting this wrong in the permissive direction reproduces the defect; getting it wrong in the strict direction makes the suite unrunnable and will be worked around, which reproduces it too.",
+  "Provenance is evidence, not attestation theatre: a recorded command and its observed output are facts a reader can check against the contract's checks list, and nothing in this slice asks a worker to assert its own honesty. A verifier that cannot produce provenance must be able to say so and fail honestly rather than fabricate it.",
+  "No acceptance criterion loses a guard during the change. Where a host-keyed test is replaced by an in-repo one, the new guard must be shown to fail against the pre-fix code for the criterion it pins - the discipline used on sworn#248, where reverting the fix produced exactly the reported symptom before the test was trusted.",
+  "This slice adds no new dependency and no network access to the test corpus: an in-repo fixture is built from the repository's own testdata, never fetched."
+ ],
+ "depends_on": [],
+ "consumes": []
+}
