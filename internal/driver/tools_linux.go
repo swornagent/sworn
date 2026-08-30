@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"time"
 	"unicode/utf8"
 
 	"github.com/swornagent/sworn/internal/gitx"
@@ -537,41 +538,71 @@ func runToolBash(
 		"--setenv", "TZ", "UTC",
 		shell, "-eu", "-c", script,
 	)
-	command := exec.CommandContext(ctx, bwrap, arguments...)
-	command.Env = []string{}
-	statusReader, statusWriter, err := os.Pipe()
-	if err != nil {
-		return nil, 0, failSandboxStart("sandbox_start.status_pipe_create", err)
-	}
-	defer statusReader.Close()
-	defer statusWriter.Close()
-	command.ExtraFiles = append(
-		[]*os.File{workspace, inputs, statusWriter}, maskFiles...,
-	)
-	command.SysProcAttr = linuxSandboxProcessAttributes()
-	command.WaitDelay = processTerminationGrace
-	var output boundedBuffer
-	output.maximum = MaxBashCombinedOutput
-	output.retain = MaxBashCombinedOutput
-	command.Stdout = &output
-	command.Stderr = &output
-	if err := command.Start(); err != nil {
-		return nil, 0, failSandboxStart("sandbox_start.bwrap_exec_start", err)
-	}
-	_ = statusWriter.Close()
-	_, group, statusErr := readSandboxProcessGroup(
-		statusReader,
-		command.Process.Pid,
-	)
-	_ = statusReader.Close()
-	if statusErr != nil {
+	// The launch is attempt-scoped (sworn#251): a launcher that exits
+	// cleanly, with its own nonzero status, before reporting its child died
+	// during its own namespace/mount setup, before the fork - the report is
+	// written immediately after the fork, so in this mode no child ever
+	// existed and a bounded retry cannot double-execute the script. That is
+	// the load-transient CI class: a busy runner starving bwrap's setup.
+	// Two quiet retries absorb it; every other failure mode - a signal
+	// death (the one window where a forked child may have started), a dead
+	// reported child, a child never scheduled onto its own group within
+	// processStartHandshakeGrace - still refuses immediately, and the
+	// refusal now names which of the handshake's modes refused alongside
+	// the site.
+	var command *exec.Cmd
+	var group int
+	var output *boundedBuffer
+	for attempt := 0; ; attempt++ {
+		command = exec.CommandContext(ctx, bwrap, arguments...)
+		command.Env = []string{}
+		statusReader, statusWriter, pipeErr := os.Pipe()
+		if pipeErr != nil {
+			return nil, 0, failSandboxStart("sandbox_start.status_pipe_create", pipeErr)
+		}
+		command.ExtraFiles = append(
+			[]*os.File{workspace, inputs, statusWriter}, maskFiles...,
+		)
+		command.SysProcAttr = linuxSandboxProcessAttributes()
+		command.WaitDelay = processTerminationGrace
+		output = &boundedBuffer{
+			maximum: MaxBashCombinedOutput,
+			retain:  MaxBashCombinedOutput,
+		}
+		command.Stdout = output
+		command.Stderr = output
+		startErr := command.Start()
+		_ = statusWriter.Close()
+		if startErr != nil {
+			_ = statusReader.Close()
+			return nil, 0, failSandboxStart("sandbox_start.bwrap_exec_start", startErr)
+		}
+		var statusErr error
+		_, group, statusErr = readSandboxProcessGroup(
+			statusReader,
+			command.Process.Pid,
+		)
+		_ = statusReader.Close()
+		if statusErr == nil {
+			break
+		}
 		_ = syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
-		_ = command.Wait()
-		// readSandboxProcessGroup (aws_chain_linux.go, out of this slice's
-		// scope) already flattens its own JSON/syscall failure to a bare
-		// PROCESS_START_FAILED, so no kernel cause survives to extract
-		// here: this site's Detail carries its distinct name only.
-		return nil, 0, failSandboxStart("sandbox_start.process_group_handshake_read", statusErr)
+		waitErr := command.Wait()
+		var exitErr *exec.ExitError
+		cleanSetupExit := statusErr == errSandboxGroupReportMissing &&
+			errorsAs(waitErr, &exitErr) && exitErr.ExitCode() > 0
+		if cleanSetupExit && attempt < 2 {
+			time.Sleep(time.Duration(attempt+1) * 100 * time.Millisecond)
+			continue
+		}
+		cause := statusErr.Error()
+		if cleanSetupExit {
+			cause = cause + "; launcher exit status " +
+				itoa(exitErr.ExitCode()) + " after " +
+				itoa(attempt+1) + " attempts"
+		}
+		return nil, 0, failSandboxStartCause(
+			"sandbox_start.process_group_handshake_read", cause)
 	}
 	runErr := command.Wait()
 	_ = syscall.Kill(-group, syscall.SIGTERM)

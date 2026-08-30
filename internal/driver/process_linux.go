@@ -20,6 +20,16 @@ import (
 
 const processTerminationGrace = 250 * time.Millisecond
 
+// processStartHandshakeGrace bounds how long a freshly started sandbox's
+// child may take to leave the parent's process group. It is deliberately
+// much longer than processTerminationGrace: the poll exits the moment the
+// group changes (healthy child, typically single-digit milliseconds) or the
+// child dies (Getpgid errors), so the full window is only ever burned by a
+// child that exists but is never scheduled - and a loaded CI runner can
+// starve a fresh fork well past 250ms, which made this exact site the
+// dominant spurious PROCESS_START_FAILED in CI (sworn#251).
+const processStartHandshakeGrace = 10 * time.Second
+
 // testUncontainedDispatch is the link-time test-only gate for the uncontained
 // dispatch branch, mirroring the established runtime.testHooksFromEnv pattern.
 // A production build links the zero value (""), which has no manifest, config,

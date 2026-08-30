@@ -98,6 +98,22 @@ func failSandboxStart(check string, cause error) error {
 	}
 }
 
+// failSandboxStartCause is failSandboxStart for the handshake site, whose
+// sub-causes are the engine's own static sentences (which handshake mode
+// refused, plus the launcher's bare exit status and attempt count) rather
+// than a kernel errno - path-free by construction, so the no-err.Error()
+// rule sandboxStartCause enforces for wrapped kernel errors does not apply.
+// The bound and the funnel revalidation are the same.
+func failSandboxStartCause(check string, cause string) error {
+	if validateText(cause, maxSandboxStartCauseBytes, false) != nil {
+		cause = ""
+	}
+	return &ContractError{
+		Code:   "PROCESS_START_FAILED",
+		Detail: sandboxStartDetailBytes(check, cause),
+	}
+}
+
 // revalidateSandboxStartDetail structurally re-validates a PROCESS_START_FAILED
 // Detail at the normalizeAdapterError funnel: it must decode as the closed
 // envelope shape, name a check in the closed vocabulary, and (when present)

@@ -5,6 +5,7 @@ package driver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -186,6 +187,26 @@ func equalStrings(left, right []string) bool {
 	return true
 }
 
+// The handshake's three failure modes are materially distinct and the raise
+// sites keep them distinguishable for the caller (sworn#251): a report that
+// never arrived means the launcher died during setup, before forking its
+// child - the only mode a caller may safely retry, because no child ever ran;
+// a group probe error means the reported child died immediately; and an
+// unchanged group after the start grace means a live child was never
+// scheduled onto its own group, which no healthy host produces even under
+// heavy load at processStartHandshakeGrace.
+var (
+	errSandboxGroupReportMissing = errors.New(
+		"sandbox launcher exited before reporting its child",
+	)
+	errSandboxChildUnprobeable = errors.New(
+		"sandbox child process group unprobeable",
+	)
+	errSandboxGroupUnchanged = errors.New(
+		"sandbox child never left the parent process group",
+	)
+)
+
 func readSandboxProcessGroup(
 	reader *os.File,
 	parentPID int,
@@ -198,16 +219,19 @@ func readSandboxProcessGroup(
 	}
 	if err := json.NewDecoder(reader).Decode(&status); err != nil ||
 		status.ChildPID <= 0 {
-		return 0, 0, fail("PROCESS_START_FAILED")
+		return 0, 0, errSandboxGroupReportMissing
 	}
 	group, err := syscall.Getpgid(status.ChildPID)
-	deadline := time.Now().Add(processTerminationGrace)
+	deadline := time.Now().Add(processStartHandshakeGrace)
 	for err == nil && group == parentPID && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 		group, err = syscall.Getpgid(status.ChildPID)
 	}
-	if err != nil || group <= 0 || group == parentPID {
-		return 0, 0, fail("PROCESS_START_FAILED")
+	if err != nil || group <= 0 {
+		return 0, 0, errSandboxChildUnprobeable
+	}
+	if group == parentPID {
+		return 0, 0, errSandboxGroupUnchanged
 	}
 	return status.ChildPID, group, nil
 }
