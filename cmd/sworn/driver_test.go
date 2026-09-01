@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/swornagent/sworn/internal/driver"
@@ -164,4 +165,28 @@ func driverCLIConfigFixture(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return pathValue
+}
+
+// sworn#267: a registry-build failure that is not an unknown profile - here
+// --all's all-families production requirement against a single-profile
+// config - must not masquerade as "profile not found"; the operator would
+// debug the wrong thing.
+func TestDriverAllRegistryFailureIsNotReportedAsProfileNotFound(t *testing.T) {
+	t.Setenv("SWORN_TEST_OPENAI_KEY", "")
+	configPath := driverCLIConfigFixture(t)
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{
+		"driver", "doctor", "--config", configPath, "--all", "--json",
+	}, &stdout, &stderr); code != 1 {
+		t.Fatalf("doctor --all = %d, want 1; stderr=%q", code, stderr.String())
+	}
+	message := stderr.String()
+	if strings.Contains(message, "Could not find that profile and model") {
+		t.Fatalf("registry-build failure misreported as profile not found: %s", message)
+	}
+	if !strings.Contains(message, "could not be built into a driver registry") ||
+		!strings.Contains(message, "MISSING_PROFILE_FAMILY") {
+		t.Fatalf("registry-build failure not reported honestly with its code: %s", message)
+	}
 }

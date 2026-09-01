@@ -31,8 +31,8 @@ func runDriver(args []string, stdout, stderr io.Writer) int {
 	if !ok {
 		fmt.Fprintln(
 			stderr,
-			"usage: sworn driver inspect|doctor|certify --config ABS "+
-				"(--profile PROFILE --model MODEL | --all) --json",
+			"usage: sworn driver inspect|doctor|certify --config ABS --json "+
+				"(--profile PROFILE --model MODEL | --all)",
 		)
 		return 2
 	}
@@ -69,12 +69,17 @@ func runDriver(args []string, stdout, stderr io.Writer) int {
 		)
 	}
 	if err != nil {
-		writeCommandFailure(
-			stderr,
-			"driver "+command,
-			"Could not find that profile and model in the AI connection configuration.",
-			err,
-		)
+		// Only a genuinely unknown profile is a "not found" (sworn#267):
+		// every other build failure - an inadmissible adapter, a family
+		// missing from --all's production roster - must not masquerade as
+		// one, or the operator debugs the wrong thing.
+		message := "The AI connection configuration could not be built" +
+			" into a driver registry."
+		if commandErrorCode(err) == "UNKNOWN_PROFILE" {
+			message = "Could not find that profile and model" +
+				" in the AI connection configuration."
+		}
+		writeCommandFailure(stderr, "driver "+command, message, err)
 		return 1
 	}
 

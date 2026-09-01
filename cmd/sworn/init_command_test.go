@@ -72,22 +72,32 @@ func setupMockAgentAndEnvironment(t *testing.T) (string, string) {
 	t.Helper()
 	temp := t.TempDir()
 
-	// Mock runtime targets
-	var targets []string
-	for i, name := range []string{"hosts", "nsswitch.conf", "resolv.conf", "ca-certificates.crt"} {
-		path := filepath.Join(temp, "etc", name)
+	// Mock runtime files: the CANONICAL targets stay (native adapter
+	// admission requires the four /etc names verbatim, and init now
+	// round-trips its scaffold through that admission - sworn#267), while
+	// resolution is redirected to hermetic fixture files so no host /etc
+	// content leaks into the pinned digests.
+	backing := make(map[string]string, len(initRuntimeTargets))
+	for i, target := range initRuntimeTargets {
+		path := filepath.Join(temp, "etc", filepath.Base(target))
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(path, []byte(fmt.Sprintf("mock target %d\n", i)), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		targets = append(targets, path)
+		backing[target] = path
 	}
-	oldTargets := initRuntimeTargets
-	initRuntimeTargets = targets
+	oldResolve := initResolveRuntimePath
+	initResolveRuntimePath = func(target string) (string, error) {
+		resolved, found := backing[target]
+		if !found {
+			return "", fmt.Errorf("unexpected runtime target %s", target)
+		}
+		return resolved, nil
+	}
 	t.Cleanup(func() {
-		initRuntimeTargets = oldTargets
+		initResolveRuntimePath = oldResolve
 	})
 
 	binDir := filepath.Join(temp, "bin")
@@ -186,15 +196,28 @@ func TestInitA1EmptyProjectInteractiveWalk(t *testing.T) {
 	if err != nil || opInfo.Mode().Perm() != 0o600 {
 		t.Fatalf("operator.json stat/perm error: info=%v, err=%v", opInfo, err)
 	}
+	// The interactive walk's stdin holds no telemetry answers, so both
+	// guided questions decline - and declines persist (sworn#269): the
+	// private channel as "otel": null, share as an explicit enabled:false.
 	opBody, err := os.ReadFile(filepath.Join(root, ".sworn", "operator.json"))
-	if err != nil || !bytes.Equal(opBody, buildDefaultOperatorConfig()) {
-		t.Fatalf("operator.json content mismatch: %s", opBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(opBody, []byte("\"otel\": null")) {
+		t.Fatalf("declined private telemetry not persisted as otel null:\n%s", opBody)
 	}
 	if !validOperatorFileInfo(opInfo) {
 		t.Fatalf("validOperatorFileInfo failed on created operator.json")
 	}
-	if _, err := parseOperatorConfig(opBody); err != nil {
+	settings, err := parseOperatorConfig(opBody)
+	if err != nil {
 		t.Fatalf("parseOperatorConfig failed on created operator.json: %v", err)
+	}
+	if settings.otel != nil {
+		t.Fatalf("declined private telemetry parsed as configured: %#v", settings.otel)
+	}
+	if settings.share == nil || settings.share.Enabled {
+		t.Fatalf("declined share not persisted as disabled: %#v", settings.share)
 	}
 }
 
@@ -239,8 +262,12 @@ func TestInitA2IdempotenceAndDivergence(t *testing.T) {
 	if !strings.Contains(out2, "AI connection file already current") {
 		t.Fatalf("re-run did not report drivers.json current: %s", out2)
 	}
-	if !strings.Contains(out2, "Operator configuration already current") {
-		t.Fatalf("re-run did not report operator.json current: %s", out2)
+	// The --yes scaffold never asked the telemetry questions, so the guided
+	// re-run asks them; declining proposes persisting the declines
+	// (sworn#269), and the confirm-guarded write defaults to keeping the
+	// existing file untouched.
+	if !strings.Contains(out2, "kept existing "+filepath.Join(root, ".sworn", "operator.json")) {
+		t.Fatalf("re-run did not keep the operator config on declined replacement: %s", out2)
 	}
 
 	// Verify byte-identical files
@@ -265,11 +292,12 @@ func TestInitA2IdempotenceAndDivergence(t *testing.T) {
 	}
 
 	// Default-accepting re-run on divergent files: drivers.json defaults to
-	// No [y/N], while the operator config now runs the guided telemetry step
-	// (S3-A5): both telemetry questions default to declining, so the
-	// proposed body equals the existing bytes exactly and the operator's own
-	// config is reported current instead of offered replacement with the
-	// bare default (captain F6).
+	// No [y/N], while the operator config runs the guided telemetry step
+	// (S3-A5): the custom file never answered the telemetry questions, so
+	// they are asked, the declines propose a persistence write (sworn#269) -
+	// the proposal keeps every operator-authored field, never the bare
+	// default (captain F6) - and the confirm-guarded write defaults to
+	// keeping the file untouched.
 	var stdout3, stderr3 bytes.Buffer
 	stdin3 := strings.NewReader("\n\n")
 	if code := runInitWithIO([]string{"--project", root}, stdin3, &stdout3, &stderr3); code != 0 {
@@ -282,8 +310,15 @@ func TestInitA2IdempotenceAndDivergence(t *testing.T) {
 	if !strings.Contains(out3, "kept existing "+filepath.Join(root, ".sworn", "drivers.json")) {
 		t.Fatalf("drivers.json was not reported kept: %s", out3)
 	}
-	if !strings.Contains(out3, "Operator configuration already current: "+filepath.Join(root, ".sworn", "operator.json")) {
-		t.Fatalf("operator.json was not reported current: %s", out3)
+	if !strings.Contains(out3, "kept existing "+filepath.Join(root, ".sworn", "operator.json")) {
+		t.Fatalf("operator.json was not reported kept: %s", out3)
+	}
+	// The operator's own listen value must survive into the proposed body -
+	// the diff may add telemetry state but never revert operator edits, so
+	// the proposed (+) side must carry 8888 and never the bare default 7337.
+	if !strings.Contains(out3, "+     \"listen\": \"127.0.0.1:8888\"") ||
+		strings.Contains(out3, "+     \"listen\": \"127.0.0.1:7337\"") {
+		t.Fatalf("proposed operator body did not keep the operator's listen value: %s", out3)
 	}
 
 	// Files must remain untouched
@@ -330,11 +365,10 @@ func TestInitA3YesFlagScriptability(t *testing.T) {
 		t.Fatalf("non-interactive --yes init failed: %d, stderr=%s", code, stderrY.String())
 	}
 
-	// Compare artifacts
+	// Surface and driver artifacts are identical between the two paths.
 	for _, rel := range []string{
 		filepath.Join(".sworn", ".gitignore"),
 		filepath.Join(".sworn", "drivers.json"),
-		filepath.Join(".sworn", "operator.json"),
 	} {
 		bodyI, err := os.ReadFile(filepath.Join(rootInteractive, rel))
 		if err != nil {
@@ -347,6 +381,28 @@ func TestInitA3YesFlagScriptability(t *testing.T) {
 		if !bytes.Equal(bodyI, bodyY) {
 			t.Fatalf("artifact %s mismatch between interactive default and --yes:\ninteractive:\n%s\n--yes:\n%s", rel, bodyI, bodyY)
 		}
+	}
+	// The operator config diverges by design: --yes never asks the
+	// telemetry questions and writes the bare default (C4), while the
+	// interactive walk asks them and persists the default declines
+	// (sworn#269).
+	bodyY, err := os.ReadFile(filepath.Join(rootYes, ".sworn", "operator.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(bodyY, buildDefaultOperatorConfig()) {
+		t.Fatalf("--yes operator config differs from the bare default:\n%s", bodyY)
+	}
+	bodyI, err := os.ReadFile(filepath.Join(rootInteractive, ".sworn", "operator.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings, err := parseOperatorConfig(bodyI)
+	if err != nil {
+		t.Fatalf("interactive operator config did not parse: %v\n%s", err, bodyI)
+	}
+	if settings.otel != nil || settings.share == nil || settings.share.Enabled {
+		t.Fatalf("interactive default declines were not persisted: %s", bodyI)
 	}
 }
 
@@ -367,9 +423,19 @@ func TestInitA4OperatorConfigScaffolding(t *testing.T) {
 	if !strings.Contains(stdout1.String(), "wrote "+opPath) {
 		t.Fatalf("did not report wrote operator.json: %s", stdout1.String())
 	}
+	// The scripted stdin declines both telemetry questions; the declines
+	// persist (sworn#269) so the later "present-identical" re-run below has
+	// nothing left to ask.
 	body, err := os.ReadFile(opPath)
-	if err != nil || !bytes.Equal(body, buildDefaultOperatorConfig()) {
-		t.Fatalf("operator.json content incorrect: %s", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scaffolded, err := parseOperatorConfig(body)
+	if err != nil {
+		t.Fatalf("scaffolded operator.json did not parse: %v\n%s", err, body)
+	}
+	if scaffolded.otel != nil || scaffolded.share == nil || scaffolded.share.Enabled {
+		t.Fatalf("scaffolded declines were not persisted: %s", body)
 	}
 	info, err := os.Stat(opPath)
 	if err != nil || info.Mode().Perm() != 0o600 {
@@ -386,21 +452,21 @@ func TestInitA4OperatorConfigScaffolding(t *testing.T) {
 		t.Fatalf("did not report operator.json already current: %s", stdout2.String())
 	}
 
-	// Present-divergent case 1: Content divergence. The guided telemetry
-	// step declines both questions (S3-A5), so the proposed body equals the
-	// existing bytes and the operator's own config is reported current
-	// rather than offered replacement with the bare default.
+	// Present-divergent case 1: Content divergence. The custom file never
+	// answered the telemetry questions, so the guided step asks them; the
+	// declines propose a persistence write (sworn#269), and declining the
+	// confirm-guarded replacement keeps the operator's file byte-untouched.
 	customContent := []byte("{\n  \"schema_version\": \"sworn.operator-config/v1\",\n  \"local\": {\n    \"listen\": \"127.0.0.1:9090\"\n  }\n}\n")
 	if err := os.WriteFile(opPath, customContent, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	var stdout3, stderr3 bytes.Buffer
-	stdin3 := strings.NewReader("\n\n") // Decline endpoint, decline share
+	stdin3 := strings.NewReader("\n\n") // Decline endpoint, decline share; EOF declines the replacement
 	if code := runInitWithIO([]string{"--project", root}, stdin3, &stdout3, &stderr3); code != 0 {
 		t.Fatalf("divergent decline init failed: %d, stderr=%s", code, stderr3.String())
 	}
-	if !strings.Contains(stdout3.String(), "Operator configuration already current: "+opPath) {
-		t.Fatalf("did not report operator.json current: %s", stdout3.String())
+	if !strings.Contains(stdout3.String(), "kept existing "+opPath) {
+		t.Fatalf("did not report operator.json kept: %s", stdout3.String())
 	}
 	currentBody, _ := os.ReadFile(opPath)
 	if !bytes.Equal(currentBody, customContent) {
@@ -415,7 +481,7 @@ func TestInitA4OperatorConfigScaffolding(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stdout4, stderr4 bytes.Buffer
-	stdin4 := strings.NewReader("n\n") // Decline
+	stdin4 := strings.NewReader("\n\nn\n") // Decline endpoint, decline share, decline replacement
 	if code := runInitWithIO([]string{"--project", root}, stdin4, &stdout4, &stderr4); code != 0 {
 		t.Fatalf("mode-divergent decline failed: %d, stderr=%s", code, stderr4.String())
 	}
@@ -558,7 +624,7 @@ func TestInitDetectsCodexFirstOverAPresentClaude(t *testing.T) {
 	root := initTestProject(t)
 
 	codexPath := filepath.Join(binDir, "codex")
-	if err := os.WriteFile(codexPath, []byte("#!/usr/bin/sh\necho 'codex-cli 1.2.3'\n"), 0o755); err != nil {
+	if err := os.WriteFile(codexPath, []byte("#!/usr/bin/sh\necho 'codex-cli "+driver.CodexCLIVersion+"'\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	codexCredDir := filepath.Join(homeDir, ".config", "sworn", ".codex")
@@ -571,34 +637,71 @@ func TestInitDetectsCodexFirstOverAPresentClaude(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	if code := runInit([]string{"--project", root, "--yes"}, &stdout, &stderr); code != 0 {
-		t.Fatalf("init failed: %d, stderr=%s", code, stderr.String())
+		t.Fatalf("init failed: %d, stderr=%s stdout=%s", code, stderr.String(), stdout.String())
 	}
 	if !strings.Contains(stdout.String(), "wrote "+filepath.Join(root, ".sworn", "drivers.json")+" (Codex ") {
 		t.Fatalf("codex was not selected ahead of the present claude: %s", stdout.String())
 	}
 }
 
-// S6-A2, Captain Correction 3: codex is detected first and its missing
-// sign-in is reported without falling back to a present, signed-in claude.
-func TestInitReportsCodexInstalledButNotSignedInAheadOfClaude(t *testing.T) {
+// Reconciled for sworn#265 (supersedes S6-A2 Captain Correction 3's
+// no-fallback ruling): an installed agent with no readable credential no
+// longer walls a signed-in later agent. The fallthrough is DISCLOSED, never
+// silent - the skipped agent and the reason are reported before the write -
+// which is what the original correction existed to protect.
+func TestInitFallsThroughToSignedInClaudeWhenCodexIsSignedOut(t *testing.T) {
 	binDir, _ := setupMockAgentAndEnvironment(t)
 	root := initTestProject(t)
 
 	codexPath := filepath.Join(binDir, "codex")
-	if err := os.WriteFile(codexPath, []byte("#!/usr/bin/sh\necho 'codex-cli 1.2.3'\n"), 0o755); err != nil {
+	if err := os.WriteFile(codexPath, []byte("#!/usr/bin/sh\necho 'codex-cli "+driver.CodexCLIVersion+"'\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// No codex credential file is minted.
+	// No codex credential file is minted; claude's is (fixture default).
 
 	var stdout, stderr bytes.Buffer
-	if code := runInit([]string{"--project", root, "--yes"}, &stdout, &stderr); code != 1 {
-		t.Fatalf("init exit code = %d, want 1 for a missing driver config; stderr=%s", code, stderr.String())
+	if code := runInit([]string{"--project", root, "--yes"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("init exit code = %d, want 0 via claude fallthrough; stdout=%s", code, stdout.String())
 	}
-	if !strings.Contains(stdout.String(), "AI driver configuration: unavailable (Codex is installed but not signed in") {
-		t.Fatalf("codex's signed-out branch was not reported: %s", stdout.String())
+	out := stdout.String()
+	if !strings.Contains(out, "skipped Codex: not signed in") {
+		t.Fatalf("the codex skip was not disclosed: %s", out)
 	}
-	if strings.Contains(stdout.String(), "wrote "+filepath.Join(root, ".sworn", "drivers.json")) {
-		t.Fatalf("driver config was written despite codex being signed out: %s", stdout.String())
+	if !strings.Contains(out, "wrote "+filepath.Join(root, ".sworn", "drivers.json")+" (Claude Code ") {
+		t.Fatalf("claude was not selected after the codex skip: %s", out)
+	}
+}
+
+// sworn#266: when the credential is missing at Sworn's credentials base but
+// present at the agent's own standard home location, the skip reason names
+// the remedy that actually works - SWORN_CREDENTIALS_DIR - instead of
+// telling the operator to sign in again into a file the agent never writes.
+func TestInitSkipReasonNamesCredentialsDirWhenStandardLocationIsSignedIn(t *testing.T) {
+	binDir, homeDir := setupMockAgentAndEnvironment(t)
+	root := initTestProject(t)
+
+	codexPath := filepath.Join(binDir, "codex")
+	if err := os.WriteFile(codexPath, []byte("#!/usr/bin/sh\necho 'codex-cli "+driver.CodexCLIVersion+"'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Codex is signed in at its STANDARD location ($HOME/.codex/auth.json),
+	// not under the sworn credentials base the fixture points init at.
+	standardDir := filepath.Join(homeDir, ".codex")
+	if err := os.MkdirAll(standardDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(standardDir, "auth.json"), []byte(`{"token":"standard"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := runInit([]string{"--project", root, "--yes"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("init exit code = %d, want 0 via claude fallthrough; stdout=%s", code, stdout.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "skipped Codex: signed in at "+filepath.Join(standardDir, "auth.json")) ||
+		!strings.Contains(out, "SWORN_CREDENTIALS_DIR="+homeDir) {
+		t.Fatalf("the skip reason did not name the working remedy: %s", out)
 	}
 }
 
@@ -831,9 +934,11 @@ func TestInitTelemetryStepGuidedWalkWritesAndIsIdempotent(t *testing.T) {
 	}
 }
 
-// S3-A5: declining both telemetry questions leaves the exact bare scaffold
-// byte-identical to today's buildDefaultOperatorConfig.
-func TestInitTelemetryStepDeclineKeepsBareDefault(t *testing.T) {
+// sworn#269 (supersedes the S3-A5 "decline keeps bare default" pin):
+// declining both telemetry questions persists the declines - "otel": null
+// and share enabled:false - so a guided re-run has nothing left to ask and
+// the settled answers stay settled.
+func TestInitTelemetryDeclinePersistsAndIsNotReAsked(t *testing.T) {
 	setupMockAgentAndEnvironment(t)
 	root := initTestProject(t)
 	opPath := filepath.Join(root, ".sworn", "operator.json")
@@ -847,16 +952,43 @@ func TestInitTelemetryStepDeclineKeepsBareDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(body, buildDefaultOperatorConfig()) {
-		t.Fatalf("declined operator config differs from bare default:\n%s", body)
+	if !bytes.Contains(body, []byte("\"otel\": null")) {
+		t.Fatalf("declined private telemetry not persisted:\n%s", body)
 	}
-	if bytes.Contains(body, []byte("otel")) || bytes.Contains(body, []byte("share")) {
-		t.Fatalf("declined operator config carries telemetry blocks:\n%s", body)
+	settings, err := parseOperatorConfig(body)
+	if err != nil {
+		t.Fatalf("declined operator config did not parse: %v\n%s", err, body)
+	}
+	if settings.otel != nil || settings.share == nil || settings.share.Enabled {
+		t.Fatalf("declines parsed as configured telemetry: %s", body)
+	}
+
+	// The guided re-run asks nothing and leaves the file byte-identical.
+	var stdout2, stderr2 bytes.Buffer
+	if code := runInitWithIO([]string{"--project", root}, strings.NewReader(""), &stdout2, &stderr2); code != 0 {
+		t.Fatalf("guided re-run failed: %d, stderr=%s", code, stderr2.String())
+	}
+	out2 := stdout2.String()
+	if strings.Contains(out2, "Private telemetry OTLP endpoint") ||
+		strings.Contains(out2, "Share fleet telemetry") {
+		t.Fatalf("a settled telemetry answer was re-asked: %s", out2)
+	}
+	if !strings.Contains(out2, "Operator configuration already current: "+opPath) {
+		t.Fatalf("re-run did not report operator.json current: %s", out2)
+	}
+	after, err := os.ReadFile(opPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, body) {
+		t.Fatalf("operator.json changed on quiet re-run:\nbefore:\n%s\nafter:\n%s", body, after)
 	}
 }
 
 // S3-A5: a non-empty private endpoint must parse through the strict OTLP
-// endpoint rules or it is reported and skipped, never written.
+// endpoint rules or it is reported and skipped, never written. A skip is
+// not a decline (sworn#269): the mistyped question is asked again on the
+// next guided run, while the answered share question is not.
 func TestInitTelemetryStepRejectsInvalidEndpoint(t *testing.T) {
 	setupMockAgentAndEnvironment(t)
 	root := initTestProject(t)
@@ -874,8 +1006,28 @@ func TestInitTelemetryStepRejectsInvalidEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(body, buildDefaultOperatorConfig()) {
-		t.Fatalf("invalid endpoint leaked a telemetry block:\n%s", body)
+	if bytes.Contains(body, []byte("\"otel\"")) {
+		t.Fatalf("invalid endpoint leaked an otel key:\n%s", body)
+	}
+	settings, err := parseOperatorConfig(body)
+	if err != nil {
+		t.Fatalf("operator config did not parse: %v\n%s", err, body)
+	}
+	if settings.otel != nil || settings.share == nil || settings.share.Enabled {
+		t.Fatalf("unexpected telemetry state after skipped endpoint: %s", body)
+	}
+
+	// The next guided run re-asks only the unanswered endpoint question.
+	var stdout2, stderr2 bytes.Buffer
+	if code := runInitWithIO([]string{"--project", root}, strings.NewReader("\n\n"), &stdout2, &stderr2); code != 0 {
+		t.Fatalf("guided re-run failed: %d, stderr=%s", code, stderr2.String())
+	}
+	out2 := stdout2.String()
+	if !strings.Contains(out2, "Private telemetry OTLP endpoint") {
+		t.Fatalf("the skipped endpoint question was not re-asked: %s", out2)
+	}
+	if strings.Contains(out2, "Share fleet telemetry") {
+		t.Fatalf("the answered share question was re-asked: %s", out2)
 	}
 }
 
@@ -907,5 +1059,111 @@ func TestInitTelemetryFlagsNeverAskOrOptIn(t *testing.T) {
 				t.Fatalf("%s operator config differs from bare default:\n%s", flag, body)
 			}
 		})
+	}
+}
+
+// sworn#267: a CLI that outran the certified pin but shares its major.minor
+// is scaffolded with pin_mode "minor" and the delta disclosed, because init
+// round-trips the proposed adapter through the engine's own admission. The
+// fixture CLI reports a patch level the exact pin rejects.
+func TestInitPinsByMinorWhenCLIOutranTheCertifiedPin(t *testing.T) {
+	setupMockAgentAndEnvironment(t)
+	root := initTestProject(t)
+
+	var stdout, stderr bytes.Buffer
+	if code := runInit([]string{"--project", root, "--yes"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("init failed: %d, stdout=%s", code, stdout.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "pinned by major.minor (pin_mode \"minor\")") ||
+		!strings.Contains(out, "2.1.220") ||
+		!strings.Contains(out, driver.ClaudeCLIVersion) {
+		t.Fatalf("the minor pin was not disclosed with both versions: %s", out)
+	}
+	body, err := os.ReadFile(filepath.Join(root, ".sworn", "drivers.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(body, []byte("\"pin_mode\":\"minor\"")) {
+		t.Fatalf("scaffolded config does not carry the minor pin:\n%s", body)
+	}
+}
+
+// sworn#267: a CLI outside the certified major.minor is refused at scaffold
+// time, naming both versions - never written for the engine to reject two
+// commands later.
+func TestInitRefusesACLIOutsideTheCertifiedMinor(t *testing.T) {
+	binDir, _ := setupMockAgentAndEnvironment(t)
+	root := initTestProject(t)
+	claudePath := filepath.Join(binDir, "claude")
+	if err := os.WriteFile(claudePath, []byte("#!/usr/bin/sh\necho '3.0.0 (Claude Code)'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := runInit([]string{"--project", root, "--yes"}, &stdout, &stderr); code != 1 {
+		t.Fatalf("init exit code = %d, want 1; stdout=%s", code, stdout.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "3.0.0 does not match the version this Sworn build certifies ("+driver.ClaudeCLIVersion+")") {
+		t.Fatalf("the refusal did not name both versions: %s", out)
+	}
+	if !strings.Contains(out, "AI driver configuration: unavailable") {
+		t.Fatalf("the walk did not report the configuration unavailable: %s", out)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".sworn", "drivers.json")); !os.IsNotExist(err) {
+		t.Fatalf("an inadmissible config was written anyway: %v", err)
+	}
+}
+
+// sworn#265, admission flavor: a signed-in agent the engine cannot admit
+// (its version is outside the certified major.minor) is skipped with the
+// named reason and the walk falls through to the next certifiable agent -
+// an unusable earlier agent never walls a usable later one at ANY stage.
+func TestInitFallsThroughWhenSignedInCodexIsNotCertifiable(t *testing.T) {
+	binDir, homeDir := setupMockAgentAndEnvironment(t)
+	root := initTestProject(t)
+
+	codexPath := filepath.Join(binDir, "codex")
+	if err := os.WriteFile(codexPath, []byte("#!/usr/bin/sh\necho 'codex-cli 1.2.3'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	codexCredDir := filepath.Join(homeDir, ".config", "sworn", ".codex")
+	if err := os.MkdirAll(codexCredDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codexCredDir, "auth.json"), []byte(`{"token":"mock"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := runInit([]string{"--project", root, "--yes"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("init exit code = %d, want 0 via claude fallthrough; stdout=%s", code, stdout.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "skipped Codex: Codex 1.2.3 does not match the version this Sworn build certifies ("+driver.CodexCLIVersion+")") {
+		t.Fatalf("the admission skip was not disclosed with both versions: %s", out)
+	}
+	if !strings.Contains(out, "wrote "+filepath.Join(root, ".sworn", "drivers.json")+" (Claude Code ") {
+		t.Fatalf("claude was not selected after the codex admission skip: %s", out)
+	}
+}
+
+// sworn#268: the closing guidance prints a doctor invocation that works as
+// pasted - config path, profile, certification model, and the mandatory
+// --json - instead of a bare verb that exits on usage.
+func TestInitNextStepPrintsAWorkingDoctorCommand(t *testing.T) {
+	setupMockAgentAndEnvironment(t)
+	root := initTestProject(t)
+
+	var stdout, stderr bytes.Buffer
+	if code := runInit([]string{"--project", root, "--yes"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("init failed: %d, stdout=%s", code, stdout.String())
+	}
+	want := "sworn driver doctor --config " +
+		filepath.Join(root, ".sworn", "drivers.json") +
+		" --profile claude --model claude-opus-4-6 --json"
+	if !strings.Contains(stdout.String(), want) {
+		t.Fatalf("next step does not print the working doctor command %q: %s", want, stdout.String())
 	}
 }
