@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -36,6 +37,12 @@ var initRuntimeTargets = []string{
 // value for its duration and exercise the darwin statement on Linux CI —
 // the same injectable-var pattern initRuntimeTargets already uses.
 var initHostOS = runtime.GOOS
+
+// initResolveRuntimePath resolves a runtime target to the host file that
+// backs it. It is injectable so tests can keep the CANONICAL targets — which
+// native adapter admission requires by name — while reading hermetic fixture
+// content instead of the host's real /etc files.
+var initResolveRuntimePath = filepath.EvalSymlinks
 
 const canonicalGitignore = "*\n!records/\n!records/**\n"
 
@@ -296,7 +303,7 @@ func setupDriverConfig(s *initSession, paths projectPaths) error {
 		return nil
 	}
 
-	agent, agentErr := detectInitAgent()
+	candidates, skipped, agentErr := detectInitAgents()
 	if agentErr != nil {
 		if _, statErr := os.Stat(paths.config); statErr == nil {
 			fmt.Fprintf(s.out, "  AI connection file present: %s\n", paths.config)
@@ -305,11 +312,36 @@ func setupDriverConfig(s *initSession, paths projectPaths) error {
 		}
 		return nil
 	}
-
-	body, err := buildDriverConfig(agent)
-	if err != nil {
-		fmt.Fprintf(s.out, "  AI driver configuration: unavailable (%s)\n", err.Error())
+	// Try each signed-in candidate through the engine's admission: one the
+	// engine refuses (an uncertifiable version, a missing runtime file) is
+	// skipped with its named reason and the walk falls through, so an
+	// unusable earlier agent never walls a usable later one (sworn#265).
+	var agent detectedAgent
+	var body []byte
+	var note string
+	configured := false
+	for _, candidate := range candidates {
+		candidateBody, candidateNote, err := buildDriverConfig(candidate)
+		if err != nil {
+			skipped = append(
+				skipped,
+				candidate.name+": "+strings.ReplaceAll(strings.TrimSpace(err.Error()), "\n", " "),
+			)
+			continue
+		}
+		agent, body, note = candidate, candidateBody, candidateNote
+		configured = true
+		break
+	}
+	for _, skip := range skipped {
+		fmt.Fprintf(s.out, "  skipped %s\n", skip)
+	}
+	if !configured {
+		fmt.Fprintln(s.out, "  AI driver configuration: unavailable (no installed agent yields an admissible configuration; the skip reasons above name each remedy)")
 		return nil
+	}
+	if note != "" {
+		fmt.Fprintf(s.out, "  note: %s\n", note)
 	}
 
 	info, statErr := os.Lstat(paths.config)
@@ -472,13 +504,16 @@ func setupOperatorConfig(s *initSession, paths projectPaths) error {
 }
 
 // guidedOperatorBody renders a fresh operator config body after the guided
-// telemetry questions (the brand-new scaffold flow).
+// telemetry questions (the brand-new scaffold flow). Declined answers are
+// persisted - share as an explicit enabled:false block, the private channel
+// as an "otel": null sentinel - so a settled answer stays settled and later
+// guided re-runs stay quiet (sworn#269).
 func guidedOperatorBody(s *initSession) ([]byte, error) {
 	config, err := parseOperatorBody(buildDefaultOperatorConfig())
 	if err != nil {
 		return nil, err
 	}
-	otelBlock, err := guidedOTelBlock(s)
+	otelBlock, otelDeclined, err := guidedOTelBlock(s)
 	if err != nil {
 		return nil, err
 	}
@@ -486,19 +521,21 @@ func guidedOperatorBody(s *initSession) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if otelBlock == nil && shareBlock == nil {
+	if otelBlock == nil && !otelDeclined && shareBlock == nil {
 		return buildDefaultOperatorConfig(), nil
 	}
 	config.OTel = otelBlock
 	config.Share = shareBlock
-	return renderOperatorConfigBody(config), nil
+	return renderOperatorConfigBody(config, otelDeclined), nil
 }
 
 // seedGuidedOperatorBody parses an existing operator config, asks only the
-// telemetry questions whose blocks are absent, and returns the proposed
-// body. When nothing was answered in, it returns the existing bytes exactly,
-// so an operator-edited telemetry config is never offered replacement with
-// the bare default (captain F6).
+// telemetry questions that were never answered, and returns the proposed
+// body. A question counts as answered when its key is present in the file
+// at all - "otel": null and share enabled:false are persisted declines
+// (sworn#269) - so an operator-edited or previously-declined config is
+// never re-asked, and when nothing was asked the existing bytes return
+// exactly (captain F6).
 func seedGuidedOperatorBody(
 	s *initSession,
 	existing []byte,
@@ -507,47 +544,56 @@ func seedGuidedOperatorBody(
 	if err != nil {
 		return nil, err
 	}
-	var otelBlock *observe.Config
-	var shareBlock *observe.ShareConfig
-	if config.OTel != nil {
-		otelBlock = config.OTel
-	} else {
-		otelBlock, err = guidedOTelBlock(s)
+	root, err := exactJSONObject(existing, []string{
+		"schema_version", "local", "public", "webhooks", "otel", "share",
+	})
+	if err != nil {
+		return nil, err
+	}
+	_, otelAnswered := root["otel"]
+	_, shareAnswered := root["share"]
+	if otelAnswered && shareAnswered {
+		return existing, nil
+	}
+	otelBlock := config.OTel
+	otelDeclined := otelAnswered && config.OTel == nil
+	if !otelAnswered {
+		otelBlock, otelDeclined, err = guidedOTelBlock(s)
 		if err != nil {
 			return nil, err
 		}
 	}
-	if config.Share != nil {
-		shareBlock = config.Share
-	} else {
+	shareBlock := config.Share
+	if !shareAnswered {
 		shareBlock, err = guidedShareBlock(s)
 		if err != nil {
 			return nil, err
 		}
 	}
-	if (config.OTel != nil || otelBlock == nil) &&
-		(config.Share != nil || shareBlock == nil) {
+	if otelBlock == nil && !otelDeclined && shareBlock == nil {
 		return existing, nil
 	}
 	config.OTel = otelBlock
 	config.Share = shareBlock
-	return renderOperatorConfigBody(config), nil
+	return renderOperatorConfigBody(config, otelDeclined), nil
 }
 
 // guidedOTelBlock asks for the private OTLP/HTTP endpoint in free text. An
-// empty answer means no private channel; a non-empty answer must parse
-// through the same strict endpoint rules the operator config uses, or it is
-// reported and skipped. This is interactive-only by construction.
-func guidedOTelBlock(s *initSession) (*observe.Config, error) {
+// empty answer declines the channel (persisted by the caller); a non-empty
+// answer must parse through the same strict endpoint rules the operator
+// config uses, or it is reported and skipped - a skip is NOT a decline, so
+// a mistyped endpoint is asked again next run. This is interactive-only by
+// construction.
+func guidedOTelBlock(s *initSession) (*observe.Config, bool, error) {
 	if s.nonInteractive || s.force {
-		return nil, nil
+		return nil, false, nil
 	}
 	endpoint, err := s.promptText("Private telemetry OTLP endpoint (empty to skip)?")
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if endpoint == "" {
-		return nil, nil
+		return nil, true, nil
 	}
 	candidate := observe.Config{
 		SchemaVersion: observe.OTelConfigSchemaVersion,
@@ -556,27 +602,33 @@ func guidedOTelBlock(s *initSession) (*observe.Config, error) {
 	}
 	body, err := json.Marshal(candidate)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	parsed, err := observe.ParseConfig(body)
 	if err != nil {
 		fmt.Fprintf(s.out, "  skipped private telemetry (endpoint %q is not a valid OTLP endpoint)\n", endpoint)
-		return nil, nil
+		return nil, false, nil
 	}
-	return &parsed, nil
+	return &parsed, false, nil
 }
 
 // guidedShareBlock asks the share opt-in question (default no). It is
 // interactive-only and must never be answered by a flag: under --force,
 // confirm() turns a default-no question into yes, which would opt an
-// operator into exporting without them ever answering (C4).
+// operator into exporting without them ever answering (C4). A decline is
+// returned as an explicit enabled:false block - the schema's own "off"
+// state - so it persists and the question is never re-asked (sworn#269).
 func guidedShareBlock(s *initSession) (*observe.ShareConfig, error) {
 	if s.nonInteractive || s.force {
 		return nil, nil
 	}
 	prompt := fmt.Sprintf("Share fleet telemetry with the Sworn project gateway (%s)?", observe.ShareDefaultEndpoint)
 	if !s.confirm(prompt, false) {
-		return nil, nil
+		return &observe.ShareConfig{
+			SchemaVersion: observe.ShareConfigSchemaVersion,
+			Enabled:       false,
+			Headers:       map[string]string{},
+		}, nil
 	}
 	return &observe.ShareConfig{
 		SchemaVersion: observe.ShareConfigSchemaVersion,
@@ -633,21 +685,34 @@ func parseOperatorBody(body []byte) (operatorConfig, error) {
 
 // renderOperatorConfigBody renders the canonical pretty scaffold shape with
 // the optional telemetry blocks appended. omitempty keeps the bare default
-// byte-identical to buildDefaultOperatorConfig.
-func renderOperatorConfigBody(config operatorConfig) []byte {
+// byte-identical to buildDefaultOperatorConfig. otelDeclined renders the
+// private channel as an explicit "otel": null - the sentinel the operator
+// config parser already admits as "off" - so a declined answer survives in
+// the file (sworn#269); it is only honoured when no real block is set.
+func renderOperatorConfigBody(config operatorConfig, otelDeclined bool) []byte {
+	var otel json.RawMessage
+	if config.OTel != nil {
+		encoded, err := json.Marshal(config.OTel)
+		if err != nil {
+			return buildDefaultOperatorConfig()
+		}
+		otel = encoded
+	} else if otelDeclined {
+		otel = json.RawMessage("null")
+	}
 	body, err := json.MarshalIndent(struct {
 		SchemaVersion string                  `json:"schema_version"`
 		Local         operatorLocalConfig     `json:"local"`
 		Public        *operatorPublicConfig   `json:"public,omitempty"`
 		Webhooks      []operatorWebhookConfig `json:"webhooks,omitempty"`
-		OTel          *observe.Config         `json:"otel,omitempty"`
+		OTel          json.RawMessage         `json:"otel,omitempty"`
 		Share         *observe.ShareConfig    `json:"share,omitempty"`
 	}{
 		SchemaVersion: config.SchemaVersion,
 		Local:         config.Local,
 		Public:        config.Public,
 		Webhooks:      config.Webhooks,
-		OTel:          config.OTel,
+		OTel:          otel,
 		Share:         config.Share,
 	}, "", "  ")
 	if err != nil {
@@ -688,8 +753,18 @@ type detectedAgent struct {
 	output  string
 }
 
-func detectInitAgent() (detectedAgent, error) {
+// detectInitAgents walks the supported agents in order and returns every
+// candidate that is both installed and signed in. An agent that is
+// installed but has no readable credential is skipped with a named reason
+// instead of walling the walk (sworn#265) - the skip reasons are returned
+// so the operator sees exactly why an agent was passed over, keeping any
+// fallthrough disclosed rather than silent. Later candidates matter too:
+// a candidate the engine's admission refuses is skipped at configuration
+// time, and the walk falls through to the next one.
+func detectInitAgents() ([]detectedAgent, []string, error) {
 	var looked []string
+	var skipped []string
+	var candidates []detectedAgent
 	for _, agent := range initAgents() {
 		looked = append(looked, agent.command)
 		found, err := exec.LookPath(agent.command)
@@ -712,12 +787,29 @@ func detectInitAgent() (detectedAgent, error) {
 		if !ok {
 			continue
 		}
-		return detectedAgent{
+		credential := agentCredentialSource(agent.family)
+		if _, err := os.Stat(credential); err != nil {
+			skipped = append(
+				skipped,
+				agent.name+": "+credentialRemedy(agent, credential),
+			)
+			continue
+		}
+		candidates = append(candidates, detectedAgent{
 			initAgent: agent, binary: binary, digest: digest,
 			version: version, output: strings.TrimSuffix(output, "\n"),
-		}, nil
+		})
 	}
-	return detectedAgent{}, fmt.Errorf(
+	if len(candidates) > 0 {
+		return candidates, skipped, nil
+	}
+	if len(skipped) > 0 {
+		return nil, skipped, fmt.Errorf(
+			"No installed agent is signed in where Sworn reads credentials.\n%s",
+			strings.Join(skipped, "\n"),
+		)
+	}
+	return nil, nil, fmt.Errorf(
 		"No supported agent command was found on PATH.\n"+
 			"Sworn looked for: %s.\n"+
 			"Install one and run sworn init again.",
@@ -725,19 +817,57 @@ func detectInitAgent() (detectedAgent, error) {
 	)
 }
 
-func buildDriverConfig(agent detectedAgent) ([]byte, error) {
+// credentialRemedy names a remedy the operator can actually execute for a
+// missing agent credential (sworn#266). When the credential exists at the
+// agent's own standard home location but Sworn's credentials base points
+// elsewhere, signing in again cannot help - naming SWORN_CREDENTIALS_DIR
+// can. Only when the base already covers the standard location is "sign in"
+// the honest remedy.
+func credentialRemedy(agent initAgent, credential string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return fmt.Sprintf(
+			"not signed in (%s is missing); sign in with %s, then run sworn init again",
+			credential, agent.command,
+		)
+	}
+	var standard string
+	if agent.family == driver.ProfileCodex {
+		standard = filepath.Join(home, ".codex", "auth.json")
+	} else {
+		standard = filepath.Join(home, ".claude", ".credentials.json")
+	}
+	if standard == credential {
+		return fmt.Sprintf(
+			"not signed in (%s is missing); sign in with %s, then run sworn init again",
+			credential, agent.command,
+		)
+	}
+	if _, statErr := os.Stat(standard); statErr == nil {
+		return fmt.Sprintf(
+			"signed in at %s, but Sworn reads %s; run sworn init with SWORN_CREDENTIALS_DIR=%s to use it",
+			standard, credential, home,
+		)
+	}
+	return fmt.Sprintf(
+		"not signed in (%s is missing); sign in with %s (which writes %s), then run sworn init with SWORN_CREDENTIALS_DIR=%s",
+		credential, agent.command, standard, home,
+	)
+}
+
+func buildDriverConfig(agent detectedAgent) ([]byte, string, error) {
 	runtimeFiles := make([]driver.PinnedRuntimeFile, 0, len(initRuntimeTargets))
 	required := make([]string, 0, len(initRuntimeTargets))
 	for _, target := range initRuntimeTargets {
-		resolved, err := filepath.EvalSymlinks(target)
+		resolved, err := initResolveRuntimePath(target)
 		if err != nil {
-			return nil, fmt.Errorf(
+			return nil, "", fmt.Errorf(
 				"This machine is missing %s, which the sandboxed agent needs.", target,
 			)
 		}
 		digest, err := fileDigest(resolved)
 		if err != nil {
-			return nil, fmt.Errorf("%s could not be read.", target)
+			return nil, "", fmt.Errorf("%s could not be read.", target)
 		}
 		runtimeFiles = append(runtimeFiles, driver.PinnedRuntimeFile{
 			Path: resolved, Target: target, Digest: digest,
@@ -746,33 +876,59 @@ func buildDriverConfig(agent detectedAgent) ([]byte, error) {
 	}
 	credential := agentCredentialSource(agent.family)
 	if _, err := os.Stat(credential); err != nil {
-		return nil, fmt.Errorf(
-			"%s is installed but not signed in: %s is missing.\n"+
-				"Sign in with %s, then run sworn init again.",
-			agent.name, credential, agent.command,
+		return nil, "", fmt.Errorf(
+			"%s is installed but not signed in: %s",
+			agent.name, credentialRemedy(agent.initAgent, credential),
 		)
 	}
 	reference := "agent-credential"
+	native := driver.NativeAdapterConfig{
+		Key: "agent-native", ID: "sworn." + agent.command, Version: "1.0.0",
+		Family: agent.family,
+		CLI: driver.ExecutableIdentity{
+			Path: agent.binary, Digest: agent.digest,
+		},
+		CLIVersion:             agent.version,
+		VersionOutput:          agent.output,
+		RuntimeFiles:           runtimeFiles,
+		RequiredRuntimeTargets: required,
+		CredentialTarget:       agent.target,
+		CredentialRefs:         []string{reference},
+		MaxCredentialBytes:     65_536,
+	}
+	// Round-trip the proposed adapter through the engine's own admission
+	// (sworn#267): an exact pin only holds when the detected CLI is the
+	// certified build; a CLI that outran the pin but shares its major.minor
+	// is written with pin_mode "minor" and disclosed; anything else is
+	// refused here, naming both versions, instead of scaffolding a config
+	// the engine rejects two commands later. Constructing the adapter never
+	// resolves credentials, so the resolver is a stub.
+	note := ""
+	if _, err := driver.NewNativeAdapter(native, initValidationResolver); err != nil {
+		minor := native
+		minor.PinMode = driver.NativePinModeMinor
+		if _, err := driver.NewNativeAdapter(minor, initValidationResolver); err != nil {
+			return nil, "", fmt.Errorf(
+				"%s %s does not match the version this Sworn build certifies (%s).\n"+
+					"Install the certified version, or configure the connection by hand.\n"+
+					"Technical code: %s",
+				agent.name, agent.version,
+				initCertifiedVersion(agent.family), commandErrorCode(err),
+			)
+		}
+		native = minor
+		note = fmt.Sprintf(
+			"%s %s differs from the certified %s; pinned by major.minor (pin_mode \"minor\")",
+			agent.name, agent.version, initCertifiedVersion(agent.family),
+		)
+	}
 	config := driver.DriverConfig{
 		SchemaVersion: driver.DriverConfigSchemaVersion,
 		Credentials: []driver.DriverCredentialSource{{
 			Key: reference, Kind: driver.CredentialFile, Reference: credential,
 		}},
 		Adapters: []driver.DriverAdapterConfig{{
-			Native: &driver.NativeAdapterConfig{
-				Key: "agent-native", ID: "sworn." + agent.command, Version: "1.0.0",
-				Family: agent.family,
-				CLI: driver.ExecutableIdentity{
-					Path: agent.binary, Digest: agent.digest,
-				},
-				CLIVersion:             agent.version,
-				VersionOutput:          agent.output,
-				RuntimeFiles:           runtimeFiles,
-				RequiredRuntimeTargets: required,
-				CredentialTarget:       agent.target,
-				CredentialRefs:         []string{reference},
-				MaxCredentialBytes:     65_536,
-			},
+			Native: &native,
 		}},
 		Profiles: []driver.DriverProfile{{
 			Key: agent.command, Adapter: "agent-native",
@@ -782,13 +938,27 @@ func buildDriverConfig(agent detectedAgent) ([]byte, error) {
 	}
 	body, err := driver.EncodeDriverConfig(config)
 	if err != nil {
-		return nil, fmt.Errorf(
+		return nil, "", fmt.Errorf(
 			"%s %s is installed, but this Sworn build does not admit it.\n"+
 				"Technical code: %s",
 			agent.name, agent.version, commandErrorCode(err),
 		)
 	}
-	return body, nil
+	return body, note, nil
+}
+
+// initValidationResolver satisfies NewNativeAdapter's non-nil resolver
+// requirement for validation-only construction. Adapter construction never
+// resolves a credential, so this can only fire on a misuse.
+func initValidationResolver(context.Context, string) (string, error) {
+	return "", errors.New("init validates configuration only")
+}
+
+func initCertifiedVersion(family driver.ProfileFamily) string {
+	if family == driver.ProfileCodex {
+		return driver.CodexCLIVersion
+	}
+	return driver.ClaudeCLIVersion
 }
 
 func reportProjectReleases(out io.Writer, root string) {
@@ -830,7 +1000,16 @@ func reportNextStep(out io.Writer, paths projectPaths) {
 		}
 	}
 	fmt.Fprintln(out, "\nNext:")
-	fmt.Fprintln(out, "  sworn driver doctor  confirms the AI connection works")
+	// The doctor verb needs the config path, a configured profile, and one
+	// of its certification models - all of which are in the connection file
+	// this run just confirmed - so print a command that works as pasted
+	// (sworn#268) instead of a bare verb that exits on usage.
+	if doctor := doctorCommandFor(paths.config); doctor != "" {
+		fmt.Fprintln(out, "  confirm the AI connection works:")
+		fmt.Fprintf(out, "    %s\n", doctor)
+	} else {
+		fmt.Fprintln(out, "  sworn driver doctor  confirms the AI connection works")
+	}
 	if definitions == 0 {
 		fmt.Fprintf(
 			out,
@@ -840,6 +1019,36 @@ func reportNextStep(out io.Writer, paths projectPaths) {
 		return
 	}
 	fmt.Fprintln(out, "  sworn                opens this project")
+}
+
+// doctorCommandFor renders a complete, working driver doctor invocation for
+// the first configured profile and certification model in the connection
+// file, or "" when the file is absent or carries no certifiable profile.
+func doctorCommandFor(configPath string) string {
+	body, err := os.ReadFile(configPath)
+	if err != nil {
+		return ""
+	}
+	var config struct {
+		Profiles []struct {
+			Key                 string   `json:"key"`
+			CertificationModels []string `json:"certification_models"`
+		} `json:"profiles"`
+	}
+	if json.Unmarshal(body, &config) != nil {
+		return ""
+	}
+	for _, profile := range config.Profiles {
+		if profile.Key == "" || len(profile.CertificationModels) == 0 ||
+			profile.CertificationModels[0] == "" {
+			continue
+		}
+		return fmt.Sprintf(
+			"sworn driver doctor --config %s --profile %s --model %s --json",
+			configPath, profile.Key, profile.CertificationModels[0],
+		)
+	}
+	return ""
 }
 
 func resolveDirectBinary(found string) (string, error) {
