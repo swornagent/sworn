@@ -12,11 +12,18 @@ import (
 	"github.com/swornagent/sworn/internal/gitx"
 )
 
+// engineIdentityDomain is the one domain every machine identity the engine
+// commits with lives on. It must be a domain the project controls: a
+// records commit's author email is an identity other systems act on
+// (Vercel refuses deploys from non-member authors, forges link it to
+// accounts), and sworn.dev, the original value, is not ours.
+const engineIdentityDomain = "sworn.sh"
+
 // planEngineIdentity is the explicit engine identity the plan verbs commit
 // with. It is attribution only; the approval_ref discipline is untouched.
 var planEngineIdentity = gitx.Identity{
 	Name:  "Sworn Plan Engine",
-	Email: "plan@sworn.dev",
+	Email: "plan@" + engineIdentityDomain,
 }
 
 func runPlan(args []string, stdout, stderr io.Writer) int {
