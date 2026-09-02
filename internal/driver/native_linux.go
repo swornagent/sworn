@@ -2769,17 +2769,12 @@ func validateNativeProcessEnvironment(
 	}
 	switch family {
 	case ProfileClaude:
-		expected["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = []byte("1")
-		expected["CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY"] = []byte("1")
-		expected["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = []byte("1")
-		expected["DISABLE_AUTOUPDATER"] = []byte("1")
-		expected["DISABLE_TELEMETRY"] = []byte("1")
-		expected["DISABLE_ERROR_REPORTING"] = []byte("1")
-		expected["DISABLE_FEEDBACK_COMMAND"] = []byte("1")
+		captureBaseURL := ""
 		if captureRun != nil {
-			expected["ANTHROPIC_BASE_URL"] = []byte(
-				captureRun.provider.BaseURL(),
-			)
+			captureBaseURL = captureRun.provider.BaseURL()
+		}
+		for _, entry := range nativeClaudeEnvironmentEntries(captureBaseURL) {
+			expected[entry[0]] = []byte(entry[1])
 		}
 		if bytes.Contains(body, capability) {
 			return failNativeSurface("runtime.environment_claude_capability_leak")
@@ -3021,20 +3016,12 @@ func nativeCommand(
 	}
 	switch config.Family {
 	case ProfileClaude:
-		environment = append(environment,
-			[]byte("CLAUDE_CODE_DISABLE_AUTO_MEMORY=1"),
-			[]byte("CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1"),
-			[]byte("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1"),
-			[]byte("DISABLE_AUTOUPDATER=1"),
-			[]byte("DISABLE_TELEMETRY=1"),
-			[]byte("DISABLE_ERROR_REPORTING=1"),
-			[]byte("DISABLE_FEEDBACK_COMMAND=1"),
-		)
+		captureBaseURL := ""
 		if captureRun != nil {
-			environment = append(
-				environment,
-				[]byte("ANTHROPIC_BASE_URL="+captureRun.provider.BaseURL()),
-			)
+			captureBaseURL = captureRun.provider.BaseURL()
+		}
+		for _, entry := range nativeClaudeEnvironmentEntries(captureBaseURL) {
+			environment = append(environment, []byte(entry[0]+"="+entry[1]))
 		}
 	case ProfileCodex:
 		environment = append(environment,
