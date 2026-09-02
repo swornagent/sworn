@@ -764,7 +764,12 @@ func surfaceMCPAnswerAndRefusals(t *testing.T, binary string, throughSkill bool)
 	if mcpIsError(answered) {
 		t.Fatalf("%s mcp answer = %s", label, answered)
 	}
-	deadline := time.Now().Add(60 * time.Second)
+	// The answer is durable once admitted; what follows is a full drive
+	// continuation to completion on a runner that may be under the whole
+	// suite's load. 60s was a timing pin, not a contract: hosted CI missed
+	// it on unchanged code (sworn#275 first attempt) while it never fails
+	// locally. Match the file's own 240s answer-acceptance tolerance.
+	deadline := time.Now().Add(240 * time.Second)
 	for {
 		snap := mcpSnapshot(t, serve.address, run.runID)
 		if snap.Run.State == "complete" {
@@ -830,8 +835,11 @@ func surfaceTUIAnswer(t *testing.T, binary string) {
 	)
 	// The answer returns once durable while the TUI process's own service
 	// carries the drive, so completion is awaited before the TUI - and with
-	// it the drive it hosts - is quit.
-	completionDeadline := time.Now().Add(120 * time.Second)
+	// it the drive it hosts - is quit. 120s was a timing pin, not a
+	// contract: hosted CI missed it on unchanged code (sworn#271 first
+	// attempt) while it never fails locally. Match the 240s tolerance the
+	// answer-acceptance wait above already carries.
+	completionDeadline := time.Now().Add(240 * time.Second)
 	for run.status().State != "complete" {
 		if time.Now().After(completionDeadline) {
 			break
