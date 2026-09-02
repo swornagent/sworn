@@ -12,7 +12,7 @@ import (
 // operator-gated records migration commits with. It is attribution only.
 var migrationEngineIdentity = gitx.Identity{
 	Name:  "Sworn Records Engine",
-	Email: "records@sworn.dev",
+	Email: "records@" + engineIdentityDomain,
 }
 
 // runMigrateRecords is the operator-gated one-time relocation of the
