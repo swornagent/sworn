@@ -54,12 +54,17 @@
     "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go vet ./...",
     "PATH=/usr/local/go/bin:$PATH gofmt -l ./cmd ./internal ./tools"
   ],
+  "host_checks": [
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go test -count=1 -race ./internal/runtime"
+  ],
   "constraints": [
     "The state machine's derivations are frozen: deriveSlice's captain/escalate and verifier/blocked cases (state.go:2959-2960, :2968-2969) and deriveAssembly's verifier/blocked case (state.go:3948-3958), and their NextRole planner outcome and CurrentReceipt population, are untouched; this slice changes only driveLoop's reaction to a planner-needed state and RunStatus's reading of it.",
     "No new terminal outcome or decision vocabulary is introduced: ParkCauseBootstrapAuthority is one more entry alongside the existing ParkCause* string constants (degradation.go:47-70), and ParkStatus gains one additive Reason field (service.go:163-177); neither SliceState nor AssemblyState gains a new Status or Outcome value.",
     "The gate is one predicate over BootstrapApprovedPlanDigest (manifest.go:95) and any recorded plan_authority command (scheduler.go:5978-5992), with a single implementation driveLoop and RunStatus both call - never two independent recomputations that can drift. In RunStatus it must be evaluated in time to affect the State switch at status.go:359-386 (which sets \"parked\" at :377-378) on the no-proposal path, not only the later :472-473 recompute, which a `!parked` guard at :474 can only use to refine an already-not-parked verdict. A manifest with neither signal, or one superseded by a plan_authority command, dispatches the planner exactly as today.",
     "PLAN_AUTHORITY_CONFLICT (scheduler.go:6998-7004) and APPROVAL_AUTHORITY_CONFLICT (approval.go:364-370) remain in force, unweakened, as the backstop for any proposal admitted despite this slice.",
-    "The park reason is exactly the triggering receipt's Summary field verbatim - including any interior control character or newline, never sanitized through validParkDetail (degradation.go:241-254) - followed by a blank line and the fixed literal this contract names, written at most once per run under the existing hasParkEventForCause/appendParkEventOnce discipline (economy_guards.go:556-574/:530-545, the pattern scheduler.go:5588-5602 already applies to degradation). No secret or credential ever flows through it beyond what the Summary already carried."
+    "The park reason is exactly the triggering receipt's Summary field verbatim - including any interior control character or newline, never sanitized through validParkDetail (degradation.go:241-254) - followed by a blank line and the fixed literal this contract names, written at most once per run under the existing hasParkEventForCause/appendParkEventOnce discipline (economy_guards.go:556-574/:530-545, the pattern scheduler.go:5588-5602 already applies to degradation). No secret or credential ever flows through it beyond what the Summary already carried.",
+    "The two go test checks are declared as host_checks: the engine runs them on the host (a 60-minute budget each) and records host_effect evidence, because sworn's own suite cannot complete inside a worker sandbox - there is no C toolchain there so -race cannot build, and cmd/sworn's tests start sandboxes of their own. The vet and gofmt checks stay in-turn. A verifier must not attempt the go test checks itself and must not treat their absence from its own turn as uncovered evidence."
   ],
   "depends_on": [],
   "consumes": []

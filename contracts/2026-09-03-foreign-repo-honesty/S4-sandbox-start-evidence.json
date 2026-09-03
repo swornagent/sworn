@@ -52,12 +52,18 @@
     "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go vet ./...",
     "PATH=/usr/local/go/bin:$PATH gofmt -l ./cmd ./internal ./tools ./test"
   ],
+  "host_checks": [
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=35m ./test/e2e",
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go test -count=1 -race ./internal/driver"
+  ],
   "constraints": [
     "The retry policy of #264 is untouched: cleanSetupExit and the attempt<2 loop (internal/driver/tools_linux.go:592-597) keep deciding which sandbox-start modes retry and how many times; this slice only surfaces a cause a refusal already carries, it never changes retry behaviour.",
     "The closed sandbox_start.* check vocabulary (sandbox_start_detail.go:31-49) and its bounded, secret-free cause extraction (sandboxStartCause, :64-77) are reused exactly as built for #264, never redefined, renamed, or widened to a seventh site.",
     "The CHECK_EVIDENCE_INCOMPLETE refusal's existing shape (Bound check_command_covers, Paths naming the one declared check) is extended additively only: an existing consumer that reads the declared-check name is unaffected, and no new terminal state or outcome vocabulary is introduced.",
     "No secret or host path escapes the widened Detail: any sandbox cause surfaced here still passes through sandboxStartCause's syscall.Errno-only extraction and the maxSandboxStartCauseBytes/revalidateSandboxStartDetail bound (sandbox_start_detail.go:13, :117-145) unchanged - nothing about that bound loosens.",
-    "Host-declared checks are out of scope: they run via exec.Command on the host, never through bwrap (internal/runtime/host_checks.go), so their free-text Diagnostic is untouched and internal/runtime is not edited by this slice."
+    "Host-declared checks are out of scope: they run via exec.Command on the host, never through bwrap (internal/runtime/host_checks.go), so their free-text Diagnostic is untouched and internal/runtime is not edited by this slice.",
+    "The two go test checks are declared as host_checks: the engine runs them on the host (a 60-minute budget each) and records host_effect evidence, because sworn's own suite cannot complete inside a worker sandbox - there is no C toolchain there so -race cannot build, and cmd/sworn's tests start sandboxes of their own. The vet and gofmt checks stay in-turn. A verifier must not attempt the go test checks itself and must not treat their absence from its own turn as uncovered evidence."
   ],
   "depends_on": [],
   "consumes": []
