@@ -908,13 +908,17 @@ func buildDriverConfig(agent detectedAgent) ([]byte, string, error) {
 		minor := native
 		minor.PinMode = driver.NativePinModeMinor
 		if _, err := driver.NewNativeAdapter(minor, initValidationResolver); err != nil {
-			return nil, "", fmt.Errorf(
+			msg := fmt.Sprintf(
 				"%s %s does not match the version this Sworn build certifies (%s).\n"+
 					"Install the certified version, or configure the connection by hand.\n"+
 					"Technical code: %s",
 				agent.name, agent.version,
 				initCertifiedVersion(agent.family), commandErrorCode(err),
 			)
+			if detail := commandErrorDetail(err); detail != "" {
+				msg += "\n" + detail
+			}
+			return nil, "", errors.New(msg)
 		}
 		native = minor
 		note = fmt.Sprintf(
@@ -938,11 +942,15 @@ func buildDriverConfig(agent detectedAgent) ([]byte, string, error) {
 	}
 	body, err := driver.EncodeDriverConfig(config)
 	if err != nil {
-		return nil, "", fmt.Errorf(
+		msg := fmt.Sprintf(
 			"%s %s is installed, but this Sworn build does not admit it.\n"+
 				"Technical code: %s",
 			agent.name, agent.version, commandErrorCode(err),
 		)
+		if detail := commandErrorDetail(err); detail != "" {
+			msg += "\n" + detail
+		}
+		return nil, "", errors.New(msg)
 	}
 	return body, note, nil
 }
