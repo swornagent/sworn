@@ -67,12 +67,17 @@
     "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go vet ./...",
     "PATH=/usr/local/go/bin:$PATH gofmt -l ./cmd ./internal ./tools"
   ],
+  "host_checks": [
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go test -count=1 -race ./internal/baton ./internal/gitx"
+  ],
   "constraints": [
     "The scope lint's judgement of what counts as a reverse-dependency violation does not change - packageInScope, LintSlice's findings computation, and DeclaredFixturePins (internal/baton/scopelint.go:271-370) stay byte-for-byte; only module and file-set discovery change (including isModulePackagePath's filter and the dir/import-path rebasing in computePackageGraph), so a plan that lints clean today under a single root go.mod lints identically clean after this slice.",
     "The refusal for an ungoverned scope path (SCOPE_LINT_UNRESOLVED) and the refusal for a symlinked-or-blob documents/records-root ancestor must both be structured, named failures within the existing RecordError/gitx fail() vocabulary - never a bare error string, never a silent PASS, and never a new terminal loop state.",
     "The documents/records-root ancestor check runs strictly before prepareRecord's git object writes (hash-object -w, update-index --add --cacheinfo, write-tree at internal/gitx/prepare.go:140-165); a refusal discovered only via a failing git command after objects are already written does not satisfy sworn#273, for either root.",
     "No default path changes: DefaultDocumentsRoot stays docs/sworn and DefaultRecordsRoot stays .sworn/records (internal/gitx/config.go:55-66). LoadProjectConfig's os.ReadFile at config.go:163, which follows symlinks when reading the committed project config file itself, keeps that exact behaviour and only gains a comment documenting it as intended - a documentation change with no assertable behaviour delta, so no check may depend on comment text.",
-    "Secrets are never printed. sworn#270 (toolchain/module-cache provisioning for non-Go ecosystems) and internal/driver/tools_linux.go's module-cache bind remain untouched and unclaimed by this slice."
+    "Secrets are never printed. sworn#270 (toolchain/module-cache provisioning for non-Go ecosystems) and internal/driver/tools_linux.go's module-cache bind remain untouched and unclaimed by this slice.",
+    "The two go test checks are declared as host_checks: the engine runs them on the host (a 60-minute budget each) and records host_effect evidence, because sworn's own suite cannot complete inside a worker sandbox - there is no C toolchain there so -race cannot build, and cmd/sworn's tests start sandboxes of their own. The vet and gofmt checks stay in-turn. A verifier must not attempt the go test checks itself and must not treat their absence from its own turn as uncovered evidence."
   ],
   "depends_on": [],
   "consumes": []
