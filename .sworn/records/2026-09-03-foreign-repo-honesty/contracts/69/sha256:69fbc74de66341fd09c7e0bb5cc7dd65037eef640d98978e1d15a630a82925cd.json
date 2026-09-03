@@ -1,0 +1,79 @@
+{
+  "outcome": "Scope lint stops passing vacuously on a foreign repository's nested Go module layout, and a plan record stops discovering a symlinked-or-blob documents/records root only when git itself refuses the write with an opaque error: scope lint now locates the go.mod governing every candidate .go file (not just the repository root) by finding each file's nearest ancestor go.mod as the walk descends from the repository root (so a nested module like go/go.mod is found, and every file beneath it - including under non-cmd/internal/tools directories such as go/pkg/tools/ - is kept, because isModulePackagePath (internal/baton/scopelint.go:151-164) drops its hardcoded cmd/internal/tools top-segment allowlist), rebases each file's import-derived internal package id to repository-root-relative by joining its own go.mod's directory with the import-path-derived suffix so it matches the repo-root-relative dir key computePackageGraph already uses (scopelint.go:182 vs :206-213, previously divergent bases that silently dropped every cross-package edge for any nested module), refuses SCOPE_LINT_UNRESOLVED naming any scoped path no go.mod governs instead of ever returning PASS, and drops the hardcoded fallback modulePath := \"github.com/swornagent/sworn\" (scopelint.go:52,111) that today makes every reverse-dependency check silently inert whenever the real module path differs - computePackageGraph's importPath match (scopelint.go:207-213) never fires, LintSlice's findings stay empty (:349-351), and RunPlanScopeLint records PASS for every slice regardless of actual violations (plan_authoring.go:320-323) - closing sworn#272 including its real go/pkg/tools/... probe-path shape, not merely the go.mod-lookup half of it; and PrepareRecordTransition now refuses before any git write when an ancestor of the configured documents root or the configured records root is a symlink or a regular-file blob in the base tree, naming the ancestor and the remedy of declaring documents_root in docs/sworn/sworn.json, where today no ancestor check exists for either root at transition time (only ValidatePath and isReservedRecordPath for documents, internal/gitx/prepare.go:211-214, and a lexical recordRoot-prefix test for changes, :204-208) and the failure surfaces only after prepareRecord's git object writes as an opaque GIT_EXECUTION_FAILED (internal/gitx/repository.go:499) - closing sworn#273 for both roots, not documents-only. sworn's own repository, governed by its single root go.mod and carrying no top-level .go files outside cmd/, internal/, and tools/, lints exactly as before.",
+  "scope": {
+    "include": [
+      "internal/baton",
+      "internal/gitx"
+    ],
+    "exclude": [
+      "The scope lint's reverse-dependency algorithm itself - packageInScope, isWaived, and LintSlice's findings computation over TestDeps and DeclaredFixturePins (internal/baton/scopelint.go:271-370) - is unchanged; this slice only changes how the governing module and its file set are discovered, never how a violation is judged.",
+      "internal/driver/tools_linux.go's Go module-cache discovery and bind (hostGoModuleCache at :355-372, the --ro-bind around :515-525) stay exactly as they are - toolchain/module-cache provisioning for non-Go ecosystems is sworn#270, out of scope here.",
+      "ResolveRecordPathAdmission's host-filesystem Lstat walk (internal/gitx/repository.go:551-567, called once at repository open from internal/baton/repository.go:138) and assertRecordRootAtPath's post-write ls-tree walk over the resulting commit (repository.go:640-674, invoked only for recordRoot/LegacyRecordsRoot via assertRecordRootAt at internal/gitx/prepare.go:240) are reused as the model for the new pre-write check, not replaced or removed.",
+      "ValidateConfigPaths (internal/gitx/config.go:262-299) stays a purely lexical validator; the new ancestor check belongs in the git-write path (PrepareRecordTransition), never in project-config loading.",
+      "internal/driver/contract.go's guest-path constants and mounts are untouched; this slice touches no containment surface."
+    ],
+    "waivers": [
+      {
+        "package": "internal/cockpit",
+        "reason": "its tests reach internal/baton, internal/gitx by import only; no cockpit test pins the behaviour this slice changes"
+      },
+      {
+        "package": "internal/observe",
+        "reason": "its tests reach internal/baton, internal/gitx by import only; no observe test pins the behaviour this slice changes"
+      },
+      {
+        "package": "internal/runtime",
+        "reason": "its tests reach internal/baton, internal/gitx by import only; no runtime test pins the behaviour this slice changes"
+      },
+      {
+        "package": "internal/skill",
+        "reason": "its tests reach internal/baton, internal/gitx by import only; no skill test pins the behaviour this slice changes"
+      },
+      {
+        "package": "internal/tui",
+        "reason": "its tests reach internal/baton, internal/gitx by import only; no tui test pins the behaviour this slice changes"
+      },
+      {
+        "package": "tools/batongolden",
+        "reason": "its tests reach internal/baton, internal/gitx by import only; no batongolden test pins the behaviour this slice changes"
+      },
+      {
+        "package": "cmd/sworn",
+        "reason": "its tests reach internal/baton, internal/gitx by import only; no sworn test pins the behaviour this slice changes"
+      },
+      {
+        "package": "internal/driver",
+        "reason": "its tests reach internal/baton, internal/gitx by import only; no driver test pins the behaviour this slice changes"
+      }
+    ]
+  },
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "Scope lint locates the go.mod governing every candidate .go file, not just the repository root, by finding each file's nearest ancestor go.mod as the walk descends from the repository root, so a nested module (e.g. go/go.mod in a fired-shaped foreign layout) is found and its files are attributed to it. Today BuildPackageGraphFS reads only fs.ReadFile(sys, \"go.mod\") at the repository root (internal/baton/scopelint.go:53) and BuildPackageGraphAt matches only entry.Path == \"go.mod\" (scopelint.go:114) - a go.mod anywhere but the root is invisible to both, which are what ValidatePlanScopeLintFS (:386-392, driven from RunPlanScopeLint's os.DirFS(repoRoot) at plan_authoring.go:311) and ValidatePlanScopeLintAt (:395-401, via ValidatePlanScopeLint at :404-409, used by Actions.verifyPlanScopeLint at actions.go:488-490) both call. Two more sworn-specific defects keep a found nested module's graph empty regardless: (a) isModulePackagePath (scopelint.go:151-164) keeps a candidate file only when path.Dir(p)'s top segment, computed relative to the repository root, is literally \"cmd\", \"internal\", or \"tools\" (scopelint.go:162-163) - sworn's own convention - so every file under a foreign module's real directories (e.g. go/pkg/tools/nonexistent, sworn#272's actual reported probe path) is dropped before parsing starts; and (b) computePackageGraph keys each PackageInfo by dir := path.Dir(filePath), repo-root-relative from the walk (scopelint.go:182), while internalPkg := TrimPrefix(importPath, modulePath+\"/\") (scopelint.go:206-213) is relative to the discovered go.mod's own directory - for sworn's single root module these bases coincide by accident, but for go/go.mod they diverge (dir=\"go/internal/foo\" vs internalPkg=\"internal/foo\"), so no AllImports entry ever matches a packages[] key and every cross-package edge silently drops even once files are kept. This slice removes isModulePackagePath's cmd/internal/tools top-segment allowlist entirely, keeping every file whose only exclusions are noise segments (testdata, test, hidden directories) at any depth, and rebases every file's internal package id to repository-root-relative by joining its own governing go.mod's directory with the import-path-derived suffix (path.Join(moduleDir, TrimPrefix(importPath, modulePath+\"/\"))) before it is used as an AllImports/ProdImports entry, so it matches the repo-root-relative dir key. Pinned by a unit test building a synthetic foreign layout with go.mod present only at go/go.mod and files under go/pkg/tools/... (deliberately not cmd/internal/tools, matching sworn#272's real evidence shape), where a package outside a slice's scope.include genuinely imports a package inside it, asserting LintSlice returns UNDER_DERIVED_SCOPE naming that out-of-scope package - not merely that the lint resolves and runs without SCOPE_LINT_UNRESOLVED."
+    },
+    {
+      "id": "A2",
+      "text": "When no go.mod governs a scoped path, the lint refuses with SCOPE_LINT_UNRESOLVED naming that path - it never returns PASS - and the hardcoded fallback modulePath is gone. Today, when no go.mod is found (or the read errors, silently discarded at scopelint.go:53-56 and :115-119), modulePath keeps its hardcoded value \"github.com/swornagent/sworn\" (scopelint.go:52, 111); in a foreign repository whose real import paths use a different module string, computePackageGraph's importPath == modulePath / HasPrefix(modulePath+\"/\") comparison (scopelint.go:207-213) fails for every import in every file, so every PackageInfo.AllImports/ProdImports stays empty, LintSlice's findings loop (:307-347) finds no TestDeps ever in scope, findings stays nil, and :349-351 returns nil for every slice - RunPlanScopeLint then builds LintPlanSliceResult{Status:\"PASS\"} unconditionally for every slice (plan_authoring.go:317-324), which is sworn#272's vacuous pass. After this slice that silent fallback path is removed and replaced by an explicit refusal; sworn's own repository (root go.mod, matching module github.com/swornagent/sworn per go.mod:1) still resolves that root module directly and its lint verdict is byte-for-byte unchanged even after A1 drops isModulePackagePath's cmd/internal/tools allowlist, because this repository's only non-noise top-level directories carrying .go files are cmd/, internal/, and tools/ - verified by inventory, no other top-level directory (bin/, contracts/, docs/, .sworn/) contains a .go file. Pinned by a unit test with a scope.include path no go.mod anywhere governs, asserting SCOPE_LINT_UNRESOLVED naming the path (never nil/PASS); and a regression test running the lint against this repository's own plan/scope fixtures asserting an unchanged PASS/UNDER_DERIVED_SCOPE verdict."
+    },
+    {
+      "id": "A3",
+      "text": "PrepareRecordTransition refuses, before any git object write, when an ancestor of the configured documents root OR the configured records root is a symlink or a regular-file blob in the base tree (request.ExpectedHead's tree), naming the ancestor and the remedy of declaring documents_root in docs/sworn/sworn.json - the same pre-write ancestor-walk check runs against both r.DocumentsRoot() and r.recordRoot, never documents-only. Today request.Documents paths are checked only by ValidatePath (internal/gitx/prepare.go:211) and isReservedRecordPath (:214, internal/gitx/repository.go:812-819 - lexical and records-root-only); request.Changes paths are checked only by the recordRoot-prefix test at prepare.go:204-208, also lexical; no ancestor or tree check exists for either root anywhere in PrepareRecordTransition, so a documents_root or a records_root beneath a symlinked or blob ancestor reaches prepareRecord's git writes (update-index --add --cacheinfo at prepare.go:158, write-tree at :162) before failing, surfacing only as an opaque GIT_EXECUTION_FAILED from internal/gitx/repository.go:499 - sworn#273. The existing symlink protections cover neither this case nor this timing for either root: ResolveRecordPathAdmission's host Lstat walk (repository.go:551-567) walks only r.recordRoot, runs once at repository open - before any specific transition, and never against documentsRoot at all - and assertRecordRootAtPath's ls-tree walk (repository.go:640-674, refusing SYMLINKED_RECORD_ROOT for mode 120000 at :666-667 and a non-tree entry at :669-671) is invoked only for recordRoot/LegacyRecordsRoot via assertRecordRootAt(prepared.Commit, false) at prepare.go:240 - after prepareRecord's writes have already run, and never for documentsRoot. Pinned by three integration tests: one constructs a base commit whose tree has a symlink (mode 120000) ancestor of the configured documents_root, calls PrepareRecordTransition with a non-empty Documents map, and asserts a named refusal (never GIT_EXECUTION_FAILED) naming the ancestor with zero new git objects written as a result; a second matches it with a regular-file blob ancestor of documents_root instead of a symlink; a third constructs a symlink (mode 120000) ancestor of the configured records_root, calls PrepareRecordTransition with a non-empty Changes entry under that records_root and an empty Documents map, and asserts the identical named refusal fires before any git write - proving the check is not documents-only."
+    }
+  ],
+  "checks": [
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go test -count=1 -race ./internal/baton ./internal/gitx",
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go vet ./...",
+    "PATH=/usr/local/go/bin:$PATH gofmt -l ./cmd ./internal ./tools"
+  ],
+  "constraints": [
+    "The scope lint's judgement of what counts as a reverse-dependency violation does not change - packageInScope, LintSlice's findings computation, and DeclaredFixturePins (internal/baton/scopelint.go:271-370) stay byte-for-byte; only module and file-set discovery change (including isModulePackagePath's filter and the dir/import-path rebasing in computePackageGraph), so a plan that lints clean today under a single root go.mod lints identically clean after this slice.",
+    "The refusal for an ungoverned scope path (SCOPE_LINT_UNRESOLVED) and the refusal for a symlinked-or-blob documents/records-root ancestor must both be structured, named failures within the existing RecordError/gitx fail() vocabulary - never a bare error string, never a silent PASS, and never a new terminal loop state.",
+    "The documents/records-root ancestor check runs strictly before prepareRecord's git object writes (hash-object -w, update-index --add --cacheinfo, write-tree at internal/gitx/prepare.go:140-165); a refusal discovered only via a failing git command after objects are already written does not satisfy sworn#273, for either root.",
+    "No default path changes: DefaultDocumentsRoot stays docs/sworn and DefaultRecordsRoot stays .sworn/records (internal/gitx/config.go:55-66). LoadProjectConfig's os.ReadFile at config.go:163, which follows symlinks when reading the committed project config file itself, keeps that exact behaviour and only gains a comment documenting it as intended - a documentation change with no assertable behaviour delta, so no check may depend on comment text.",
+    "Secrets are never printed. sworn#270 (toolchain/module-cache provisioning for non-Go ecosystems) and internal/driver/tools_linux.go's module-cache bind remain untouched and unclaimed by this slice."
+  ],
+  "depends_on": [],
+  "consumes": []
+}

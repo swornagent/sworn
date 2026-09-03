@@ -1,0 +1,69 @@
+{
+  "outcome": "The codex lane's per-tool-call MCP budget follows sworn's invocation deadline exactly as the claude lane's already does, closing the codex-lane follow-up to PR #275 (tracked as S5 in contracts/2026-09-03-foreign-repo-honesty/plan.md; no sworn issue number exists yet for it) - internal/driver/native_linux.go:2883 today hardcodes `tool_timeout_sec = 300` into every codex [mcp_servers.sworn] TOML block built by nativeConfigFiles, with no comment and zero references to tool_timeout_sec across any *_test.go file, so a codex worker running a contract check longer than five minutes hits the same wall the fired dogfood verifier hit on claude before PR #275 lifted MCP_TOOL_TIMEOUT/MCP_TOOL_IDLE_TIMEOUT to MaxTimeoutMillis for that lane (internal/driver/native_environment_linux.go:13,30-31; MaxTimeoutMillis=86_400_000 at internal/driver/contract.go:32). After this slice, codex's tool_timeout_sec derives from that same MaxTimeoutMillis constant (seconds, floor), sharing one source with the claude lane's millis value so the two numbers cannot drift apart again; startup_timeout_sec and every other codex TOML key stay exactly as they are.",
+  "scope": {
+    "include": [
+      "internal/driver"
+    ],
+    "exclude": [
+      "startup_timeout_sec's value (5) and every other codex TOML key - model_catalog_json, web_search, include_permissions_instructions, include_apps_instructions, include_collaboration_mode_instructions, include_environment_context, analytics/agents/orchestrator/skills toggles at native_linux.go:2846-2887 - are unaffected; only the tool_timeout_sec line's source changes.",
+      "the claude lane's own environment-derivation path at native_environment_linux.go:13,21-37 - the derivation `nativeMCPToolTimeoutMillis = strconv.FormatInt(MaxTimeoutMillis, 10)` sits at line 13; nativeClaudeEnvironmentEntries (lines 21-37) only reads that already-derived value when building the MCP_TOOL_TIMEOUT/MCP_TOOL_IDLE_TIMEOUT entries at lines 30-31. This slice adds a codex-seconds sibling next to line 13, it does not restructure the claude entries or MCP_TOOL_TIMEOUT/MCP_TOOL_IDLE_TIMEOUT.",
+      "the in-sandbox native surface certificate's config checks at native_linux.go:2665-2694 (runtime.config_file_invalid, runtime.codex_config_capability_count) - they validate capability-token placement and file permissions, not timeout values, and are left unmodified.",
+      "MaxTimeoutMillis itself at contract.go:32 and every other consumer of it - this slice adds one more derived read of the existing constant, it does not change the constant's value or any other invocation-budget enforcement path.",
+      "the default case's `err = fail(\"NATIVE_NOT_CERTIFIED\")` at native_linux.go:2890, seven lines below this slice's tool_timeout_sec edit at line 2883, both inside the same `switch config.Family` block (native_linux.go:2843-2891) of nativeConfigFiles - sibling slice S1-refusals-carry-cause edits that default case;",
+      "different concerns (refusal naming vs. tool-call budget), no logical conflict, but adjacent diff lines in the same function, sequenced via depends_on below to avoid a merge race rather than left silent."
+    ],
+    "waivers": [
+      {
+        "package": "internal/cockpit",
+        "reason": "its tests reach internal/driver by import only; no cockpit test pins the behaviour this slice changes"
+      },
+      {
+        "package": "internal/observe",
+        "reason": "its tests reach internal/driver by import only; no observe test pins the behaviour this slice changes"
+      },
+      {
+        "package": "internal/runtime",
+        "reason": "its tests reach internal/driver by import only; no runtime test pins the behaviour this slice changes"
+      },
+      {
+        "package": "internal/tui",
+        "reason": "its tests reach internal/driver by import only; no tui test pins the behaviour this slice changes"
+      },
+      {
+        "package": "cmd/sworn",
+        "reason": "its tests reach internal/driver by import only; no sworn test pins the behaviour this slice changes"
+      }
+    ]
+  },
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "The codex lane's tool-call ceiling follows the invocation budget instead of a fixed five minutes. Today internal/driver/native_linux.go:2883 writes the literal `tool_timeout_sec = 300` into the [mcp_servers.sworn] TOML block that nativeConfigFiles (native_linux.go:2846-2887) builds for every codex invocation regardless of that invocation's own budget, and grep across every *_test.go file in the repository finds zero references to tool_timeout_sec - the value is untested. After this slice tool_timeout_sec is floor(MaxTimeoutMillis / 1000) seconds (86400, from MaxTimeoutMillis=86_400_000 at contract.go:32), so a codex worker's tool call is bounded by the same day-long ceiling the claude lane already grants via MCP_TOOL_TIMEOUT/MCP_TOOL_IDLE_TIMEOUT (native_environment_linux.go:13,30-31). Pinned by a unit test that calls nativeConfigFiles for ProfileCodex and asserts the rendered mcp config's tool_timeout_sec line equals that derived value, not the literal 300."
+    },
+    {
+      "id": "A2",
+      "text": "The codex seconds value and the claude milliseconds value both read from the same MaxTimeoutMillis constant at contract.go:32: today native_linux.go:2883's literal `300` and native_environment_linux.go:13's `nativeMCPToolTimeoutMillis = strconv.FormatInt(MaxTimeoutMillis, 10)` are two independent numbers with no relationship to each other - one already tracks MaxTimeoutMillis, the other is a bare literal someone must remember to update by hand. After this slice codex's tool_timeout_sec is derived the same way, from the same constant, as a second reader alongside native_environment_linux.go:13. Pinned by a unit test that generates both a codex config and a claude environment for the same invocation and asserts the codex tool_timeout_sec value (seconds) times 1000 equals the claude MCP_TOOL_TIMEOUT value (millis) - this proves the two current outputs agree numerically for that invocation, it does not and cannot prove a worker could never reintroduce a second independent literal that happens to match; no Go test pins that implementation-coupling property, only the observable value agreement."
+    },
+    {
+      "id": "A3",
+      "text": "startup_timeout_sec stays 5 and the rest of the codex TOML block - model_catalog_json, web_search, include_permissions_instructions, include_apps_instructions, include_collaboration_mode_instructions, include_environment_context, and the [analytics]/[agents]/[orchestrator.*]/[skills.*] toggles at native_linux.go:2846-2887 - is byte-identical apart from the tool_timeout_sec line; this is an additive, single-value fix, not a rewrite of the config surface the in-sandbox certificate already checks (runtime.codex_config_capability_count at native_linux.go:2681-2686 counts capability-token occurrences in the joined config bytes and is unaffected by a numeric-literal change elsewhere in the same file). Pinned by a unit test that calls nativeConfigFiles for ProfileCodex with a fixed invocation/capability/brokerURL and asserts the rendered mcp TOML string equals an expected-template string built from today's full literal block with only the tool_timeout_sec value substituted - one full string-equality assertion, not two narrow spot checks - so a dropped, reordered, or altered key anywhere in the other seven lines fails the test; the existing nativeConfigFiles/native-surface coverage in native_linux_test.go continues to pass unmodified on its capability-count assertions."
+    }
+  ],
+  "checks": [
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go test -count=1 -race ./internal/driver",
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go vet ./...",
+    "PATH=/usr/local/go/bin:$PATH gofmt -l ./cmd ./internal ./tools"
+  ],
+  "constraints": [
+    "No behaviour change for any tool call that finishes inside five minutes: this slice only raises the ceiling a codex tool call may run before the MCP server itself enforces a timeout, it does not touch how or when a call is dispatched, retried, or reported.",
+    "No new magic numbers: the only two places a tool-call timeout may be expressed are the existing MaxTimeoutMillis constant at contract.go:32 and values derived from it in native_linux.go and native_environment_linux.go - no second literal budget is introduced for either lane.",
+    "The capability bearer token must still appear exactly once in the generated codex config (runtime.codex_config_capability_count, native_linux.go:2681-2686) after the change - this slice only alters the tool_timeout_sec line's value, never the TOML block's structure or where the capability token is interpolated.",
+    "No secret, credential, or capability token is ever printed in a test assertion or added log line; existing redaction and canary discipline in native_linux_test.go is unchanged.",
+    "This is additive and single-purpose: startup_timeout_sec, every other codex TOML key, the default/ProfileClaude branches of the switch config.Family block in nativeConfigFiles (native_linux.go:2843-2891), and the claude lane's MCP_TOOL_TIMEOUT/MCP_TOOL_IDLE_TIMEOUT wiring are unmodified except for gaining the codex lane as a second reader of the same constant."
+  ],
+  "depends_on": [
+    "S1-refusals-carry-cause"
+  ],
+  "consumes": []
+}
