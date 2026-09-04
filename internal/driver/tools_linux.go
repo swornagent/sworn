@@ -544,12 +544,14 @@ func runToolBash(
 	// written immediately after the fork, so in this mode no child ever
 	// existed and a bounded retry cannot double-execute the script. That is
 	// the load-transient CI class: a busy runner starving bwrap's setup.
-	// Two quiet retries absorb it; every other failure mode - a signal
-	// death (the one window where a forked child may have started), a dead
-	// reported child, a child never scheduled onto its own group within
-	// processStartHandshakeGrace - still refuses immediately, and the
-	// refusal now names which of the handshake's modes refused alongside
-	// the site.
+	// Two quiet retries absorb it. A reported child that is already gone
+	// when probed ran to completion before a starved engine looked and
+	// proceeds as a completed start (sworn#277). Every other failure mode
+	// - a signal death (the one window where a forked child may have
+	// started), an unprobeable reported child, a child never scheduled
+	// onto its own group within processStartHandshakeGrace - still refuses
+	// immediately, and the refusal names which of the handshake's modes
+	// refused alongside the site.
 	var command *exec.Cmd
 	var group int
 	var output *boundedBuffer

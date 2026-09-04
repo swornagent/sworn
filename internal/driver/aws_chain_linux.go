@@ -191,7 +191,11 @@ func equalStrings(left, right []string) bool {
 // sites keep them distinguishable for the caller (sworn#251): a report that
 // never arrived means the launcher died during setup, before forking its
 // child - the only mode a caller may safely retry, because no child ever ran;
-// a group probe error means the reported child died immediately; and an
+// a reported child that no longer exists when probed already ran to
+// completion and was reaped by the launcher before the engine looked - a
+// short script under a starved engine (sworn#277) - and is a completed
+// start, never a refusal; any other group probe error means the child is
+// unprobeable; and an
 // unchanged group after the start grace means a live child was never
 // scheduled onto its own group, which no healthy host produces even under
 // heavy load at processStartHandshakeGrace.
@@ -221,11 +225,25 @@ func readSandboxProcessGroup(
 		status.ChildPID <= 0 {
 		return 0, 0, errSandboxGroupReportMissing
 	}
+	if testSandboxHandshakeProbeDelay > 0 {
+		time.Sleep(testSandboxHandshakeProbeDelay)
+	}
 	group, err := syscall.Getpgid(status.ChildPID)
 	deadline := time.Now().Add(processStartHandshakeGrace)
 	for err == nil && group == parentPID && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 		group, err = syscall.Getpgid(status.ChildPID)
+	}
+	if errors.Is(err, syscall.ESRCH) {
+		// The launcher reported the child, so the fork happened; the child
+		// is gone before it could be probed because it already ran to
+		// completion and the launcher reaped it - a short script under a
+		// starved engine (sworn#277), not a failed start. Its exit status
+		// and output travel through the launcher's own exit. Its group,
+		// had it been observed, was its own session (--new-session), so
+		// its pid serves the termination sweep, which tolerates an absent
+		// group.
+		return status.ChildPID, status.ChildPID, nil
 	}
 	if err != nil || group <= 0 {
 		return 0, 0, errSandboxChildUnprobeable

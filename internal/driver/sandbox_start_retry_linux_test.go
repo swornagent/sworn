@@ -9,13 +9,15 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 )
 
-// TestReadSandboxProcessGroupNamesItsFailureModes pins the three
-// distinguishable handshake failures (sworn#251): a report that never
+// TestReadSandboxProcessGroupNamesItsFailureModes pins the handshake's
+// distinguishable outcomes (sworn#251, sworn#277): a report that never
 // arrived (the launcher died during setup, pre-fork - the only mode the
-// launch loop may retry), a reported child whose group cannot be probed,
-// and the healthy path. The group-unchanged mode is not provoked here: it
+// launch loop may retry), a reported child already gone when probed (it
+// ran to completion first - a completed start, not a refusal), and the
+// healthy path. The group-unchanged mode is not provoked here: it
 // requires holding a live child inside the parent's group for the whole
 // processStartHandshakeGrace, which is deliberately long.
 func TestReadSandboxProcessGroupNamesItsFailureModes(t *testing.T) {
@@ -33,8 +35,10 @@ func TestReadSandboxProcessGroupNamesItsFailureModes(t *testing.T) {
 		t.Fatalf("silent launcher error = %v, want errSandboxGroupReportMissing", statusErr)
 	}
 
-	// Reported child is already dead: Getpgid fails immediately, so this
-	// must refuse as unprobeable without waiting out any grace window.
+	// Reported child is already gone: it ran to completion and was reaped
+	// before the probe (sworn#277). That is a completed start, reported
+	// without waiting out any grace window, with the child's own pid
+	// standing in for its group.
 	dead := exec.Command("true")
 	if err := dead.Start(); err != nil {
 		t.Fatal(err)
@@ -51,10 +55,11 @@ func TestReadSandboxProcessGroupNamesItsFailureModes(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = writer.Close()
-	_, _, statusErr = readSandboxProcessGroup(reader, os.Getpid())
+	gone, goneGroup, goneErr := readSandboxProcessGroup(reader, os.Getpid())
 	_ = reader.Close()
-	if statusErr != errSandboxChildUnprobeable {
-		t.Fatalf("dead child error = %v, want errSandboxChildUnprobeable", statusErr)
+	if goneErr != nil || gone != deadPID || goneGroup != deadPID {
+		t.Fatalf("gone child handshake = (%d, %d, %v), want (%d, %d, nil)",
+			gone, goneGroup, goneErr, deadPID, deadPID)
 	}
 
 	// Healthy: a live child in its own process group reports cleanly. A
@@ -80,6 +85,44 @@ func TestReadSandboxProcessGroupNamesItsFailureModes(t *testing.T) {
 	_ = reader.Close()
 	if statusErr != nil || child != alive.Process.Pid || group <= 0 {
 		t.Fatalf("healthy handshake = (%d, %d, %v)", child, group, statusErr)
+	}
+}
+
+// TestToolBashFastExitSurvivesStarvedHandshakeProbe reproduces the hosted-
+// runner class (sworn#277): bubblewrap reports its child the instant it
+// forks, a short script finishes and is reaped before a starved engine gets
+// to probe the child's group, and the launch used to refuse as a dead child
+// (PROCESS_START_FAILED "sandbox child process group unprobeable") although
+// the command ran to completion. The probe delay stands in for the starved
+// scheduler; the result must be the command's own exit code and output.
+func TestToolBashFastExitSurvivesStarvedHandshakeProbe(t *testing.T) {
+	requireTrustedContainment(t)
+	previous := testSandboxHandshakeProbeDelay
+	testSandboxHandshakeProbeDelay = 500 * time.Millisecond
+	t.Cleanup(func() { testSandboxHandshakeProbeDelay = previous })
+
+	invocation, _, _ := memoryInvocationFixture(t)
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	result := executeToolJSON(t, session, "bash-fast-exit", "Bash", map[string]any{
+		"script": `printf 'fast-evidence\n'
+exit 42`,
+	})
+	content := string(result.Content)
+	if !result.Failed || !strings.HasPrefix(content, "error:PROCESS_FAILED exit_code=42\n") ||
+		!strings.Contains(content, "fast-evidence") {
+		t.Fatalf("fast-exit result under a starved probe = failed=%v content=%q",
+			result.Failed, content)
+	}
+	success := executeToolJSON(t, session, "bash-fast-ok", "Bash", map[string]any{
+		"script": `printf 'ok-evidence\n'`,
+	})
+	if success.Failed || string(success.Content) != "ok-evidence" {
+		t.Fatalf("fast clean exit under a starved probe = failed=%v content=%q",
+			success.Failed, string(success.Content))
 	}
 }
 
