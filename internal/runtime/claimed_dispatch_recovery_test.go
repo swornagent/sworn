@@ -272,6 +272,178 @@ func TestPreparedImplementationRequiresExactSucceededDispatchProof(
 	}
 }
 
+// hostCheckEvidenceFixture journals one succeeded check.host effect for the
+// dispatch-proof fixture's cycle and binds the engine-built manifest over it
+// as the record's checks evidence, exactly as the implementer seal does after
+// running a contract's declared host checks.
+func hostCheckEvidenceFixture(
+	t *testing.T,
+	snapshot *journal.Snapshot,
+	cycle implementationCycle,
+	record *sealedRecord,
+	roleDigest string,
+) (hostCheckResult, []byte) {
+	t.Helper()
+	const contractDigest = "sha256:" +
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const check = "go test ./..."
+	work := hostCheckWork(cycle.Slice, record.Candidate, contractDigest, check)
+	effectID := hostCheckEffectID(work)
+	result := hostCheckResult{
+		Slice: cycle.Slice, Candidate: record.Candidate,
+		ContractDigest: contractDigest, Check: check,
+		Outcome: baton.CheckOutcomePass, ExitCode: 0,
+		Output: "ok\n", OutputDigest: baton.DigestBytes([]byte("ok\n")),
+		EffectID: effectID,
+	}
+	body := mustJSON(result)
+	snapshot.Effects = append(snapshot.Effects, journal.Effect{
+		RunID:          snapshot.Run.ID,
+		ID:             effectID,
+		ReplayKey:      effectID,
+		Kind:           "check.host",
+		State:          journal.Succeeded,
+		BeforeDigest:   work,
+		ExpectedDigest: sha256Digest(body),
+		ResultDigest:   sha256Digest(body),
+		Result:         body,
+	})
+	manifest, err := buildHostCheckResultsManifest(
+		record.Receipt.Release, cycle.Slice, 1, record.Candidate,
+		contractDigest, []hostCheckResult{result}, roleDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.Receipt.CheckResults = manifest
+	return result, body
+}
+
+func TestPreparedImplementationProvesHostCheckEvidenceFromJournal(
+	t *testing.T,
+) {
+	exactEngine, snapshot, cycle, record :=
+		implementationDispatchProofFixture(t)
+	roleDigest := baton.DigestBytes(record.Receipt.CheckResults)
+	hostCheckEvidenceFixture(t, &snapshot, cycle, &record, roleDigest)
+	if err := validateImplementationDispatchProof(
+		exactEngine,
+		snapshot,
+		cycle,
+		record,
+	); err != nil {
+		t.Fatalf("journaled host-check evidence rejected: %v", err)
+	}
+
+	tests := map[string]func(*journal.Snapshot, *sealedRecord, string){
+		"host effect absent from the journal": func(
+			snapshot *journal.Snapshot, _ *sealedRecord, _ string,
+		) {
+			snapshot.Effects = snapshot.Effects[:1]
+		},
+		"host effect not succeeded": func(
+			snapshot *journal.Snapshot, _ *sealedRecord, _ string,
+		) {
+			snapshot.Effects[1].State = journal.OperationalFailed
+		},
+		"journaled result substituted": func(
+			snapshot *journal.Snapshot, _ *sealedRecord, _ string,
+		) {
+			var result hostCheckResult
+			if err := json.Unmarshal(snapshot.Effects[1].Result, &result); err != nil {
+				t.Fatal(err)
+			}
+			result.Outcome = baton.CheckOutcomeFail
+			result.Diagnostic = "exit status 1"
+			body := mustJSON(result)
+			snapshot.Effects[1].Result = body
+			snapshot.Effects[1].ResultDigest = sha256Digest(body)
+		},
+		"manifest outcome asserted against the journal": func(
+			snapshot *journal.Snapshot, record *sealedRecord, roleDigest string,
+		) {
+			var result hostCheckResult
+			if err := json.Unmarshal(snapshot.Effects[1].Result, &result); err != nil {
+				t.Fatal(err)
+			}
+			result.Output, result.OutputDigest = "ok (cached)\n",
+				baton.DigestBytes([]byte("ok (cached)\n"))
+			manifest, err := buildHostCheckResultsManifest(
+				record.Receipt.Release, cycle.Slice, 1, record.Candidate,
+				result.ContractDigest, []hostCheckResult{result}, roleDigest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			record.Receipt.CheckResults = manifest
+		},
+		"role digest not the dispatch's checks": func(
+			snapshot *journal.Snapshot, record *sealedRecord, _ string,
+		) {
+			var result hostCheckResult
+			if err := json.Unmarshal(snapshot.Effects[1].Result, &result); err != nil {
+				t.Fatal(err)
+			}
+			manifest, err := buildHostCheckResultsManifest(
+				record.Receipt.Release, cycle.Slice, 1, record.Candidate,
+				result.ContractDigest, []hostCheckResult{result},
+				baton.DigestBytes([]byte("substituted role checks")))
+			if err != nil {
+				t.Fatal(err)
+			}
+			record.Receipt.CheckResults = manifest
+		},
+		"manifest for another candidate": func(
+			snapshot *journal.Snapshot, record *sealedRecord, roleDigest string,
+		) {
+			var result hostCheckResult
+			if err := json.Unmarshal(snapshot.Effects[1].Result, &result); err != nil {
+				t.Fatal(err)
+			}
+			manifest, err := buildHostCheckResultsManifest(
+				record.Receipt.Release, cycle.Slice, 1, strings.Repeat("c", 40),
+				result.ContractDigest, []hostCheckResult{result}, roleDigest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			record.Receipt.CheckResults = manifest
+		},
+		"manifest with no host entries": func(
+			_ *journal.Snapshot, record *sealedRecord, roleDigest string,
+		) {
+			manifest, err := baton.EncodeCheckResults(baton.CheckResults{
+				SchemaVersion: baton.CheckResultsVersion,
+				Release:       record.Receipt.Release, Slice: cycle.Slice,
+				Attempt: 1, Candidate: record.Candidate,
+				ContractDigest: "sha256:" + strings.Repeat("a", 64),
+				Entries: []baton.CheckResultEntry{{
+					Check: "role checks", Provenance: baton.CheckProvenanceRole,
+					Outcome: baton.CheckOutcomePass, RoleDigest: roleDigest,
+				}},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			record.Receipt.CheckResults = manifest
+		},
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			engine, snapshot, cycle, record :=
+				implementationDispatchProofFixture(t)
+			roleDigest := baton.DigestBytes(record.Receipt.CheckResults)
+			hostCheckEvidenceFixture(t, &snapshot, cycle, &record, roleDigest)
+			mutate(&snapshot, &record, roleDigest)
+			if err := validateImplementationDispatchProof(
+				engine,
+				snapshot,
+				cycle,
+				record,
+			); !IsCode(err, "CORRUPT_JOURNAL") {
+				t.Fatalf("asserted host-check evidence error = %v", err)
+			}
+		})
+	}
+}
+
 func TestImplementationCycleAuthorityDerivesSliceTrackFromPlan(
 	t *testing.T,
 ) {
