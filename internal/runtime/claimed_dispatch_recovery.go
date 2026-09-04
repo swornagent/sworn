@@ -223,9 +223,15 @@ func validateImplementationDispatchProof(
 	checks, err := exactBytes(submission.Checks)
 	if err != nil ||
 		record.Receipt.Summary != submission.Summary ||
-		!bytes.Equal(record.Receipt.Detail, []byte(submission.Detail)) ||
-		!bytes.Equal(record.Receipt.CheckResults, checks) {
+		!bytes.Equal(record.Receipt.Detail, []byte(submission.Detail)) {
 		return runtimeFail("CORRUPT_JOURNAL", err)
+	}
+	// The record's checks evidence is either the role's own checks bytes or,
+	// when the contract declares host checks, the engine-built host-boundary
+	// manifest over them. The manifest is never accepted on its own bytes: it
+	// is proven back to the journaled check.host effects it cites.
+	if !bytes.Equal(record.Receipt.CheckResults, checks) {
+		return validateHostCheckEvidenceProof(snapshot, cycle, record, checks)
 	}
 	return nil
 }

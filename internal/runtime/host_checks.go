@@ -491,6 +491,75 @@ func buildHostCheckResultsManifest(
 	return baton.EncodeCheckResults(manifest)
 }
 
+// validateHostCheckEvidenceProof proves that a sealed record's checks evidence
+// is the engine-built host-boundary manifest for this exact cycle, rebuilt
+// from the journal rather than trusted from the record. Every host entry must
+// cite a succeeded check.host effect whose identity is content-addressed from
+// the slice, candidate, contract digest, and check text, and whose journaled
+// result parses with the same exactness as at execution; the role entry must
+// carry the digest of the dispatch's own checks. The manifest rebuilt from
+// those journaled results must equal the record's bytes exactly, so neither
+// an outcome, an output, an ordering, nor an extra entry can be asserted by
+// the record alone. The manifest's attempt number is the one field with no
+// journal witness here; it is carried through the rebuild unchanged.
+func validateHostCheckEvidenceProof(
+	snapshot journal.Snapshot,
+	cycle implementationCycle,
+	record sealedRecord,
+	roleChecks []byte,
+) error {
+	manifest, err := baton.ParseCheckResults(record.Receipt.CheckResults)
+	if err != nil ||
+		manifest.Release != record.Receipt.Release ||
+		manifest.Slice != cycle.Slice ||
+		manifest.Candidate != record.Candidate {
+		return runtimeFail("CORRUPT_JOURNAL", err)
+	}
+	effects := make(map[string]journal.Effect, len(snapshot.Effects))
+	for _, effect := range snapshot.Effects {
+		effects[effect.ID] = effect
+	}
+	hostResults := make([]hostCheckResult, 0, len(manifest.Entries))
+	for _, entry := range manifest.Entries {
+		if entry.Provenance != baton.CheckProvenanceHost {
+			continue
+		}
+		work := hostCheckWork(
+			cycle.Slice, record.Candidate, manifest.ContractDigest, entry.Check)
+		effectID := hostCheckEffectID(work)
+		effect, found := effects[effectID]
+		if !found ||
+			entry.HostEffect != effectID ||
+			effect.Kind != "check.host" ||
+			effect.State != journal.Succeeded ||
+			effect.BeforeDigest != work ||
+			effect.ResultDigest != sha256Digest(effect.Result) {
+			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		result, parseErr := parseHostCheckResult(
+			cycle.Slice, record.Candidate, manifest.ContractDigest,
+			entry.Check, effectID, effect.Result)
+		if parseErr != nil {
+			return parseErr
+		}
+		if result.Outcome != baton.CheckOutcomePass {
+			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		hostResults = append(hostResults, result)
+	}
+	if len(hostResults) == 0 {
+		return runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	expected, buildErr := buildHostCheckResultsManifest(
+		record.Receipt.Release, cycle.Slice, manifest.Attempt,
+		record.Candidate, manifest.ContractDigest, hostResults,
+		baton.DigestBytes(roleChecks))
+	if buildErr != nil || !bytes.Equal(expected, record.Receipt.CheckResults) {
+		return runtimeFail("CORRUPT_JOURNAL", buildErr)
+	}
+	return nil
+}
+
 // hostOutputExcerpt embeds at most HostCheckOutputManifestBytes of a host
 // check's bounded output into a manifest entry, returning the excerpt and a
 // truthful truncated flag. Whenever the embedded bytes are not the full
