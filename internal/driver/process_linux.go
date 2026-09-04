@@ -38,6 +38,13 @@ const processStartHandshakeGrace = 10 * time.Second
 // the fake driver.
 var testUncontainedDispatch string
 
+// testSandboxHandshakeProbeDelay, when set by a test, delays the launch
+// handshake's first process-group probe after the launcher has reported its
+// child. It reproduces a starved engine on a loaded host deterministically:
+// the sandboxed command finishes and is reaped before the engine gets to
+// look at it (sworn#277).
+var testSandboxHandshakeProbeDelay time.Duration
+
 // uncontainedDispatchEnabled reports whether this binary is allowed to take
 // the test-only uncontained dispatch branch. Both the linked gate and the
 // environment request are required; the environment alone is refused.
