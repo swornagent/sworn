@@ -2880,7 +2880,7 @@ func nativeConfigFiles(
 				string(capability) + `" }` + "\n" +
 				`required = true` + "\n" +
 				`startup_timeout_sec = 5` + "\n" +
-				`tool_timeout_sec = 300` + "\n" +
+				`tool_timeout_sec = ` + nativeCodexToolTimeoutSeconds + "\n" +
 				`[skills]` + "\n" +
 				`include_instructions = false` + "\n" +
 				`[skills.bundled]` + "\n" +

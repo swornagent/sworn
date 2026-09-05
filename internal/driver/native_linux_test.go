@@ -2817,3 +2817,175 @@ func TestScanNativeEventsSecretTripOutranksByteBudget(t *testing.T) {
 		t.Fatalf("error = %v, want NATIVE_SURFACE_INVALID", err)
 	}
 }
+
+func parseTOMLKey(t *testing.T, body []byte, key string) string {
+	t.Helper()
+	prefix := key + " = "
+	for _, line := range strings.Split(string(body), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimPrefix(line, prefix)
+		}
+	}
+	t.Fatalf("key %q not found in TOML body", key)
+	return ""
+}
+
+// A1: The codex lane's tool-call ceiling follows the invocation budget (86400s)
+// instead of the hardcoded 300s literal.
+func TestNativeCodexConfigFilesLiftsToolTimeoutCeiling(t *testing.T) {
+	t.Parallel()
+	config := NativeAdapterConfig{Family: ProfileCodex}
+	invocation := Invocation{Selected: SelectedProfile{Model: "gpt-5"}}
+	capability := []byte("capability-token-never-present")
+	configFiles, err := nativeConfigFiles(
+		config,
+		invocation,
+		"http://127.0.0.1:4545",
+		capability,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("nativeConfigFiles failed: %v", err)
+	}
+	defer closeNativeFiles(configFiles)
+	if len(configFiles) < 1 {
+		t.Fatalf("expected at least 1 config file, got %d", len(configFiles))
+	}
+	mcpBody := readOpenFile(t, configFiles[0])
+	val := parseTOMLKey(t, mcpBody, "tool_timeout_sec")
+	wantVal := strconv.FormatInt(MaxTimeoutMillis/1000, 10)
+	if val == "300" {
+		t.Fatalf("tool_timeout_sec = %q, still hardcoded to 300", val)
+	}
+	if val != wantVal {
+		t.Fatalf("tool_timeout_sec = %q, want derived %q", val, wantVal)
+	}
+}
+
+// A2: The codex seconds value and the claude milliseconds value agree
+// numerically for the same invocation, reading from the same MaxTimeoutMillis.
+func TestNativeCodexAndClaudeToolTimeoutParity(t *testing.T) {
+	t.Parallel()
+	config := NativeAdapterConfig{Family: ProfileCodex}
+	invocation := Invocation{Selected: SelectedProfile{Model: "gpt-5"}}
+	capability := []byte("capability-token-never-present")
+	brokerURL := "http://127.0.0.1:4545"
+	configFiles, err := nativeConfigFiles(
+		config,
+		invocation,
+		brokerURL,
+		capability,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("nativeConfigFiles failed: %v", err)
+	}
+	defer closeNativeFiles(configFiles)
+	mcpBody := readOpenFile(t, configFiles[0])
+
+	codexSecStr := parseTOMLKey(t, mcpBody, "tool_timeout_sec")
+	codexSec, err := strconv.ParseInt(codexSecStr, 10, 64)
+	if err != nil {
+		t.Fatalf("failed to parse codex tool_timeout_sec %q: %v", codexSecStr, err)
+	}
+	codexMillis := codexSec * 1000
+
+	claudeEntries := nativeClaudeEnvironmentEntries("")
+	var claudeMillisStr string
+	for _, entry := range claudeEntries {
+		if entry[0] == "MCP_TOOL_TIMEOUT" {
+			claudeMillisStr = entry[1]
+			break
+		}
+	}
+	if claudeMillisStr == "" {
+		t.Fatal("MCP_TOOL_TIMEOUT not found in claude environment entries")
+	}
+	claudeMillis, err := strconv.ParseInt(claudeMillisStr, 10, 64)
+	if err != nil {
+		t.Fatalf("failed to parse claude MCP_TOOL_TIMEOUT %q: %v", claudeMillisStr, err)
+	}
+
+	if codexMillis != claudeMillis {
+		t.Fatalf(
+			"tool timeout mismatch: codex %d ms (%d s) != claude %d ms",
+			codexMillis,
+			codexSec,
+			claudeMillis,
+		)
+	}
+	if codexMillis != MaxTimeoutMillis {
+		t.Fatalf(
+			"derived timeout %d ms != MaxTimeoutMillis %d ms",
+			codexMillis,
+			MaxTimeoutMillis,
+		)
+	}
+}
+
+// A3: startup_timeout_sec stays 5 and the rest of the codex TOML block
+// is byte-identical apart from the tool_timeout_sec line.
+func TestNativeCodexConfigFilesBlockFidelity(t *testing.T) {
+	t.Parallel()
+	config := NativeAdapterConfig{Family: ProfileCodex}
+	invocation := Invocation{Selected: SelectedProfile{Model: "gpt-5"}}
+	capability := []byte("capability-token-never-present")
+	brokerURL := "http://127.0.0.1:4545"
+	configFiles, err := nativeConfigFiles(
+		config,
+		invocation,
+		brokerURL,
+		capability,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("nativeConfigFiles failed: %v", err)
+	}
+	defer closeNativeFiles(configFiles)
+	mcpBody := readOpenFile(t, configFiles[0])
+
+	startupVal := parseTOMLKey(t, mcpBody, "startup_timeout_sec")
+	if startupVal != "5" {
+		t.Fatalf("startup_timeout_sec = %q, want 5", startupVal)
+	}
+
+	expected :=
+		`model_catalog_json = "/sworn/config/models.json"` + "\n" +
+			`web_search = "disabled"` + "\n" +
+			`include_permissions_instructions = false` + "\n" +
+			`include_apps_instructions = false` + "\n" +
+			`include_collaboration_mode_instructions = false` + "\n" +
+			`include_environment_context = false` + "\n" +
+			`[analytics]` + "\n" +
+			`enabled = false` + "\n" +
+			`[agents]` + "\n" +
+			`enabled = false` + "\n" +
+			`[orchestrator.skills]` + "\n" +
+			`enabled = false` + "\n" +
+			`[orchestrator.mcp]` + "\n" +
+			`enabled = false` + "\n" +
+			`[tools.experimental_request_user_input]` + "\n" +
+			`enabled = false` + "\n" +
+			`[mcp_servers.sworn]` + "\n" +
+			`url = "` + brokerURL + `"` + "\n" +
+			`http_headers = { Authorization = "Bearer ` +
+			string(capability) + `" }` + "\n" +
+			`required = true` + "\n" +
+			`startup_timeout_sec = 5` + "\n" +
+			`tool_timeout_sec = ` + strconv.FormatInt(MaxTimeoutMillis/1000, 10) + "\n" +
+			`[skills]` + "\n" +
+			`include_instructions = false` + "\n" +
+			`[skills.bundled]` + "\n" +
+			`enabled = false` + "\n"
+
+	if string(mcpBody) != expected {
+		redactedGot := strings.ReplaceAll(string(mcpBody), string(capability), "[REDACTED]")
+		redactedWant := strings.ReplaceAll(expected, string(capability), "[REDACTED]")
+		t.Fatalf(
+			"rendered Codex TOML does not match expected template:\ngot:\n%s\nwant:\n%s",
+			redactedGot,
+			redactedWant,
+		)
+	}
+}
