@@ -545,3 +545,215 @@ func TestRecordPlanRevisionWithWaiversSucceeds(t *testing.T) {
 		t.Fatalf("reread waiver text mismatch: %#v", slice.Scope.Waivers[0])
 	}
 }
+
+// TestForeignLayoutNestedModuleReverseDependency verifies A1:
+// In a foreign repository layout where go.mod is present only at go/go.mod and files
+// reside under non-cmd/internal/tools paths (e.g. go/pkg/tools/...), scope lint discovers
+// the nested module, keeps files outside cmd/internal/tools, rebases package paths, and
+// returns UNDER_DERIVED_SCOPE when an out-of-scope package imports an in-scope package.
+func TestForeignLayoutNestedModuleReverseDependency(t *testing.T) {
+	t.Parallel()
+	mockFS := fstest.MapFS{
+		"go/go.mod": &fstest.MapFile{
+			Data: []byte("module example.com/foreign/module\n\ngo 1.26\n"),
+		},
+		"go/pkg/tools/inscope/target.go": &fstest.MapFile{
+			Data: []byte("package inscope\n\ntype Target struct{}\n"),
+		},
+		"go/pkg/tools/outofscope/caller.go": &fstest.MapFile{
+			Data: []byte("package outofscope\n\nimport \"example.com/foreign/module/pkg/tools/inscope\"\n\nvar _ = inscope.Target{}\n"),
+		},
+	}
+
+	graph, err := BuildPackageGraphFS(mockFS)
+	if err != nil {
+		t.Fatalf("BuildPackageGraphFS failed: %v", err)
+	}
+
+	// Root module must remain empty since go.mod is at go/go.mod
+	if graph.Module != "" {
+		t.Fatalf("graph.Module = %q, want empty", graph.Module)
+	}
+
+	// Verify packages discovered under go/pkg/tools
+	_, ok := graph.Packages["go/pkg/tools/inscope"]
+	if !ok {
+		t.Fatal("missing package go/pkg/tools/inscope")
+	}
+
+	callerPkg, ok := graph.Packages["go/pkg/tools/outofscope"]
+	if !ok {
+		t.Fatal("missing package go/pkg/tools/outofscope")
+	}
+	if !slices.Contains(callerPkg.ProdImports, "go/pkg/tools/inscope") {
+		t.Fatalf("caller ProdImports = %v, want go/pkg/tools/inscope", callerPkg.ProdImports)
+	}
+
+	// Slice scope includes only go/pkg/tools/inscope
+	slice := Slice{
+		ID: "S1",
+		Scope: Scope{
+			Include: []string{"go/pkg/tools/inscope"},
+		},
+	}
+
+	err = graph.LintSlice(slice)
+	if err == nil {
+		t.Fatal("expected LintSlice to fail with UNDER_DERIVED_SCOPE, got nil")
+	}
+	recErr, ok := err.(*RecordError)
+	if !ok {
+		t.Fatalf("expected *RecordError, got %T (%v)", err, err)
+	}
+	if recErr.Code != "UNDER_DERIVED_SCOPE" {
+		t.Fatalf("error code = %q, want UNDER_DERIVED_SCOPE", recErr.Code)
+	}
+	if !slices.Contains(recErr.Paths, "go/pkg/tools/outofscope") {
+		t.Fatalf("expected go/pkg/tools/outofscope in paths %v", recErr.Paths)
+	}
+}
+
+// TestScopeLintUnresolvedRefusalAndZeroModuleInapplicable verifies A2:
+//  1. When the tree holds at least one go.mod, a scoped path governed by no discovered go.mod
+//     causes LintSlice to refuse with SCOPE_LINT_UNRESOLVED naming that path (never PASS).
+//  2. When the tree holds no go.mod anywhere, Go scope lint is inapplicable and every scoped path
+//     passes with no findings (never SCOPE_LINT_UNRESOLVED).
+func TestScopeLintUnresolvedRefusalAndZeroModuleInapplicable(t *testing.T) {
+	t.Parallel()
+
+	t.Run("tree with go.mod refuses ungoverned scoped path", func(t *testing.T) {
+		mockFS := fstest.MapFS{
+			"go/go.mod": &fstest.MapFile{
+				Data: []byte("module example.com/foreign/module\n\ngo 1.26\n"),
+			},
+			"go/pkg/tools/helper.go": &fstest.MapFile{
+				Data: []byte("package tools\n"),
+			},
+			"python/service.py": &fstest.MapFile{
+				Data: []byte("# python code\n"),
+			},
+		}
+
+		graph, err := BuildPackageGraphFS(mockFS)
+		if err != nil {
+			t.Fatalf("BuildPackageGraphFS failed: %v", err)
+		}
+
+		// Scope includes an ungoverned path "python/service"
+		slice := Slice{
+			ID: "S1",
+			Scope: Scope{
+				Include: []string{"python/service"},
+			},
+		}
+
+		err = graph.LintSlice(slice)
+		if err == nil {
+			t.Fatal("expected LintSlice to refuse with SCOPE_LINT_UNRESOLVED, but it passed")
+		}
+		recErr, ok := err.(*RecordError)
+		if !ok {
+			t.Fatalf("expected *RecordError, got %T (%v)", err, err)
+		}
+		if recErr.Code != "SCOPE_LINT_UNRESOLVED" {
+			t.Fatalf("error code = %q, want SCOPE_LINT_UNRESOLVED", recErr.Code)
+		}
+		if !slices.Contains(recErr.Paths, "python/service") {
+			t.Fatalf("expected python/service in paths %v", recErr.Paths)
+		}
+		if !strings.Contains(recErr.Msg, "python/service") {
+			t.Fatalf("expected python/service in Msg %q", recErr.Msg)
+		}
+	})
+
+	t.Run("zero-module tree is Go-scope-lint-inapplicable", func(t *testing.T) {
+		// A non-Go foreign repo with no go.mod
+		mockFS := fstest.MapFS{
+			"README.md": &fstest.MapFile{
+				Data: []byte("# Foreign Repo\n"),
+			},
+			"src/main.rs": &fstest.MapFile{
+				Data: []byte("fn main() {}\n"),
+			},
+		}
+
+		graph, err := BuildPackageGraphFS(mockFS)
+		if err != nil {
+			t.Fatalf("BuildPackageGraphFS failed: %v", err)
+		}
+		if len(graph.Modules) != 0 {
+			t.Fatalf("expected 0 modules, got %d", len(graph.Modules))
+		}
+
+		slice := Slice{
+			ID: "S1",
+			Scope: Scope{
+				Include: []string{"src", "docs"},
+			},
+		}
+
+		// Must pass cleanly with nil findings
+		if err := graph.LintSlice(slice); err != nil {
+			t.Fatalf("expected zero-module tree to pass with nil, got %v", err)
+		}
+	})
+}
+
+// TestBuildPackageGraphAtForeignLayout verifies BuildPackageGraphAt correctly parses
+// nested modules, candidate files under arbitrary directories, and noise exclusion.
+func TestBuildPackageGraphAtForeignLayout(t *testing.T) {
+	t.Parallel()
+	repoPath, _, actions := createActionHarness(t)
+
+	goMod := []byte("module example.com/foreign/module\n\ngo 1.26\n")
+	targetFile := []byte("package inscope\n\ntype Target struct{}\n")
+	callerFile := []byte("package outofscope\n\nimport \"example.com/foreign/module/pkg/tools/inscope\"\n\nvar _ = inscope.Target{}\n")
+	noiseMod := []byte("module example.com/noise\n")
+	noiseFile := []byte("package noise\n")
+
+	base := actionGit(t, repoPath, nil, nil, "rev-parse", "refs/heads/main")
+	commit := prepareActionContractTree(t, repoPath, base, map[string][]byte{
+		"go/go.mod":                         goMod,
+		"go/pkg/tools/inscope/target.go":    targetFile,
+		"go/pkg/tools/outofscope/caller.go": callerFile,
+		"testdata/nested/go.mod":            noiseMod,
+		"testdata/nested/file.go":           noiseFile,
+	})
+
+	graph, err := BuildPackageGraphAt(GitRepository{value: actions.repository.git}, commit)
+	if err != nil {
+		t.Fatalf("BuildPackageGraphAt failed: %v", err)
+	}
+
+	if graph.Module != "" {
+		t.Fatalf("graph.Module = %q, want empty", graph.Module)
+	}
+	if _, ok := graph.Modules["testdata/nested"]; ok {
+		t.Fatal("expected testdata/nested module to be excluded by noise filter")
+	}
+	if _, ok := graph.Packages["go/pkg/tools/inscope"]; !ok {
+		t.Fatal("missing package go/pkg/tools/inscope")
+	}
+	callerPkg, ok := graph.Packages["go/pkg/tools/outofscope"]
+	if !ok {
+		t.Fatal("missing package go/pkg/tools/outofscope")
+	}
+	if !slices.Contains(callerPkg.ProdImports, "go/pkg/tools/inscope") {
+		t.Fatalf("caller ProdImports = %v, want go/pkg/tools/inscope", callerPkg.ProdImports)
+	}
+
+	slice := Slice{
+		ID: "S1",
+		Scope: Scope{
+			Include: []string{"go/pkg/tools/inscope"},
+		},
+	}
+	err = graph.LintSlice(slice)
+	if err == nil {
+		t.Fatal("expected LintSlice to fail with UNDER_DERIVED_SCOPE, got nil")
+	}
+	recErr, ok := err.(*RecordError)
+	if !ok || recErr.Code != "UNDER_DERIVED_SCOPE" {
+		t.Fatalf("expected UNDER_DERIVED_SCOPE, got %v", err)
+	}
+}

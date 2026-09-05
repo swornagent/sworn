@@ -160,6 +160,8 @@ func LoadProjectConfig(repoRoot string) (ProjectConfig, bool, error) {
 		)
 	}
 	path := filepath.Join(repoRoot, filepath.FromSlash(ProjectConfigPath))
+	// os.ReadFile follows symlinks when reading the committed project config file,
+	// which is intentional to permit symlinking docs/sworn/sworn.json if desired.
 	raw, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return DefaultProjectConfig(), false, nil
