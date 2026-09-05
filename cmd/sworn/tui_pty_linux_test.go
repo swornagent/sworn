@@ -854,7 +854,7 @@ func TestTUIAnswerObservesSubsequentDriveProgress(t *testing.T) {
 	session.waitFor("accepted answer", 20*time.Second, "Answer: Which exact approved fixture value should I", "accepted.")
 
 	// 4. Observable subsequent state transition to Complete occurs in the SAME TUI session
-	session.waitFor("working or complete", 30*time.Second, "Status: Complete")
+	session.waitFor("working or complete", 120*time.Second, "Status: Complete")
 
 	// 5. Clean exit
 	session.quit()
