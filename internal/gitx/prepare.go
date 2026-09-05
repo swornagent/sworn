@@ -224,6 +224,16 @@ func (r *Repository) PrepareRecordTransition(request RecordTransitionRequest) (P
 	if err != nil {
 		return PreparedCommit{}, err
 	}
+	if len(request.Documents) > 0 {
+		if err := r.assertTreeRootAncestors(request.ExpectedHead, r.DocumentsRoot(), "documents_root"); err != nil {
+			return PreparedCommit{}, err
+		}
+	}
+	if len(request.Changes) > 0 {
+		if err := r.assertTreeRootAncestors(request.ExpectedHead, r.recordRoot, "records_root"); err != nil {
+			return PreparedCommit{}, err
+		}
+	}
 	changes := append([]BlobChange(nil), request.Changes...)
 	for _, path := range documentPaths {
 		changes = append(changes, BlobChange{Path: path, Bytes: request.Documents[path]})
@@ -311,6 +321,39 @@ func (r *Repository) pathPresentAt(commit OID, path string) (bool, error) {
 		return false, fail("INVALID_RECORD_ROOT", "inspect published document", fmt.Errorf("%s is not a blob", path))
 	}
 	return true, nil
+}
+
+func (r *Repository) assertTreeRootAncestors(commit OID, root string, configKey string) error {
+	if err := r.validateOID(commit); err != nil {
+		return err
+	}
+	parts := strings.Split(strings.Trim(root, "/"), "/")
+	for index := range parts {
+		prefix := strings.Join(parts[:index+1], "/")
+		raw, err := r.run(nil, nil, "ls-tree", "-z", commit.String(), "--", prefix)
+		if err != nil {
+			return err
+		}
+		if len(raw) == 0 {
+			return nil
+		}
+		if raw[len(raw)-1] != 0 || bytes.Count(raw, []byte{0}) != 1 {
+			return fail("MALFORMED_GIT_TREE", "prepare record transition", errors.New("ambiguous tree entry"))
+		}
+		entry := raw[:len(raw)-1]
+		header, pathBytes, ok := bytes.Cut(entry, []byte{'\t'})
+		fields := strings.Fields(string(header))
+		if !ok || len(fields) != 3 || string(pathBytes) != prefix {
+			return fail("MALFORMED_GIT_TREE", "prepare record transition", errors.New("malformed tree entry"))
+		}
+		if fields[0] == "120000" {
+			return fail("SYMLINKED_RECORD_ROOT", "prepare record transition", fmt.Errorf("%s is a symlink; declare %s in docs/sworn/sworn.json", prefix, configKey))
+		}
+		if fields[1] != "tree" {
+			return fail("INVALID_RECORD_ROOT", "prepare record transition", fmt.Errorf("%s is not a tree; declare %s in docs/sworn/sworn.json", prefix, configKey))
+		}
+	}
+	return nil
 }
 
 type MetadataRequest struct {

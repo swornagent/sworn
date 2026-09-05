@@ -12,6 +12,12 @@ import "strconv"
 // lifted to the maximum invocation budget and the invocation governs.
 var nativeMCPToolTimeoutMillis = strconv.FormatInt(MaxTimeoutMillis, 10)
 
+// nativeCodexToolTimeoutSeconds is the per-tool-call ceiling handed to the
+// codex CLI (tool_timeout_sec, seconds). The codex CLI's default per-tool-call
+// cap is lifted so sworn's invocation deadline governs, deriving from the same
+// MaxTimeoutMillis ceiling as the claude lane's millis value.
+var nativeCodexToolTimeoutSeconds = strconv.FormatInt(MaxTimeoutMillis/1000, 10)
+
 // nativeClaudeEnvironmentEntries is the ONE list both the claude launch
 // environment and the in-sandbox environment certificate derive from. The
 // certificate compares the process environment for exact equality (entry

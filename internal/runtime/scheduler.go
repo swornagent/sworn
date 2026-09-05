@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
@@ -5552,6 +5553,87 @@ func (s *Service) recoverClaimedEffects(
 	}
 }
 
+func truncateUTF8(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	for maxBytes > 0 && !utf8.RuneStart(s[maxBytes]) {
+		maxBytes--
+	}
+	return s[:maxBytes]
+}
+
+func formatBootstrapParkReason(summary string) string {
+	if summary == "" {
+		summary = "Planner revision required."
+	}
+	suffix := "\n\n" + bootstrapParkUnblockDirective
+	maxSummary := maxParkReasonBytes - len(suffix)
+	if len(summary) > maxSummary {
+		summary = truncateUTF8(summary, maxSummary)
+	}
+	return summary + suffix
+}
+
+func triggeringPlannerReceipt(state baton.State) *baton.ReceiptEntry {
+	for _, slice := range state.Slices {
+		if slice.NextRole == "planner" {
+			return slice.CurrentReceipt
+		}
+	}
+	if state.Assembly.NextRole == "planner" {
+		return state.Assembly.CurrentReceipt
+	}
+	return nil
+}
+
+func bootstrapParkReasonForState(state baton.State) string {
+	receipt := triggeringPlannerReceipt(state)
+	summary := ""
+	if receipt != nil {
+		summary = receipt.Receipt.Summary
+	}
+	return formatBootstrapParkReason(summary)
+}
+
+func isPlannerNeeded(state baton.State) bool {
+	for _, slice := range state.Slices {
+		if slice.NextRole == "planner" {
+			return true
+		}
+	}
+	return state.Assembly.NextRole == "planner"
+}
+
+func isBootstrapOnlyAuthority(manifest admittedManifest, snapshot journal.Snapshot) bool {
+	if manifest.value.Authority.BootstrapApprovedPlanDigest == nil {
+		return false
+	}
+	for _, command := range snapshot.Commands {
+		if command.Kind == "plan_authority" {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Service) parkBootstrapAuthority(
+	ctx context.Context,
+	owner journal.OwnerLease,
+	snapshot journal.Snapshot,
+	state baton.State,
+) error {
+	if hasParkEventForCause(snapshot, ParkCauseBootstrapAuthority, "") {
+		return nil
+	}
+	reason := bootstrapParkReasonForState(state)
+	body, err := bootstrapAuthorityParkEvent(owner.RunID, reason)
+	if err != nil {
+		return err
+	}
+	return s.appendParkEventOnce(ctx, owner.RunID, ParkCauseBootstrapAuthority, body)
+}
+
 func (s *Service) driveLoop(ctx context.Context, engine *engine, owner journal.OwnerLease,
 	proposalPending bool) error {
 	for {
@@ -5612,12 +5694,7 @@ func (s *Service) driveLoop(ctx context.Context, engine *engine, owner journal.O
 		if state.Plan.TargetStale {
 			return nil
 		}
-		plannerNeeded := false
-		for _, slice := range state.Slices {
-			plannerNeeded = plannerNeeded || slice.NextRole == "planner"
-		}
-		plannerNeeded = plannerNeeded ||
-			state.Assembly.NextRole == "planner"
+		plannerNeeded := isPlannerNeeded(state)
 		// Lane-scoped drain (A1): an economy or identical-failure crossing
 		// pins only the candidate lane it belongs to - no further tries for
 		// that lane's ready slice this round - instead of parking the whole
@@ -5691,6 +5768,9 @@ func (s *Service) driveLoop(ctx context.Context, engine *engine, owner journal.O
 				if proposalPending {
 					return nil
 				}
+				if isBootstrapOnlyAuthority(engine.manifest, snapshot) {
+					return s.parkBootstrapAuthority(ctx, owner, snapshot, state)
+				}
 				return s.proposeRevision(ctx, engine, owner, state)
 			}
 			return nil
@@ -5701,6 +5781,9 @@ func (s *Service) driveLoop(ctx context.Context, engine *engine, owner journal.O
 			}
 			if proposalPending {
 				return nil
+			}
+			if isBootstrapOnlyAuthority(engine.manifest, snapshot) {
+				return s.parkBootstrapAuthority(ctx, owner, snapshot, state)
 			}
 			return s.proposeRevision(ctx, engine, owner, state)
 		}

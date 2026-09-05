@@ -266,6 +266,23 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	if selectErr != nil {
 		return RunStatus{}, selectErr
 	}
+	bootstrapAuthorityParked := !proposalFound && stateErr == nil &&
+		isBootstrapOnlyAuthority(manifest, snapshot) && isPlannerNeeded(state)
+	var bootstrapParkReason string
+	if bootstrapAuthorityParked {
+		for _, event := range snapshot.Events {
+			if event.Kind == ParkEventKind {
+				if parsed, err := ParseDegradationParkEvent(event.Body); err == nil && parsed.Cause == ParkCauseBootstrapAuthority {
+					bootstrapParkReason = parsed.Reason
+					break
+				}
+			}
+		}
+		if bootstrapParkReason == "" {
+			bootstrapParkReason = bootstrapParkReasonForState(state)
+		}
+		parked = true
+	}
 	humanAuthorityRequired := false
 	if proposalFound && delegation.Epoch > 0 {
 		humanAuthorityRequired, err = captainHumanAuthorityRequired(snapshot, proposal, delegation)
@@ -353,7 +370,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 			}
 			parked = attentionParked || degradationBudgetExceeded ||
 				economyPark != nil || identicalPark != nil || exhaustionApplies
-			parked = parked || humanAuthorityRequired
+			parked = parked || humanAuthorityRequired || bootstrapAuthorityParked
 		}
 	}
 	switch {
@@ -396,6 +413,8 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 			attentionParked:           attentionParked,
 			degradationBudgetExceeded: degradationBudgetExceeded,
 			degradationCount:          degradationCount,
+			bootstrapAuthority:        bootstrapAuthorityParked,
+			bootstrapReason:           bootstrapParkReason,
 			economy:                   economyPark,
 			identicalFailure:          identicalPark,
 			exhaustionApplies:         exhaustionApplies,
@@ -470,7 +489,8 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		lanes, exhausted, exhaustionRefusals, economyByOwner, identicalByOwner,
 	)
 	parked = humanAuthorityRequired || attentionParked ||
-		degradationBudgetExceeded || (len(lanes) != 0 && allLanesPinned)
+		degradationBudgetExceeded || bootstrapAuthorityParked ||
+		(len(lanes) != 0 && allLanesPinned)
 	if control.Desired == "running" && !uncertain && !parked {
 		switch {
 		case proposalFound && !proposalActivated:
@@ -494,12 +514,14 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	result.PinnedWork = pinnedWork
 	if result.State == "parked" {
 		switch {
-		case humanAuthorityRequired || attentionParked || degradationBudgetExceeded:
+		case humanAuthorityRequired || attentionParked || degradationBudgetExceeded || bootstrapAuthorityParked:
 			result.Park = parkStatusFor(manifest, parkFacts{
 				humanAuthorityRequired:    humanAuthorityRequired,
 				attentionParked:           attentionParked,
 				degradationBudgetExceeded: degradationBudgetExceeded,
 				degradationCount:          degradationCount,
+				bootstrapAuthority:        bootstrapAuthorityParked,
+				bootstrapReason:           bootstrapParkReason,
 			})
 		case len(laneParks) != 0:
 			result.Park = parkStatusFor(manifest, laneParks[0].facts)
@@ -1100,6 +1122,8 @@ type parkFacts struct {
 	attentionParked           bool
 	degradationBudgetExceeded bool
 	degradationCount          int64
+	bootstrapAuthority        bool
+	bootstrapReason           string
 	economy                   *economyParkFacts
 	identicalFailure          *identicalFailureFacts
 	exhaustionApplies         bool
@@ -1108,10 +1132,11 @@ type parkFacts struct {
 }
 
 // parkStatusFor names the park cause with the same precedence the final park
-// computation uses: human authority, attention, degradation, economy,
-// identical failure, exhaustion. A degradation park carries the gated
-// fallback count, the effective budget, and the manifest knob that unblocks
-// it; an economy park carries spent-versus-budget and its knob; an
+// computation uses: human authority, attention, degradation, bootstrap
+// authority, economy, identical failure, exhaustion. A degradation park
+// carries the gated fallback count, the effective budget, and the manifest
+// knob that unblocks it; a bootstrap-authority park carries its Reason; an
+// economy park carries spent-versus-budget and its knob; an
 // identical-failure park carries the run length, threshold, shared failure
 // code, and its durable detail. An exhaustion park whose tries died on a
 // scope refusal carries the refusal's stable error code and a bounded
@@ -1132,6 +1157,9 @@ func parkStatusFor(
 		status.FallbackCount = facts.degradationCount
 		status.Budget = manifest.value.EffectiveDegradationBudget()
 		status.UnblockKnob = DegradationUnblockKnob
+	case facts.bootstrapAuthority:
+		status.Cause = ParkCauseBootstrapAuthority
+		status.Reason = facts.bootstrapReason
 	case facts.economy != nil:
 		status.Cause = facts.economy.cause
 		status.Spent = facts.economy.spent

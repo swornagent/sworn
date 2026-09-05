@@ -164,6 +164,10 @@ func (e *ContractError) Error() string {
 
 func fail(code string) error { return &ContractError{Code: code} }
 
+func failWithDetail(code, detail string) error {
+	return &ContractError{Code: code, Detail: detail}
+}
+
 func failContinuation(site string) error {
 	return &ContractError{Code: "CONTINUATION_INVALID", Detail: site}
 }

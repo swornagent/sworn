@@ -3,7 +3,9 @@ package driver
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/swornagent/sworn/internal/baton"
@@ -270,6 +272,8 @@ func TestWorkVerificationCheckEvidenceIncompleteRefusesPassInTurn(t *testing.T) 
 // fail (the command ran and said no), a context deadline is timeout, an
 // OUTPUT_OVERFLOW is overflow, and any other harness-side ContractError is
 // fail with its code as the diagnostic - never a bare, uninformative string.
+// For PROCESS_START_FAILED carrying a valid sandbox_start.* Detail envelope,
+// it preserves the key=value structured diagnostic.
 func TestCheckResultOutcomeClassifiesExactlyWhatWasObserved(t *testing.T) {
 	if outcome, diagnostic := checkResultOutcome(0, nil); outcome != baton.CheckOutcomePass || diagnostic != "" {
 		t.Fatalf("pass = (%q, %q)", outcome, diagnostic)
@@ -288,6 +292,141 @@ func TestCheckResultOutcomeClassifiesExactlyWhatWasObserved(t *testing.T) {
 		diagnostic != "PROCESS_TREE_NOT_QUIESCENT" {
 		t.Fatalf("harness error = (%q, %q)", outcome, diagnostic)
 	}
+	if outcome, diagnostic := checkResultOutcome(0, fail("PROCESS_START_FAILED")); outcome != baton.CheckOutcomeFail ||
+		diagnostic != "PROCESS_START_FAILED" {
+		t.Fatalf("bare PROCESS_START_FAILED = (%q, %q)", outcome, diagnostic)
+	}
+	startErr := failSandboxStart("sandbox_start.bwrap_exec_start", syscall.EACCES)
+	wantDiag := `PROCESS_START_FAILED detail={"check":"sandbox_start.bwrap_exec_start","cause":"permission denied"}`
+	if outcome, diagnostic := checkResultOutcome(0, startErr); outcome != baton.CheckOutcomeFail ||
+		diagnostic != wantDiag {
+		t.Fatalf("sandbox start failure = (%q, %q), want (%q, %q)", outcome, diagnostic, baton.CheckOutcomeFail, wantDiag)
+	}
+	invalidDetailErr := &ContractError{Code: "PROCESS_START_FAILED", Detail: `{"unknown":"field"}`}
+	if outcome, diagnostic := checkResultOutcome(0, invalidDetailErr); outcome != baton.CheckOutcomeFail ||
+		diagnostic != "PROCESS_START_FAILED" {
+		t.Fatalf("invalid detail PROCESS_START_FAILED = (%q, %q)", outcome, diagnostic)
+	}
+}
+
+// TestWorkVerificationCheckEvidenceIncompleteCarriesSandboxDetail pins S4-A1:
+// a CHECK_EVIDENCE_INCOMPLETE refusal additively names the sandbox_start.*
+// check and bounded cause when the declared check's last recorded attempt
+// failed with PROCESS_START_FAILED.
+func TestWorkVerificationCheckEvidenceIncompleteCarriesSandboxDetail(t *testing.T) {
+	declared := "echo covered-check"
+
+	extractDetail := func(t *testing.T, content []byte) submissionRefusalDetail {
+		t.Helper()
+		const prefix = "error:CHECK_EVIDENCE_INCOMPLETE detail="
+		text := string(content)
+		if !strings.HasPrefix(text, prefix) {
+			t.Fatalf("content %q does not have prefix %q", text, prefix)
+		}
+		var detail submissionRefusalDetail
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(text, prefix)), &detail); err != nil {
+			t.Fatalf("failed to decode submissionRefusalDetail: %v", err)
+		}
+		return detail
+	}
+
+	t.Run("last attempt was PROCESS_START_FAILED with errno cause", func(t *testing.T) {
+		invocation := checkEvidenceInvocationFixture(t, []string{declared})
+		session, err := newToolSession(invocation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer session.Close()
+
+		startErr := failSandboxStart("sandbox_start.bwrap_exec_start", syscall.EACCES)
+		session.recordCheckEvidence(declared+" || true", nil, 0, startErr)
+
+		arguments := workVerificationSubmitArguments(t, invocation.Request.InvocationID, DecisionPass)
+		result := executeToolJSON(t, session, "submit", "sworn_submit", arguments)
+		if !result.Failed {
+			t.Fatal("submit succeeded, want refusal")
+		}
+		detail := extractDetail(t, result.Content)
+		if detail.Check != "submit.check_evidence_incomplete" ||
+			detail.Field != "checks" ||
+			detail.Bound != "check_command_covers" ||
+			len(detail.Paths) != 1 || detail.Paths[0] != declared {
+			t.Fatalf("unexpected standard refusal fields: %#v", detail)
+		}
+		if detail.SandboxCheck != "sandbox_start.bwrap_exec_start" {
+			t.Fatalf("sandbox_check = %q, want sandbox_start.bwrap_exec_start", detail.SandboxCheck)
+		}
+		if detail.SandboxCause != "permission denied" {
+			t.Fatalf("sandbox_cause = %q, want permission denied", detail.SandboxCause)
+		}
+	})
+
+	t.Run("last attempt was PROCESS_START_FAILED with engine cause", func(t *testing.T) {
+		invocation := checkEvidenceInvocationFixture(t, []string{declared})
+		session, err := newToolSession(invocation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer session.Close()
+
+		startErr := failSandboxStartCause("sandbox_start.process_group_handshake_read", "leader exit 1")
+		session.recordCheckEvidence(declared, nil, 0, startErr)
+
+		arguments := workVerificationSubmitArguments(t, invocation.Request.InvocationID, DecisionPass)
+		result := executeToolJSON(t, session, "submit", "sworn_submit", arguments)
+		if !result.Failed {
+			t.Fatal("submit succeeded, want refusal")
+		}
+		detail := extractDetail(t, result.Content)
+		if detail.SandboxCheck != "sandbox_start.process_group_handshake_read" {
+			t.Fatalf("sandbox_check = %q, want sandbox_start.process_group_handshake_read", detail.SandboxCheck)
+		}
+		if detail.SandboxCause != "leader exit 1" {
+			t.Fatalf("sandbox_cause = %q, want leader exit 1", detail.SandboxCause)
+		}
+	})
+
+	t.Run("prior attempt was sandbox failure but last attempt was nonzero exit", func(t *testing.T) {
+		invocation := checkEvidenceInvocationFixture(t, []string{declared})
+		session, err := newToolSession(invocation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer session.Close()
+
+		startErr := failSandboxStart("sandbox_start.bwrap_exec_start", syscall.EPERM)
+		session.recordCheckEvidence(declared, nil, 0, startErr)
+		session.recordCheckEvidence(declared, []byte("command failed"), 1, nil)
+
+		arguments := workVerificationSubmitArguments(t, invocation.Request.InvocationID, DecisionPass)
+		result := executeToolJSON(t, session, "submit", "sworn_submit", arguments)
+		if !result.Failed {
+			t.Fatal("submit succeeded, want refusal")
+		}
+		detail := extractDetail(t, result.Content)
+		if detail.SandboxCheck != "" || detail.SandboxCause != "" {
+			t.Fatalf("sandbox detail = (%q, %q), want empty because last attempt was exit 1", detail.SandboxCheck, detail.SandboxCause)
+		}
+	})
+
+	t.Run("no attempt recorded omits sandbox detail", func(t *testing.T) {
+		invocation := checkEvidenceInvocationFixture(t, []string{declared})
+		session, err := newToolSession(invocation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer session.Close()
+
+		arguments := workVerificationSubmitArguments(t, invocation.Request.InvocationID, DecisionPass)
+		result := executeToolJSON(t, session, "submit", "sworn_submit", arguments)
+		if !result.Failed {
+			t.Fatal("submit succeeded, want refusal")
+		}
+		detail := extractDetail(t, result.Content)
+		if detail.SandboxCheck != "" || detail.SandboxCause != "" {
+			t.Fatalf("sandbox detail = (%q, %q), want empty because no attempt recorded", detail.SandboxCheck, detail.SandboxCause)
+		}
+	})
 }
 
 // TestTruncateCheckCommandKeepsTheHeadAndStaysWithinBound pins correction 1:

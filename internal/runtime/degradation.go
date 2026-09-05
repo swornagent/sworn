@@ -68,6 +68,10 @@ const (
 	// ParkCauseIdenticalFailure is the park cause for a work with N
 	// consecutive identical operational failures.
 	ParkCauseIdenticalFailure = "identical_failure"
+	// ParkCauseBootstrapAuthority is the park cause for a run stopped because
+	// its authority is a bootstrap-approved plan digest and a planner revision
+	// is needed.
+	ParkCauseBootstrapAuthority = "bootstrap_authority"
 )
 
 // DegradationFallback is one counted fallback fact inside a degradation park
@@ -108,8 +112,11 @@ type DegradationParkEvent struct {
 	// identical_failure) pins. It is part of the canonical body, so the
 	// cause-scoped replay key (parkEventReplayKey) becomes work-scoped for
 	// these causes with no change to that function. Empty for the run-scoped
-	// causes (degradation, attention, human_authority).
+	// causes (degradation, attention, human_authority, bootstrap_authority).
 	Work string `json:"work,omitempty"`
+	// Reason carries the verbatim triggering receipt summary and unblock
+	// directive for cause bootstrap_authority.
+	Reason string `json:"reason,omitempty"`
 }
 
 // degradationFallbacks returns the degradation-gated fallback list. Counting
@@ -179,7 +186,8 @@ func canonicalDegradationParkEvent(event DegradationParkEvent) ([]byte, error) {
 			int64(len(event.Fallbacks)) != event.Count ||
 			event.Spent != 0 || event.Consecutive != 0 ||
 			event.Threshold != 0 || event.FailureCode != "" ||
-			event.FailureDetail != "" || event.Work != "" {
+			event.FailureDetail != "" || event.Work != "" ||
+			event.Reason != "" {
 			return nil, runtimeFail("INVALID_PARK_EVENT", nil)
 		}
 		for _, fallback := range event.Fallbacks {
@@ -208,7 +216,8 @@ func canonicalDegradationParkEvent(event DegradationParkEvent) ([]byte, error) {
 			event.Count != 0 || len(event.Fallbacks) != 0 ||
 			event.Consecutive != 0 || event.Threshold != 0 ||
 			event.FailureCode != "" || event.FailureDetail != "" ||
-			!runtimeDigestPattern.MatchString(event.Work) {
+			!runtimeDigestPattern.MatchString(event.Work) ||
+			event.Reason != "" {
 			return nil, runtimeFail("INVALID_PARK_EVENT", nil)
 		}
 	case event.SchemaVersion == ParkEventVersion &&
@@ -221,7 +230,20 @@ func canonicalDegradationParkEvent(event DegradationParkEvent) ([]byte, error) {
 			!runtimeIdentityPattern.MatchString(event.FailureCode) ||
 			!validParkDetail(event.FailureDetail) ||
 			event.Count != 0 || event.Budget != 0 ||
-			len(event.Fallbacks) != 0 || event.Spent != 0 {
+			len(event.Fallbacks) != 0 || event.Spent != 0 ||
+			event.Reason != "" {
+			return nil, runtimeFail("INVALID_PARK_EVENT", nil)
+		}
+	case event.SchemaVersion == ParkEventVersion &&
+		event.Cause == ParkCauseBootstrapAuthority:
+		if event.UnblockKnob != "" ||
+			event.Count != 0 || event.Budget != 0 ||
+			len(event.Fallbacks) != 0 || event.Spent != 0 ||
+			event.Consecutive != 0 || event.Threshold != 0 ||
+			event.FailureCode != "" || event.FailureDetail != "" ||
+			event.Work != "" ||
+			event.Reason == "" || len(event.Reason) > maxParkReasonBytes ||
+			!utf8.ValidString(event.Reason) {
 			return nil, runtimeFail("INVALID_PARK_EVENT", nil)
 		}
 	default:
@@ -266,6 +288,21 @@ func degradationParkEvent(
 		Budget:        budget,
 		UnblockKnob:   DegradationUnblockKnob,
 		Fallbacks:     fallbacks,
+	})
+}
+
+const (
+	maxParkReasonBytes            = 240 * 1024
+	bootstrapParkUnblockDirective = "Revise the contract, run sworn plan record to record the next revision, then relaunch the run."
+)
+
+func bootstrapAuthorityParkEvent(runID, reason string) ([]byte, error) {
+	return canonicalDegradationParkEvent(DegradationParkEvent{
+		SchemaVersion: ParkEventVersion,
+		RunID:         runID,
+		Cause:         ParkCauseBootstrapAuthority,
+		UnblockKnob:   "",
+		Reason:        reason,
 	})
 }
 
