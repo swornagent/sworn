@@ -1119,7 +1119,7 @@ func TestKilledHostMidDriveRecoversCleanly(t *testing.T) {
 	)
 
 	// Wait out lease expiration
-	time.Sleep(700 * time.Millisecond)
+	time.Sleep(2000 * time.Millisecond)
 
 	// Verify takeover can recover the run cleanly and host it to completion
 	takeoverOut, takeoverErr := runBinaryWithEnvironmentTimeout(t, swornBinary, 0, env, 60*time.Second,

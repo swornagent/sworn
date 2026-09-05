@@ -39,10 +39,12 @@ const submissionScopeLintTruncationMarker = "...(truncated)"
 // worker-submitted text; Bound is always a short engine constant identifier,
 // never a value. No submitted byte ever reaches this envelope.
 type submissionRefusalDetail struct {
-	Check string   `json:"check"`
-	Field string   `json:"field,omitempty"`
-	Bound string   `json:"bound,omitempty"`
-	Paths []string `json:"paths,omitempty"`
+	Check        string   `json:"check"`
+	Field        string   `json:"field,omitempty"`
+	Bound        string   `json:"bound,omitempty"`
+	Paths        []string `json:"paths,omitempty"`
+	SandboxCheck string   `json:"sandbox_check,omitempty"`
+	SandboxCause string   `json:"sandbox_cause,omitempty"`
 }
 
 // submissionRefusalDetailBytes encodes one submission-refusal envelope as
@@ -188,13 +190,27 @@ func submitYieldFirstRequiredError() error {
 // constant CheckCommandCovers implements) and Paths carries exactly the one
 // declared check with no recorded pass covering it, so a verifier can re-run
 // it and resubmit inside the same turn instead of losing the dispatch to a
-// post-turn CHECK_EVIDENCE_INCOMPLETE it can never see or act on.
-func submitCheckEvidenceIncompleteError(check string) error {
+// post-turn CHECK_EVIDENCE_INCOMPLETE it can never see or act on. S4-A1 additively
+// extends it with the sandbox_start.* check name and bounded cause when the
+// declared check's last recorded attempt failed with PROCESS_START_FAILED.
+func submitCheckEvidenceIncompleteError(check, sandboxCheck, sandboxCause string) error {
+	envelope := submissionRefusalDetail{
+		Check:        "submit.check_evidence_incomplete",
+		Field:        "checks",
+		Bound:        "check_command_covers",
+		Paths:        []string{check},
+		SandboxCheck: sandboxCheck,
+		SandboxCause: sandboxCause,
+	}
+	body, err := json.Marshal(envelope)
+	if err != nil {
+		return &ContractError{
+			Code: "CHECK_EVIDENCE_INCOMPLETE",
+		}
+	}
 	return &ContractError{
-		Code: "CHECK_EVIDENCE_INCOMPLETE",
-		Detail: submissionRefusalDetailBytes(
-			"submit.check_evidence_incomplete", "checks", "check_command_covers", []string{check},
-		),
+		Code:   "CHECK_EVIDENCE_INCOMPLETE",
+		Detail: string(body),
 	}
 }
 
