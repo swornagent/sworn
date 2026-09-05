@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -122,7 +123,7 @@ func newToolSession(invocation Invocation) (*toolSession, error) {
 			session.observer.close()
 			_ = projection.Close()
 			if session.scratch != "" {
-				_ = os.RemoveAll(session.scratch)
+				_ = removeScratchTree(session.scratch)
 			}
 		}
 	}()
@@ -1087,11 +1088,38 @@ func (session *toolSession) Close() error {
 		result = err
 	}
 	if session.scratch != "" {
-		if err := os.RemoveAll(session.scratch); err != nil && result == nil {
+		if err := removeScratchTree(session.scratch); err != nil && result == nil {
 			result = err
 		}
 	}
 	return result
+}
+
+// removeScratchTree removes an invocation's scratch root even when the
+// worker left read-only subtrees inside it. A ReadOnly workspace is
+// materialised as 0500 directories and 0400 files, and a worker that copies
+// it into /tmp to build against it preserves those modes - which
+// os.RemoveAll alone cannot unlink, and whose bare *PathError the dispatcher
+// could only flatten to ADAPTER_FAILURE, discarding the turn's own yield or
+// submission with it (sworn#285). The scratch is engine-owned, so widening
+// directory modes inside it is safe; symbolic links are never followed, so
+// nothing outside the tree is touched. A residual failure carries its own
+// code.
+func removeScratchTree(root string) error {
+	if root == "" {
+		return nil
+	}
+	_ = filepath.WalkDir(root, func(name string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil || entry == nil || !entry.IsDir() {
+			return nil
+		}
+		_ = os.Chmod(name, 0o700)
+		return nil
+	})
+	if err := os.RemoveAll(root); err != nil {
+		return fail("SCRATCH_CLEANUP_FAILED")
+	}
+	return nil
 }
 
 func (session *toolSession) resolve(
