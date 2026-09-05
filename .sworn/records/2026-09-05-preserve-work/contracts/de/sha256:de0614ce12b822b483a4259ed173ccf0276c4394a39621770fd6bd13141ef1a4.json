@@ -1,0 +1,78 @@
+{
+  "outcome": "An implementation reaching its configured API-turn, API-output-token or native-output-byte budget parks with preserved work and truthful recorded usage, and can continue in the same run after an explicit bounded capacity grant.",
+  "scope": {
+    "include": [
+      "internal/runtime",
+      "internal/journal",
+      "internal/gitx",
+      "internal/driver",
+      "internal/baton",
+      "internal/cockpit",
+      "internal/observe",
+      "internal/tui",
+      "internal/skill",
+      "cmd/sworn",
+      "tools/batongolden",
+      "test/e2e",
+      "docs/run.md"
+    ],
+    "exclude": []
+  },
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "Exercise API-turn, API-output-token and native-output-stream-byte exhaustion as three separate real production-adapter cases. In each, a worker writes scoped code and reaches the configured allowance; the affected work parks with that code durably retained and no accepted candidate. The board names the exact exhausted unit, limit, recorded spent amount or accounting limitation, affected work and checkpoint. Timeouts and process kills use S2 interruption/salvage and do not become duration grants in this release. Anchor: internal/runtime/economy_guards_test.go and test/e2e/production_journey_linux_test.go with deterministic usage/native-stream fixtures."
+    },
+    {
+      "id": "A2",
+      "text": "An explicit operator-authorized finite capacity grant, bound to the current run/work/authority and exhausted unit and recorded by the existing command service, lets that same run continue from preserved work. It requires neither a replacement journal nor plan re-authoring when the product promise is unchanged. A grant unblocks only its named work/unit. Duplicate replay grants once; stale, wrong-unit, mismatched-authority, overflow and above-hard-ceiling requests are refused. Anchor: cmd/sworn control-command tests, internal/journal command replay tests and the real-binary budget-stop/resume scenario."
+    },
+    {
+      "id": "A3",
+      "text": "Recorded spending survives process restart, retry and grants: effective remaining allowance equals original allowance plus admitted grants minus recorded spending, in the corresponding existing unit. Restoration never resets that history. Incomplete or unavailable usage after a crash is explicitly unknown, never zero or an invented vendor total, and prevents automatic resumption until reconciled or an explicit operator decision records how the accounting uncertainty is handled within a finite limit. Without a valid grant or with another applicable exhausted limit, retry cannot bypass the stop. Anchor: internal/runtime/economy_guards_test.go and real-binary crashes before usage receipt, after grant recording and before resumed execution."
+    },
+    {
+      "id": "A4",
+      "text": "The exhaustion vocabulary distinguishes provider turns, tool calls and token/native-byte usage when available, with unavailable measurements labeled honestly. Equal tool work on batching and one-call-per-turn fixtures is visibly attributable; grants preserve existing hard per-invocation safety ceilings and do not silently change provider/model or create unlimited execution. Reaching a hard ceiling produces a named limitation with preserved work rather than accepting an ineffective grant. Anchor: internal/driver usage fixtures, internal/observe eval tests and the real-binary board/status output."
+    },
+    {
+      "id": "A5",
+      "text": "An exhausted track preserves its work while an independent track can finish. Subsequent authorized continuation, independent verification and assembly integrate the exact passed product. Anchor: extend test/e2e/topology_recovery_linux_test.go parked-lane scenario and test/e2e/production_journey_linux_test.go exact assembly assertion."
+    }
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=35m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "test -z \"$(gofmt -l ./cmd ./internal ./tools)\"",
+    "go mod tidy -diff",
+    "git diff --check",
+    "GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build ./..."
+  ],
+  "host_checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=35m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "test -z \"$(gofmt -l ./cmd ./internal ./tools)\"",
+    "go mod tidy -diff",
+    "git diff --check",
+    "GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build ./..."
+  ],
+  "constraints": [
+    "One existing command service and journal own durable transitions; reuse existing workspace ownership, Git measurement, effect recovery and candidate submission boundaries. Introduce new representation only where an unverified checkpoint cannot truthfully use an existing candidate or receipt.",
+    "A saved checkpoint is unverified product data, never a candidate admission, check PASS, Captain decision, Verifier verdict, plan approval, or permission to merge. Only the established exact candidate and independent verification path can grant those states.",
+    "Do not execute or source retained files during measurement or restoration. Exclude .git metadata, reserved records roots, invocation scratch, engine/provider credential locations and existing secret-exclusion paths, and non-product runtime files. This does not claim to detect arbitrary secrets embedded in scoped source code. Existing scope, filesystem and resource policies remain enforced.",
+    "Model and driver selection stay explicit with no fallback. Do not persist provider credentials or assume a conversation can survive process death.",
+    "The checks list declares host obligations. Every listed check is a host_check: contained implementers and verifiers consume engine-bound host evidence and must never attempt nested containment or claim to have executed these commands. Run the long process suites once per candidate in the listed sequence; a candidate change requires fresh applicable evidence.",
+    "The broad supporting package scope admits only this promised mechanism and its affected regression fixtures, adapters, status projections and documentation. It grants no unrelated refactor, provider selection, verification relaxation, or new orchestration policy.",
+    "Preserve normal operation of valid existing journals and candidates that predate checkpoints. Missing or ambiguous legacy checkpoint provenance limits salvage of the affected workspace only; it neither invalidates the whole historical journal nor fabricates checkpoint evidence."
+  ],
+  "depends_on": [
+    "S3-targeted-handoff-repair"
+  ],
+  "consumes": [
+    "S3-targeted-handoff-repair"
+  ]
+}

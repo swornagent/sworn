@@ -1,0 +1,78 @@
+{
+  "outcome": "Submission and evidence defects are repaired against retained implementation work, without forcing a code change or rebuilding a valid candidate merely to satisfy closing prose.",
+  "scope": {
+    "include": [
+      "internal/runtime",
+      "internal/journal",
+      "internal/gitx",
+      "internal/driver",
+      "internal/baton",
+      "internal/cockpit",
+      "internal/observe",
+      "internal/tui",
+      "internal/skill",
+      "cmd/sworn",
+      "tools/batongolden",
+      "test/e2e",
+      "docs/run.md"
+    ],
+    "exclude": []
+  },
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "Preserve the existing in-session correction behavior: a production worker edits code once, submits a malformed handoff, receives the specific field refusal, and submits a corrected handoff in the same workspace. Assert exactly one implementation edit and unchanged product bytes during correction. Anchor: internal/driver/submission_refusal_detail_test.go and test/e2e/production_journey_linux_test.go."
+    },
+    {
+      "id": "A2",
+      "text": "If correction exhausts its budget or the process stops before a valid handoff, the next authorized continuation restores the retained code and receives the exact outstanding refusal and checkpoint provenance. It can complete the handoff without an empty code commit or regenerating the implementation. Anchor: S1/S2 built-product preservation and restart scenarios extended across the submission boundary."
+    },
+    {
+      "id": "A3",
+      "text": "A concise, otherwise valid complete submission is not refused solely because summary or detail is below the existing 120/200-byte floor. Empty content, explicitly non-final diagnostic probes, missing required fields, invalid bindings and missing required check evidence remain refused by their substantive validation rules. Anchor: internal/driver/submission_refusal_detail_test.go and a real configured-provider submission in test/e2e/production_journey_linux_test.go; existing placeholder/probe refusal fixtures must continue to exercise the intended rejection."
+    },
+    {
+      "id": "A4",
+      "text": "An independent verifier's evidence-only FAIL can be repaired and re-verified twice consecutively with the identical product tree, using the existing evidence-only reseal authority. A code-scoped or unspecified FAIL cannot be converted into evidence-only success by the implementer or orchestrator. Anchor: internal/runtime/evidence_reseal_test.go, internal/baton/evidence_reseal_test.go and the configured production remediation journey."
+    },
+    {
+      "id": "A5",
+      "text": "Required checks whose candidate, command, environment or authority bindings differ are rerun or refused, never invented or copied as PASS. Valid reusable engine evidence retains its provenance, and the worker is told which evidence or field remains missing. Anchor: internal/runtime/host_checks_integration_test.go, internal/runtime/claimed_dispatch_recovery_test.go and test/e2e/assembly_evidence_linux_test.go."
+    }
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=35m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "test -z \"$(gofmt -l ./cmd ./internal ./tools)\"",
+    "go mod tidy -diff",
+    "git diff --check",
+    "GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build ./..."
+  ],
+  "host_checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=35m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "test -z \"$(gofmt -l ./cmd ./internal ./tools)\"",
+    "go mod tidy -diff",
+    "git diff --check",
+    "GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build ./..."
+  ],
+  "constraints": [
+    "One existing command service and journal own durable transitions; reuse existing workspace ownership, Git measurement, effect recovery and candidate submission boundaries. Introduce new representation only where an unverified checkpoint cannot truthfully use an existing candidate or receipt.",
+    "A saved checkpoint is unverified product data, never a candidate admission, check PASS, Captain decision, Verifier verdict, plan approval, or permission to merge. Only the established exact candidate and independent verification path can grant those states.",
+    "Do not execute or source retained files during measurement or restoration. Exclude .git metadata, reserved records roots, invocation scratch, engine/provider credential locations and existing secret-exclusion paths, and non-product runtime files. This does not claim to detect arbitrary secrets embedded in scoped source code. Existing scope, filesystem and resource policies remain enforced.",
+    "Model and driver selection stay explicit with no fallback. Do not persist provider credentials or assume a conversation can survive process death.",
+    "The checks list declares host obligations. Every listed check is a host_check: contained implementers and verifiers consume engine-bound host evidence and must never attempt nested containment or claim to have executed these commands. Run the long process suites once per candidate in the listed sequence; a candidate change requires fresh applicable evidence.",
+    "The broad supporting package scope admits only this promised mechanism and its affected regression fixtures, adapters, status projections and documentation. It grants no unrelated refactor, provider selection, verification relaxation, or new orchestration policy.",
+    "Preserve normal operation of valid existing journals and candidates that predate checkpoints. Missing or ambiguous legacy checkpoint provenance limits salvage of the affected workspace only; it neither invalidates the whole historical journal nor fabricates checkpoint evidence."
+  ],
+  "depends_on": [
+    "S2-interrupted-work-reconciliation"
+  ],
+  "consumes": [
+    "S2-interrupted-work-reconciliation"
+  ]
+}
