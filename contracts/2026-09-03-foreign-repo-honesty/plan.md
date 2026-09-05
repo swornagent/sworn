@@ -1,10 +1,10 @@
 ```sworn-release-manifest-v1
 {
-  "approval_ref": "operator://2026-09-03-foreign-repo-honesty/2",
-  "previous_plan": "9466dabdee3a4e2dd4bcb1a707fc0284d45d94f0",
+  "approval_ref": "operator://2026-09-03-foreign-repo-honesty/3",
+  "previous_plan": "708eadc5aa4558f7c679f8f88bc7998015ecf06e",
   "release": "2026-09-03-foreign-repo-honesty",
   "repository": "sworn",
-  "revision": 2,
+  "revision": 3,
   "schema_version": "sworn.release-manifest/v1",
   "target_ref": "refs/heads/release/2026-09-03-foreign-repo-honesty",
   "tracks": [
@@ -55,9 +55,9 @@
           "consumes": [],
           "contract_path": "contracts/2026-09-03-foreign-repo-honesty/S2-foreign-layouts.json",
           "depends_on": [],
-          "digest": "sha256:9e585e0a1e7460e8d665518bc4c98b1f54597b6187f1804903f79f6e088893ea",
+          "digest": "sha256:9543f1aedadad5937f7134bea71a3285be23fa1691a118fe78ff6355dbc8cf6b",
           "id": "S2-foreign-layouts",
-          "outcome": "Scope lint stops passing vacuously on a foreign repository's nested Go module layout, and a plan record stops discovering a symlinked-or-blob documents/records root only when git itself refuses the write with an opaque error: scope lint now locates the go.mod governing every candidate .go file (not just the repository root) by finding each file's nearest ancestor go.mod as the walk descends from the repository root (so a nested module like go/go.mod is found, and every file beneath it - including under non-cmd/internal/tools directories such as go/pkg/tools/ - is kept, because isModulePackagePath (internal/baton/scopelint.go:151-164) drops its hardcoded cmd/internal/tools top-segment allowlist), rebases each file's import-derived internal package id to repository-root-relative by joining its own go.mod's directory with the import-path-derived suffix so it matches the repo-root-relative dir key computePackageGraph already uses (scopelint.go:182 vs :206-213, previously divergent bases that silently dropped every cross-package edge for any nested module), refuses SCOPE_LINT_UNRESOLVED naming any scoped path no go.mod governs instead of ever returning PASS, and drops the hardcoded fallback modulePath := \"github.com/swornagent/sworn\" (scopelint.go:52,111) that today makes every reverse-dependency check silently inert whenever the real module path differs - computePackageGraph's importPath match (scopelint.go:207-213) never fires, LintSlice's findings stay empty (:349-351), and RunPlanScopeLint records PASS for every slice regardless of actual violations (plan_authoring.go:320-323) - closing sworn#272 including its real go/pkg/tools/... probe-path shape, not merely the go.mod-lookup half of it; and PrepareRecordTransition now refuses before any git write when an ancestor of the configured documents root or the configured records root is a symlink or a regular-file blob in the base tree, naming the ancestor and the remedy of declaring documents_root in docs/sworn/sworn.json, where today no ancestor check exists for either root at transition time (only ValidatePath and isReservedRecordPath for documents, internal/gitx/prepare.go:211-214, and a lexical recordRoot-prefix test for changes, :204-208) and the failure surfaces only after prepareRecord's git object writes as an opaque GIT_EXECUTION_FAILED (internal/gitx/repository.go:499) - closing sworn#273 for both roots, not documents-only. sworn's own repository, governed by its single root go.mod and carrying no top-level .go files outside cmd/, internal/, and tools/, lints exactly as before.",
+          "outcome": "Scope lint stops passing vacuously on a foreign repository's nested Go module layout, and a plan record stops discovering a symlinked-or-blob documents/records root only when git itself refuses the write with an opaque error: scope lint now locates the go.mod governing every candidate .go file (not just the repository root) by finding each file's nearest ancestor go.mod as the walk descends from the repository root (so a nested module like go/go.mod is found, and every file beneath it - including under non-cmd/internal/tools directories such as go/pkg/tools/ - is kept, because isModulePackagePath (internal/baton/scopelint.go:151-164) drops its hardcoded cmd/internal/tools top-segment allowlist), keeps candidate selection as one shared filter applied identically by both BuildPackageGraphFS and BuildPackageGraphAt, rebases each file's import-derived internal package id to repository-root-relative by joining its own go.mod's directory with the import-path-derived suffix so it matches the repo-root-relative dir key computePackageGraph already uses (scopelint.go:182 vs :206-213, previously divergent bases that silently dropped every cross-package edge for any nested module), refuses SCOPE_LINT_UNRESOLVED naming any scoped path no discovered go.mod governs whenever the tree holds at least one go.mod, treats a tree with no go.mod anywhere as Go-scope-lint-inapplicable - every scoped path passing with no findings - instead of ever passing vacuously, keeps PackageGraph.Module's pinned-root-module meaning, and drops the hardcoded fallback modulePath := \"github.com/swornagent/sworn\" (scopelint.go:52,111) that today makes every reverse-dependency check silently inert whenever the real module path differs - computePackageGraph's importPath match (scopelint.go:207-213) never fires, LintSlice's findings stay empty (:349-351), and RunPlanScopeLint records PASS for every slice regardless of actual violations (plan_authoring.go:320-323) - closing sworn#272 including its real go/pkg/tools/... probe-path shape, not merely the go.mod-lookup half of it; and PrepareRecordTransition now refuses before any git write when the configured documents root, the configured records root, or any ancestor of either is a symlink or a regular-file blob in the base tree, naming the offending path and the remedy of declaring documents_root in docs/sworn/sworn.json, where today no check of either root itself or any ancestor exists at transition time (only ValidatePath and isReservedRecordPath for documents, internal/gitx/prepare.go:211-214, and a lexical recordRoot-prefix test for changes, :204-208) and the failure surfaces only after prepareRecord's git object writes as an opaque GIT_EXECUTION_FAILED (internal/gitx/repository.go:499) - closing sworn#273 for both roots, not documents-only. sworn's own repository, governed by its single root go.mod and carrying no top-level .go files outside cmd/, internal/, and tools/, lints exactly as before.",
           "touchpoints": [
             "internal/baton",
             "internal/gitx"
@@ -284,3 +284,15 @@ verifier hung for the full invocation hour on that). Workers run only
 themselves. Checks that exercise the driver package start real bwrap
 sandboxes; a `PROCESS_START_FAILED` under load is the class S4 is about,
 and a rerun is legitimate evidence for it.
+
+Revision 3 revises only S2, carrying the operator ruling ratified by the
+release owner (approval_ref operator://2026-09-03-foreign-repo-honesty/3):
+SCOPE_LINT_UNRESOLVED fires only when the tree holds at least one go.mod
+and no discovered module governs a scoped path; a tree with no go.mod
+anywhere makes Go scope lint inapplicable, and its scoped paths pass with
+no findings. A3 covers the configured documents/records root itself as
+well as its ancestors, and the captain's two bounded corrections are in:
+one shared candidate-file filter across both lint builders, and
+PackageGraph.Module keeps its pinned root-module meaning. S1 (verified at
+revision 2) and S3-S6 are byte-identical; no slice is added or retired,
+and previous_plan is the revision-2 record.
