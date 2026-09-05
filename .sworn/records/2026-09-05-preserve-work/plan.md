@@ -1,10 +1,10 @@
 ```sworn-release-manifest-v1
 {
-  "approval_ref": "operator://2026-09-05-preserve-work/3",
-  "previous_plan": "26b14f343cfc6bccacc20e107ae266e05b0ac6a4",
+  "approval_ref": "operator://2026-09-05-preserve-work/4",
+  "previous_plan": "27379f92b9f6f1d33a196084e19f8f72bae3974d",
   "release": "2026-09-05-preserve-work",
   "repository": "sworn",
-  "revision": 3,
+  "revision": 4,
   "schema_version": "sworn.release-manifest/v1",
   "target_ref": "refs/heads/release/2026-09-05-preserve-work",
   "tracks": [
@@ -41,11 +41,11 @@
           "consumes": [
             "S1-durable-unverified-checkpoints"
           ],
-          "contract_path": "contracts/2026-09-05-preserve-work/rev3/S2-interrupted-work-reconciliation.json",
+          "contract_path": "contracts/2026-09-05-preserve-work/rev4/S2-interrupted-work-reconciliation.json",
           "depends_on": [
             "S1-durable-unverified-checkpoints"
           ],
-          "digest": "sha256:61e0b6bf9d4764be1703401edd26cb7d43583798cbde96bae60bae27274af4e1",
+          "digest": "sha256:5a92ba01d576f2c980a4256744ef4153ac8b358639bc75de6b6b4a4a217024dd",
           "id": "S2-interrupted-work-reconciliation",
           "outcome": "After process interruption, Sworn reconciles owned implementation work before abandoned-workspace cleanup, restoring the last durable checkpoint or preserving attributable interrupted files as explicitly unverified recovery data.",
           "touchpoints": [
@@ -125,75 +125,46 @@
 
 ```
 
-# Complete preservation from the repaired implementation
+# Complete preservation on a batching implementer lane
 
-This is a proposed revision 3 of the same four-slice preservation release.
-Brad remains the external approver. It has not been approved or recorded.
-No slice is added, retired or declared passed. All acceptance criteria and
-slice outcomes remain unchanged.
+This is a proposed revision 4 of the same four-slice preservation release.
+Brad remains the external approver. No slice is added, retired or declared
+passed. All acceptance criteria and slice outcomes remain unchanged. S1, S3
+and S4 keep their revision-3 contract bytes and paths; S1's verified pass
+(receipt 05fbba49, candidate fa2aebf2) carries unchanged.
 
 ## Why this revision
 
-The previous run produced useful code but retried host-check failures without
-the failed check output, prior submission or latest candidate as repair input.
-It then parked without a notification-source event. Operator diagnosis found
-an endlessly failing retry fixture and impossible newline comparisons.
+Under revision 3 the S2 implementation ran on google-native/gemini-3.8-flash
+as run 2026-09-05-preserve-work-recovery. The first try was lost to an
+adapter continuation defect (sworn#291) and a scope fence on a stray build
+artifact; three further tries each consumed the full 60-minute invocation
+limit and ended INVOCATION_TIMEOUT. S1's checkpoints kept the tries
+cumulative, but each try began a fresh conversation (sworn#292), spent about
+half its turns re-reading, and converged at roughly 27 net lines per hour on
+the crash-cut recovery seam. That run is parked and stays inert; its
+checkpoints remain anchored as stale reference.
 
-The retained repair input fixes those test defects, adds durable exact host
-repair context, validates matching checkpoints across automatic/manual retry,
-resolves manifest-backed checkpoint scope, and records the typed park event
-at the between-tries gate. Review and improve this implementation where
-required; do not rebuild it from scratch. Saving work remains distinct from
-candidate admission and independent verification.
-
-## Exact repair material
-
-Input: contracts/2026-09-05-preserve-work/recovery/s1-repaired.patch.gz.b64.
-Decoded SHA-256: eea487af37b7c873204acdbed76174681023d5e447c5b9365528f7ec78b4d880.
-Decoded length: 130353 bytes; 25 product paths.
-The patch is based on product contents at 68c4deefcd7a6eac8b91ea346ae623bfae4373f7
-and applies cleanly against the current prepared target's compatible product
-contents. It excludes all reserved records and contract/approval files.
-Do not copy any older control tree. Remove both old and new recovery input
-artifacts after application; their deletion is explicitly scoped.
-
-The new prepared target/contract-tree commit must be bound and applicability
-rechecked against that exact commit before native recording. The previous
-target is 74241e177d96bc158ab40c49d468fd27fcf5b86f; the previous approved plan
-blob is 26b14f343cfc6bccacc20e107ae266e05b0ac6a4. Historical journals, manifests,
-records and approvals remain unchanged.
-
-## Checks and evidence
-
-Every slice keeps the same checks and host-only execution boundary, with two
-test-runner deadline corrections: the complete serial E2E suite gets 45
-minutes instead of 35; the product race suite gets an explicit 20 minutes
-instead of Go's implicit 10-minute default. All assertions and tests stay
-present, and race detection remains enabled. Align CI and AGENTS.md
-in the prepared base. The 35-minute diagnostic run passed 88 completed cases,
-including the repaired preservation journey and full topology-recovery group,
-then timed out in consumed-base recovery. It is a failed full gate, not a PASS.
-Operator validation of the final repair is recorded separately; it never
-substitutes for Sworn's exact-candidate host evidence and independent verifier.
-
-S1 keeps A1-A6 verbatim, adds only the new input path to scope, and clarifies
-the repair constraints. S2-S4 change only the E2E and race deadlines in checks and
-host_checks. Their outcomes, acceptance, scope and dependencies are unchanged.
-The separately approved roster/live-switch plan still follows preservation.
+This revision changes only the S2 contract: it adds operator-context
+constraints naming the stale checkpoints as reference-only, the contained-
+workspace facts that wasted turns (a credential-less TUI test, the 10-minute
+package deadline, building binaries into the workspace root), and the
+observed recovery seam. Outcome, scope, acceptance, checks and host_checks
+are unchanged. S2 restarts at design under the new contract digest.
 
 ## Host operation
 
-Use a validated operator binary containing these repair mechanisms. Keep the
-explicit roster: qwencloud/qwen3.8-max for planner/recovery;
-google-native/gemini-3.8-flash for implementer with the existing 2.4M pacing;
-claude/claude-opus-5 for Captain and claude/claude-sonnet-5 for Verifier.
-Do not change model budgets or invent a fallback. Include installed Node in
-PATH and pass the main checkout's operator telemetry config explicitly.
-The local Langfuse exporter has been verified with an explicitly backfilled
-historical evaluation; verify observation of new work at startup as well.
+Roster for the replacement run: qwencloud/qwen3.8-max for planner/recovery;
+claude/claude-sonnet-5 (native, batching tool calls) for implementer;
+claude/claude-opus-5 for Captain and claude/claude-opus-5 for Verifier, so
+the implementer and the independent verifier remain different models. Set
+the per-invocation timeout to 7200000 ms; keep max_turns_per_work 800 and
+max_output_tokens_per_work 1048576. Do not invent a fallback. Use the
+validated ops/sworn-repair binary, installed Node in PATH and the main
+checkout's operator telemetry config, as for revision 3.
 
-After external approval, record this revision through the native plan surface
-and start an explicitly bound recovery run using persistent MCP host/request
-lifetime. Run a fresh design/Captain review over the retained implementation,
-then admit only checked candidates and independent verdicts. Do not resume an
-old run against stale 35-minute contracts or fabricate legacy repair bindings.
+After external approval, bind the prepared target and contract-tree commit,
+record this revision through the native plan surface, and start an
+explicitly bound run with persistent MCP host/request lifetime. Do not
+resume the parked revision-3 run. Continuation of the implementer's own
+session across tries is not promised by this release (sworn#292 follows).
