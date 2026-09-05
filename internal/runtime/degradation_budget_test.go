@@ -552,6 +552,17 @@ func TestParkStatusForCausePrecedence(t *testing.T) {
 		t.Fatalf("degradation park = %#v", degradation)
 	}
 
+	bootstrap := parkStatusFor(manifest, parkFacts{
+		bootstrapAuthority: true, bootstrapReason: "reason text",
+		economy:           &economyParkFacts{cause: ParkCauseEconomyTurns, spent: 201, budget: 200, knob: EconomyTurnsUnblockKnob},
+		identicalFailure:  &identicalFailureFacts{code: "INVOCATION_TIMEOUT", consecutive: 2, threshold: 2},
+		exhaustionApplies: true,
+	})
+	if bootstrap.Cause != ParkCauseBootstrapAuthority ||
+		bootstrap.Reason != "reason text" {
+		t.Fatalf("bootstrap authority park = %#v", bootstrap)
+	}
+
 	economy := parkStatusFor(manifest, parkFacts{
 		economy:           &economyParkFacts{cause: ParkCauseEconomyTurns, spent: 201, budget: 200, knob: EconomyTurnsUnblockKnob},
 		identicalFailure:  &identicalFailureFacts{code: "INVOCATION_TIMEOUT", consecutive: 2, threshold: 2},
