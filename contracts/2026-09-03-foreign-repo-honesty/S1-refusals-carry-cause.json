@@ -66,12 +66,17 @@
     "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go vet ./...",
     "PATH=/usr/local/go/bin:$PATH gofmt -l ./cmd ./internal ./tools"
   ],
+  "host_checks": [
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go test -count=1 -race ./internal/baton ./internal/driver"
+  ],
   "constraints": [
     "Every Technical code stays exactly what it is today: NATIVE_NOT_CERTIFIED and INVALID_ADAPTER keep their .Code, gaining only a populated .Detail; no code in commandErrorCode's vocabulary is added, renamed, or removed, and the codes-only tests at main_test.go:449-511 keep passing unmodified.",
     "Every rendered string is bounded and secret-free: git stderr/args, baton Msg text, and driver Detail must never carry credential bytes, tokens, or unbounded command output at the operator surface; driver's new Detail values are drawn only from A4's fixed 19-term closed vocabulary constructed inside internal/driver (mirroring failContinuation, contract.go:167-169), never provider or credential bytes, so they need no normalizeAdapterError funnel re-validation.",
     "This is additive text beneath an unchanged fallback sentence and Technical code line, never a replacement of either; a test asserting on today's fallback sentence or on a Contains(\"Technical code: X\") check keeps passing.",
     "The repositoryPath canonicalization rules themselves, and every validateNativeConfig/validatePinnedRuntimeFiles admission rule - which values are rejected - do not change; only the message or Detail accompanying an existing rejection gains specificity.",
-    "The provider-status Detail funnel (normalizeAdapterError, invoke.go:536) and its bound (maxProviderErrorDetailBytes, pacing.go:73) are reused conceptually but not modified; NATIVE_NOT_CERTIFIED/INVALID_ADAPTER Detail is same-process closed-vocabulary text and stays outside that funnel, matching CONTINUATION_INVALID's existing treatment."
+    "The provider-status Detail funnel (normalizeAdapterError, invoke.go:536) and its bound (maxProviderErrorDetailBytes, pacing.go:73) are reused conceptually but not modified; NATIVE_NOT_CERTIFIED/INVALID_ADAPTER Detail is same-process closed-vocabulary text and stays outside that funnel, matching CONTINUATION_INVALID's existing treatment.",
+    "The two go test checks are declared as host_checks: the engine runs them on the host (a 60-minute budget each) and records host_effect evidence, because sworn's own suite cannot complete inside a worker sandbox - there is no C toolchain there so -race cannot build, and cmd/sworn's tests start sandboxes of their own. The vet and gofmt checks stay in-turn. A verifier must not attempt the go test checks itself and must not treat their absence from its own turn as uncovered evidence."
   ],
   "depends_on": [],
   "consumes": []

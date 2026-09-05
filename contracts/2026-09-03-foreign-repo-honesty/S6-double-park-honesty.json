@@ -54,12 +54,17 @@
     "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go vet ./...",
     "PATH=/usr/local/go/bin:$PATH gofmt -l ./cmd ./internal ./tools"
   ],
+  "host_checks": [
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go test -count=1 -race ./internal/runtime"
+  ],
   "constraints": [
     "The carve-out is narrow and additive: it recognises exactly one shape - a checkpoint's own attention, looked up by ID against the full attentions list, in state journal.AttentionResolved - as consumed history; it must not become a blanket 'any mismatch is fine' rule, and every other branch of recoverHumanParkCheckpoint (the active-match check, the duplicate-ProgressID gate, the not-found reconstruction path) keeps its current behaviour byte-for-byte.",
     "No new terminal state, error code, or journal shape is introduced. The fix changes only what recoverHumanParkCheckpoint tolerates during replay; it must not change what persistHumanParkCheckpoint records or what validateHumanParkCheckpoint accepts as a structurally valid single checkpoint.",
     "This slice does not touch the unmerged operator patch file under ~/.local/share/sworn (outside the repository and outside scope) - it re-derives the product fix from the brief and the cited lines, and a narrower resolved-only check than the patch's broader not-Open/not-Answered check is expected and correct.",
     "Cancelled attentions are out of scope for this slice's carve-out: only AttentionResolved is recognised as history unless the worker finds evidence in the journal package that Cancelled must be treated identically - if so, note it, but do not silently widen the skip condition beyond what A1-A4 require.",
-    "A3 and A4 pin two independently-corrupt shapes under separate acceptance IDs precisely so a regression can be attributed to the new carve-out (A4, touching the changed branch) versus the pre-existing duplicate-ProgressID gate (A3, unchanged code) without ambiguity - do not merge their tests back into one assertion block."
+    "A3 and A4 pin two independently-corrupt shapes under separate acceptance IDs precisely so a regression can be attributed to the new carve-out (A4, touching the changed branch) versus the pre-existing duplicate-ProgressID gate (A3, unchanged code) without ambiguity - do not merge their tests back into one assertion block.",
+    "The two go test checks are declared as host_checks: the engine runs them on the host (a 60-minute budget each) and records host_effect evidence, because sworn's own suite cannot complete inside a worker sandbox - there is no C toolchain there so -race cannot build, and cmd/sworn's tests start sandboxes of their own. The vet and gofmt checks stay in-turn. A verifier must not attempt the go test checks itself and must not treat their absence from its own turn as uncovered evidence."
   ],
   "depends_on": [],
   "consumes": []

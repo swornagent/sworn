@@ -1,10 +1,10 @@
 ```sworn-release-manifest-v1
 {
-  "approval_ref": "operator://2026-09-03-foreign-repo-honesty/1",
-  "previous_plan": null,
+  "approval_ref": "operator://2026-09-03-foreign-repo-honesty/3",
+  "previous_plan": "708eadc5aa4558f7c679f8f88bc7998015ecf06e",
   "release": "2026-09-03-foreign-repo-honesty",
   "repository": "sworn",
-  "revision": 1,
+  "revision": 3,
   "schema_version": "sworn.release-manifest/v1",
   "target_ref": "refs/heads/release/2026-09-03-foreign-repo-honesty",
   "tracks": [
@@ -16,7 +16,7 @@
           "consumes": [],
           "contract_path": "contracts/2026-09-03-foreign-repo-honesty/S1-refusals-carry-cause.json",
           "depends_on": [],
-          "digest": "sha256:8e2f38c754d2f2e8120915609be1cacb5723e3a87414d434fed068ad8f44706a",
+          "digest": "sha256:2b2f45d9943504565ea9a2a3295dd4a038b92bd080dab5a6b93d1f49b6021e56",
           "id": "S1-refusals-carry-cause",
           "outcome": "Operator-facing refusals stop discarding the reason they refused: writeCommandFailure and writeKnownFailure render the raising error's own text (bounded, secret-free) beneath the fixed fallback sentence and Technical code, gitx.Error's Op (the git args) and Err (the stderr/timeout tail) reach the operator for GIT_EXECUTION_FAILED, baton.RecordError.Msg reaches the operator for INVALID_FIELD/INVALID_PATH/INVALID_PLAN_FENCE with INVALID_PATH naming which canonicalization rule failed and the offending value's actual length when it hits the 512 bound, and driver's NATIVE_NOT_CERTIFIED/INVALID_ADAPTER carry a Detail drawn from the 19-term closed vocabulary A4 enumerates (one term per independently-reachable validateNativeConfig/validatePinnedRuntimeFiles/NewNativeAdapter condition, covering cli identity, admission bounds, pin mode, credential target, version, version output, digest, family, runtime-file presence/shape/digest/duplicate/missing, trust anchor, toolchain root, and NewNativeAdapter's own key/id/version/resolver checks), surfaced by the doctor registry-build path and by init's admission messages - closing sworn#254 (INVALID_PLAN discarded the error that caused it), sworn#273 (GIT_EXECUTION_FAILED printed with no cause), and the sworn#267 residual (INVALID_ADAPTER/NATIVE_NOT_CERTIFIED name no condition). Today commandErrorCode (cmd/sworn/main.go:1094-1120) does errors.As against every one of these error types and returns only .Code; writeCommandFailure (main.go:1055-1092) never prints err.Error(), .Op, .Err, .Msg, or .Detail; writeKnownFailure (main.go:1038-1053) never touches an error at all - so every refusal beneath these codes reads identically regardless of which raise site actually fired: internal/gitx/repository.go:499, internal/baton/plan.go (:133, :143, :760, :1404, :1409, :1413) and plan_authoring.go (:43, :274), and internal/driver/native.go (:173-182 NewNativeAdapter's own four checks folding into INVALID_ADAPTER, :214-280 validateNativeConfig's eleven OR-bundled raise sites, and :311-358 validatePinnedRuntimeFiles's further sub-conditions reached through :261-268).",
           "touchpoints": [
@@ -55,9 +55,9 @@
           "consumes": [],
           "contract_path": "contracts/2026-09-03-foreign-repo-honesty/S2-foreign-layouts.json",
           "depends_on": [],
-          "digest": "sha256:69fbc74de66341fd09c7e0bb5cc7dd65037eef640d98978e1d15a630a82925cd",
+          "digest": "sha256:9543f1aedadad5937f7134bea71a3285be23fa1691a118fe78ff6355dbc8cf6b",
           "id": "S2-foreign-layouts",
-          "outcome": "Scope lint stops passing vacuously on a foreign repository's nested Go module layout, and a plan record stops discovering a symlinked-or-blob documents/records root only when git itself refuses the write with an opaque error: scope lint now locates the go.mod governing every candidate .go file (not just the repository root) by finding each file's nearest ancestor go.mod as the walk descends from the repository root (so a nested module like go/go.mod is found, and every file beneath it - including under non-cmd/internal/tools directories such as go/pkg/tools/ - is kept, because isModulePackagePath (internal/baton/scopelint.go:151-164) drops its hardcoded cmd/internal/tools top-segment allowlist), rebases each file's import-derived internal package id to repository-root-relative by joining its own go.mod's directory with the import-path-derived suffix so it matches the repo-root-relative dir key computePackageGraph already uses (scopelint.go:182 vs :206-213, previously divergent bases that silently dropped every cross-package edge for any nested module), refuses SCOPE_LINT_UNRESOLVED naming any scoped path no go.mod governs instead of ever returning PASS, and drops the hardcoded fallback modulePath := \"github.com/swornagent/sworn\" (scopelint.go:52,111) that today makes every reverse-dependency check silently inert whenever the real module path differs - computePackageGraph's importPath match (scopelint.go:207-213) never fires, LintSlice's findings stay empty (:349-351), and RunPlanScopeLint records PASS for every slice regardless of actual violations (plan_authoring.go:320-323) - closing sworn#272 including its real go/pkg/tools/... probe-path shape, not merely the go.mod-lookup half of it; and PrepareRecordTransition now refuses before any git write when an ancestor of the configured documents root or the configured records root is a symlink or a regular-file blob in the base tree, naming the ancestor and the remedy of declaring documents_root in docs/sworn/sworn.json, where today no ancestor check exists for either root at transition time (only ValidatePath and isReservedRecordPath for documents, internal/gitx/prepare.go:211-214, and a lexical recordRoot-prefix test for changes, :204-208) and the failure surfaces only after prepareRecord's git object writes as an opaque GIT_EXECUTION_FAILED (internal/gitx/repository.go:499) - closing sworn#273 for both roots, not documents-only. sworn's own repository, governed by its single root go.mod and carrying no top-level .go files outside cmd/, internal/, and tools/, lints exactly as before.",
+          "outcome": "Scope lint stops passing vacuously on a foreign repository's nested Go module layout, and a plan record stops discovering a symlinked-or-blob documents/records root only when git itself refuses the write with an opaque error: scope lint now locates the go.mod governing every candidate .go file (not just the repository root) by finding each file's nearest ancestor go.mod as the walk descends from the repository root (so a nested module like go/go.mod is found, and every file beneath it - including under non-cmd/internal/tools directories such as go/pkg/tools/ - is kept, because isModulePackagePath (internal/baton/scopelint.go:151-164) drops its hardcoded cmd/internal/tools top-segment allowlist), keeps candidate selection as one shared filter applied identically by both BuildPackageGraphFS and BuildPackageGraphAt, rebases each file's import-derived internal package id to repository-root-relative by joining its own go.mod's directory with the import-path-derived suffix so it matches the repo-root-relative dir key computePackageGraph already uses (scopelint.go:182 vs :206-213, previously divergent bases that silently dropped every cross-package edge for any nested module), refuses SCOPE_LINT_UNRESOLVED naming any scoped path no discovered go.mod governs whenever the tree holds at least one go.mod, treats a tree with no go.mod anywhere as Go-scope-lint-inapplicable - every scoped path passing with no findings - instead of ever passing vacuously, keeps PackageGraph.Module's pinned-root-module meaning, and drops the hardcoded fallback modulePath := \"github.com/swornagent/sworn\" (scopelint.go:52,111) that today makes every reverse-dependency check silently inert whenever the real module path differs - computePackageGraph's importPath match (scopelint.go:207-213) never fires, LintSlice's findings stay empty (:349-351), and RunPlanScopeLint records PASS for every slice regardless of actual violations (plan_authoring.go:320-323) - closing sworn#272 including its real go/pkg/tools/... probe-path shape, not merely the go.mod-lookup half of it; and PrepareRecordTransition now refuses before any git write when the configured documents root, the configured records root, or any ancestor of either is a symlink or a regular-file blob in the base tree, naming the offending path and the remedy of declaring documents_root in docs/sworn/sworn.json, where today no check of either root itself or any ancestor exists at transition time (only ValidatePath and isReservedRecordPath for documents, internal/gitx/prepare.go:211-214, and a lexical recordRoot-prefix test for changes, :204-208) and the failure surfaces only after prepareRecord's git object writes as an opaque GIT_EXECUTION_FAILED (internal/gitx/repository.go:499) - closing sworn#273 for both roots, not documents-only. sworn's own repository, governed by its single root go.mod and carrying no top-level .go files outside cmd/, internal/, and tools/, lints exactly as before.",
           "touchpoints": [
             "internal/baton",
             "internal/gitx"
@@ -101,7 +101,7 @@
           "consumes": [],
           "contract_path": "contracts/2026-09-03-foreign-repo-honesty/S3-bootstrap-replan-honesty.json",
           "depends_on": [],
-          "digest": "sha256:711c1f9d75edd13afe3268807b1638cf935fd61deb9e6aaeb8d7a09191869b83",
+          "digest": "sha256:db0d5c06e1675bc1c49fd521b9c6e9b7ced4c5945097564a792ccd08f19a7f43",
           "id": "S3-bootstrap-replan-honesty",
           "outcome": "A run whose authority is a bootstrap-approved plan digest stops burning a turn on a planner dispatch no proposal it produces can ever clear, and stops that park from going invisible to every status reader: when NextRole is planner - from either a slice's captain-escalate or verifier-blocked (internal/baton/state.go:2959-2960, :2968-2969) or, when no slice carries it, the assembly's own verifier-blocked (state.go:3948-3958, reached once every track's slices have already passed, :3859-3877) - and BootstrapApprovedPlanDigest (internal/runtime/manifest.go:95) is the run's only authority, driveLoop parks the run under a new ParkCauseBootstrapAuthority instead of dispatching the planner, with a reason built from the triggering receipt's Summary (internal/baton/receipts.go:29-49, populated at state.go:2947 for a slice or state.go:3957 for the assembly) verbatim plus a fixed operator-path sentence, and RunStatus (internal/runtime/status.go) surfaces that cause and reason on every read - closing sworn#259 (a bootstrap-authority run admits a revision proposal it can never approve: run-start refuses it PLAN_AUTHORITY_CONFLICT at internal/runtime/scheduler.go:6998-7004 whenever the proposal's digest disagrees with the fixed bootstrap digest it can never equal, and sworn approve refuses it APPROVAL_AUTHORITY_CONFLICT at internal/runtime/approval.go:364-370) and sworn#278 in the narrow sense that no in-run proposal is attempted under bootstrap authority (the planner cannot compute the canonical contract digest the fence requires - internal/baton/plan.go:972-1083 - and no worker tool returns it, internal/driver/tools.go:45); today internal/runtime/scheduler.go:5690-5695 and :5698-5706 dispatch driver.RolePlanner unconditionally via proposeRevision (:6529-6537) -\u003e proposePlan (:6398-6406) -\u003e proposePlanAttempt (:6408-6527) -\u003e dispatchRoleWithScope (:6493-6495) whenever any slice or the assembly carries NextRole planner, and RunStatus has no boolean input that knows this condition at all - a dispatch observed in the fired r1 journal as a planner yielding a human attention it has no legitimate way to answer into approval and in r2 as a turn spent bisecting INVALID_PLAN_BYTES, a park that an incomplete fix would leave structurally invisible to sworn status, the TUI, and internal/cockpit.",
           "touchpoints": [
@@ -130,7 +130,7 @@
           "consumes": [],
           "contract_path": "contracts/2026-09-03-foreign-repo-honesty/S4-sandbox-start-evidence.json",
           "depends_on": [],
-          "digest": "sha256:5aba076c7eff729eff893c978708cd5f8f71b5e03d77872b24387d7c5d088bbf",
+          "digest": "sha256:7c1c8cd849b0a3cd51832ecb89bf1b228a7bf155e43cc06d44125bb375d24d23",
           "id": "S4-sandbox-start-evidence",
           "outcome": "A hosted-runner evidence refusal caused by a sandbox that failed to start now names the sandbox_start.* check and its bounded cause in both the check_evidence_incomplete refusal and the e2e mock's rerun-cap diagnostic, and TestKilledHostMidDriveRecoversCleanly's lease/sleep margin is widened so a loaded runner cannot race it - closing sworn#277, where the evidence rerun cap exhausts after 3 re-runs with only a hardcoded \"sandbox starts likely failing\" guess (test/e2e/production_journey_linux_test.go:251-254) because contractErrorCode (internal/driver/checkevidence.go:131-137) returns only contractErr.Code and discards contractErr.Detail, so the structured check+cause envelope failSandboxStart already builds (internal/driver/sandbox_start_detail.go:94-99) never reaches applyCheckEvidence's CHECK_EVIDENCE_INCOMPLETE refusal (checkevidence.go:313-320); and closing sworn#263, where the kill-race test's 200ms margin (SWORN_TEST_OWNER_LEASE_MILLIS=500 at cmd/sworn/main_test.go:1111, sleep 700ms at :1122) races a loaded CI runner per the same reasoning PR #276 (6375a327) already applied twice to timing pins in test/e2e/surface_parity_linux_test.go, and sworn#277's own evidence cites 6 of 8 hosted runs red on this class in one day, never locally.",
           "touchpoints": [
@@ -163,7 +163,7 @@
           "depends_on": [
             "S1-refusals-carry-cause"
           ],
-          "digest": "sha256:28b73dd291f89fed80678dec8b09117e3b9425dd42d519822cb8a8e123172a76",
+          "digest": "sha256:00f4f572a3b46274ddb51463ee1f29de7b160e1a96afe5409efafac7c0a8d3a5",
           "id": "S5-codex-tool-budget-parity",
           "outcome": "The codex lane's per-tool-call MCP budget follows sworn's invocation deadline exactly as the claude lane's already does, closing the codex-lane follow-up to PR #275 (tracked as S5 in contracts/2026-09-03-foreign-repo-honesty/plan.md; no sworn issue number exists yet for it) - internal/driver/native_linux.go:2883 today hardcodes `tool_timeout_sec = 300` into every codex [mcp_servers.sworn] TOML block built by nativeConfigFiles, with no comment and zero references to tool_timeout_sec across any *_test.go file, so a codex worker running a contract check longer than five minutes hits the same wall the fired dogfood verifier hit on claude before PR #275 lifted MCP_TOOL_TIMEOUT/MCP_TOOL_IDLE_TIMEOUT to MaxTimeoutMillis for that lane (internal/driver/native_environment_linux.go:13,30-31; MaxTimeoutMillis=86_400_000 at internal/driver/contract.go:32). After this slice, codex's tool_timeout_sec derives from that same MaxTimeoutMillis constant (seconds, floor), sharing one source with the claude lane's millis value so the two numbers cannot drift apart again; startup_timeout_sec and every other codex TOML key stay exactly as they are.",
           "touchpoints": [
@@ -196,7 +196,7 @@
           "consumes": [],
           "contract_path": "contracts/2026-09-03-foreign-repo-honesty/S6-double-park-honesty.json",
           "depends_on": [],
-          "digest": "sha256:0a49e7bad1b02cd8bebc3de181cd3c90e3838c6c5064e277a395dbd5cc0d2dbd",
+          "digest": "sha256:298e76de772cabbde73483dc873a9dc870b0933d0a8340a253e9b1f0e4d824b9",
           "id": "S6-double-park-honesty",
           "outcome": "A second park on one claimed dispatch whose first attention is already resolved recovers cleanly instead of returning CORRUPT_JOURNAL on every start forever, closing sworn#257 - recoverHumanParkCheckpoint (internal/runtime/turn_recovery.go:2258-2265) matches a checkpoint's own attention against the active[WorkIdentity] entry from activeAttentionWork (turn_recovery.go:1923-1942, which excludes resolved attentions at 1931-1934), so a resolved first checkpoint sees the still-open second attention under the same key, its ID differs, and the loop fails closed on every replay; observed in R6-r2 (2026-08-29, docs/captures/2026-08-30-legible-refusals-run-report.md) on a revision-2 planner dispatch whose confirmation yield resolved before a bytes-unrecoverable second yield, tolerated only by an unmerged operator patch (patch 9, ~/.local/share/sworn/sworn/2026-08-28-legible-refusals/ops/patch-9-repark-checkpoint.diff).",
           "touchpoints": [
@@ -274,6 +274,25 @@ for a long check (a policy question, not a defect).
 
 Module at the repository root. The sandbox PATH is `/usr/bin:/bin`; the
 Go toolchain is at `/usr/local/go/bin` and every check carries the PATH
-prefix. Checks that exercise the driver package start real bwrap
+prefix. Revision 2: the two `go test` checks on every slice are `host_checks` -
+the engine runs them on the host with a 60-minute budget each and records
+`host_effect` evidence - because sworn's own suite cannot complete inside
+a worker sandbox: there is no C toolchain there (so `-race` cannot build)
+and `cmd/sworn`'s tests start sandboxes of their own (revision 1's S1
+verifier hung for the full invocation hour on that). Workers run only
+`go vet` and `gofmt` in-turn and must not attempt the `go test` checks
+themselves. Checks that exercise the driver package start real bwrap
 sandboxes; a `PROCESS_START_FAILED` under load is the class S4 is about,
 and a rerun is legitimate evidence for it.
+
+Revision 3 revises only S2, carrying the operator ruling ratified by the
+release owner (approval_ref operator://2026-09-03-foreign-repo-honesty/3):
+SCOPE_LINT_UNRESOLVED fires only when the tree holds at least one go.mod
+and no discovered module governs a scoped path; a tree with no go.mod
+anywhere makes Go scope lint inapplicable, and its scoped paths pass with
+no findings. A3 covers the configured documents/records root itself as
+well as its ancestors, and the captain's two bounded corrections are in:
+one shared candidate-file filter across both lint builders, and
+PackageGraph.Module keeps its pinned root-module meaning. S1 (verified at
+revision 2) and S3-S6 are byte-identical; no slice is added or retired,
+and previous_plan is the revision-2 record.
