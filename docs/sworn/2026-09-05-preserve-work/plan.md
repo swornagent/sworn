@@ -1,10 +1,10 @@
 ```sworn-release-manifest-v1
 {
-  "approval_ref": "operator://2026-09-05-preserve-work/1",
-  "previous_plan": null,
+  "approval_ref": "operator://2026-09-05-preserve-work/2",
+  "previous_plan": "cf6bb6e45599c7f4e45d57d762d6feb947c52abc",
   "release": "2026-09-05-preserve-work",
   "repository": "sworn",
-  "revision": 1,
+  "revision": 2,
   "schema_version": "sworn.release-manifest/v1",
   "target_ref": "refs/heads/release/2026-09-05-preserve-work",
   "tracks": [
@@ -14,9 +14,9 @@
       "slices": [
         {
           "consumes": [],
-          "contract_path": "contracts/2026-09-05-preserve-work/S1-durable-unverified-checkpoints.json",
+          "contract_path": "contracts/2026-09-05-preserve-work/rev2/S1-durable-unverified-checkpoints.json",
           "depends_on": [],
-          "digest": "sha256:f2af22a99150fefbe246058c8ff51bfc5812f507cbb4b759ea5d4c44b6fc52dd",
+          "digest": "sha256:72f865550c85c0b7a6670c39834fb86bd12ab13cb97399d28b799630ccc846a6",
           "id": "S1-durable-unverified-checkpoints",
           "outcome": "An orderly implementation stop preserves a measured unverified product checkpoint before disposable workspace cleanup, and an authorized retry with unchanged authority restores that work without publishing a candidate or a verdict.",
           "touchpoints": [
@@ -32,7 +32,8 @@
             "cmd/sworn",
             "tools/batongolden",
             "test/e2e",
-            "docs/run.md"
+            "docs/run.md",
+            "contracts/2026-09-05-preserve-work/recovery/s1-2fcaa718.patch.gz.b64"
           ]
         },
         {
@@ -125,56 +126,120 @@
 
 # Goal
 
-Preserve implementation progress through failed handoffs, bounded stops and interruption, so recovery repairs or continues the work instead of repeating it. This is the first implementation release in the agreed stabilization programme. It does not make the orchestrator more autonomous yet.
+Complete the same four approved preservation outcomes while retaining the
+implementation already produced by Sworn. Revision 2 adds exact unverified
+recovery material to S1 and clarifies its unchanged retention obligation.
+No slice is added, retired or declared passed by this revision.
 
-# Authority and preparation
+# Authority and exact input
 
-Brad is the external approver. This revision is a proposal, not an approval or run receipt. The operator reference above is the proposed approval identity and carries no authority by itself. Review these exact pinned manifest bytes and the four contract files.
+Brad is the external approver. This revision is proposed, not approved.
+Previous plan blob: cf6bb6e45599c7f4e45d57d762d6feb947c52abc.
+The named target remains refs/heads/release/2026-09-05-preserve-work.
+Prepare it with this revision's contract and recovery-input files before native
+recording, and bind the actual resulting target/contract-tree commit.
 
-The inspection baseline is main at 5a9aefeced602114f0dee25fc3d2b370651c82cf. Implementation follows integration of the in-flight 2026-09-03-foreign-repo-honesty release. Prepare the named release target from the resulting verified main before recording this plan; record its exact base and contract-tree identity then. Recheck the contracts against that base; a changed product promise requires a forward-only revision and approval, not silent widening. No existing release, track or live run is taken over by this plan.
+The prior release target is 3ddcfadeeffb1ddc4a071d1b638711d5b809bb98.
+Run r2 is deliberately paused at control generation 1 with no active owner.
+Its original plan, manifest, configuration, journal, design and Captain
+receipts remain historical facts. Do not rewrite them.
 
-# Current evidence
+The recovery artifact contracts/2026-09-05-preserve-work/recovery/s1-2fcaa718.patch.gz.b64 contains a gzip-compressed,
+base64-encoded patch. Its decoded SHA-256 is 4262bd2414056a5f916b027ed60b7c56b96149329aa085a31e59feb7ddbed1ce
+and decoded length is 79480 bytes. It contains only the product
+delta from bdd1e7055f202284ab000e7cbaeedcea7ef2eaaf to prepared candidate
+2fcaa718e2379400feb18f7973b8f0b441b485a8. That candidate never received a
+Verifier PASS. The artifact changes these paths:
 
-- internal/runtime/scheduler.go runImplementationCycle closes a writable workspace on a production dispatch error.
-- internal/gitx/workspaces.go removes abandoned owned workspaces during new run-workspace initialization, before ordinary runtime recovery. A shutdown defer alone cannot cover abrupt interruption.
-- internal/driver/tools.go rejectSubmission already permits bounded in-session correction; preserve and extend this instead of rebuilding it.
-- Valid production handoffs already prepare and journal exact candidate identity before success. Checkpoints must remain a distinct, unverified recovery state.
-- internal/runtime/track_base.go evidenceOnlyReseal already distinguishes an independent evidence-only FAIL from a code defect.
-- Issue #288 documents productive work stopped at 200 turns; widening a run manifest is currently an operator workaround and can require replaying lost work.
+- docs/run.md
+- internal/cockpit/model.go
+- internal/cockpit/presentation.go
+- internal/cockpit/presentation_test.go
+- internal/cockpit/projector.go
+- internal/cockpit/terminal.go
+- internal/cockpit/terminal_test.go
+- internal/gitx/checkpoint.go
+- internal/gitx/checkpoint_test.go
+- internal/gitx/repository.go
+- internal/gitx/workspaces.go
+- internal/journal/checkpoint.go
+- internal/journal/checkpoint_test.go
+- internal/runtime/production_dispatch_test.go
+- internal/runtime/scheduler.go
+- internal/runtime/service.go
+- internal/runtime/status.go
+- test/e2e/production_journey_linux_test.go
 
-# Ordered slices
+The patch is repair input, not an approved candidate. Apply only its product
+delta to the engine-prepared revision-2 base so current plan/record authority
+remains intact. Do not copy old control records or substitute the old full
+tree for the current base. Remove the temporary input from the final product.
 
-1. S1 provides safe, durable unverified capture and same-authority restoration after orderly stops.
-2. S2 extends that mechanism across process interruption and abandoned-workspace reconciliation.
-3. S3 uses preserved work to finish handoffs and evidence repair, removing prose-length requirements without weakening substantive checks.
-4. S4 makes configured budget stops recoverable in the same run after an explicit bounded grant, preserving cumulative usage.
+# What happened and what must be repaired
 
-One serial track owns the shared runtime, driver, journal and workspace boundaries. Dependencies and consumed products are real: each slice exercises preservation provided by its predecessor. Independent review and host verification can run separately; this plan does not pretend shared mutation paths are parallel tracks.
+1. The full product host suite passed on 2fcaa718. The end-to-end suite ran
+   for 1988.824 seconds and failed TestConfiguredProductionPreservationAndRestorationJourney:
+   the fixture injected provider-unavailable responses and then demanded
+   empty stderr from the resume command. Its restoration/completion proof
+   must remain effective when the expected injected diagnostics are handled.
+2. An independent operator probe confirmed an A4 defect: with valuable
+   allowed.txt progress plus forbidden.txt, CaptureCheckpoint refused scope,
+   then closing the lease/workspaces removed allowed.txt. The new candidate
+   test TestCheckpointScopeViolationDoesNotFence actually asserts the bad
+   behavior, following a Captain correction that exceeds the original
+   contract's permission. Scope failure does not authorize discarding data.
+3. The current engine does not restore this failed prepared implementation
+   into its next writer automatically. Its approved base is immutable.
+   An explicit recovery input in a newly approved base is the supported way
+   to let a fresh model repair retained work without an out-of-band code
+   injection, fabricated receipt or blind regeneration.
 
-# Acceptance and evidence
+The temporary diagnostic probe is retained in the operator archive. It was
+not left in the candidate checkout and is not an engine Verifier verdict.
+Review all acceptance boundaries, not just these two observations.
 
-Each contract names a real built-product acceptance boundary, existing fixtures to extend, and negative cases. Mock or package-only checks cannot establish the production preservation promise. Use deterministic local providers through production adapters for fault injection; separately authorized live-model delivery is the subsequent reliability campaign, not a substitute for deterministic crash-cut evidence.
+# Slice and dependency changes
 
-Saved work is not verified work. Preserve the measured product tree and its provenance, never synthesize an approval or verdict. A crash may leave partial unverified filesystem state: report this honestly and restore only under the correct authority and exclusive writer ownership.
+- S1 keeps its ID, outcome and A1-A6 acceptance bytes unchanged. Its scope
+  gains only the temporary recovery-input path, and its constraints bind that
+  input and clarify the required repairs. A new design/Captain review must
+  account for the recovered implementation and original retention promises.
+- S2, S3 and S4 contracts remain byte-identical to approved revision 1.
+- No passed work is invalidated: S1 had no admitted implementation candidate
+  or Verifier PASS, and S2-S4 had not begun. Their future dependency closure
+  still consumes the eventual corrected S1 product through the same track.
+- The separately approved roster/live-switch plan is unchanged and follows
+  completion of preservation. Live-stream and TUI discovery requirements
+  remain captured for subsequent operator-UI work.
 
-# Scope and exclusions
+# Checks and operating setup
 
-This release covers implementation filesystem progress and related submissions, evidence repair, recovery status and bounded continuation grants. It excludes planner draft persistence, automatic plan approval, orchestrator-first question routing, provider/model selection, ecosystem toolchain provisioning, context compaction, remote publication, promotional work and broad architecture changes.
+Keep the original declared checks and host_checks unchanged. Native plan
+pin/lint must validate this revision. Decode the recovery artifact and verify
+its digest, then dry-run its application against the compatible source base
+before handing it to a worker.
 
-Supporting package scope includes affected tests/projections so a passing contract cannot omit composition checks through import-only consumer packages. It authorizes only the promised preservation behavior and its support.
+Every corrected candidate must pass the required host checks and independent
+verification. Existing green results for 2fcaa718 do not certify corrected
+code. The new host must include the actual Node installation in PATH as well
+as Go and Git, so optional Node-based oracle/browser checks do not silently
+skip as they did in the earlier service environment.
 
-# Checks and host execution
+Use the established explicit roster: planner/recovery qwencloud/qwen3.8-max;
+implementer google-native/gemini-3.8-flash with its existing 2.4M input-token
+per-minute pacing cap; Captain claude/claude-opus-5; Verifier
+claude/claude-sonnet-5. This keeps the native connection that passed live
+certification and avoids returning to the unpaced compatibility connection.
 
-The contract check lists include the repository-required product suite, sequential host end-to-end suite, product race detector, vet, asserted formatting, module tidiness, diff checks and Darwin build. They are explicitly host_checks. Contained workers/verifiers must not execute nested containment or fabricate empirical evidence; they consume the engine-bound host results.
+Because the current bootstrap manifest binds revision-1 plan bytes, record
+the externally approved revision through Sworn's native plan surface and
+start a new explicitly bound run for revision 2. Preserve r1/r2 journals;
+do not change their manifests or reset their accounting. Operate through
+MCP with persistent request/process lifetime. The work must be repaired from
+the retained input and checked, not asserted complete by the operator.
 
-The long process suites run once, in order, for an exact candidate. Do not duplicate them in a contained role, run the E2E suite under race, or rerun an unchanged green candidate for ceremony. A changed candidate must obtain fresh applicable evidence. Before a commit, obey AGENTS.md's required checks.
+# Review status
 
-# Delivery programme after this release
-
-Second implementation release: give the current recovery orchestrator useful approved context and bounded read-only investigation, then route ordinary questions through it before a human. Explicit human decisions and independent verdict authority stay intact. The present human-first rule prevented content-free automation loops; richer recovery must precede changing that rule.
-
-Reliability campaign: repeated real serial and parallel releases including an interruption, a budget stop, evidence repair, verifier remediation and exact assembly. Measure avoidable human interventions, recovered versus discarded work, recovery time and accepted-slice cost. Full Fired-stack claims require its toolchain provisioning work first.
-
-# Review record
-
-A separate read-only technical review confirmed the terminal-error and startup-cleanup loss paths, the existing in-session correction path and evidence-only reseal, and the need to distinguish retained checkpoints from candidate authority. No implementation or approval has been recorded by this proposal.
+This is a forward recovery proposal prompted by measured failures. It is not
+a new product goal, a relaxed acceptance criterion, an approval receipt, or
+a claim that the recovered code is correct.
