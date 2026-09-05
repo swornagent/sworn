@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -47,16 +48,18 @@ type journeyProvider struct {
 	// product path that plan's scope admits.
 	slicePaths map[string]string
 
-	mu               sync.Mutex
-	plannerFactReads int
-	turns            map[string]int
-	families         map[string]driver.ProfileFamily
-	models           map[string]string
-	access           map[string]driver.WorkspaceAccess
-	httpCalls        int
-	submissions      int
-	captainPlanCalls int
-	evidenceReruns   map[string]int
+	mu                     sync.Mutex
+	plannerFactReads       int
+	turns                  map[string]int
+	families               map[string]driver.ProfileFamily
+	models                 map[string]string
+	access                 map[string]driver.WorkspaceAccess
+	httpCalls              int
+	submissions            int
+	captainPlanCalls       int
+	evidenceReruns         map[string]int
+	lastRerunCapDiagnostic string
+	quietRerunCap          bool
 }
 
 type journeyPrompt struct {
@@ -248,10 +251,11 @@ func (provider *journeyProvider) serve(
 			provider.mu.Unlock()
 			named := journeyNamedCheckPattern.Find(body[refusal:])
 			if reruns > 3 {
-				err = fmt.Errorf(
-					"evidence rerun cap for %s: check %q still uncovered after %d re-runs (sandbox starts likely failing)",
-					prompt.InvocationID, string(named), reruns-1,
-				)
+				diag := rerunCapDiagnostic(prompt.InvocationID, string(named), reruns-1, body[refusal:])
+				provider.mu.Lock()
+				provider.lastRerunCapDiagnostic = diag
+				provider.mu.Unlock()
+				err = errors.New(diag)
 			} else if named == nil {
 				err = fmt.Errorf("refusal named no re-runnable check")
 			} else {
@@ -276,7 +280,12 @@ func (provider *journeyProvider) serve(
 		err = fmt.Errorf("implementation turn = %d", turn)
 	}
 	if err != nil {
-		provider.t.Errorf("journey response: %v", err)
+		provider.mu.Lock()
+		quiet := provider.quietRerunCap && provider.lastRerunCapDiagnostic != "" && err.Error() == provider.lastRerunCapDiagnostic
+		provider.mu.Unlock()
+		if provider.t != nil && !quiet {
+			provider.t.Errorf("journey response: %v", err)
+		}
 		http.Error(writer, "invalid response", http.StatusInternalServerError)
 		return
 	}
@@ -678,6 +687,37 @@ func (provider *journeyProvider) submissionArguments(
 // check_evidence_incomplete refusal names in its paths, in the "check <id>"
 // shape every scenario in this harness declares.
 var journeyNamedCheckPattern = regexp.MustCompile(`check [A-Za-z0-9_.-]+`)
+
+var (
+	journeySandboxCheckPattern = regexp.MustCompile(`\\?"sandbox_check\\?"\s*:\s*\\?"(sandbox_start\.[a-z_]+)\\?"`)
+	journeySandboxCausePattern = regexp.MustCompile(`\\?"sandbox_cause\\?"\s*:\s*\\?"([^\\"]+)\\?"`)
+)
+
+func extractSandboxRefusalDetail(refusalTail []byte) (check, cause string) {
+	if match := journeySandboxCheckPattern.FindSubmatch(refusalTail); match != nil {
+		check = string(match[1])
+	}
+	if match := journeySandboxCausePattern.FindSubmatch(refusalTail); match != nil {
+		cause = string(match[1])
+	}
+	return check, cause
+}
+
+func rerunCapDiagnostic(invocationID, check string, reruns int, refusalTail []byte) string {
+	sandboxCheck, sandboxCause := extractSandboxRefusalDetail(refusalTail)
+	parenthetical := "sandbox starts likely failing"
+	if sandboxCheck != "" {
+		if sandboxCause != "" {
+			parenthetical = fmt.Sprintf("%s: %s", sandboxCheck, sandboxCause)
+		} else {
+			parenthetical = sandboxCheck
+		}
+	}
+	return fmt.Sprintf(
+		"evidence rerun cap for %s: check %q still uncovered after %d re-runs (%s)",
+		invocationID, check, reruns, parenthetical,
+	)
+}
 
 func journeyCallID(invocationID string, turn int) string {
 	sum := sha256.Sum256([]byte(invocationID))
@@ -1574,4 +1614,120 @@ func assertProductionRepairState(t *testing.T, state baton.State) {
 			finalTree,
 		)
 	}
+}
+
+// TestProductionJourneyRerunCapRendersSandboxDiagnostic pins S4-A2:
+// the production-journey rerun-cap diagnostic renders the sandbox check and
+// bounded cause named by a check_evidence_incomplete refusal rather than the
+// fixed guess, and falls back to the fixed guess only when the refusal omits
+// them.
+func TestProductionJourneyRerunCapRendersSandboxDiagnostic(t *testing.T) {
+	driveCap := func(t *testing.T, refusalDetail string) (int, string) {
+		t.Helper()
+		provider := &journeyProvider{
+			t:             t,
+			turns:         make(map[string]int),
+			families:      make(map[string]driver.ProfileFamily),
+			models:        make(map[string]string),
+			access:        make(map[string]driver.WorkspaceAccess),
+			quietRerunCap: true,
+		}
+		server := httptest.NewServer(http.HandlerFunc(provider.serve))
+		defer server.Close()
+
+		invocationID := "test-run/S1/verifier/1/1/1"
+		reqBody := map[string]any{
+			"contents": []map[string]any{
+				{
+					"role": "user",
+					"parts": []map[string]any{
+						{
+							"text": fmt.Sprintf(
+								`{"invocation_id":%q,"role":"verifier","responsibility":"work_verification"}`,
+								invocationID,
+							),
+						},
+						{
+							"functionResponse": map[string]any{
+								"name": "sworn_submit",
+								"response": map[string]any{
+									"result": "error:CHECK_EVIDENCE_INCOMPLETE detail=" + refusalDetail,
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		encoded, err := json.Marshal(reqBody)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		endpoint := server.URL + "/gemini/v1beta/models/journey-verifier:generateContent"
+		var lastStatus int
+		for attempt := 0; attempt < 4; attempt++ {
+			req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(encoded))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("x-goog-api-key", journeyGeminiSecret)
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			lastStatus = resp.StatusCode
+			resp.Body.Close()
+		}
+		provider.mu.Lock()
+		diag := provider.lastRerunCapDiagnostic
+		provider.mu.Unlock()
+		return lastStatus, diag
+	}
+
+	t.Run("renders sandbox check and cause when present", func(t *testing.T) {
+		refusalDetail := `{"check":"submit.check_evidence_incomplete","field":"checks","bound":"check_command_covers","paths":["check S1-A1"],"sandbox_check":"sandbox_start.bwrap_exec_start","sandbox_cause":"permission denied"}`
+		statusCode, diag := driveCap(t, refusalDetail)
+		if statusCode != http.StatusInternalServerError {
+			t.Fatalf("statusCode = %d, want 500", statusCode)
+		}
+		if !strings.Contains(diag, "check \"check S1-A1\"") {
+			t.Fatalf("diag %q does not name check S1-A1", diag)
+		}
+		if !strings.Contains(diag, "(sandbox_start.bwrap_exec_start: permission denied)") {
+			t.Fatalf("diag %q does not name sandbox check and cause", diag)
+		}
+		if strings.Contains(diag, "sandbox starts likely failing") {
+			t.Fatalf("diag %q contains fixed guess string", diag)
+		}
+	})
+
+	t.Run("renders sandbox check without cause when cause is empty", func(t *testing.T) {
+		refusalDetail := `{"check":"submit.check_evidence_incomplete","field":"checks","bound":"check_command_covers","paths":["check S1-A1"],"sandbox_check":"sandbox_start.invocation_scratch_create"}`
+		statusCode, diag := driveCap(t, refusalDetail)
+		if statusCode != http.StatusInternalServerError {
+			t.Fatalf("statusCode = %d, want 500", statusCode)
+		}
+		if !strings.Contains(diag, "(sandbox_start.invocation_scratch_create)") {
+			t.Fatalf("diag %q does not name sandbox check without cause", diag)
+		}
+		if strings.Contains(diag, "sandbox starts likely failing") {
+			t.Fatalf("diag %q contains fixed guess string", diag)
+		}
+	})
+
+	t.Run("falls back to fixed guess when sandbox detail is absent", func(t *testing.T) {
+		refusalDetail := `{"check":"submit.check_evidence_incomplete","field":"checks","bound":"check_command_covers","paths":["check S1-A1"]}`
+		statusCode, diag := driveCap(t, refusalDetail)
+		if statusCode != http.StatusInternalServerError {
+			t.Fatalf("statusCode = %d, want 500", statusCode)
+		}
+		if !strings.Contains(diag, "check \"check S1-A1\"") {
+			t.Fatalf("diag %q does not name check S1-A1", diag)
+		}
+		if !strings.Contains(diag, "(sandbox starts likely failing)") {
+			t.Fatalf("diag %q does not contain fixed guess string", diag)
+		}
+	})
 }

@@ -1,0 +1,83 @@
+{
+  "outcome": "Operator-facing refusals stop discarding the reason they refused: writeCommandFailure and writeKnownFailure render the raising error's own text (bounded, secret-free) beneath the fixed fallback sentence and Technical code, gitx.Error's Op (the git args) and Err (the stderr/timeout tail) reach the operator for GIT_EXECUTION_FAILED, baton.RecordError.Msg reaches the operator for INVALID_FIELD/INVALID_PATH/INVALID_PLAN_FENCE with INVALID_PATH naming which canonicalization rule failed and the offending value's actual length when it hits the 512 bound, and driver's NATIVE_NOT_CERTIFIED/INVALID_ADAPTER carry a Detail drawn from the 19-term closed vocabulary A4 enumerates (one term per independently-reachable validateNativeConfig/validatePinnedRuntimeFiles/NewNativeAdapter condition, covering cli identity, admission bounds, pin mode, credential target, version, version output, digest, family, runtime-file presence/shape/digest/duplicate/missing, trust anchor, toolchain root, and NewNativeAdapter's own key/id/version/resolver checks), surfaced by the doctor registry-build path and by init's admission messages - closing sworn#254 (INVALID_PLAN discarded the error that caused it), sworn#273 (GIT_EXECUTION_FAILED printed with no cause), and the sworn#267 residual (INVALID_ADAPTER/NATIVE_NOT_CERTIFIED name no condition). Today commandErrorCode (cmd/sworn/main.go:1094-1120) does errors.As against every one of these error types and returns only .Code; writeCommandFailure (main.go:1055-1092) never prints err.Error(), .Op, .Err, .Msg, or .Detail; writeKnownFailure (main.go:1038-1053) never touches an error at all - so every refusal beneath these codes reads identically regardless of which raise site actually fired: internal/gitx/repository.go:499, internal/baton/plan.go (:133, :143, :760, :1404, :1409, :1413) and plan_authoring.go (:43, :274), and internal/driver/native.go (:173-182 NewNativeAdapter's own four checks folding into INVALID_ADAPTER, :214-280 validateNativeConfig's eleven OR-bundled raise sites, and :311-358 validatePinnedRuntimeFiles's further sub-conditions reached through :261-268).",
+  "scope": {
+    "include": [
+      "cmd/sworn",
+      "internal/baton",
+      "internal/driver"
+    ],
+    "exclude": [
+      "internal/gitx package code itself is not touched: gitx.Error's Op and Err fields are already exported (repository.go:42-47) and populated at the GIT_EXECUTION_FAILED raise site (repository.go:499); this slice only makes cmd/sworn read fields that already exist.",
+      "the writeCommandFailure switch's existing custom messages for OWNER_TRANSITION_PENDING, APPROVAL_PENDING, RECOVERY_UNCERTAIN, EFFECT_PARKED, RUN_NOT_FOUND/INVALID_RUN, BATON_UNAVAILABLE, and GIT_UNAVAILABLE (main.go:1063-1087) stay exactly as they are; this slice adds detail beneath the fallback sentence for the remaining codes, it does not touch this switch.",
+      "the driver provider-status Detail pattern (PROVIDER_LIMITED, PROVIDER_AUTHORIZATION_FAILED, PROVIDER_REQUEST_REJECTED, PROVIDER_UNAVAILABLE, PROVIDER_ERROR, PROVIDER_TRANSPORT_FAILED) and NATIVE_SURFACE_INVALID/PROCESS_START_FAILED's own structured envelopes, all funneled through normalizeAdapterError (invoke.go:536) and bounded at maxProviderErrorDetailBytes (pacing.go:73), already carry Detail and are untouched; this slice only adds Detail where none exists today.",
+      "internal/journal, internal/cockpit, and internal/runtime error types (journal.Error, cockpit.Error, runtimepkg.Error) keep surfacing only .Code through commandErrorCode; the brief scopes detail-rendering to gitx, baton, and driver refusals only, so no fields are added to those three other packages.",
+      "every default value, validation rule, and Technical code stays exactly what it is today; this slice only makes an already-computed reason reach stderr, it introduces no new terminal code and relaxes no admission rule.",
+      "strictjson.go's asString/requiredString generic bound message (strictjson.go:252-258) is unchanged for every caller except repositoryPath; other INVALID_FIELD bound violations elsewhere in internal/baton keep today's message exactly.",
+      "the boolean conditions each validateNativeConfig/validatePinnedRuntimeFiles admission rule tests do not change; A4 only requires enough branch-splitting to attach the specified closed-vocabulary term to each named group, never a change to which configs pass or fail."
+    ],
+    "waivers": [
+      {
+        "package": "internal/cockpit",
+        "reason": "its tests reach internal/baton, internal/driver by import only; no cockpit test pins the behaviour this slice changes"
+      },
+      {
+        "package": "internal/observe",
+        "reason": "its tests reach internal/baton, internal/driver by import only; no observe test pins the behaviour this slice changes"
+      },
+      {
+        "package": "internal/runtime",
+        "reason": "its tests reach internal/baton, internal/driver by import only; no runtime test pins the behaviour this slice changes"
+      },
+      {
+        "package": "internal/skill",
+        "reason": "its tests reach internal/baton by import only; no skill test pins the behaviour this slice changes"
+      },
+      {
+        "package": "internal/tui",
+        "reason": "its tests reach internal/baton, internal/driver by import only; no tui test pins the behaviour this slice changes"
+      },
+      {
+        "package": "tools/batongolden",
+        "reason": "its tests reach internal/baton by import only; no batongolden test pins the behaviour this slice changes"
+      }
+    ]
+  },
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "writeCommandFailure and writeKnownFailure render the underlying error's own text (bounded, secret-free) beneath the fixed fallback sentence and 'Technical code: %s' line, for every wrapped error type this slice touches - gitx, baton, and driver alike - not just one representative case. Today writeKnownFailure (main.go:1038-1053) prints only its caller-supplied message and code string and never touches an error; writeCommandFailure (main.go:1055-1092) computes code := commandErrorCode(err) at :1061, its switch at :1063-1087 crafts custom prose for exactly OWNER_TRANSITION_PENDING/APPROVAL_PENDING/RECOVERY_UNCERTAIN/EFFECT_PARKED/RUN_NOT_FOUND,INVALID_RUN/BATON_UNAVAILABLE/GIT_UNAVAILABLE and otherwise keeps the caller's fallback string verbatim, printing at :1088-1091 without ever calling err.Error(); commandErrorCode (main.go:1094-1120) does errors.As against *runtimepkg.Error, *gitx.Error, *journal.Error, *driver.ContractError, *cockpit.Error, *baton.RecordError and returns only .Code, reading none of .Op/.Err/.Msg/.Detail/.Paths - so baton.RecordError.Msg is silently dropped today at every one of plan_command.go's three writeCommandFailure call sites: plan pin (call :66, failure at :71-72 'Could not pin the manifest.'), plan lint (call :99, failure at :104-105 'Scope lint failed.'), plan record (call :178, failure at :184-185 'Could not record the plan revision.'), even though RecordError.Error() (strictjson.go:35-40) already formats Code+': '+Msg(+': '+Err.Error() when Err != nil) ready to be read; raise sites feeding these three commands include ParsePlan's INVALID_PLAN_FENCE (plan.go:133, :143) and PinManifest/RunPlanScopeLint's own INVALID_PLAN_FENCE (plan_authoring.go:43, :274). The existing switch's custom messages and the codes commandErrorCode returns do not change. Pinned by a cmd/sworn unit test asserting writeCommandFailure's output contains a gitx and a driver error's own detail text beneath the Technical code line for a code outside the existing switch, plus a cmd/sworn test invoking plan pin, plan lint, and plan record each against a fixture that fails with a known RecordError, asserting the printed output contains that error's Msg text."
+    },
+    {
+      "id": "A2",
+      "text": "GIT_EXECUTION_FAILED shows which git invocation ran and why it failed. gitx.Error (internal/gitx/repository.go:42-47: Code, Op, Err, Paths, TotalPaths) is raised at repository.go:499 as fail(\"GIT_EXECUTION_FAILED\", strings.Join(args, \" \"), errors.New(message)), where message is built from stderr/wait-error/timeout/overflow text at :486-498, and Error() (:49-54) already formats Code+': '+Op+': '+Err.Error() - but no cmd/sworn caller reads Op or Err, since commandErrorCode discards them at main.go:1099-1102 and keeps only Code. After this slice, a git failure reaching the operator through writeCommandFailure or writeKnownFailure prints the git args and the stderr-derived failure text, not just the bare code. Pinned by a cmd/sworn test that drives a git operation to GIT_EXECUTION_FAILED and asserts the printed output contains both the joined args and the stderr-derived text."
+    },
+    {
+      "id": "A3",
+      "text": "repositoryPath (internal/baton/plan.go:1396-1416) names which canonicalization rule failed instead of printing the identical 'label is not a canonical repository path' string at all three of its rejection sites - :1404 (leading/trailing slash, an embedded backslash, or a control character), :1409 (an empty, '.', or '..' path segment), :1413 (a literal '.git' first segment) - and for a value over the 512-rune bound, rejected earlier at requiredString(value,label,1,512) (:1397 delegating to asString, strictjson.go:252-258), reports the offending value's actual rune length itself, since asString's returned message states only the bound ('%s must be a string of %d-%d characters') and never the actual length. repositoryPath is reached from scope.include (plan.go:984) and scope.exclude (plan.go:999) via uniqueStringList, and directly from package (:1153), contract_path (:1245), and touchpoints (:1267) - every caller inherits the fix with no change at the call sites. This criterion is internal/baton-only and independent of A1: A1 pins that writeCommandFailure/plan_command.go surface whatever Msg repositoryPath already returns; this pins that the Msg repositoryPath returns is itself rule- and length-specific. Pinned by internal/baton unit tests calling repositoryPath directly: one case per canonicalization rule (three) plus the over-512 case, each asserting the returned error's Msg is rule- or length-specific rather than the one shared string today."
+    },
+    {
+      "id": "A4",
+      "text": "driver's NATIVE_NOT_CERTIFIED and INVALID_ADAPTER carry a Detail naming which of a closed, fully-enumerated set of admission conditions failed, not an open-ended name a worker invents: every independently-reachable failure below gets a fixed term, with sharing stated explicitly wherever one line's OR bundles conditions too fine-grained for an operator to act on differently, and NewNativeAdapter's own four pre-validateNativeConfig checks are explicitly in scope with their own terms - resolving whether the INVALID_ADAPTER collapse covers them. Closed vocabulary, 19 terms: validateNativeConfig (native.go:214-280) - cli_identity (validateExecutableIdentity failure, split out of the :215-218 OR into its own branch); cli_admission_bounds (the remaining :216-217 sub-conditions - credential-byte lower bound, upper bound, version-output empty, version-output oversized - share this term); pin_mode (:226-227); credential_target (:231-232 codex, :245-246 claude, :261-262 credential-target not absolute/not clean - three sites share, all naming the same operator fact); version (declared-version mismatch half of :235-237 codex-minor and :249-251 claude-minor, plus :239 codex-exact CLIVersion and :253 claude-exact CLIVersion - four sites share); version_output (the VersionOutput-string half of those same four sites: :236-237, :241-242, :250-251, :255-256); digest (:240 codex CLI.Digest, :254 claude CLI.Digest); family (:259 unknown Family); toolchain_root (:270-276). validatePinnedRuntimeFiles (native.go:311-358, reached through the :261-268 OR's validatePinnedRuntimeFiles call) - runtime_file (:316-318, nothing pinned); runtime_file_shape (:321-331's malformed-path/target and guest-workspace/home/sworn-collision sub-conditions, excluding digest); runtime_file_digest (:325 bad per-file digest, split out of the :321-331 OR); runtime_file_duplicate (:332-334 duplicate target, :338-341 duplicate required target - share); runtime_file_missing (:343-345 a declared-required target absent); trust_anchor (:347-355, any of the four well-known cert/resolv/hosts/nsswitch files absent - share). NewNativeAdapter (native.go:173-182) - adapter_key (:177 providerKeyPattern mismatch), adapter_id (:178 driverIdentityPattern mismatch), adapter_version (:179 versionPattern mismatch), credential_resolver (:180 resolver == nil). Today contract.go:165's fail(code) sets no Detail, so all of these collapse to bare NATIVE_NOT_CERTIFIED or INVALID_ADAPTER with ContractError.Detail (contract.go:109) always empty. After this slice, fail gains a Detail-carrying sibling (mirroring failContinuation, contract.go:167-169); each site above sets its listed term; validateNativeConfig forwards validatePinnedRuntimeFiles's Detail at :268 instead of discarding it behind its own bare fail; and NewNativeAdapter's :181 fold forwards whichever Detail actually fired - its own four checks' term, or validateNativeConfig's forwarded term - instead of re-wrapping bare INVALID_ADAPTER. init's admission round-trip (init_command.go:907-918, code read at :916, and :944 for EncodeDriverConfig) and the doctor/inspect/certify registry-build failure (driver.go:71-84, writeCommandFailure at :82) both print it. Pinned by internal/driver unit tests, one assertion per term above (19 cases) driving the exact triggering input and asserting that exact Detail string, plus a cmd/sworn test over buildDriverConfig / the doctor command asserting the printed message names the failed condition."
+    }
+  ],
+  "checks": [
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go test -count=1 -race ./internal/baton ./internal/driver",
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go vet ./...",
+    "PATH=/usr/local/go/bin:$PATH gofmt -l ./cmd ./internal ./tools"
+  ],
+  "host_checks": [
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go test -count=1 -race ./internal/baton ./internal/driver"
+  ],
+  "constraints": [
+    "Every Technical code stays exactly what it is today: NATIVE_NOT_CERTIFIED and INVALID_ADAPTER keep their .Code, gaining only a populated .Detail; no code in commandErrorCode's vocabulary is added, renamed, or removed, and the codes-only tests at main_test.go:449-511 keep passing unmodified.",
+    "Every rendered string is bounded and secret-free: git stderr/args, baton Msg text, and driver Detail must never carry credential bytes, tokens, or unbounded command output at the operator surface; driver's new Detail values are drawn only from A4's fixed 19-term closed vocabulary constructed inside internal/driver (mirroring failContinuation, contract.go:167-169), never provider or credential bytes, so they need no normalizeAdapterError funnel re-validation.",
+    "This is additive text beneath an unchanged fallback sentence and Technical code line, never a replacement of either; a test asserting on today's fallback sentence or on a Contains(\"Technical code: X\") check keeps passing.",
+    "The repositoryPath canonicalization rules themselves, and every validateNativeConfig/validatePinnedRuntimeFiles admission rule - which values are rejected - do not change; only the message or Detail accompanying an existing rejection gains specificity.",
+    "The provider-status Detail funnel (normalizeAdapterError, invoke.go:536) and its bound (maxProviderErrorDetailBytes, pacing.go:73) are reused conceptually but not modified; NATIVE_NOT_CERTIFIED/INVALID_ADAPTER Detail is same-process closed-vocabulary text and stays outside that funnel, matching CONTINUATION_INVALID's existing treatment.",
+    "The two go test checks are declared as host_checks: the engine runs them on the host (a 60-minute budget each) and records host_effect evidence, because sworn's own suite cannot complete inside a worker sandbox - there is no C toolchain there so -race cannot build, and cmd/sworn's tests start sandboxes of their own. The vet and gofmt checks stay in-turn. A verifier must not attempt the go test checks itself and must not treat their absence from its own turn as uncovered evidence."
+  ],
+  "depends_on": [],
+  "consumes": []
+}

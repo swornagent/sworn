@@ -1,0 +1,71 @@
+{
+  "outcome": "A second park on one claimed dispatch whose first attention is already resolved recovers cleanly instead of returning CORRUPT_JOURNAL on every start forever, closing sworn#257 - recoverHumanParkCheckpoint (internal/runtime/turn_recovery.go:2258-2265) matches a checkpoint's own attention against the active[WorkIdentity] entry from activeAttentionWork (turn_recovery.go:1923-1942, which excludes resolved attentions at 1931-1934), so a resolved first checkpoint sees the still-open second attention under the same key, its ID differs, and the loop fails closed on every replay; observed in R6-r2 (2026-08-29, docs/captures/2026-08-30-legible-refusals-run-report.md) on a revision-2 planner dispatch whose confirmation yield resolved before a bytes-unrecoverable second yield, tolerated only by an unmerged operator patch (patch 9, ~/.local/share/sworn/sworn/2026-08-28-legible-refusals/ops/patch-9-repark-checkpoint.diff).",
+  "scope": {
+    "include": [
+      "internal/runtime"
+    ],
+    "exclude": [
+      "activeAttentionWork's duplicate-ProgressID corruption check (turn_recovery.go:1936-1937) - the real detector for two concurrently OPEN or ANSWERED attentions sharing a work identity - stays exactly as it is; this slice narrows only the found-but-mismatched branch below it, never that gate.",
+      "validateHumanTurn (turn_recovery.go:467-475) is unchanged; when a checkpoint's own attention IS the active one for its work identity, the exact-match check against parked.Attention.HumanTurn still governs (turn_recovery.go:2260-2261).",
+      "the not-found reconstruction path (turn_recovery.go:2266-2296) that re-opens and re-parks an attention when active[WorkIdentity] has no entry at all is a distinct mechanism for crash recovery before an attention was ever journaled; it is not the double-park case (a second attention IS active there) and this slice does not touch it.",
+      "Note: a checkpoint whose own attention is absent from the journal only reaches the mismatch check at 2258-2265 (rather than falling into this excluded path) when some OTHER Open/Answered attention shares its work identity, since active[human.WorkIdentity] (built by activeAttentionWork, 1923-1942) has no entry at all otherwise; A4 below states that precondition explicitly so its test cannot drift into this excluded branch.",
+      "persistHumanParkCheckpoint and validateHumanParkCheckpoint (turn_recovery.go:1981-2090), which record and structurally validate one checkpoint in isolation, are unchanged; this slice changes only how recoverHumanParkCheckpoint interprets a checkpoint against the attention history during replay."
+    ],
+    "waivers": [
+      {
+        "package": "internal/cockpit",
+        "reason": "its tests reach internal/runtime by import only; no cockpit test pins the behaviour this slice changes"
+      },
+      {
+        "package": "internal/observe",
+        "reason": "its tests reach internal/runtime by import only; no observe test pins the behaviour this slice changes"
+      },
+      {
+        "package": "internal/tui",
+        "reason": "its tests reach internal/runtime by import only; no tui test pins the behaviour this slice changes"
+      },
+      {
+        "package": "cmd/sworn",
+        "reason": "its tests reach internal/runtime by import only; no sworn test pins the behaviour this slice changes"
+      }
+    ]
+  },
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "A claimed dispatch that parked twice - first attention opened, answered, and resolved; second attention opened on the same work identity - recovers without error on restart, and the parked second attention remains reachable for its own answer/resume. Today every replay of the first checkpoint hits turn_recovery.go:2258-2265: human := checkpoint.Command.Attention.Attention.HumanTurn; parked, found := active[human.WorkIdentity] finds the second (still open) attention under that key because activeAttentionWork (1923-1942) only maps Open/Answered attentions (1931-1934), so the resolved first attention is absent from the map and the lookup returns the second attention instead; parked.Attention.ID != checkpoint's own ID, so the loop returns runtimeFail(\"CORRUPT_JOURNAL\", nil) unconditionally - on every start, permanently, exactly as R6 hit it. After this slice, a checkpoint whose own attention (looked up by ID against the full attentions list, not just the active map) is in state journal.AttentionResolved is recognised as consumed history and the loop continues past it instead of failing. Pinned by a test that replays the exact double-park journal shape (attention 1: opened, answered, resolved; checkpoint 1 recorded; attention 2: opened; checkpoint 2 recorded) through recoverHumanParkCheckpoint, asserts a clean recovery with no CORRUPT_JOURNAL, AND then, as a separate assertion in the same test, calls s.journal.Attentions (or the equivalent projection read) and confirms attention 2's projection is still journal.AttentionOpen with its original ID - and, further, that s.journal.AnswerAttention against that ID succeeds - proving 'clean recovery' and 'second attention remains reachable for its own answer/resume' are both pinned, not just the former."
+    },
+    {
+      "id": "A2",
+      "text": "A checkpoint whose own attention is still open or answered must match the active attention for its work identity exactly - same attention ID and validateHumanTurn(parked.Attention.HumanTurn, *human) == nil (turn_recovery.go:2259-2261) - or recovery still fails CORRUPT_JOURNAL; this is the real corruption check sworn#257 is not asking to relax, and it is unchanged by this slice. Because activeAttentionWork already refuses two Open/Answered attentions sharing a work identity (1936-1937) before recoverHumanParkCheckpoint's loop runs (its result is read at ~2217-2220), an open or answered own attention that mismatches the active entry can only mean the checkpoint's own attention record was altered or replaced, not a legitimate double-park - and must still fail closed. Pinned by a test with one attention in state Open/Answered whose HumanTurn binding differs from its checkpoint's own recorded binding, asserting CORRUPT_JOURNAL is still returned."
+    },
+    {
+      "id": "A3",
+      "text": "Two OPEN (or Open/Answered) attentions sharing one work identity still refuse CORRUPT_JOURNAL exactly as today, caught by activeAttentionWork's duplicate-ProgressID check (turn_recovery.go:1936-1937) - invoked once, before the per-checkpoint loop, at turn_recovery.go:2217-2220 - and entirely untouched by this slice; this is a regression pin on pre-existing code, independent of the new carve-out. Pinned by its own test: two Open attentions bound to the same work identity, asserting CORRUPT_JOURNAL, reported pass/fail independently of A4 so a regression in the new carve-out (A4) cannot be masked by, or mistaken for, a regression in this untouched gate."
+    },
+    {
+      "id": "A4",
+      "text": "A human_park checkpoint whose own attention ID has no corresponding attention record at all in the journal (e.g. a deleted attention with its checkpoint left behind - distinct from A1's resolved-and-consumed shape) still fails CORRUPT_JOURNAL under the narrower resolved-only carve-out this slice adds, PROVIDED a second, different Open or Answered attention shares its work identity - that precondition is required for the test to exercise the mismatch check this slice touches (turn_recovery.go:2258-2265) rather than the excluded not-found reconstruction path (2266-2296): active[human.WorkIdentity] only returns found=true when some other Open/Answered attention occupies that key (activeAttentionWork, 1923-1942), since the checkpoint's own (absent) attention is by definition never in that map. Under that shape, parked.Attention.ID (the other attention's ID) != checkpoint's own ID, so the mismatch fires and CORRUPT_JOURNAL is returned, unchanged by this slice's resolved-only check (which only ever short-circuits when the LOOKED-UP attention, by its own ID against the full attentions list, is journal.AttentionResolved - never when it is simply absent). Pinned by its own test, reported pass/fail independently of A3: one Open attention under work identity W with ID X, plus a human_park checkpoint under the same W whose Command.Attention.Attention.ID is Y (Y != X, Y present nowhere in the attentions list) - asserting CORRUPT_JOURNAL."
+    }
+  ],
+  "checks": [
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go test -count=1 -race ./internal/runtime",
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go vet ./...",
+    "PATH=/usr/local/go/bin:$PATH gofmt -l ./cmd ./internal ./tools"
+  ],
+  "host_checks": [
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go test -count=1 -race ./internal/runtime"
+  ],
+  "constraints": [
+    "The carve-out is narrow and additive: it recognises exactly one shape - a checkpoint's own attention, looked up by ID against the full attentions list, in state journal.AttentionResolved - as consumed history; it must not become a blanket 'any mismatch is fine' rule, and every other branch of recoverHumanParkCheckpoint (the active-match check, the duplicate-ProgressID gate, the not-found reconstruction path) keeps its current behaviour byte-for-byte.",
+    "No new terminal state, error code, or journal shape is introduced. The fix changes only what recoverHumanParkCheckpoint tolerates during replay; it must not change what persistHumanParkCheckpoint records or what validateHumanParkCheckpoint accepts as a structurally valid single checkpoint.",
+    "This slice does not touch the unmerged operator patch file under ~/.local/share/sworn (outside the repository and outside scope) - it re-derives the product fix from the brief and the cited lines, and a narrower resolved-only check than the patch's broader not-Open/not-Answered check is expected and correct.",
+    "Cancelled attentions are out of scope for this slice's carve-out: only AttentionResolved is recognised as history unless the worker finds evidence in the journal package that Cancelled must be treated identically - if so, note it, but do not silently widen the skip condition beyond what A1-A4 require.",
+    "A3 and A4 pin two independently-corrupt shapes under separate acceptance IDs precisely so a regression can be attributed to the new carve-out (A4, touching the changed branch) versus the pre-existing duplicate-ProgressID gate (A3, unchanged code) without ambiguity - do not merge their tests back into one assertion block.",
+    "The two go test checks are declared as host_checks: the engine runs them on the host (a 60-minute budget each) and records host_effect evidence, because sworn's own suite cannot complete inside a worker sandbox - there is no C toolchain there so -race cannot build, and cmd/sworn's tests start sandboxes of their own. The vet and gofmt checks stay in-turn. A verifier must not attempt the go test checks itself and must not treat their absence from its own turn as uncovered evidence."
+  ],
+  "depends_on": [],
+  "consumes": []
+}

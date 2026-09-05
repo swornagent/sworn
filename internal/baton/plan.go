@@ -1394,6 +1394,9 @@ func headRef(value any, label string) (string, error) {
 }
 
 func repositoryPath(value any, label string) (string, error) {
+	if str, ok := value.(string); ok && utf8.ValidString(str) && len([]rune(str)) > 512 {
+		return "", recordFail("INVALID_FIELD", fmt.Sprintf("%s must be a string of 1-512 characters (got %d)", label, len([]rune(str))))
+	}
 	text, err := requiredString(value, label, 1, 512)
 	if err != nil {
 		return "", err
@@ -1401,16 +1404,16 @@ func repositoryPath(value any, label string) (string, error) {
 	if strings.HasPrefix(text, "/") || strings.HasPrefix(text, "\\") ||
 		strings.HasSuffix(text, "/") || strings.Contains(text, "//") ||
 		strings.Contains(text, "\\") || containsControl(text) {
-		return "", recordFail("INVALID_PATH", label+" is not a canonical repository path")
+		return "", recordFail("INVALID_PATH", label+" is not a canonical repository path: cannot have leading/trailing slash, backslash, consecutive slashes, or control characters")
 	}
 	parts := strings.Split(text, "/")
 	for _, part := range parts {
 		if part == "" || part == "." || part == ".." {
-			return "", recordFail("INVALID_PATH", label+" is not a canonical repository path")
+			return "", recordFail("INVALID_PATH", label+" is not a canonical repository path: segments cannot be empty, '.', or '..'")
 		}
 	}
 	if parts[0] == ".git" {
-		return "", recordFail("INVALID_PATH", label+" is not a canonical repository path")
+		return "", recordFail("INVALID_PATH", label+" is not a canonical repository path: first segment cannot be '.git'")
 	}
 	return text, nil
 }

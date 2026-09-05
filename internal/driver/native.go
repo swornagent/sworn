@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -174,10 +175,23 @@ func NewNativeAdapter(
 	config NativeAdapterConfig,
 	resolver FileCredentialResolver,
 ) (Adapter, error) {
-	if !providerKeyPattern.MatchString(config.Key) ||
-		!driverIdentityPattern.MatchString(config.ID) ||
-		!versionPattern.MatchString(config.Version) ||
-		resolver == nil || validateNativeConfig(config) != nil {
+	if !providerKeyPattern.MatchString(config.Key) {
+		return nil, failWithDetail("INVALID_ADAPTER", "adapter_key")
+	}
+	if !driverIdentityPattern.MatchString(config.ID) {
+		return nil, failWithDetail("INVALID_ADAPTER", "adapter_id")
+	}
+	if !versionPattern.MatchString(config.Version) {
+		return nil, failWithDetail("INVALID_ADAPTER", "adapter_version")
+	}
+	if resolver == nil {
+		return nil, failWithDetail("INVALID_ADAPTER", "credential_resolver")
+	}
+	if err := validateNativeConfig(config); err != nil {
+		var contractErr *ContractError
+		if errors.As(err, &contractErr) && contractErr.Detail != "" {
+			return nil, failWithDetail("INVALID_ADAPTER", contractErr.Detail)
+		}
 		return nil, fail("INVALID_ADAPTER")
 	}
 	refs := make(map[string]struct{}, len(config.CredentialRefs))
@@ -212,10 +226,12 @@ func NewNativeAdapter(
 }
 
 func validateNativeConfig(config NativeAdapterConfig) error {
-	if validateExecutableIdentity(config.CLI) != nil ||
-		config.MaxCredentialBytes < 1 || config.MaxCredentialBytes > 1_048_576 ||
+	if validateExecutableIdentity(config.CLI) != nil {
+		return failWithDetail("NATIVE_NOT_CERTIFIED", "cli_identity")
+	}
+	if config.MaxCredentialBytes < 1 || config.MaxCredentialBytes > 1_048_576 ||
 		config.VersionOutput == "" || len(config.VersionOutput) > 256 {
-		return fail("NATIVE_NOT_CERTIFIED")
+		return failWithDetail("NATIVE_NOT_CERTIFIED", "cli_admission_bounds")
 	}
 	var minor bool
 	switch config.PinMode {
@@ -224,55 +240,73 @@ func validateNativeConfig(config NativeAdapterConfig) error {
 	case NativePinModeMinor:
 		minor = true
 	default:
-		return fail("NATIVE_NOT_CERTIFIED")
+		return failWithDetail("NATIVE_NOT_CERTIFIED", "pin_mode")
 	}
 	switch config.Family {
 	case ProfileCodex:
 		if config.CredentialTarget != CodexCredentialTarget {
-			return fail("NATIVE_NOT_CERTIFIED")
+			return failWithDetail("NATIVE_NOT_CERTIFIED", "credential_target")
 		}
 		if minor {
-			if !nativeVersionSatisfiesMinor(config.CLIVersion, CodexCLIVersion) ||
-				config.VersionOutput != "codex-cli "+config.CLIVersion {
-				return fail("NATIVE_NOT_CERTIFIED")
+			if !nativeVersionSatisfiesMinor(config.CLIVersion, CodexCLIVersion) {
+				return failWithDetail("NATIVE_NOT_CERTIFIED", "version")
 			}
-		} else if config.CLIVersion != CodexCLIVersion ||
-			config.CLI.Digest != CodexCLIDigest ||
-			config.VersionOutput != "codex-cli "+CodexCLIVersion {
-			return fail("NATIVE_NOT_CERTIFIED")
+			if config.VersionOutput != "codex-cli "+config.CLIVersion {
+				return failWithDetail("NATIVE_NOT_CERTIFIED", "version_output")
+			}
+		} else {
+			if config.CLIVersion != CodexCLIVersion {
+				return failWithDetail("NATIVE_NOT_CERTIFIED", "version")
+			}
+			if config.CLI.Digest != CodexCLIDigest {
+				return failWithDetail("NATIVE_NOT_CERTIFIED", "digest")
+			}
+			if config.VersionOutput != "codex-cli "+CodexCLIVersion {
+				return failWithDetail("NATIVE_NOT_CERTIFIED", "version_output")
+			}
 		}
 	case ProfileClaude:
 		if config.CredentialTarget != ClaudeCredentialTarget {
-			return fail("NATIVE_NOT_CERTIFIED")
+			return failWithDetail("NATIVE_NOT_CERTIFIED", "credential_target")
 		}
 		if minor {
-			if !nativeVersionSatisfiesMinor(config.CLIVersion, ClaudeCLIVersion) ||
-				config.VersionOutput != config.CLIVersion+" (Claude Code)" {
-				return fail("NATIVE_NOT_CERTIFIED")
+			if !nativeVersionSatisfiesMinor(config.CLIVersion, ClaudeCLIVersion) {
+				return failWithDetail("NATIVE_NOT_CERTIFIED", "version")
 			}
-		} else if config.CLIVersion != ClaudeCLIVersion ||
-			config.CLI.Digest != ClaudeCLIDigest ||
-			config.VersionOutput != ClaudeCLIVersion+" (Claude Code)" {
-			return fail("NATIVE_NOT_CERTIFIED")
+			if config.VersionOutput != config.CLIVersion+" (Claude Code)" {
+				return failWithDetail("NATIVE_NOT_CERTIFIED", "version_output")
+			}
+		} else {
+			if config.CLIVersion != ClaudeCLIVersion {
+				return failWithDetail("NATIVE_NOT_CERTIFIED", "version")
+			}
+			if config.CLI.Digest != ClaudeCLIDigest {
+				return failWithDetail("NATIVE_NOT_CERTIFIED", "digest")
+			}
+			if config.VersionOutput != ClaudeCLIVersion+" (Claude Code)" {
+				return failWithDetail("NATIVE_NOT_CERTIFIED", "version_output")
+			}
 		}
 	default:
-		return fail("NATIVE_NOT_CERTIFIED")
+		return failWithDetail("NATIVE_NOT_CERTIFIED", "family")
 	}
 	if !filepath.IsAbs(config.CredentialTarget) ||
-		filepath.Clean(config.CredentialTarget) != config.CredentialTarget ||
-		validatePinnedRuntimeFiles(
-			config.RuntimeFiles,
-			config.RequiredRuntimeTargets,
-			"NATIVE_NOT_CERTIFIED",
-		) != nil {
-		return fail("NATIVE_NOT_CERTIFIED")
+		filepath.Clean(config.CredentialTarget) != config.CredentialTarget {
+		return failWithDetail("NATIVE_NOT_CERTIFIED", "credential_target")
+	}
+	if err := validatePinnedRuntimeFiles(
+		config.RuntimeFiles,
+		config.RequiredRuntimeTargets,
+		"NATIVE_NOT_CERTIFIED",
+	); err != nil {
+		return err
 	}
 	for _, runtimeFile := range config.RuntimeFiles {
 		for _, toolchainRoot := range []string{
 			"/bin", "/sbin", "/usr/bin", "/usr/sbin", "/usr/local/bin",
 		} {
 			if pathBeneath(toolchainRoot, runtimeFile.Target) {
-				return fail("NATIVE_NOT_CERTIFIED")
+				return failWithDetail("NATIVE_NOT_CERTIFIED", "toolchain_root")
 			}
 		}
 	}
@@ -314,7 +348,7 @@ func validatePinnedRuntimeFiles(
 	code string,
 ) error {
 	if len(runtimeFiles) == 0 || len(requiredTargets) == 0 {
-		return fail(code)
+		return failWithDetail(code, "runtime_file")
 	}
 	targets := make(map[string]PinnedRuntimeFile, len(runtimeFiles))
 	for _, runtimeFile := range runtimeFiles {
@@ -322,26 +356,28 @@ func validatePinnedRuntimeFiles(
 			filepath.Clean(runtimeFile.Path) != runtimeFile.Path ||
 			!filepath.IsAbs(runtimeFile.Target) ||
 			filepath.Clean(runtimeFile.Target) != runtimeFile.Target ||
-			!digestPattern.MatchString(runtimeFile.Digest) ||
 			runtimeFile.Target == GuestWorkspacePath ||
 			pathBeneath(GuestWorkspacePath, runtimeFile.Target) ||
 			pathBeneath("/home/sworn", runtimeFile.Target) ||
 			pathBeneath("/sworn", runtimeFile.Target) {
-			return fail(code)
+			return failWithDetail(code, "runtime_file_shape")
+		}
+		if !digestPattern.MatchString(runtimeFile.Digest) {
+			return failWithDetail(code, "runtime_file_digest")
 		}
 		if _, duplicate := targets[runtimeFile.Target]; duplicate {
-			return fail(code)
+			return failWithDetail(code, "runtime_file_duplicate")
 		}
 		targets[runtimeFile.Target] = runtimeFile
 	}
 	requiredSeen := make(map[string]struct{}, len(requiredTargets))
 	for _, required := range requiredTargets {
 		if _, duplicate := requiredSeen[required]; duplicate {
-			return fail(code)
+			return failWithDetail(code, "runtime_file_duplicate")
 		}
 		requiredSeen[required] = struct{}{}
 		if _, present := targets[required]; !present {
-			return fail(code)
+			return failWithDetail(code, "runtime_file_missing")
 		}
 	}
 	for _, required := range []string{
@@ -351,7 +387,7 @@ func validatePinnedRuntimeFiles(
 		"/etc/nsswitch.conf",
 	} {
 		if _, present := targets[required]; !present {
-			return fail(code)
+			return failWithDetail(code, "trust_anchor")
 		}
 	}
 	return nil

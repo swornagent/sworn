@@ -64,6 +64,7 @@ func runMigrateRecords(args []string, stdout, stderr io.Writer) int {
 			"migrate-records",
 			"Could not open the Git project at the given path.",
 			commandErrorCode(err),
+			commandErrorDetail(err),
 		)
 		return 1
 	}
@@ -77,6 +78,7 @@ func runMigrateRecords(args []string, stdout, stderr io.Writer) int {
 			"migrate-records",
 			"The records root could not be migrated.",
 			commandErrorCode(err),
+			commandErrorDetail(err),
 		)
 		return 1
 	}

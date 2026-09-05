@@ -44,18 +44,50 @@ type PackageInfo struct {
 // PackageGraph represents the module-wide package import graph and closure facts.
 type PackageGraph struct {
 	Module   string
+	Modules  map[string]string
 	Packages map[string]*PackageInfo
+}
+
+func hasNoiseSegment(p string) bool {
+	clean := path.Clean(filepath.ToSlash(p))
+	for _, seg := range strings.Split(clean, "/") {
+		if seg == "." || seg == "" {
+			continue
+		}
+		if seg == "testdata" || seg == "test" || strings.HasPrefix(seg, ".") {
+			return true
+		}
+	}
+	return false
+}
+
+// isCandidateSourcePath filters repository paths to candidate .go files,
+// excluding noise segments (testdata, test, hidden directories) at any depth.
+func isCandidateSourcePath(p string) bool {
+	clean := path.Clean(filepath.ToSlash(p))
+	if !strings.HasSuffix(clean, ".go") {
+		return false
+	}
+	return !hasNoiseSegment(clean)
+}
+
+func governingModuleForPath(modules map[string]string, p string) (string, string, bool) {
+	curr := path.Clean(filepath.ToSlash(p))
+	for {
+		if modPath, ok := modules[curr]; ok {
+			return curr, modPath, true
+		}
+		if curr == "." || curr == "/" || curr == "" {
+			break
+		}
+		curr = path.Dir(curr)
+	}
+	return "", "", false
 }
 
 // BuildPackageGraphFS computes the package import graph from an fs.FS abstraction.
 func BuildPackageGraphFS(sys fs.FS) (*PackageGraph, error) {
-	modulePath := "github.com/swornagent/sworn"
-	if modBytes, err := fs.ReadFile(sys, "go.mod"); err == nil {
-		if mod := parseModulePath(modBytes); mod != "" {
-			modulePath = mod
-		}
-	}
-
+	modules := make(map[string]string)
 	files := make(map[string][]byte)
 	err := fs.WalkDir(sys, ".", func(p string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -66,17 +98,22 @@ func BuildPackageGraphFS(sys fs.FS) (*PackageGraph, error) {
 				return nil
 			}
 			name := d.Name()
-			if strings.HasPrefix(name, ".") || name == "testdata" || name == "tmp" ||
-				name == "docs" || name == "contracts" || name == "test" {
+			if strings.HasPrefix(name, ".") || name == "testdata" || name == "test" {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if !strings.HasSuffix(p, ".go") {
+		cleanPath := filepath.ToSlash(filepath.Clean(p))
+		if path.Base(cleanPath) == "go.mod" && !hasNoiseSegment(cleanPath) {
+			if modBytes, err := fs.ReadFile(sys, p); err == nil {
+				if mod := parseModulePath(modBytes); mod != "" {
+					dir := path.Dir(cleanPath)
+					modules[dir] = mod
+				}
+			}
 			return nil
 		}
-		cleanPath := filepath.ToSlash(filepath.Clean(p))
-		if !isModulePackagePath(cleanPath) {
+		if !isCandidateSourcePath(cleanPath) {
 			return nil
 		}
 		body, err := fs.ReadFile(sys, p)
@@ -90,7 +127,7 @@ func BuildPackageGraphFS(sys fs.FS) (*PackageGraph, error) {
 		return nil, recordWrap("SCOPE_LINT_FAILED", "walk module files", err)
 	}
 
-	return computePackageGraph(modulePath, files)
+	return computePackageGraph(modules, files)
 }
 
 // BuildPackageGraphAt computes the package import graph from an admitted GitRepository at commit.
@@ -108,23 +145,33 @@ func BuildPackageGraphAt(gitRepo GitRepository, commit string) (*PackageGraph, e
 		return nil, translateGitError("inventory tree", err)
 	}
 
-	modulePath := "github.com/swornagent/sworn"
+	modules := make(map[string]string)
+	var modFiles []string
 	var goFiles []string
 	for _, entry := range entries {
-		if entry.Path == "go.mod" && entry.Type == "blob" {
-			if modBytes, err := gitRepo.value.ReadBlob(oid, "go.mod"); err == nil {
-				if mod := parseModulePath(modBytes); mod != "" {
-					modulePath = mod
-				}
+		if entry.Type != "blob" {
+			continue
+		}
+		cleanPath := path.Clean(entry.Path)
+		if hasNoiseSegment(cleanPath) {
+			continue
+		}
+		if path.Base(cleanPath) == "go.mod" {
+			modFiles = append(modFiles, cleanPath)
+			continue
+		}
+		if isCandidateSourcePath(cleanPath) {
+			goFiles = append(goFiles, cleanPath)
+		}
+	}
+
+	for _, modPath := range modFiles {
+		if modBytes, err := gitRepo.value.ReadBlob(oid, modPath); err == nil {
+			if mod := parseModulePath(modBytes); mod != "" {
+				dir := path.Dir(modPath)
+				modules[dir] = mod
 			}
 		}
-		if entry.Type != "blob" || !strings.HasSuffix(entry.Path, ".go") {
-			continue
-		}
-		if !isModulePackagePath(entry.Path) {
-			continue
-		}
-		goFiles = append(goFiles, entry.Path)
 	}
 
 	files := make(map[string][]byte, len(goFiles))
@@ -144,23 +191,7 @@ func BuildPackageGraphAt(gitRepo GitRepository, commit string) (*PackageGraph, e
 		}
 	}
 
-	return computePackageGraph(modulePath, files)
-}
-
-// isModulePackagePath filters repository paths to packages under cmd/, internal/, tools/.
-func isModulePackagePath(p string) bool {
-	dir := path.Dir(p)
-	if dir == "." {
-		return false
-	}
-	segments := strings.Split(dir, "/")
-	for _, seg := range segments {
-		if seg == "testdata" || seg == "test" || strings.HasPrefix(seg, ".") {
-			return false
-		}
-	}
-	top := segments[0]
-	return top == "cmd" || top == "internal" || top == "tools"
+	return computePackageGraph(modules, files)
 }
 
 func parseModulePath(content []byte) string {
@@ -174,7 +205,7 @@ func parseModulePath(content []byte) string {
 	return ""
 }
 
-func computePackageGraph(modulePath string, files map[string][]byte) (*PackageGraph, error) {
+func computePackageGraph(modules map[string]string, files map[string][]byte) (*PackageGraph, error) {
 	fset := token.NewFileSet()
 	packages := make(map[string]*PackageInfo)
 
@@ -195,6 +226,11 @@ func computePackageGraph(modulePath string, files map[string][]byte) (*PackageGr
 			packages[dir] = info
 		}
 
+		modDir, modPath, hasMod := governingModuleForPath(modules, dir)
+		if !hasMod {
+			continue
+		}
+
 		for _, spec := range file.Imports {
 			if spec.Path == nil {
 				continue
@@ -204,10 +240,15 @@ func computePackageGraph(modulePath string, files map[string][]byte) (*PackageGr
 				continue
 			}
 			var internalPkg string
-			if importPath == modulePath {
-				internalPkg = "."
-			} else if strings.HasPrefix(importPath, modulePath+"/") {
-				internalPkg = strings.TrimPrefix(importPath, modulePath+"/")
+			if importPath == modPath {
+				internalPkg = modDir
+			} else if strings.HasPrefix(importPath, modPath+"/") {
+				suffix := strings.TrimPrefix(importPath, modPath+"/")
+				if modDir == "." {
+					internalPkg = suffix
+				} else {
+					internalPkg = path.Join(modDir, suffix)
+				}
 			} else {
 				continue
 			}
@@ -263,7 +304,8 @@ func computePackageGraph(modulePath string, files map[string][]byte) (*PackageGr
 	}
 
 	return &PackageGraph{
-		Module:   modulePath,
+		Module:   modules["."],
+		Modules:  modules,
 		Packages: packages,
 	}, nil
 }
@@ -298,6 +340,29 @@ func isWaived(pkg string, waivers []ScopeWaiver) bool {
 
 // LintSlice evaluates the reverse-dependency closure and fixture tooling of one Slice.
 func (graph *PackageGraph) LintSlice(slice Slice) error {
+	if graph == nil {
+		return recordFail("INVALID_GRAPH", "package graph is required")
+	}
+	if len(graph.Modules) == 0 {
+		return nil
+	}
+
+	var ungoverned []string
+	for _, inc := range slice.Scope.Include {
+		if _, _, ok := governingModuleForPath(graph.Modules, inc); !ok {
+			ungoverned = append(ungoverned, inc)
+		}
+	}
+	if len(ungoverned) > 0 {
+		sort.Strings(ungoverned)
+		return &RecordError{
+			Code:       "SCOPE_LINT_UNRESOLVED",
+			Msg:        fmt.Sprintf("no go.mod governs scoped path %s", strings.Join(ungoverned, ", ")),
+			Paths:      ungoverned,
+			TotalPaths: len(ungoverned),
+		}
+	}
+
 	type depFinding struct {
 		pkg     string
 		reasons []string

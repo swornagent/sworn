@@ -1,0 +1,70 @@
+{
+  "outcome": "A hosted-runner evidence refusal caused by a sandbox that failed to start now names the sandbox_start.* check and its bounded cause in both the check_evidence_incomplete refusal and the e2e mock's rerun-cap diagnostic, and TestKilledHostMidDriveRecoversCleanly's lease/sleep margin is widened so a loaded runner cannot race it - closing sworn#277, where the evidence rerun cap exhausts after 3 re-runs with only a hardcoded \"sandbox starts likely failing\" guess (test/e2e/production_journey_linux_test.go:251-254) because contractErrorCode (internal/driver/checkevidence.go:131-137) returns only contractErr.Code and discards contractErr.Detail, so the structured check+cause envelope failSandboxStart already builds (internal/driver/sandbox_start_detail.go:94-99) never reaches applyCheckEvidence's CHECK_EVIDENCE_INCOMPLETE refusal (checkevidence.go:313-320); and closing sworn#263, where the kill-race test's 200ms margin (SWORN_TEST_OWNER_LEASE_MILLIS=500 at cmd/sworn/main_test.go:1111, sleep 700ms at :1122) races a loaded CI runner per the same reasoning PR #276 (6375a327) already applied twice to timing pins in test/e2e/surface_parity_linux_test.go, and sworn#277's own evidence cites 6 of 8 hosted runs red on this class in one day, never locally.",
+  "scope": {
+    "include": [
+      "internal/driver",
+      "test/e2e",
+      "cmd/sworn"
+    ],
+    "exclude": [
+      "the retry policy of #264 (whether or how many times a sandbox-start mode retries) stays exactly as built: tools_linux.go:592-597's cleanSetupExit and attempt<2 loop is reused as-is, never modified by this slice",
+      "the closed sandbox_start.* check vocabulary and cause extraction (sandbox_start_detail.go:31-49, :64-77) built for #264 are reused exactly as they are, not redefined or widened",
+      "host-declared checks stay on their own path: runOneHostCheck (internal/runtime/host_checks.go:230-257) runs via exec.Command on the host, never through bwrap, so internal/runtime is untouched and the sandbox_start.* vocabulary never appears on that path",
+      "the CHECK_EVIDENCE_INCOMPLETE refusal's existing Bound and Paths shape (submission_refusal_detail.go:192-198, check_command_covers naming the one declared check) is extended additively, never replaced or renamed"
+    ],
+    "waivers": [
+      {
+        "package": "internal/cockpit",
+        "reason": "its tests reach internal/driver by import only; no cockpit test pins the behaviour this slice changes"
+      },
+      {
+        "package": "internal/observe",
+        "reason": "its tests reach internal/driver by import only; no observe test pins the behaviour this slice changes"
+      },
+      {
+        "package": "internal/runtime",
+        "reason": "its tests reach internal/driver by import only; no runtime test pins the behaviour this slice changes"
+      },
+      {
+        "package": "internal/tui",
+        "reason": "its tests reach internal/driver by import only; no tui test pins the behaviour this slice changes"
+      }
+    ]
+  },
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "A CHECK_EVIDENCE_INCOMPLETE refusal additively names the sandbox_start.* check and bounded cause when the declared check's last recorded attempt refused with PROCESS_START_FAILED. Today applyCheckEvidence (internal/driver/checkevidence.go:313-320) calls submitCheckEvidenceIncompleteError(check) (:318-319, built at submission_refusal_detail.go:192-198) with only the declared check's own name in Paths; the sandbox detail is already lost before that point, because session.bash's recordCheckEvidence (checkevidence.go:42-68) derives its Diagnostic from checkResultOutcome (:112-129), which for any ContractError falls through to contractErrorCode(runErr) (:131-137) - and contractErrorCode returns only contractErr.Code, discarding contractErr.Detail entirely. A PROCESS_START_FAILED whose Detail already carries the six-way check name and bounded kernel cause (failSandboxStart, sandbox_start_detail.go:94-99, and failSandboxStartCause, :107-115, built from the closed vocabulary at :31-49 and sandboxStartCause at :64-77) is therefore recorded as the bare string 'PROCESS_START_FAILED', and the sandbox information never reaches the refusal the model, the journal, or an e2e observer sees. Pinned by a driver-package unit test asserting a CHECK_EVIDENCE_INCOMPLETE refusal's Detail names the sandbox_start.* check and cause when the last recorded attempt at the declared check carries a PROCESS_START_FAILED entry."
+    },
+    {
+      "id": "A2",
+      "text": "test/e2e's production-journey rerun-cap diagnostic renders the sandbox cause the refusal now names instead of a fixed guess. Today production_journey_linux_test.go:251-254 always formats 'evidence rerun cap for %s: check %q still uncovered after %d re-runs (sandbox starts likely failing)' - a hardcoded parenthetical, not a read of anything - because it extracts only the declared check name via journeyNamedCheckPattern (:680, regex `check [A-Za-z0-9_.-]+`) from the check_evidence_incomplete refusal body, and the refusal it reads carries no sandbox information to extract (see A1). After this slice the harness renders the named sandbox_start.* check and cause when the refusal carries one, and falls back to the existing guess text only when it does not. Pinned by an e2e test (test/e2e, in-process httptest mock at :963, no external network) that drives a sandbox-start failure through to the rerun cap and asserts the resulting error names the sandbox check and cause rather than the fixed string."
+    },
+    {
+      "id": "A3",
+      "text": "TestKilledHostMidDriveRecoversCleanly's lease/sleep margin is widened so a loaded runner cannot race the takeover into finding a still-live lease. Today main_test.go:1111 sets SWORN_TEST_OWNER_LEASE_MILLIS=500 and :1122 sleeps exactly 700ms before calling takeover - a 200ms margin between when the lease is defined to expire and when the test acts on that assumption - the same shape of timing pin PR #276 (6375a327) already widened twice in this suite (surface_parity_linux_test.go's 60s and 120s post-answer completion polls, both missed on unchanged code under hosted-runner load and passing every time locally, matched instead to the file's own 240s answer-acceptance tolerance) rather than tied to any contract. sworn#263 and sworn#277 cite 6 of 8 hosted CI runs red on this class in one day, never locally. Pinned by TestKilledHostMidDriveRecoversCleanly (main_test.go:1059-1157) itself, whose margin constants change and whose single-succeeded-merge-effect assertion (:1147-1156) must still hold."
+    }
+  ],
+  "checks": [
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=35m ./test/e2e",
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go test -count=1 -race ./internal/driver",
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go vet ./...",
+    "PATH=/usr/local/go/bin:$PATH gofmt -l ./cmd ./internal ./tools ./test"
+  ],
+  "host_checks": [
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=35m ./test/e2e",
+    "PATH=/usr/local/go/bin:$PATH GOFLAGS=-buildvcs=false go test -count=1 -race ./internal/driver"
+  ],
+  "constraints": [
+    "The retry policy of #264 is untouched: cleanSetupExit and the attempt<2 loop (internal/driver/tools_linux.go:592-597) keep deciding which sandbox-start modes retry and how many times; this slice only surfaces a cause a refusal already carries, it never changes retry behaviour.",
+    "The closed sandbox_start.* check vocabulary (sandbox_start_detail.go:31-49) and its bounded, secret-free cause extraction (sandboxStartCause, :64-77) are reused exactly as built for #264, never redefined, renamed, or widened to a seventh site.",
+    "The CHECK_EVIDENCE_INCOMPLETE refusal's existing shape (Bound check_command_covers, Paths naming the one declared check) is extended additively only: an existing consumer that reads the declared-check name is unaffected, and no new terminal state or outcome vocabulary is introduced.",
+    "No secret or host path escapes the widened Detail: any sandbox cause surfaced here still passes through sandboxStartCause's syscall.Errno-only extraction and the maxSandboxStartCauseBytes/revalidateSandboxStartDetail bound (sandbox_start_detail.go:13, :117-145) unchanged - nothing about that bound loosens.",
+    "Host-declared checks are out of scope: they run via exec.Command on the host, never through bwrap (internal/runtime/host_checks.go), so their free-text Diagnostic is untouched and internal/runtime is not edited by this slice.",
+    "The two go test checks are declared as host_checks: the engine runs them on the host (a 60-minute budget each) and records host_effect evidence, because sworn's own suite cannot complete inside a worker sandbox - there is no C toolchain there so -race cannot build, and cmd/sworn's tests start sandboxes of their own. The vet and gofmt checks stay in-turn. A verifier must not attempt the go test checks itself and must not treat their absence from its own turn as uncovered evidence."
+  ],
+  "depends_on": [],
+  "consumes": []
+}

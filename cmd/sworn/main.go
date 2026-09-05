@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/cockpit"
@@ -1035,11 +1036,78 @@ func writeVersion(out io.Writer, asJSON bool, roleAssets baton.Identity) error {
 	return err
 }
 
+const maxCommandErrorDetailBytes = 512
+const detailTruncationMarker = "... (truncated)"
+
+func sanitizeErrorDetail(detail string) string {
+	var builder strings.Builder
+	builder.Grow(len(detail))
+	spaceRun := false
+	for _, r := range detail {
+		if r <= 0x1f || (r >= 0x7f && r <= 0x9f) || r == ' ' {
+			if spaceRun {
+				continue
+			}
+			spaceRun = true
+			builder.WriteByte(' ')
+			continue
+		}
+		spaceRun = false
+		builder.WriteRune(r)
+	}
+	normalized := strings.TrimSpace(builder.String())
+	if len(normalized) <= maxCommandErrorDetailBytes {
+		return normalized
+	}
+	cutoff := maxCommandErrorDetailBytes - len(detailTruncationMarker)
+	bounded := normalized[:cutoff]
+	for len(bounded) > 0 && !utf8.ValidString(bounded) {
+		bounded = bounded[:len(bounded)-1]
+	}
+	return bounded + detailTruncationMarker
+}
+
+func commandErrorDetail(err error) string {
+	if err == nil {
+		return ""
+	}
+	var gitxErr *gitx.Error
+	if errors.As(err, &gitxErr) {
+		var raw string
+		if gitxErr.Op != "" && gitxErr.Err != nil {
+			raw = gitxErr.Op + ": " + gitxErr.Err.Error()
+		} else if gitxErr.Op != "" {
+			raw = gitxErr.Op
+		} else if gitxErr.Err != nil {
+			raw = gitxErr.Err.Error()
+		}
+		return sanitizeErrorDetail(raw)
+	}
+	var driverErr *driver.ContractError
+	if errors.As(err, &driverErr) {
+		return sanitizeErrorDetail(driverErr.Detail)
+	}
+	var batonErr *baton.RecordError
+	if errors.As(err, &batonErr) {
+		var raw string
+		if batonErr.Err != nil && batonErr.Msg != "" {
+			raw = batonErr.Msg + ": " + batonErr.Err.Error()
+		} else if batonErr.Msg != "" {
+			raw = batonErr.Msg
+		} else if batonErr.Err != nil {
+			raw = batonErr.Err.Error()
+		}
+		return sanitizeErrorDetail(raw)
+	}
+	return ""
+}
+
 func writeKnownFailure(
 	out io.Writer,
 	command string,
 	message string,
 	code string,
+	details ...string,
 ) {
 	fmt.Fprintf(
 		out,
@@ -1049,6 +1117,11 @@ func writeKnownFailure(
 	)
 	if code != "" {
 		fmt.Fprintf(out, "Technical code: %s\n", code)
+	}
+	for _, d := range details {
+		if d != "" {
+			fmt.Fprintln(out, d)
+		}
 	}
 }
 
@@ -1085,10 +1158,17 @@ func writeCommandFailure(
 	case "GIT_UNAVAILABLE":
 		message = "Could not find or use Git."
 	}
-	fmt.Fprintf(out, "sworn %s: %s\n", command, message)
-	if code != "" {
-		fmt.Fprintf(out, "Technical code: %s\n", code)
+	var details []string
+	switch code {
+	case "OWNER_TRANSITION_PENDING", "APPROVAL_PENDING", "RECOVERY_UNCERTAIN",
+		"EFFECT_PARKED", "RUN_NOT_FOUND", "INVALID_RUN", "BATON_UNAVAILABLE", "GIT_UNAVAILABLE":
+		// Custom messages do not append detail.
+	default:
+		if detail := commandErrorDetail(err); detail != "" {
+			details = append(details, detail)
+		}
 	}
+	writeKnownFailure(out, command, message, code, details...)
 }
 
 func commandErrorCode(err error) string {

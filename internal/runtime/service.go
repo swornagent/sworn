@@ -152,14 +152,15 @@ type RecoveryAction struct {
 
 // ParkStatus names why a run is parked. Cause is one of degradation,
 // attention, exhaustion, human_authority, economy_turns,
-// economy_output_tokens, economy_output_bytes, or identical_failure; a
-// degradation park carries
+// economy_output_tokens, economy_output_bytes, identical_failure, or
+// bootstrap_authority; a degradation park carries
 // the gated fallback count, the effective budget, and the manifest knob
 // that unblocks it. An economy park carries spent-versus-budget; an
 // identical-failure park carries the consecutive run, the threshold, the
-// shared failure code, and its durable refusal detail. Every new field is
-// additive and omitted when absent, so the sworn.run-status/v4 encoding
-// stays backward-compatible.
+// shared failure code, and its durable refusal detail; a
+// bootstrap-authority park carries the triggering receipt summary and
+// unblock directive in Reason. Every new field is additive and omitted
+// when absent, so the sworn.run-status/v4 encoding stays backward-compatible.
 type ParkStatus struct {
 	Cause         string `json:"cause"`
 	FallbackCount int64  `json:"fallback_count,omitempty"`
@@ -172,8 +173,12 @@ type ParkStatus struct {
 	FailureDetail string `json:"failure_detail,omitempty"`
 	// Work names which pinned work (RunStatus.PinnedWork) this single-cause
 	// summary describes, when the cause is work-scoped. Empty for the
-	// run-scoped causes (degradation, attention, human_authority).
+	// run-scoped causes (degradation, attention, human_authority,
+	// bootstrap_authority).
 	Work string `json:"work,omitempty"`
+	// Reason carries the triggering receipt summary and unblock directive for
+	// cause bootstrap_authority.
+	Reason string `json:"reason,omitempty"`
 }
 
 type CaptainDelegationView struct {

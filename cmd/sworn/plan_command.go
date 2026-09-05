@@ -59,7 +59,7 @@ func runPlanPin(args []string, stdout, stderr io.Writer) int {
 	}
 	repo, err := openPlanRepository(options["--project"])
 	if err != nil {
-		writeKnownFailure(stderr, "plan pin", "Could not open the Git project.", commandErrorCode(err))
+		writeKnownFailure(stderr, "plan pin", "Could not open the Git project.", commandErrorCode(err), commandErrorDetail(err))
 		return 1
 	}
 	gitRepo := baton.UseGitRepository(repo)
@@ -92,7 +92,7 @@ func runPlanLint(args []string, stdout, stderr io.Writer) int {
 	}
 	repo, err := openPlanRepository(options["--project"])
 	if err != nil {
-		writeKnownFailure(stderr, "plan lint", "Could not open the Git project.", commandErrorCode(err))
+		writeKnownFailure(stderr, "plan lint", "Could not open the Git project.", commandErrorCode(err), commandErrorDetail(err))
 		return 1
 	}
 	gitRepo := baton.UseGitRepository(repo)
@@ -133,7 +133,7 @@ func runPlanRecord(args []string, stdout, stderr io.Writer) int {
 	}
 	repo, err := openPlanRepository(options["--project"])
 	if err != nil {
-		writeKnownFailure(stderr, "plan record", "Could not open the Git project.", commandErrorCode(err))
+		writeKnownFailure(stderr, "plan record", "Could not open the Git project.", commandErrorCode(err), commandErrorDetail(err))
 		return 1
 	}
 
@@ -148,7 +148,7 @@ func runPlanRecord(args []string, stdout, stderr io.Writer) int {
 	if contractTree == "" {
 		head, headErr := resolveRepositoryHEAD(repo)
 		if headErr != nil {
-			writeKnownFailure(stderr, "plan record", "Could not resolve the working repository HEAD.", commandErrorCode(headErr))
+			writeKnownFailure(stderr, "plan record", "Could not resolve the working repository HEAD.", commandErrorCode(headErr), commandErrorDetail(headErr))
 			return 1
 		}
 		contractTree = head

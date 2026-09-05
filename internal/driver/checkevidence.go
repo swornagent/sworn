@@ -122,8 +122,8 @@ func checkResultOutcome(code int, runErr error) (outcome, diagnostic string) {
 	if IsCode(runErr, "OUTPUT_OVERFLOW") {
 		return baton.CheckOutcomeOverflow, "OUTPUT_OVERFLOW"
 	}
-	if name := contractErrorCode(runErr); name != "" {
-		return baton.CheckOutcomeFail, name
+	if diag := contractErrorDiagnostic(runErr); diag != "" {
+		return baton.CheckOutcomeFail, diag
 	}
 	return baton.CheckOutcomeFail, "harness error"
 }
@@ -134,6 +134,19 @@ func contractErrorCode(err error) string {
 		return contractErr.Code
 	}
 	return ""
+}
+
+func contractErrorDiagnostic(err error) string {
+	var contractErr *ContractError
+	if !errors.As(err, &contractErr) {
+		return ""
+	}
+	if contractErr.Code == "PROCESS_START_FAILED" {
+		if detail, ok := revalidateSandboxStartDetail(contractErr.Detail); ok {
+			return "PROCESS_START_FAILED detail=" + detail
+		}
+	}
+	return contractErr.Code
 }
 
 // boundedCheckExcerpt bounds a redacted output to HostCheckOutputManifestBytes,
@@ -300,6 +313,35 @@ func firstUncoveredCheck(
 	return "", false
 }
 
+// lastAttemptSandboxDetail inspects recorded entries in reverse order to find
+// the last recorded attempt matching declaredCheck (via baton.CheckCommandCovers).
+// When that last attempt failed with PROCESS_START_FAILED carrying a valid
+// sandbox_start.* detail envelope, it extracts the check and cause from the
+// re-validated envelope. Both return empty strings if no attempt matched, if
+// the last attempt was not a sandbox-start failure, or if re-validation failed.
+func lastAttemptSandboxDetail(declaredCheck string, entries []baton.CheckResultEntry) (sandboxCheck, sandboxCause string) {
+	for i := len(entries) - 1; i >= 0; i-- {
+		if baton.CheckCommandCovers(declaredCheck, entries[i].Check) {
+			const prefix = "PROCESS_START_FAILED detail="
+			diag := entries[i].Diagnostic
+			if !strings.HasPrefix(diag, prefix) {
+				return "", ""
+			}
+			rawDetail := strings.TrimPrefix(diag, prefix)
+			revalidated, ok := revalidateSandboxStartDetail(rawDetail)
+			if !ok {
+				return "", ""
+			}
+			var detail sandboxStartDetail
+			if err := json.Unmarshal([]byte(revalidated), &detail); err != nil {
+				return "", ""
+			}
+			return detail.Check, detail.Cause
+		}
+	}
+	return "", ""
+}
+
 // applyCheckEvidence is session.submit's S5-A3 seam for a WorkVerification
 // submission: if the pass claim's declared checks are resolvable and none
 // declares host_checks, an uncovered declared check refuses the submission
@@ -315,7 +357,8 @@ func (session *toolSession) applyCheckEvidence(submission *Submission) error {
 	if binding.checksResolved && !binding.hostChecks &&
 		submission.Decision != nil && submission.Decision.Outcome == DecisionPass {
 		if check, incomplete := firstUncoveredCheck(binding.checks, entries); incomplete {
-			return submitCheckEvidenceIncompleteError(check)
+			sandboxCheck, sandboxCause := lastAttemptSandboxDetail(check, entries)
+			return submitCheckEvidenceIncompleteError(check, sandboxCheck, sandboxCause)
 		}
 	}
 	if len(entries) == 0 {

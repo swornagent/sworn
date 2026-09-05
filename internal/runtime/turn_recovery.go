@@ -2255,13 +2255,37 @@ func (s *Service) recoverHumanParkCheckpoint(
 			}
 			return false, runtimeFail("CORRUPT_JOURNAL", nil)
 		}
-		human := checkpoint.Command.Attention.Attention.HumanTurn
-		if parked, found := active[human.WorkIdentity]; found {
-			if parked.Attention.ID != checkpoint.Command.Attention.Attention.ID ||
+		checkpointAttention :=
+			checkpoint.Command.Attention.Attention
+		human := checkpointAttention.HumanTurn
+		workIdentity := human.WorkIdentity
+		ownActive := false
+		ownResolved := false
+		for _, attention := range attentions {
+			if attention.Attention.ID != checkpointAttention.ID {
+				continue
+			}
+			switch attention.State {
+			case journal.AttentionOpen, journal.AttentionAnswered:
+				ownActive = true
+			case journal.AttentionResolved:
+				ownResolved = true
+			}
+		}
+		parked, parkedFound := active[workIdentity]
+		switch {
+		case ownActive:
+			if !parkedFound ||
+				parked.Attention.ID != checkpointAttention.ID ||
 				validateHumanTurn(parked.Attention.HumanTurn, *human) != nil {
 				return false, runtimeFail("CORRUPT_JOURNAL", nil)
 			}
 			continue
+		case parkedFound:
+			if ownResolved {
+				continue
+			}
+			return false, runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 		projection := journal.AttentionProjection{
 			Attention:  checkpoint.Command.Attention.Attention,
