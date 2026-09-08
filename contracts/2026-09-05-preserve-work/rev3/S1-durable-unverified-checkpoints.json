@@ -1,0 +1,85 @@
+{
+  "outcome": "An orderly implementation stop preserves a measured unverified product checkpoint before disposable workspace cleanup, and an authorized retry with unchanged authority restores that work without publishing a candidate or a verdict.",
+  "scope": {
+    "include": [
+      "internal/runtime",
+      "internal/journal",
+      "internal/gitx",
+      "internal/driver",
+      "internal/baton",
+      "internal/cockpit",
+      "internal/observe",
+      "internal/tui",
+      "internal/skill",
+      "cmd/sworn",
+      "tools/batongolden",
+      "test/e2e",
+      "docs/run.md",
+      "contracts/2026-09-05-preserve-work/recovery/s1-2fcaa718.patch.gz.b64",
+      "contracts/2026-09-05-preserve-work/recovery/s1-repaired.patch.gz.b64"
+    ],
+    "exclude": []
+  },
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "Through the built Sworn binary and a configured production driver exercised by the deterministic provider harness, write one scoped source file, create a second, delete a tracked file and change an executable bit, then terminate the dispatch without a valid handoff. An authorized retry sees the same product bytes, deletions and modes before making its first new edit. Anchor: extend test/e2e/production_journey_linux_test.go and the production dispatch recovery fixtures; the scripted provider must assert the restored content rather than re-create it."
+    },
+    {
+      "id": "A2",
+      "text": "A completed checkpoint is durably attributed to the exact repository, run, release, slice/track, plan/contract, prepared base, dispatch attempt and measured product identity. Repeated checkpoint recovery yields the same retained work. Checkpoint object retention survives Git garbage collection; a journal identifier alone cannot imply retained objects. Anchor: internal/gitx/workspaces_test.go, internal/journal recovery tests, and the built-product preservation journey."
+    },
+    {
+      "id": "A3",
+      "text": "Checkpoint capture/restoration alone changes neither track candidate authority nor target/release integration state. A fabricated candidate receipt pointing at a checkpoint is refused. A later legitimate handoff may admit a candidate through the existing path; merge/integration still requires independent PASS. Anchor: internal/runtime/production_dispatch_test.go and the built-product journey's Git and board assertions."
+    },
+    {
+      "id": "A4",
+      "text": "Checkpoint capture preserves supported scoped product additions, modifications, deletions and executable modes. Untracked ignored generated/dependency files, invocation scratch and control roots are excluded; tracked scoped source remains product even if an ignore pattern matches it. Unsupported entries, escaping links, scope violations, exceeded storage bounds or corrupt checkpoint content produce a named refusal. The last valid checkpoint and the sole current attributable writable copy are preserved under a fence/quarantine rather than deleted on failure; no new writer overwrites unresolved work. Anchor: internal/gitx/workspaces_test.go and built-product first-checkpoint ENOSPC, oversize and unsupported-entry cases in test/e2e/production_journey_linux_test.go."
+    },
+    {
+      "id": "A5",
+      "text": "Status and board distinguish unverified saved work, restored work, and a capture failure with fenced recoverable workspace; identify the affected slice and last durable checkpoint when one exists; and never label saved work accepted or verified. Capture/cleanup failure cannot silently report preservation success or permit shutdown/startup cleanup to destroy the only attributable current work. Cancellation stops execution and keeps preservation subject to the same explicit retention policy; it does not grant automatic resumption. Anchor: cmd/sworn status/board through the built-product journey and internal/cockpit projection tests."
+    },
+    {
+      "id": "A6",
+      "text": "Checkpoint storage has finite reviewed bounds for bytes/files per checkpoint, retained generations and aggregate retained capacity. Reclamation is journaled and crash-safe; automatic cleanup may remove superseded copies only after a durable replacement exists, and must never evict the last recoverable copy of unfinished or stale work. At capacity, pause capture/new dispatch with a named remedy while retaining existing attributable data, including when no first checkpoint could be committed. Defaults and explicit operator reclamation are documented; numeric choices are reviewed in implementation design. Anchor: internal/gitx/workspaces_test.go capacity/reclamation fault cases and built-product capture-failure/restart tests."
+    }
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=45m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race -timeout=20m ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "test -z \"$(gofmt -l ./cmd ./internal ./tools)\"",
+    "go mod tidy -diff",
+    "git diff --check",
+    "GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build ./..."
+  ],
+  "host_checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=45m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race -timeout=20m ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "test -z \"$(gofmt -l ./cmd ./internal ./tools)\"",
+    "go mod tidy -diff",
+    "git diff --check",
+    "GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build ./..."
+  ],
+  "constraints": [
+    "One existing command service and journal own durable transitions; reuse existing workspace ownership, Git measurement, effect recovery and candidate submission boundaries. Introduce new representation only where an unverified checkpoint cannot truthfully use an existing candidate or receipt.",
+    "A saved checkpoint is unverified product data, never a candidate admission, check PASS, Captain decision, Verifier verdict, plan approval, or permission to merge. Only the established exact candidate and independent verification path can grant those states.",
+    "Do not execute or source retained files during measurement or restoration. Exclude .git metadata, reserved records roots, invocation scratch, engine/provider credential locations and existing secret-exclusion paths, and non-product runtime files. This does not claim to detect arbitrary secrets embedded in scoped source code. Existing scope, filesystem and resource policies remain enforced.",
+    "Model and driver selection stay explicit with no fallback. Do not persist provider credentials or assume a conversation can survive process death.",
+    "The checks list declares host obligations. Every listed check is a host_check: contained implementers and verifiers consume engine-bound host evidence and must never attempt nested containment or claim to have executed these commands. Run the long process suites once per candidate in the listed sequence; a candidate change requires fresh applicable evidence.",
+    "The broad supporting package scope admits only this promised mechanism and its affected regression fixtures, adapters, status projections and documentation. It grants no unrelated refactor, provider selection, verification relaxation, or new orchestration policy.",
+    "Preserve normal operation of valid existing journals and candidates that predate checkpoints. Missing or ambiguous legacy checkpoint provenance limits salvage of the affected workspace only; it neither invalidates the whole historical journal nor fabricates checkpoint evidence.",
+    "Recovery input: contracts/2026-09-05-preserve-work/recovery/s1-repaired.patch.gz.b64 is base64 of a gzip-compressed product-only patch against 68c4deefcd7a6eac8b91ea346ae623bfae4373f7. It includes the retained 27fdd8024d69d2ac923c68cd72e1b035521b49e0 implementation plus operator repairs. Decoded length 130353 bytes; SHA-256 eea487af37b7c873204acdbed76174681023d5e447c5b9365528f7ec78b4d880; 25 product files and no reserved records. Verify the digest, apply this input, and review the existing implementation; do not regenerate it. Do not apply the older s1-2fcaa718 artifact. Remove both temporary input files from the final product; both paths are in scope. This artifact is unverified repair input, not candidate admission or a verdict.",
+    "The unchanged A4/A5 retention promise remains authoritative. Prior Captain correction 4 on design attempt 1 cannot authorize deleting the only current work copy on a scope refusal. Repair that behavior and the test that asserts non-fencing/deletion; preserving data may not be replaced by merely allowing an unverified retry.",
+    "The retained fixture now checks the retry coordinate (not the slice attempt) and uses raw Git output for newline-sensitive assertions. Preserve these fixes and their tests. The full serial test suite has a measured global-deadline failure after 35 minutes despite passing completed cases, so its declared deadline is now 45 minutes, aligned with CI and AGENTS.md. Do not remove tests, weaken assertions, nest containment, or misrepresent operator evidence as a host receipt. The product race gate also gets an explicit 20-minute package timeout instead of Go's implicit 10-minute default, which expired with tests still progressing. No assertion or race detection is disabled.",
+    "Review the recovered implementation against every original acceptance criterion, including capture-state lookup failure, failed journal/fence persistence, first-checkpoint storage failures and startup cleanup. The two observed defects are a starting point, not an exhaustive correctness claim. Existing unverified code and previously green package tests do not substitute for fresh candidate checks and independent verification.",
+    "Retain and verify the included host-check repair feedback: failed check output, candidate, submission, plan and checkpoint are bound before retry. Automatic retries and explicit retry epochs consume validated retained work; missing legacy repair data fails closed rather than permitting a blind rewrite. Repeated failures emit the existing typed park event once for operator notification. These are preservation/recovery support changes, not a new role, approval policy, fallback model or permission to change budgets."
+  ],
+  "depends_on": [],
+  "consumes": []
+}

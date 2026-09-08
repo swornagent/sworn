@@ -1,0 +1,78 @@
+{
+  "outcome": "After process interruption, Sworn reconciles owned implementation work before abandoned-workspace cleanup, restoring the last durable checkpoint or preserving attributable interrupted files as explicitly unverified recovery data.",
+  "scope": {
+    "include": [
+      "internal/runtime",
+      "internal/journal",
+      "internal/gitx",
+      "internal/driver",
+      "internal/baton",
+      "internal/cockpit",
+      "internal/observe",
+      "internal/tui",
+      "internal/skill",
+      "cmd/sworn",
+      "tools/batongolden",
+      "test/e2e",
+      "docs/run.md"
+    ],
+    "exclude": []
+  },
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "Kill the driving process after a production worker has written scoped code but before a valid submission. After the old worker is proved quiescent and the normal ownership boundary permits takeover, the replacement owner does not delete the sole attributable workspace before reconciliation. Retained interrupted bytes or the last durable checkpoint are available to the authorized continuation without another implementation write recreating them. Anchor: extend test/e2e/exactly_once_linux_test.go and test/e2e/detached_drive_linux_test.go with a worker write barrier and inspect actual Git/journal state."
+    },
+    {
+      "id": "A2",
+      "text": "Exercise crash cuts around durable workspace attribution, checkpoint content preparation, durable checkpoint binding, retention publication and workspace cleanup. Each restart converges idempotently; an unbound object is never reported as a completed checkpoint, a bound object remains reachable, and successful recovery does not duplicate a candidate or transition. Anchor: test/e2e/exactly_once_linux_test.go and internal/gitx/workspaces_test.go recovery fixtures."
+    },
+    {
+      "id": "A3",
+      "text": "A live or ambiguously live prior worker, ownership mismatch, foreign repository/run attribution, or corrupt recovery binding prevents concurrent restoration or execution. No second writer enters the track, and the original recoverable data is not discarded to make the refusal disappear. Anchor: test/e2e/topology_recovery_linux_test.go takeover fencing and workspace writer-lock tests."
+    },
+    {
+      "id": "A4",
+      "text": "Changed plan/contract/base or target authority prevents automatic restoration into the new authority. The prior checkpoint remains inspectable as stale, unverified work with its provenance and a specific reason; it does not become a current candidate. Anchor: test/e2e/track_base_linux_test.go and test/e2e/topology_recovery_linux_test.go authority-movement cases."
+    },
+    {
+      "id": "A5",
+      "text": "Report the actual durability boundary: a completed checkpoint guarantees its measured bytes; salvaged files from an interrupted write may be partial and must be labeled unverified. Sudden power loss during an unacknowledged filesystem write is not represented as zero-loss recovery. Anchor: built-product interrupted-write case, board/status output and docs/run.md."
+    }
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=45m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race -timeout=20m ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "test -z \"$(gofmt -l ./cmd ./internal ./tools)\"",
+    "go mod tidy -diff",
+    "git diff --check",
+    "GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build ./..."
+  ],
+  "host_checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=45m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race -timeout=20m ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "test -z \"$(gofmt -l ./cmd ./internal ./tools)\"",
+    "go mod tidy -diff",
+    "git diff --check",
+    "GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build ./..."
+  ],
+  "constraints": [
+    "One existing command service and journal own durable transitions; reuse existing workspace ownership, Git measurement, effect recovery and candidate submission boundaries. Introduce new representation only where an unverified checkpoint cannot truthfully use an existing candidate or receipt.",
+    "A saved checkpoint is unverified product data, never a candidate admission, check PASS, Captain decision, Verifier verdict, plan approval, or permission to merge. Only the established exact candidate and independent verification path can grant those states.",
+    "Do not execute or source retained files during measurement or restoration. Exclude .git metadata, reserved records roots, invocation scratch, engine/provider credential locations and existing secret-exclusion paths, and non-product runtime files. This does not claim to detect arbitrary secrets embedded in scoped source code. Existing scope, filesystem and resource policies remain enforced.",
+    "Model and driver selection stay explicit with no fallback. Do not persist provider credentials or assume a conversation can survive process death.",
+    "The checks list declares host obligations. Every listed check is a host_check: contained implementers and verifiers consume engine-bound host evidence and must never attempt nested containment or claim to have executed these commands. Run the long process suites once per candidate in the listed sequence; a candidate change requires fresh applicable evidence.",
+    "The broad supporting package scope admits only this promised mechanism and its affected regression fixtures, adapters, status projections and documentation. It grants no unrelated refactor, provider selection, verification relaxation, or new orchestration policy.",
+    "Preserve normal operation of valid existing journals and candidates that predate checkpoints. Missing or ambiguous legacy checkpoint provenance limits salvage of the affected workspace only; it neither invalidates the whole historical journal nor fabricates checkpoint evidence."
+  ],
+  "depends_on": [
+    "S1-durable-unverified-checkpoints"
+  ],
+  "consumes": [
+    "S1-durable-unverified-checkpoints"
+  ]
+}
