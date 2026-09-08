@@ -117,6 +117,22 @@ type RunStatus struct {
 	Park               *ParkStatus            `json:"park,omitempty"`
 	PinnedWork         []PinnedWork           `json:"pinned_work,omitempty"`
 	Recovery           *RecoveryAction        `json:"recovery,omitempty"`
+	Checkpoint         *CheckpointStatus      `json:"checkpoint,omitempty"`
+	Checkpoints        []CheckpointStatus     `json:"checkpoints,omitempty"`
+}
+
+// CheckpointStatus describes the current unverified checkpoint or quarantine fence for a run.
+type CheckpointStatus struct {
+	Status        string `json:"status,omitempty"`
+	CheckpointID  string `json:"checkpoint_id,omitempty"`
+	TreeDigest    string `json:"tree_digest,omitempty"`
+	CommitOID     string `json:"commit_oid,omitempty"`
+	TreeOID       string `json:"tree_oid,omitempty"`
+	AffectedSlice string `json:"affected_slice,omitempty"`
+	FencedPath    string `json:"fenced_path,omitempty"`
+	FailureReason string `json:"failure_reason,omitempty"`
+	StagedBytes   int64  `json:"staged_bytes,omitempty"`
+	FileCount     int    `json:"file_count,omitempty"`
 }
 
 // PinnedWork names one work item a lane-scoped park crossing has pinned: no

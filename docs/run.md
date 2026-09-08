@@ -259,6 +259,62 @@ sworn answer \
 `uncertain` means Sworn cannot confirm whether the last external action
 finished. It will not repeat that action until recovery can do so safely.
 
+## Checkpoints and work preservation
+
+When an implementation dispatch terminates without a successful handoff (such as
+from an error, bounded budget pause, or graceful cancellation), Sworn captures an
+unverified product checkpoint before disposable workspace cleanup. On an
+authorized retry with unchanged authority and prepared base, Sworn restores
+these product additions, edits, deletions, and executable permissions before the
+worker begins.
+
+Saved checkpoints are unverified product recovery data, never candidate
+admissions, verification verdicts, or merge permissions. Checkpoint trees are
+anchored by Git references under `refs/heads/checkpoints/...` so they survive
+Git garbage collection (`git gc --prune=now`).
+
+### Storage bounds and defaults
+
+Checkpoint storage has reviewed finite bounds:
+
+- **Max bytes per checkpoint**: 64 MiB (`MaxCheckpointBytes`).
+- **Max files per checkpoint**: 2,048 files (`MaxCheckpointFiles`).
+- **Retained generations**: 3 generations per work item (`MaxCheckpointGenerations`).
+- **Aggregate capacity**: 256 MiB per repository/run (`MaxAggregateCheckpointBytes`),
+  measured by staged bytes at capture time.
+
+Superseded generations are pruned in crash-safe order: older refs are removed
+only after a durable replacement ref and journal event are committed. Automatic
+cleanup never evicts the last recoverable copy of unfinished work. When
+aggregate capacity is reached and no superseded copies remain to prune, Sworn
+pauses capture and new dispatch with the named remedy
+`CHECKPOINT_CAPACITY_EXCEEDED`.
+
+### Quarantined workspaces and operator reclamation
+
+If checkpoint capture encounters a fault condition (such as `ENOSPC`,
+`CHECKPOINT_OVERSIZE`, `CHECKPOINT_TOO_MANY_FILES`,
+`CHECKPOINT_UNSUPPORTED_ENTRY`, `CHECKPOINT_SCOPE_VIOLATION`, or
+`CHECKPOINT_CAPACITY_EXCEEDED`), Sworn does not delete the workspace. Instead,
+it quarantines the worktree under a `.fence` record.
+
+Startup and shutdown cleanup skips fenced workspaces, and new writers are
+refused with `WORKSPACE_FENCED` to prevent overwriting uncheckpointed progress.
+The board and `sworn status --json` distinguish unverified saved work
+(`saved`), restored work (`restored`), and capture failure with a fenced
+workspace (`fenced`), reporting the affected slice and failure reason.
+
+To reclaim or resolve a quarantined workspace:
+
+1. Check the fenced workspace path reported by `sworn status --json` or `sworn board`.
+2. Inspect or salvage the worktree files under that path if needed.
+3. Remove the quarantined worktree and lease:
+   ```sh
+   git worktree remove --force <path-to-fenced-worktree>
+   ```
+   Or remove the `.fence` marker file inside the workspace root so normal
+   abandoned-workspace cleanup can reclaim it.
+
 ## Configure one AI connection
 
 The driver file contains connection descriptions and credential references,
@@ -321,3 +377,24 @@ Linux production execution requires root-owned `bwrap` discoverable on PATH
 `driver certify` and production runs can
 consume provider usage; the ordinary Go test suite does not make live provider
 requests.
+## Host-check repair input
+
+When an implementation's host check fails, Sworn retains the exact failed
+check (command, candidate, output, exit status and digest) and the submitted
+handoff as `host_repair` in the failed dispatch. This is **unverified repair
+input**, not a candidate receipt or a verifier PASS. A same-authority retry
+restores its matching checkpoint and receives that context so it can repair
+the existing work. Fresh host checks and independent verification still gate
+delivery. Missing legacy context or mismatched checkpoint, plan, candidate or
+check bindings refuse model dispatch instead of starting a blind rebuild.
+
+Repeated failures publish the existing typed park event at the between-tries
+gate, with a retained-candidate diagnostic, so configured notification
+consumers can observe the stop without waiting for another scheduler tick.
+This does not invent a human approval question or authorize an automatic
+budget increase.
+
+For worktree-hosted operation, pass the intended `--operator-config` explicitly
+to `sworn serve`. Default discovery searches the current checkout; a config
+in another linked checkout is not automatically inherited. Check telemetry
+health and actual collector receipt before assuming a run is observable.

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 
@@ -75,7 +76,14 @@ func (s *Service) economyGuardsParked(
 		manifest.value.EffectiveIdenticalFailureParkAfter(),
 	) {
 		if ownerWorkForDispatch(snapshot, crossing.work) == work {
-			return true, nil
+			// This gate can return directly out of the drive loop. Persist
+			// the park here so notification consumers see the stop even
+			// when there is no subsequent scheduler tick.
+			body, err := identicalFailureParkEventBody(runID, work, crossing)
+			if err != nil {
+				return false, err
+			}
+			return true, s.appendParkEventOnce(ctx, runID, ParkCauseIdenticalFailure, body)
 		}
 	}
 	return false, nil
@@ -466,6 +474,12 @@ func lineageHasLaterSuccess(
 func refusalDetail(result []byte, code string) string {
 	if len(result) == 0 {
 		return ""
+	}
+	if code == "HOST_CHECK_FAILED" {
+		var repair productionHostRepair
+		if json.Unmarshal(result, &repair) == nil && validateHostRepair(repair, repair.Submission.InvocationID, repair.FailedCheck.Slice) == nil {
+			return fmt.Sprintf("Host check %s for retained unverified candidate %s (exit %d). Inspect host_repair.failed_check before retrying.", repair.FailedCheck.Outcome, repair.FailedCheck.Candidate, repair.FailedCheck.ExitCode)
+		}
 	}
 	var refusal productionRefusalBinding
 	if err := json.Unmarshal(result, &refusal); err != nil {

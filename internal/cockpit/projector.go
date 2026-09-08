@@ -457,6 +457,18 @@ func buildSnapshot(
 		status.State,
 		observation.Attentions,
 	)
+	result.Checkpoint = status.Checkpoint
+	result.Checkpoints = status.Checkpoints
+	for i := range result.Graph.Nodes {
+		node := &result.Graph.Nodes[i]
+		for _, cp := range status.Checkpoints {
+			if cp.AffectedSlice == node.Label || cp.AffectedSlice == node.ID || "slice:"+cp.AffectedSlice == node.ID {
+				cpCopy := cp
+				node.Checkpoint = &cpCopy
+				break
+			}
+		}
+	}
 	result.Handoff = projectHandoff(result.Graph)
 	for _, diagnostic := range state.Diagnostics {
 		result.Diagnostics = append(result.Diagnostics, Diagnostic{

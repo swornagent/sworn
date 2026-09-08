@@ -221,3 +221,24 @@ func TestPresentRunStateWithRecoveryNamesAdmissibleVerb(t *testing.T) {
 		t.Fatalf("flat uncertain text names the retired verb: %q", flat.Next)
 	}
 }
+
+func TestPresentSnapshotQuarantinedWork(t *testing.T) {
+	t.Parallel()
+
+	fenced := Snapshot{
+		Run: RunView{State: "parked"},
+		Checkpoint: &runtimepkg.CheckpointStatus{
+			Status:        "fenced",
+			AffectedSlice: "S1",
+			FailureReason: "CHECKPOINT_UNSUPPORTED_ENTRY",
+			FencedPath:    "tree-token",
+		},
+	}
+	presentation := PresentSnapshot(fenced)
+	if presentation.Status != "Quarantined unverified work" {
+		t.Fatalf("fenced presentation status = %q, want 'Quarantined unverified work'", presentation.Status)
+	}
+	if !strings.Contains(presentation.What, "S1") || !strings.Contains(presentation.What, "CHECKPOINT_UNSUPPORTED_ENTRY") {
+		t.Fatalf("fenced presentation what = %q", presentation.What)
+	}
+}

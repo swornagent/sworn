@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -530,6 +531,58 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	} else {
 		result.Park = nil
 	}
+
+	restoredList, _ := s.journal.ListRestoredCheckpoints(ctx, runID)
+	restoredRefs := make(map[string]bool, len(restoredList))
+	for _, r := range restoredList {
+		restoredRefs[r.CheckpointRef] = true
+	}
+
+	cps, _ := s.journal.ListUnverifiedCheckpoints(ctx, runID)
+	for _, cp := range cps {
+		cpStatus := "saved"
+		if restoredRefs[cp.CheckpointRef] {
+			cpStatus = "restored"
+		}
+		st := CheckpointStatus{
+			Status:        cpStatus,
+			CheckpointID:  cp.CheckpointRef,
+			TreeDigest:    cp.TreeDigest,
+			CommitOID:     cp.CommitOID,
+			TreeOID:       cp.TreeOID,
+			AffectedSlice: cp.Slice,
+			StagedBytes:   cp.StagedBytes,
+			FileCount:     cp.FileCount,
+		}
+		result.Checkpoints = append(result.Checkpoints, st)
+	}
+
+	if snapshot.Run.Repository != "" {
+		commonDir := filepath.Join(snapshot.Run.Repository, ".git")
+		if repo, err := gitx.Open(snapshot.Run.Repository, s.gitExecutable); err == nil {
+			commonDir = repo.CommonDir()
+		}
+		fenced, _ := gitx.FencedWorkspacesForRun(commonDir, runID)
+		for _, f := range fenced {
+			fencedPath := f.Path
+			if fencedPath == "" {
+				fencedPath = f.Token
+			}
+			fencedStatus := CheckpointStatus{
+				Status:        "fenced",
+				AffectedSlice: f.Slice,
+				FailureReason: f.Reason,
+				FencedPath:    fencedPath,
+			}
+			result.Checkpoints = append(result.Checkpoints, fencedStatus)
+		}
+	}
+
+	if len(result.Checkpoints) > 0 {
+		latest := result.Checkpoints[len(result.Checkpoints)-1]
+		result.Checkpoint = &latest
+	}
+
 	return result, nil
 }
 

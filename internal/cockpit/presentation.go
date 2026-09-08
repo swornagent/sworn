@@ -179,6 +179,17 @@ func PresentSnapshot(snapshot Snapshot) RunPresentation {
 		presentation.NeedsYou = "Yes — answer the question shown in Human attention."
 		return presentation
 	}
+	if snapshot.Checkpoint != nil && snapshot.Checkpoint.Status == "fenced" {
+		presentation.Status = "Quarantined unverified work"
+		presentation.What = fmt.Sprintf(
+			"Implementation work for %s was preserved under a quarantine fence (%s).",
+			snapshot.Checkpoint.AffectedSlice,
+			snapshot.Checkpoint.FailureReason,
+		)
+		presentation.Next = "Review the quarantined workspace before continuing."
+		presentation.NeedsYou = "Yes — review the quarantined work."
+		return presentation
+	}
 	if snapshot.Run.State == "parked" {
 		// A degradation park names its cause even when a retry action for
 		// unrelated failed work happens to be on the same board.

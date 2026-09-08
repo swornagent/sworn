@@ -57,16 +57,18 @@ type TrackKey struct {
 }
 
 type WorkspaceLease struct {
-	owner      *Workspaces
-	path       string
-	token      string
-	key        TrackKey
-	view       WorkspaceView
-	access     WorkspaceAccess
-	head       OID
-	closed     bool
-	readOnly   bool
-	writerLock *os.File
+	owner       *Workspaces
+	path        string
+	token       string
+	key         TrackKey
+	view        WorkspaceView
+	access      WorkspaceAccess
+	head        OID
+	closed      bool
+	readOnly    bool
+	fenced      bool
+	fenceReason string
+	writerLock  *os.File
 }
 
 // ReleaseAssemblyLease deliberately exposes no workspace path. It is an
@@ -139,6 +141,7 @@ type Workspaces struct {
 	root           string
 	treesRoot      string
 	leasesRoot     string
+	fencesRoot     string
 	lock           *os.File
 	mu             sync.Mutex
 	leases         map[string]*WorkspaceLease
@@ -221,6 +224,7 @@ func newWorkspaces(repository *Repository, runID string) (*Workspaces, error) {
 		root:       root,
 		treesRoot:  filepath.Join(root, "trees"),
 		leasesRoot: filepath.Join(root, "leases"),
+		fencesRoot: filepath.Join(root, "fences"),
 		lock:       lock,
 		leases:     make(map[string]*WorkspaceLease),
 	}
@@ -546,11 +550,14 @@ func (w *Workspaces) prepareRoot() error {
 	if err := ensurePrivateDirectory(w.leasesRoot); err != nil {
 		return err
 	}
+	if err := ensurePrivateDirectory(w.fencesRoot); err != nil {
+		return err
+	}
 	entries, err := os.ReadDir(w.root)
 	if err != nil {
 		return fail("WORKSPACE_CREATE_FAILED", "inspect workspace root layout", err)
 	}
-	expected := map[string]bool{"owner": false, "trees": false, "leases": false}
+	expected := map[string]bool{"owner": false, "trees": false, "leases": false, "fences": false}
 	for _, entry := range entries {
 		if _, ok := expected[entry.Name()]; !ok {
 			return fail("WORKSPACE_OWNERSHIP_MISMATCH", "validate workspace root layout", nil)
@@ -651,6 +658,9 @@ func (w *Workspaces) recoverAbandoned() error {
 	sort.Strings(tokens)
 	for _, token := range tokens {
 		tree := filepath.Join(w.treesRoot, token)
+		if w.isFencedTree(tree, token) {
+			continue
+		}
 		if _, ok := registeredHere[tree]; ok {
 			if _, err := os.Lstat(tree); err == nil {
 				if err := makeWorkspaceRemovable(tree); err != nil {
@@ -901,6 +911,9 @@ func (w *Workspaces) OpenTrack(
 	}
 	var writerLock *os.File
 	if access == WorkspaceReadWrite {
+		if w.hasFencedWorkspace(key) {
+			return nil, fail("WORKSPACE_FENCED", "open track workspace", errors.New("track has a quarantined fenced workspace"))
+		}
 		var err error
 		// Admit the one writer before reading the track head. Capturing first
 		// would allow a predecessor to publish and release between these steps,
@@ -1388,6 +1401,15 @@ func (l *WorkspaceLease) Close() error {
 	if l == nil || l.closed {
 		return nil
 	}
+	if l.fenced {
+		l.owner.mu.Lock()
+		l.closed = true
+		delete(l.owner.leases, l.path)
+		writerLock := l.writerLock
+		l.writerLock = nil
+		l.owner.mu.Unlock()
+		return releasePrivateLock(writerLock, "workspace writer")
+	}
 	return l.owner.remove(l)
 }
 
@@ -1396,6 +1418,13 @@ func (w *Workspaces) remove(lease *WorkspaceLease) error {
 	defer w.mu.Unlock()
 	if lease.closed {
 		return nil
+	}
+	if lease.fenced {
+		lease.closed = true
+		delete(w.leases, lease.path)
+		writerLock := lease.writerLock
+		lease.writerLock = nil
+		return releasePrivateLock(writerLock, "workspace writer")
 	}
 	if !workspaceTokenPattern.MatchString(lease.token) ||
 		lease.path != filepath.Join(w.treesRoot, lease.token) {
@@ -1462,6 +1491,9 @@ func (w *Workspaces) Close() (result error) {
 	w.mu.Unlock()
 	var joined error
 	for _, lease := range leases {
+		if lease.fenced {
+			continue
+		}
 		joined = errors.Join(joined, w.remove(lease))
 	}
 	if joined != nil {
@@ -1470,14 +1502,17 @@ func (w *Workspaces) Close() (result error) {
 	defer func() {
 		result = errors.Join(result, w.releaseLock())
 	}()
+	if w.hasAnyFenced() {
+		return nil
+	}
 	if err := validateMarker(
 		filepath.Join(w.root, "owner"),
 		rootMarker(w.identity),
 	); err != nil {
 		return err
 	}
-	for _, directory := range []string{w.treesRoot, w.leasesRoot} {
-		if err := os.Remove(directory); err != nil {
+	for _, directory := range []string{w.treesRoot, w.leasesRoot, w.fencesRoot} {
+		if err := os.Remove(directory); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return fail("WORKSPACE_CLEANUP_FAILED", "remove workspace directory", err)
 		}
 	}

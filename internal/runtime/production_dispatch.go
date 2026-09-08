@@ -173,6 +173,7 @@ type productionWorkContext struct {
 	CaptainPlan        *productionCaptainPlanBinding     `json:"captain_plan,omitempty"`
 	Refusal            *productionRefusalBinding         `json:"refusal,omitempty"`
 	PriorSubmission    *productionPriorSubmissionBinding `json:"prior_submission,omitempty"`
+	HostRepair         *productionHostRepair             `json:"host_repair,omitempty"`
 }
 
 type productionPriorSubmissionBinding struct {
@@ -816,6 +817,13 @@ func captureBatonWorkContext(
 		}
 		workContext.PriorSubmission = priorSub
 	}
+	if coordinates.Responsibility == driver.ImplementerImplementation {
+		repair, err := captureHostRepair(ctx, engine, coordinates, before, workContext.Plan)
+		if err != nil {
+			return err
+		}
+		workContext.HostRepair = repair
+	}
 	return nil
 }
 
@@ -1082,6 +1090,9 @@ func extractRefusal(err error) *productionRefusalBinding {
 }
 
 func extractRefusalResult(err error) []byte {
+	if result := hostRepairResult(err); result != nil {
+		return result
+	}
 	refusal := extractRefusal(err)
 	if refusal == nil {
 		return nil
@@ -1364,6 +1375,7 @@ func validateProductionWorkContext(
 			workContext.DesignReceipt != nil ||
 			workContext.HostEvidence != nil ||
 			workContext.Refusal != nil ||
+			workContext.HostRepair != nil ||
 			workContext.PriorSubmission != nil) {
 		return runtimeFail("CORRUPT_JOURNAL", nil)
 	}
@@ -1390,6 +1402,17 @@ func validateProductionWorkContext(
 			len([]byte(sub.Provenance)) > 1000 ||
 			containsControlCharacter(sub.Provenance) {
 			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+	}
+	if workContext.HostRepair != nil {
+		repair := workContext.HostRepair
+		previous := (repair.SourceEpoch == workContext.Epoch && repair.SourceTry == workContext.Try-1) || (workContext.Try == 1 && repair.SourceEpoch < workContext.Epoch)
+		if workContext.Responsibility != driver.ImplementerImplementation || !previous || workContext.Plan == nil || repair.Plan != workContext.Plan.OID || repair.Before != workContext.Before || repair.PreparedBase != workContext.Authority.TrackHead {
+			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		prior := dispatchCoordinates{Slice: workContext.Slice, Responsibility: workContext.Responsibility, BatonAttempt: workContext.Attempt, Epoch: repair.SourceEpoch, Try: repair.SourceTry}
+		if err := validateHostRepair(*workContext.HostRepair, dispatchInvocationID(workContext.RunID, prior), workContext.Slice); err != nil {
+			return err
 		}
 	}
 	if workContext.Refusal != nil {
@@ -1644,6 +1667,7 @@ func productionWorkContextV1(
 	workContext.PreparedBase = ""
 	workContext.DesignReceipt = nil
 	workContext.HostEvidence = nil
+	workContext.HostRepair = nil
 	workContext.Refusal = nil
 	workContext.PriorSubmission = nil
 	if err := validateProductionWorkContext(

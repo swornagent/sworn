@@ -60,6 +60,8 @@ type Snapshot struct {
 	ThroughOffset     int64                             `json:"through_offset"`
 	ApprovalOffer     *runtimepkg.ApprovalOffer         `json:"approval_offer,omitempty"`
 	CaptainDelegation *runtimepkg.CaptainDelegationView `json:"captain_delegation,omitempty"`
+	Checkpoint        *runtimepkg.CheckpointStatus      `json:"checkpoint,omitempty"`
+	Checkpoints       []runtimepkg.CheckpointStatus     `json:"checkpoints,omitempty"`
 }
 
 type RunView struct {
@@ -86,20 +88,21 @@ type Graph struct {
 }
 
 type Node struct {
-	ID                 string              `json:"id"`
-	Kind               string              `json:"kind"`
-	Label              string              `json:"label"`
-	Track              string              `json:"track,omitempty"`
-	State              string              `json:"state"`
-	RuntimeState       string              `json:"runtime_state,omitempty"`
-	Stage              string              `json:"stage,omitempty"`
-	Outcome            string              `json:"outcome,omitempty"`
-	NextResponsibility string              `json:"next_responsibility,omitempty"`
-	Attempt            int64               `json:"attempt,omitempty"`
-	HasBaton           bool                `json:"has_baton"`
-	ContractPath       string              `json:"contract_path,omitempty"`
-	ContractDigest     string              `json:"contract_digest,omitempty"`
-	BoundEvidence      []BoundEvidenceItem `json:"bound_evidence,omitempty"`
+	ID                 string                       `json:"id"`
+	Kind               string                       `json:"kind"`
+	Label              string                       `json:"label"`
+	Track              string                       `json:"track,omitempty"`
+	State              string                       `json:"state"`
+	RuntimeState       string                       `json:"runtime_state,omitempty"`
+	Stage              string                       `json:"stage,omitempty"`
+	Outcome            string                       `json:"outcome,omitempty"`
+	NextResponsibility string                       `json:"next_responsibility,omitempty"`
+	Attempt            int64                        `json:"attempt,omitempty"`
+	HasBaton           bool                         `json:"has_baton"`
+	ContractPath       string                       `json:"contract_path,omitempty"`
+	ContractDigest     string                       `json:"contract_digest,omitempty"`
+	BoundEvidence      []BoundEvidenceItem          `json:"bound_evidence,omitempty"`
+	Checkpoint         *runtimepkg.CheckpointStatus `json:"checkpoint,omitempty"`
 }
 
 // Touchpoint is the cockpit's read-only presentation of one
