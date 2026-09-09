@@ -117,6 +117,28 @@ type RunStatus struct {
 	Park               *ParkStatus            `json:"park,omitempty"`
 	PinnedWork         []PinnedWork           `json:"pinned_work,omitempty"`
 	Recovery           *RecoveryAction        `json:"recovery,omitempty"`
+	Checkpoint         *CheckpointStatus      `json:"checkpoint,omitempty"`
+	Checkpoints        []CheckpointStatus     `json:"checkpoints,omitempty"`
+}
+
+// CheckpointStatus describes the current unverified checkpoint or quarantine fence for a run.
+type CheckpointStatus struct {
+	Status        string `json:"status,omitempty"`
+	CheckpointID  string `json:"checkpoint_id,omitempty"`
+	TreeDigest    string `json:"tree_digest,omitempty"`
+	CommitOID     string `json:"commit_oid,omitempty"`
+	TreeOID       string `json:"tree_oid,omitempty"`
+	AffectedSlice string `json:"affected_slice,omitempty"`
+	FencedPath    string `json:"fenced_path,omitempty"`
+	FailureReason string `json:"failure_reason,omitempty"`
+	StagedBytes   int64  `json:"staged_bytes,omitempty"`
+	FileCount     int    `json:"file_count,omitempty"`
+	// StaleReason is one of stale_base, stale_plan, or stale_contract when
+	// this checkpoint's recorded authority no longer matches the run's
+	// current plan/contract/track authority, computed fresh at status time
+	// rather than stored: the checkpoint itself never changes meaning, only
+	// whether it remains eligible for automatic restoration.
+	StaleReason string `json:"stale_reason,omitempty"`
 }
 
 // PinnedWork names one work item a lane-scoped park crossing has pinned: no
@@ -134,6 +156,12 @@ type PinnedWork struct {
 	Cause  string `json:"cause"`
 	Code   string `json:"code,omitempty"`
 	Detail string `json:"detail,omitempty"`
+	// DispatchWorkID is the crossing's own dispatch-work identity for an
+	// economy-caused pin (empty for identical-failure/exhaustion pins,
+	// whose Retry action is already keyed by WorkID unchanged). A Grant
+	// targeting this pin must name DispatchWorkID as its WorkID, not the
+	// lane-level WorkID above (S4-resumable-budget-stops V3).
+	DispatchWorkID string `json:"dispatch_work_id,omitempty"`
 }
 
 // RecoveryAction names the one control verb currently admissible for a run
@@ -1415,6 +1443,13 @@ func (s *Service) Control(ctx context.Context, command ControlCommand) (RunStatu
 	if manifest.legacyVersion != "" {
 		return RunStatus{}, runtimeFail("MIGRATION_REQUIRED", nil)
 	}
+	if command.Kind == journal.Retry || command.Kind == journal.Grant {
+		admitted, err := s.admitEconomyControl(ctx, manifest, command)
+		if err != nil {
+			return RunStatus{}, err
+		}
+		command = admitted
+	}
 	if _, err := s.journal.ApplyControl(
 		ctx,
 		command,
@@ -1428,6 +1463,14 @@ func (s *Service) Control(ctx context.Context, command ControlCommand) (RunStatu
 			return RunStatus{}, runtimeFail("OWNER_TRANSITION_PENDING", err)
 		}
 		return RunStatus{}, runtimeFail("CONTROL_REJECTED", err)
+	}
+	if command.Kind == journal.Grant {
+		// S4-resumable-budget-stops A3: the grant is already durably
+		// journaled above; this crashes the operator's own grant process
+		// before it can start or report resumed execution, so a later,
+		// independent process must find and continue from the recorded
+		// grant on its own.
+		crashHumanTurnBarrier("after_grant_recorded")
 	}
 	if command.Kind == journal.Cancel {
 		cleanupErr := s.closeRunRecoverableContinuations(command.RunID)
@@ -1466,6 +1509,193 @@ func (s *Service) Control(ctx context.Context, command ControlCommand) (RunStatu
 	}
 	s.startBackgroundDrive(command.RunID, owner)
 	return s.Status(ctx, command.RunID)
+}
+
+// admitEconomyControl is the runtime-layer admission gate for Retry and
+// Grant commands naming an economy-crossed work (S4-resumable-budget-stops
+// A2/A3). It runs before journal.ApplyControl is ever called, because it
+// needs admittedManifest, economyParkCrossings and ownerWorkForDispatch —
+// exactly the machinery the lane-scoped park gate already uses, and none of
+// which journal.ApplyControl has access to.
+//
+// For Retry, any active current-epoch economy crossing on the work
+// command.WorkID resolves to (through ownerWorkForDispatch, since a Retry's
+// WorkID names the exact per-attempt dispatch, which may be a nested
+// git.seal-wrapped work) refuses the bare Retry with ECONOMY_GRANT_REQUIRED:
+// today's leak let a bare Retry sail through whenever the crossing happened
+// to land on a try or epoch journal.ApplyControl's own gate did not treat
+// as exhausted. After this change, every economy-cause crossing routes
+// exclusively through Grant, uniformly regardless of which try triggered
+// it.
+//
+// For Grant, command.WorkID names the exact dispatch-work identity of the
+// crossing it targets, the identity GrantedAmount, AcknowledgedUnknownUsage
+// and captureEffectiveLimits' later freeze are all keyed by
+// (S4-resumable-budget-stops V3; a prior revision of this gate keyed Grant
+// by the outer, board-visible work instead, which left those maps keyed
+// differently than the freeze that read them). Returns the command with
+// RetryWorkID set to the crossing's owner when that owner differs from
+// WorkID (a nested git.seal-wrapped dispatch): that owner, not the stable
+// dispatch-work identity itself, is the work whose retry epoch actually
+// governs the dispatch's own attempt-identity space (implementSlice reads
+// the owner's epoch to build every one of its nested attempts' effect IDs),
+// so a Grant must advance that same counter to stay current - never the
+// dispatch work's own epoch, which the journal deliberately leaves
+// unwritten so a nested dispatch keeps inheriting its enclosing cycle's
+// epoch (S4-resumable-budget-stops V2; V3's prior revision advanced the
+// dispatch work's own RetryEpochs entry instead, desynchronizing it from
+// the epoch every subsequent attempt of that same work is actually built
+// under, which permanently pinned the lane after its first grant). The
+// command is refused GRANT_WRONG_UNIT when no active current-epoch economy
+// crossing names this exact dispatch work and
+// command.Unit, GRANT_ABOVE_HARD_CEILING when the saturating sum of the
+// manifest's own effective ceiling, this work's already-admitted grants and
+// this command's Amount would exceed the absolute hard ceiling for that
+// unit, and ECONOMY_USAGE_UNKNOWN when this work's cumulative recorded
+// spend carries a crash-before-receipt gap this command (or an earlier
+// admitted Grant for the same work) has not acknowledged.
+func (s *Service) admitEconomyControl(
+	ctx context.Context,
+	manifest admittedManifest,
+	command journal.ControlCommand,
+) (journal.ControlCommand, error) {
+	snapshot, err := s.journal.Snapshot(ctx, command.RunID)
+	if err != nil {
+		return command, runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	if command.Kind == journal.Grant {
+		// Stamped before the replay short-circuit below, from data (the
+		// git.seal command naming this dispatch work, if any) that predates
+		// and never changes across an admitted Grant's own replay: an exact
+		// replay must marshal the identical command body journal.ApplyControl
+		// already has on file, RetryWorkID included, or its own replay
+		// resolution would wrongly see a conflicting body (S4-resumable-
+		// budget-stops V2).
+		if outer := ownerWorkForDispatch(snapshot, command.WorkID); outer != command.WorkID {
+			command.RetryWorkID = outer
+		}
+	}
+	if controlCommandReplayed(snapshot, command) {
+		// An exact (or conflicting) replay of an already-recorded control
+		// command is journal.ApplyControl's own short-circuit to resolve,
+		// never this gate's (S4-resumable-budget-stops A2 "duplicate
+		// replay grants once"): by the time a Grant was first admitted, its
+		// epoch advance and admitted amount are already durable, so
+		// re-deriving admission against that already-advanced state would
+		// spuriously refuse the exact command that advanced it.
+		return command, nil
+	}
+	control, err := s.journal.ControlProjection(ctx, command.RunID)
+	if err != nil {
+		return command, runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	if command.Kind == journal.Retry {
+		outer := ownerWorkForDispatch(snapshot, command.WorkID)
+		_, crossed, crossErr := s.activeEconomyCrossing(
+			ctx, snapshot, control, manifest, command.RunID, outer,
+		)
+		if crossErr != nil {
+			return command, crossErr
+		}
+		if crossed {
+			return command, runtimeFail("ECONOMY_GRANT_REQUIRED", nil)
+		}
+		return command, nil
+	}
+	// Grant names the exact dispatch-work identity of the crossing it
+	// targets, the same convention Retry's WorkID already carries and the
+	// one identity journal.ApplyControl, economyParkCrossings' current-epoch
+	// filter and captureEffectiveLimits all key their own facts by
+	// (S4-resumable-budget-stops V3): admissibility is resolved through the
+	// crossing's owner (a nested implementer dispatch's crossing is scoped
+	// to its enclosing git.seal work, exactly as Retry's), but the crossing
+	// found must be this exact named dispatch work, never merely any
+	// crossing sharing its owner.
+	outer := ownerWorkForDispatch(snapshot, command.WorkID)
+	facts, crossed, crossErr := s.activeEconomyCrossing(
+		ctx, snapshot, control, manifest, command.RunID, outer,
+	)
+	if crossErr != nil {
+		return command, crossErr
+	}
+	if !crossed || facts.work != command.WorkID || facts.cause != command.Unit {
+		return command, runtimeFail("GRANT_WRONG_UNIT", nil)
+	}
+	existingGranted := int64(0)
+	if amounts, ok := control.GrantedAmount[command.WorkID]; ok {
+		existingGranted = amounts[command.Unit]
+	}
+	original := economyEffectiveOriginal(manifest.value.Limits, command.Unit)
+	total := saturatingAddInt64(saturatingAddInt64(original, existingGranted), command.Amount)
+	if total > economyHardCeiling(command.Unit) {
+		return command, runtimeFail("GRANT_ABOVE_HARD_CEILING", nil)
+	}
+	acknowledged := control.AcknowledgedUnknownUsage[command.WorkID] ||
+		command.AcknowledgeUnknownUsage
+	_, _, _, unknown, spentErr := economyWorkSpent(
+		ctx, s.journal, manifest, command.RunID, outer, acknowledged,
+	)
+	if spentErr != nil {
+		return command, spentErr
+	}
+	if unknown {
+		return command, runtimeFail("ECONOMY_USAGE_UNKNOWN", nil)
+	}
+	return command, nil
+}
+
+// controlCommandReplayed reports whether a control command sharing
+// command.ID's replay key is already durable, regardless of whether its
+// body matches this exact command: either way, journal.ApplyControl - not
+// this admission gate - is the authority that resolves an exact replay's
+// cached receipt versus a conflicting ID reuse's REPLAY_CONFLICT refusal.
+func controlCommandReplayed(
+	snapshot journal.Snapshot,
+	command journal.ControlCommand,
+) bool {
+	replayKey := "control/" + command.ID
+	for _, existing := range snapshot.Commands {
+		if existing.ReplayKey == replayKey {
+			return true
+		}
+	}
+	return false
+}
+
+// activeEconomyCrossing names the current-epoch economy crossing scoped to
+// the outer work identity work, if one exists, reusing the exact
+// economyParkCrossings/ownerWorkForDispatch pipeline the lane-scoped park
+// gate already uses.
+func (s *Service) activeEconomyCrossing(
+	ctx context.Context,
+	snapshot journal.Snapshot,
+	control journal.ControlProjection,
+	manifest admittedManifest,
+	runID string,
+	work string,
+) (economyParkFacts, bool, error) {
+	for _, crossing := range economyParkCrossings(snapshot, control) {
+		if ownerWorkForDispatch(snapshot, crossing.work) != work {
+			continue
+		}
+		spentTurns, spentTokens, spentBytes, diagnosticCode, err :=
+			s.economySpent(ctx, runID, crossing)
+		if err != nil {
+			return economyParkFacts{}, false, err
+		}
+		dispatchedLimits := economyCrossingDispatchedLimits(
+			snapshot, manifest.value.Limits, crossing,
+		)
+		return economyParkFactsFor(
+			crossing,
+			dispatchedLimits,
+			spentTurns,
+			spentTokens,
+			spentBytes,
+			diagnosticCode,
+		), true, nil
+	}
+	return economyParkFacts{}, false, nil
 }
 
 func (s *Service) acquireControlOwner(

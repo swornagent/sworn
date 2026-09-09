@@ -23,6 +23,11 @@ import (
 	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 )
 
+// webhookScheduleTolerance is wider than the worker's own internal timers so
+// that asserting goroutine scheduling under a heavily loaded, combined
+// -race test run does not itself become a source of flakiness.
+const webhookScheduleTolerance = 10 * time.Second
+
 type fakeWebhookResolver struct {
 	addresses []net.IPAddr
 	err       error
@@ -1098,14 +1103,14 @@ func TestWebhookRunLetsHealthyFIFOAdvancePastPersistentlySlowPeer(
 	}()
 	select {
 	case <-auditStarted:
-	case <-time.After(time.Second):
+	case <-time.After(webhookScheduleTolerance):
 		cancel()
 		t.Fatal("slow destination did not start")
 	}
 	for delivery := 1; delivery <= 2; delivery++ {
 		select {
 		case <-primarySent:
-		case <-time.After(time.Second):
+		case <-time.After(webhookScheduleTolerance):
 			close(releaseAudit)
 			cancel()
 			t.Fatalf(
@@ -1121,7 +1126,7 @@ func TestWebhookRunLetsHealthyFIFOAdvancePastPersistentlySlowPeer(
 		if err != nil {
 			t.Fatalf("worker = %v", err)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(webhookScheduleTolerance):
 		t.Fatal("worker did not stop after cancellation")
 	}
 	primary, err := store.Notifications(

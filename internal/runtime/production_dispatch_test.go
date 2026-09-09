@@ -3743,3 +3743,97 @@ func TestProductionClaimedDispatchRecoveryRetainsUncertaintyUntilAuthorityChange
 		t.Fatalf("stale-authority recovery = %#v", effect)
 	}
 }
+
+func TestCheckpointCannotBeAdmittedAsCandidate(t *testing.T) {
+	t.Parallel()
+	fixture := newProductionImplementationRecoveryFixture(t, nil)
+	defer fixture.workspace.Close()
+
+	filePath := filepath.Join(fixture.workspace.Path(), "one.txt")
+	if err := os.WriteFile(filePath, []byte("checkpoint content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	attempt := gitx.CheckpointAttempt{WorkID: fixture.cycle.DispatchWork, Epoch: 1, Try: 1}
+	scope := gitx.CheckpointScope{Include: []string{"one.txt"}}
+	cpResult, err := fixture.engine.workspaces.CaptureCheckpoint(
+		fixture.workspace,
+		attempt,
+		fixture.cycle.Slice,
+		scope,
+		0,
+		fixture.engine.product,
+	)
+	if err != nil {
+		t.Fatalf("capture checkpoint failed: %v", err)
+	}
+
+	runRuntimeGit(t, fixture.engine.repository.Root(), "cat-file", "-e", cpResult.Commit.String())
+
+	forgedRecord := sealedRecord{
+		Slice:        fixture.cycle.Slice,
+		Binds:        fixture.cycle.Binds,
+		Before:       fixture.cycle.TrackHead,
+		Candidate:    cpResult.Commit.String(),
+		Tree:         cpResult.Tree.String(),
+		ProductTree:  cpResult.ProductTree,
+		ChangedPaths: cpResult.ChangedPaths,
+		Receipt: baton.AppendReceiptInput{
+			Release:   fixture.cycle.Release,
+			Slice:     fixture.cycle.Slice,
+			Role:      "implementer",
+			Result:    "candidate",
+			Base:      fixture.cycle.Base,
+			Candidate: cpResult.Commit.String(),
+		},
+	}
+
+	err = validateSealedRecordCandidate(fixture.engine, fixture.cycle, forgedRecord)
+	if err == nil || !strings.Contains(err.Error(), "INVALID_CANDIDATE_RECEIPT") {
+		t.Fatalf("expected INVALID_CANDIDATE_RECEIPT for checkpoint commit, got: %v", err)
+	}
+
+	trackRef := "refs/heads/track/" + fixture.cycle.Release + "/" + fixture.cycle.Track
+	refs, err := fixture.engine.repository.CaptureHeadRefs([]string{trackRef})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refs) != 1 || refs[0].Head.String() != fixture.cycle.TrackHead {
+		t.Fatalf("track head ref changed: got %#v, want %s", refs, fixture.cycle.TrackHead)
+	}
+}
+
+func TestCandidateValidationFailsClosedOnCommitSubjectError(t *testing.T) {
+	t.Parallel()
+	fixture := newProductionImplementationRecoveryFixture(t, nil)
+	defer fixture.workspace.Close()
+
+	format := fixture.engine.repository.ObjectFormat()
+	nonExistentOID := strings.Repeat("1", 40)
+	if format == gitx.SHA256 {
+		nonExistentOID = strings.Repeat("1", 64)
+	}
+
+	record := sealedRecord{
+		Slice:        fixture.cycle.Slice,
+		Binds:        fixture.cycle.Binds,
+		Before:       fixture.cycle.TrackHead,
+		Candidate:    nonExistentOID,
+		Tree:         nonExistentOID,
+		ProductTree:  "sha256:" + strings.Repeat("a", 64),
+		ChangedPaths: []string{"one.txt"},
+		Receipt: baton.AppendReceiptInput{
+			Release:   fixture.cycle.Release,
+			Slice:     fixture.cycle.Slice,
+			Role:      "implementer",
+			Result:    "candidate",
+			Base:      fixture.cycle.Base,
+			Candidate: nonExistentOID,
+		},
+	}
+
+	err := validateSealedRecordCandidate(fixture.engine, fixture.cycle, record)
+	if err == nil || !strings.Contains(err.Error(), "INVALID_CANDIDATE_RECEIPT") {
+		t.Fatalf("expected INVALID_CANDIDATE_RECEIPT for commit subject error, got: %v", err)
+	}
+}

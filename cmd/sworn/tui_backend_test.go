@@ -22,6 +22,35 @@ type pendingTUIControls struct {
 	commands []cockpit.ControlCommand
 }
 
+// A2/A4: parseGrantAnswer is the sole boundary translating the TUI's free-
+// text grant overlay answer into a Grant command's Amount and
+// AcknowledgeUnknownUsage fields; it must accept exactly "<amount>" and
+// "<amount> ack", and refuse every other shape (empty, non-numeric,
+// zero/negative, a third word, or a second word other than "ack") before
+// any command is built.
+func TestParseGrantAnswerAcceptsOnlyAmountAndOptionalAck(t *testing.T) {
+	t.Parallel()
+	amount, ack, err := parseGrantAnswer("500")
+	if err != nil || amount != 500 || ack {
+		t.Fatalf("parseGrantAnswer(500) = %d, %v, %v", amount, ack, err)
+	}
+	amount, ack, err = parseGrantAnswer("500 ack")
+	if err != nil || amount != 500 || !ack {
+		t.Fatalf("parseGrantAnswer(500 ack) = %d, %v, %v", amount, ack, err)
+	}
+	amount, ack, err = parseGrantAnswer("  500   ack  ")
+	if err != nil || amount != 500 || !ack {
+		t.Fatalf("parseGrantAnswer with padding = %d, %v, %v", amount, ack, err)
+	}
+	for _, bad := range []string{
+		"", "   ", "0", "-5", "abc", "500 yes", "500 ack now", "500.5",
+	} {
+		if _, _, err := parseGrantAnswer(bad); err == nil {
+			t.Fatalf("parseGrantAnswer(%q) accepted an invalid shape", bad)
+		}
+	}
+}
+
 func TestCaptainDelegationTUILabelProjectsHumanAndDelegatedAuthority(t *testing.T) {
 	if got := captainDelegationTUILabel(nil); got != "External human approval" {
 		t.Fatalf("human label = %q", got)

@@ -444,10 +444,10 @@ func (s *Service) runHostChecks(
 			return nil, err
 		}
 		if result.Outcome != baton.CheckOutcomePass {
-			return nil, runtimeFail(
+			return nil, &hostCheckFailure{result: result, err: runtimeFail(
 				"HOST_CHECK_FAILED",
 				fmt.Errorf("%s recorded %s: %s", check, result.Outcome, result.Diagnostic),
-			)
+			)}
 		}
 		results = append(results, result)
 	}

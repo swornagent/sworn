@@ -167,6 +167,12 @@ func RenderTerminalWidth(snapshot Snapshot, width int) string {
 				"evidence_items="+strconv.Itoa(len(node.BoundEvidence)),
 			)
 		}
+		if node.Checkpoint != nil {
+			nodeFields = append(
+				nodeFields,
+				"checkpoint="+terminalQuote(node.Checkpoint.Status),
+			)
+		}
 		renderer.line(2, fields(nodeFields...))
 	}
 	for _, edge := range snapshot.Graph.Edges {
@@ -357,6 +363,34 @@ func RenderTerminalWidth(snapshot Snapshot, width int) string {
 				"created_at="+terminalTime(evidence.CreatedAt),
 			),
 		)
+	}
+
+	if len(snapshot.Checkpoints) > 0 {
+		renderer.section(
+			fmt.Sprintf("CHECKPOINTS count=%d", len(snapshot.Checkpoints)),
+		)
+		for _, cp := range snapshot.Checkpoints {
+			cpFields := []string{
+				"status=" + terminalQuote(cp.Status),
+				"slice=" + terminalQuote(cp.AffectedSlice),
+			}
+			if cp.CheckpointID != "" {
+				cpFields = append(cpFields, "id="+terminalQuote(cp.CheckpointID))
+			}
+			if cp.TreeDigest != "" {
+				cpFields = append(cpFields, "tree="+terminalQuote(cp.TreeDigest))
+			}
+			if cp.FencedPath != "" {
+				cpFields = append(cpFields, "fenced="+terminalQuote(cp.FencedPath))
+			}
+			if cp.FailureReason != "" {
+				cpFields = append(cpFields, "reason="+terminalQuote(cp.FailureReason))
+			}
+			if cp.StaleReason != "" {
+				cpFields = append(cpFields, "stale="+terminalQuote(cp.StaleReason))
+			}
+			renderer.line(2, fields(cpFields...))
+		}
 	}
 
 	renderer.section(

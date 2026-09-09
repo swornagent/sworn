@@ -720,6 +720,107 @@ func TestParkRecoveryAttentionIsAtomicAndReplaySafe(t *testing.T) {
 	}
 }
 
+// TestRecoveryStepRefusalValidatesAndCarriesForwardAcrossOrdinals pins A2's
+// journal-side carry: a malformed_correction step's Refusal is rejected off
+// a non-correction kind or an out-of-range SourceEpoch/SourceTry, and
+// RecoveryBudgetProjection.LastRefusal tracks the latest
+// malformed_correction step's Refusal across the whole cycle - unaffected
+// by an interleaved unrelated step, updated by a later refusal, and cleared
+// by a later correction that carries no Refusal at all.
+func TestRecoveryStepRefusalValidatesAndCarriesForwardAcrossOrdinals(t *testing.T) {
+	t.Parallel()
+
+	store, run, _, _ := journalFixture(t)
+	ctx := context.Background()
+	now := run.CreatedAt.Add(time.Second)
+	owner, err := store.AcquireOwner(ctx, run.ID, now, time.Minute, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := testRecoveryBinding(
+		"T-refusal", "refusal-cycle", "turn", "progress",
+	)
+
+	zeroEpoch := testRecoveryStep(run.ID, binding, 1, RecoveryMalformedCorrection)
+	zeroEpoch.Refusal = &RecoveryStepRefusal{
+		Code: "INVALID_DETAIL", SourceEpoch: 0, SourceTry: 1,
+	}
+	if _, err := store.ReserveRecoveryStep(
+		ctx, owner, zeroEpoch, now,
+	); !IsCode(err, "INVALID_RECOVERY_STEP") {
+		t.Fatalf("zero SourceEpoch = %v, want INVALID_RECOVERY_STEP", err)
+	}
+
+	wrongKind := testRecoveryStep(run.ID, binding, 1, RecoveryProseNudge)
+	wrongKind.Refusal = &RecoveryStepRefusal{
+		Code: "INVALID_DETAIL", SourceEpoch: 1, SourceTry: 1,
+	}
+	if _, err := store.ReserveRecoveryStep(
+		ctx, owner, wrongKind, now,
+	); !IsCode(err, "INVALID_RECOVERY_STEP") {
+		t.Fatalf("refusal on prose_nudge = %v, want INVALID_RECOVERY_STEP", err)
+	}
+
+	first := testRecoveryStep(run.ID, binding, 1, RecoveryMalformedCorrection)
+	first.Refusal = &RecoveryStepRefusal{
+		Code: "SUBMISSION_SHAPE_MISMATCH", Detail: "first refusal",
+		SourceEpoch: 1, SourceTry: 1,
+	}
+	if _, err := store.ReserveRecoveryStep(ctx, owner, first, now); err != nil {
+		t.Fatal(err)
+	}
+	budget, err := store.RecoveryBudget(ctx, run.ID, binding)
+	if err != nil || budget.LastRefusal == nil ||
+		!reflect.DeepEqual(*budget.LastRefusal, *first.Refusal) {
+		t.Fatalf(
+			"budget after first refusal = %#v, want %#v, error=%v",
+			budget.LastRefusal, first.Refusal, err,
+		)
+	}
+
+	nudge := testRecoveryStep(run.ID, binding, 2, RecoveryProseNudge)
+	if _, err := store.ReserveRecoveryStep(ctx, owner, nudge, now); err != nil {
+		t.Fatal(err)
+	}
+	budget, err = store.RecoveryBudget(ctx, run.ID, binding)
+	if err != nil || budget.LastRefusal == nil ||
+		!reflect.DeepEqual(*budget.LastRefusal, *first.Refusal) {
+		t.Fatalf(
+			"budget after unrelated step = %#v, want unchanged %#v, error=%v",
+			budget.LastRefusal, first.Refusal, err,
+		)
+	}
+
+	second := testRecoveryStep(run.ID, binding, 3, RecoveryMalformedCorrection)
+	second.Refusal = &RecoveryStepRefusal{
+		Code: "INVALID_DETAIL", Detail: "second refusal",
+		SourceEpoch: 1, SourceTry: 2,
+	}
+	if _, err := store.ReserveRecoveryStep(ctx, owner, second, now); err != nil {
+		t.Fatal(err)
+	}
+	budget, err = store.RecoveryBudget(ctx, run.ID, binding)
+	if err != nil || budget.LastRefusal == nil ||
+		!reflect.DeepEqual(*budget.LastRefusal, *second.Refusal) {
+		t.Fatalf(
+			"budget after second refusal = %#v, want %#v, error=%v",
+			budget.LastRefusal, second.Refusal, err,
+		)
+	}
+
+	unrefused := testRecoveryStep(run.ID, binding, 4, RecoveryMalformedCorrection)
+	if _, err := store.ReserveRecoveryStep(ctx, owner, unrefused, now); err != nil {
+		t.Fatal(err)
+	}
+	budget, err = store.RecoveryBudget(ctx, run.ID, binding)
+	if err != nil || budget.LastRefusal != nil {
+		t.Fatalf(
+			"budget after nil-refusal correction = %#v, want nil, error=%v",
+			budget.LastRefusal, err,
+		)
+	}
+}
+
 func TestRecoveryDecisionReservationsEmitClosedActionEvents(t *testing.T) {
 	t.Parallel()
 

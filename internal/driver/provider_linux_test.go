@@ -313,6 +313,7 @@ func TestProviderMalformedSubmissionsAreCorrectedUntilValid(
 	invocation.RecoveryStepHook = func(
 		_ context.Context,
 		kind RecoveryStepKind,
+		_ *SubmitRefusal,
 	) error {
 		if kind != RecoveryStepSubmissionCorrection {
 			t.Fatalf("reservation kind = %s", kind)
@@ -444,6 +445,7 @@ func TestProviderMalformedToolCallsAreCorrectedUntilValid(t *testing.T) {
 	invocation.RecoveryStepHook = func(
 		_ context.Context,
 		kind RecoveryStepKind,
+		_ *SubmitRefusal,
 	) error {
 		if kind != RecoveryStepMalformedToolCall {
 			t.Fatalf("reservation kind = %s", kind)
@@ -508,6 +510,7 @@ func TestProviderPersistentMalformedToolCallsPreserveOriginalClassification(
 	invocation.RecoveryStepHook = func(
 		_ context.Context,
 		kind RecoveryStepKind,
+		_ *SubmitRefusal,
 	) error {
 		if kind != RecoveryStepMalformedToolCall {
 			t.Fatalf("reservation kind = %s", kind)
@@ -668,6 +671,7 @@ func TestProviderProseNudgesFlowUntilCompletionOrTurnBudget(t *testing.T) {
 			invocation.RecoveryStepHook = func(
 				_ context.Context,
 				kind RecoveryStepKind,
+				_ *SubmitRefusal,
 			) error {
 				if kind != RecoveryStepProseNudge {
 					t.Fatalf("reservation kind = %s", kind)

@@ -33,7 +33,7 @@ type hostCheckFixture struct {
 	contractDgst string
 }
 
-func newHostCheckFixture(t *testing.T, hostChecks []string) *hostCheckFixture {
+func newHostCheckFixture(t *testing.T, hostChecks []string, manifestPlan ...bool) *hostCheckFixture {
 	t.Helper()
 	ctx := context.Background()
 	repository := productionRepository(t)
@@ -73,14 +73,43 @@ func newHostCheckFixture(t *testing.T, hostChecks []string) *hostCheckFixture {
 	}
 	t.Cleanup(func() { _ = engine.Close() })
 	planBytes := hostChecksPlanBytes(t, manifest, hostChecks)
+	var overlay map[string][]byte
+	if len(manifestPlan) > 0 && manifestPlan[0] {
+		inline, err := baton.ParsePlan(planBytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		metadata := inline.Metadata()
+		slice := metadata.Tracks[0].Slices[0]
+		contract := mustJSON(map[string]any{
+			"outcome": slice.Outcome, "scope": slice.Scope, "acceptance": slice.Acceptance,
+			"checks": slice.Checks, "host_checks": slice.HostChecks, "constraints": slice.Constraints,
+			"depends_on": slice.DependsOn, "consumes": slice.Consumes,
+		})
+		_, digest, err := baton.ParseSliceContract(contract, "S1", "T1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		overlay = map[string][]byte{"contracts/S1.json": contract}
+		body := mustJSON(map[string]any{
+			"schema_version": "sworn.release-manifest/v1", "release": metadata.Release,
+			"revision": 1, "previous_plan": nil, "repository": metadata.Repository,
+			"target_ref": metadata.TargetRef, "approval_ref": metadata.ApprovalRef,
+			"tracks": []any{map[string]any{"id": "T1", "depends_on": []string{}, "slices": []any{
+				map[string]any{"id": "S1", "outcome": slice.Outcome, "contract_path": "contracts/S1.json", "digest": digest, "depends_on": []string{}, "consumes": []string{}, "touchpoints": []string{"one.txt"}},
+			}}},
+		})
+		planBytes = []byte("```sworn-release-manifest-v1\n" + string(body) + "```\n\nHost-check fixture.\n")
+	}
 	plan, err := baton.ParsePlan(planBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := engine.actions.RecordPlanRevision(baton.RecordPlanRevisionInput{
-		PlanBytes: planBytes,
-		Summary:   "Install the host-checks fixture plan.",
-		Detail:    []byte("Host-checks fixture."),
+		PlanBytes:       planBytes,
+		ContractOverlay: overlay,
+		Summary:         "Install the host-checks fixture plan.",
+		Detail:          []byte("Host-checks fixture."),
 	}); err != nil {
 		t.Fatal(err)
 	}

@@ -57,16 +57,18 @@ type TrackKey struct {
 }
 
 type WorkspaceLease struct {
-	owner      *Workspaces
-	path       string
-	token      string
-	key        TrackKey
-	view       WorkspaceView
-	access     WorkspaceAccess
-	head       OID
-	closed     bool
-	readOnly   bool
-	writerLock *os.File
+	owner       *Workspaces
+	path        string
+	token       string
+	key         TrackKey
+	view        WorkspaceView
+	access      WorkspaceAccess
+	head        OID
+	closed      bool
+	readOnly    bool
+	fenced      bool
+	fenceReason string
+	writerLock  *os.File
 }
 
 // ReleaseAssemblyLease deliberately exposes no workspace path. It is an
@@ -133,16 +135,18 @@ const (
 )
 
 type Workspaces struct {
-	repository     *Repository
-	identity       string
-	commitIdentity Identity
-	root           string
-	treesRoot      string
-	leasesRoot     string
-	lock           *os.File
-	mu             sync.Mutex
-	leases         map[string]*WorkspaceLease
-	closed         bool
+	repository       *Repository
+	identity         string
+	commitIdentity   Identity
+	root             string
+	treesRoot        string
+	leasesRoot       string
+	fencesRoot       string
+	attributionsRoot string
+	lock             *os.File
+	mu               sync.Mutex
+	leases           map[string]*WorkspaceLease
+	closed           bool
 }
 
 // NewWorkspaces creates an ephemeral engine-owned workspace root for callers
@@ -216,13 +220,15 @@ func newWorkspaces(repository *Repository, runID string) (*Workspaces, error) {
 		return nil, err
 	}
 	workspaces := &Workspaces{
-		repository: repository,
-		identity:   identity,
-		root:       root,
-		treesRoot:  filepath.Join(root, "trees"),
-		leasesRoot: filepath.Join(root, "leases"),
-		lock:       lock,
-		leases:     make(map[string]*WorkspaceLease),
+		repository:       repository,
+		identity:         identity,
+		root:             root,
+		treesRoot:        filepath.Join(root, "trees"),
+		leasesRoot:       filepath.Join(root, "leases"),
+		fencesRoot:       filepath.Join(root, "fences"),
+		attributionsRoot: filepath.Join(root, "attributions"),
+		lock:             lock,
+		leases:           make(map[string]*WorkspaceLease),
 	}
 	if err := workspaces.prepareRoot(); err != nil {
 		_ = workspaces.releaseLock()
@@ -546,11 +552,19 @@ func (w *Workspaces) prepareRoot() error {
 	if err := ensurePrivateDirectory(w.leasesRoot); err != nil {
 		return err
 	}
+	if err := ensurePrivateDirectory(w.fencesRoot); err != nil {
+		return err
+	}
+	if err := ensurePrivateDirectory(w.attributionsRoot); err != nil {
+		return err
+	}
 	entries, err := os.ReadDir(w.root)
 	if err != nil {
 		return fail("WORKSPACE_CREATE_FAILED", "inspect workspace root layout", err)
 	}
-	expected := map[string]bool{"owner": false, "trees": false, "leases": false}
+	expected := map[string]bool{
+		"owner": false, "trees": false, "leases": false, "fences": false, "attributions": false,
+	}
 	for _, entry := range entries {
 		if _, ok := expected[entry.Name()]; !ok {
 			return fail("WORKSPACE_OWNERSHIP_MISMATCH", "validate workspace root layout", nil)
@@ -651,6 +665,19 @@ func (w *Workspaces) recoverAbandoned() error {
 	sort.Strings(tokens)
 	for _, token := range tokens {
 		tree := filepath.Join(w.treesRoot, token)
+		if w.isFencedTree(tree, token) {
+			continue
+		}
+		if w.hasAttributionMarker(token) {
+			// A durably attributed abandoned tree is production
+			// implementation work from an interrupted process, not debris:
+			// leave it, its lease marker, and its registered worktree intact
+			// for reconciliation to adopt on this or a later owned cycle.
+			continue
+		}
+		if testCrashAfterEffect == "workspace.cleanup" {
+			os.Exit(86)
+		}
 		if _, ok := registeredHere[tree]; ok {
 			if _, err := os.Lstat(tree); err == nil {
 				if err := makeWorkspaceRemovable(tree); err != nil {
@@ -901,6 +928,9 @@ func (w *Workspaces) OpenTrack(
 	}
 	var writerLock *os.File
 	if access == WorkspaceReadWrite {
+		if w.hasFencedWorkspace(key) {
+			return nil, fail("WORKSPACE_FENCED", "open track workspace", errors.New("track has a quarantined fenced workspace"))
+		}
 		var err error
 		// Admit the one writer before reading the track head. Capturing first
 		// would allow a predecessor to publish and release between these steps,
@@ -1388,6 +1418,15 @@ func (l *WorkspaceLease) Close() error {
 	if l == nil || l.closed {
 		return nil
 	}
+	if l.fenced {
+		l.owner.mu.Lock()
+		l.closed = true
+		delete(l.owner.leases, l.path)
+		writerLock := l.writerLock
+		l.writerLock = nil
+		l.owner.mu.Unlock()
+		return releasePrivateLock(writerLock, "workspace writer")
+	}
 	return l.owner.remove(l)
 }
 
@@ -1396,6 +1435,13 @@ func (w *Workspaces) remove(lease *WorkspaceLease) error {
 	defer w.mu.Unlock()
 	if lease.closed {
 		return nil
+	}
+	if lease.fenced {
+		lease.closed = true
+		delete(w.leases, lease.path)
+		writerLock := lease.writerLock
+		lease.writerLock = nil
+		return releasePrivateLock(writerLock, "workspace writer")
 	}
 	if !workspaceTokenPattern.MatchString(lease.token) ||
 		lease.path != filepath.Join(w.treesRoot, lease.token) {
@@ -1435,6 +1481,10 @@ func (w *Workspaces) remove(lease *WorkspaceLease) error {
 	); err != nil {
 		return fail("WORKSPACE_CLEANUP_FAILED", "remove workspace", err)
 	}
+	// The tree this attribution named is gone now: clear it here rather than
+	// leaving a stale record a later reconciliation scan would otherwise try
+	// to adopt against a worktree that no longer exists.
+	_ = w.ClearAttribution(lease.token)
 	if err := os.Remove(marker); err != nil {
 		return fail("WORKSPACE_CLEANUP_FAILED", "remove workspace lease", err)
 	}
@@ -1462,6 +1512,9 @@ func (w *Workspaces) Close() (result error) {
 	w.mu.Unlock()
 	var joined error
 	for _, lease := range leases {
+		if lease.fenced {
+			continue
+		}
 		joined = errors.Join(joined, w.remove(lease))
 	}
 	if joined != nil {
@@ -1470,14 +1523,17 @@ func (w *Workspaces) Close() (result error) {
 	defer func() {
 		result = errors.Join(result, w.releaseLock())
 	}()
+	if w.hasAnyFenced() || w.hasAnyAttributed() {
+		return nil
+	}
 	if err := validateMarker(
 		filepath.Join(w.root, "owner"),
 		rootMarker(w.identity),
 	); err != nil {
 		return err
 	}
-	for _, directory := range []string{w.treesRoot, w.leasesRoot} {
-		if err := os.Remove(directory); err != nil {
+	for _, directory := range []string{w.treesRoot, w.leasesRoot, w.fencesRoot, w.attributionsRoot} {
+		if err := os.Remove(directory); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return fail("WORKSPACE_CLEANUP_FAILED", "remove workspace directory", err)
 		}
 	}

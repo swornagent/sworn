@@ -111,12 +111,15 @@ func (f *CommandFacade) StartDelegated(ctx context.Context, command StartDelegat
 }
 
 type ControlCommand struct {
-	RunID              string              `json:"run_id"`
-	CommandID          string              `json:"command_id"`
-	Kind               journal.ControlKind `json:"kind"`
-	ExpectedGeneration int64               `json:"expected_generation"`
-	WorkID             string              `json:"work_id,omitempty"`
-	ExpectedEpoch      int64               `json:"expected_epoch,omitempty"`
+	RunID                   string              `json:"run_id"`
+	CommandID               string              `json:"command_id"`
+	Kind                    journal.ControlKind `json:"kind"`
+	ExpectedGeneration      int64               `json:"expected_generation"`
+	WorkID                  string              `json:"work_id,omitempty"`
+	ExpectedEpoch           int64               `json:"expected_epoch,omitempty"`
+	Unit                    string              `json:"unit,omitempty"`
+	Amount                  int64               `json:"amount,omitempty"`
+	AcknowledgeUnknownUsage bool                `json:"acknowledge_unknown_usage,omitempty"`
 }
 
 type RedeliveryCommand struct {
@@ -196,27 +199,47 @@ func (f *CommandFacade) Control(
 	}
 	switch command.Kind {
 	case journal.Pause, journal.Resume, journal.Cancel, journal.Takeover:
-		if command.WorkID != "" || command.ExpectedEpoch != 0 {
+		if command.WorkID != "" || command.ExpectedEpoch != 0 ||
+			command.Unit != "" || command.Amount != 0 ||
+			command.AcknowledgeUnknownUsage {
 			return runtimepkg.RunStatus{}, fail("INVALID_COMMAND")
 		}
 	case journal.Retry:
-		if command.WorkID == "" || command.ExpectedEpoch < 1 {
+		if command.WorkID == "" || command.ExpectedEpoch < 1 ||
+			command.Unit != "" || command.Amount != 0 ||
+			command.AcknowledgeUnknownUsage {
+			return runtimepkg.RunStatus{}, fail("INVALID_COMMAND")
+		}
+	case journal.Grant:
+		if command.WorkID == "" || command.ExpectedEpoch < 1 ||
+			command.Unit == "" || command.Amount <= 0 {
 			return runtimepkg.RunStatus{}, fail("INVALID_COMMAND")
 		}
 	default:
 		return runtimepkg.RunStatus{}, fail("INVALID_COMMAND")
 	}
 	status, err := f.runtime.Control(ctx, runtimepkg.ControlCommand{
-		RunID:              command.RunID,
-		ID:                 command.CommandID,
-		Kind:               command.Kind,
-		ExpectedGeneration: command.ExpectedGeneration,
-		WorkID:             command.WorkID,
-		ExpectedEpoch:      command.ExpectedEpoch,
+		RunID:                   command.RunID,
+		ID:                      command.CommandID,
+		Kind:                    command.Kind,
+		ExpectedGeneration:      command.ExpectedGeneration,
+		WorkID:                  command.WorkID,
+		ExpectedEpoch:           command.ExpectedEpoch,
+		Unit:                    command.Unit,
+		Amount:                  command.Amount,
+		AcknowledgeUnknownUsage: command.AcknowledgeUnknownUsage,
 	})
 	if err != nil {
 		if runtimepkg.IsCode(err, "OWNER_TRANSITION_PENDING") {
 			return runtimepkg.RunStatus{}, fail("OWNER_TRANSITION_PENDING")
+		}
+		for _, code := range []string{
+			"ECONOMY_GRANT_REQUIRED", "GRANT_WRONG_UNIT",
+			"GRANT_ABOVE_HARD_CEILING", "ECONOMY_USAGE_UNKNOWN",
+		} {
+			if runtimepkg.IsCode(err, code) {
+				return runtimepkg.RunStatus{}, fail(code)
+			}
 		}
 		return runtimepkg.RunStatus{}, fail("COMMAND_REJECTED")
 	}

@@ -1223,3 +1223,114 @@ func TestEvalRecordCarriesAttemptFactsAndKeepsMixedModelGroupsDistinct(
 		t.Fatalf("mixed-model group series collapsed: %#v", metrics)
 	}
 }
+
+// A4 (S4-resumable-budget-stops): equal tool work performed under a
+// batching profile (many tool calls issued per turn) and a one-call-per-
+// turn profile is visibly attributable through TurnEconomics, not
+// collapsed into one indistinguishable total. Both fixtures perform the
+// identical 6 total tool calls; the batching group does it in 2 turns
+// (ratio 3/1), the one-call-per-turn group does it in 6 turns (ratio 1/1)
+// - the same total work, a materially different turn cost, and the eval
+// record must carry both ratios distinctly per group.
+func TestEvalRecordAttributesEqualToolWorkDifferentlyForBatchingVersusOneCallPerTurn(
+	t *testing.T,
+) {
+	t.Parallel()
+	started := time.Unix(1_700_000_000, 0).UTC()
+	finished := started.Add(time.Second)
+	buildReceipt := func(profile, model string, turns, toolCalls int64) []byte {
+		t.Helper()
+		receipt := driver.UsageReceipt{
+			SchemaVersion:  driver.UsageSchemaV2,
+			Surface:        "sworn.fake",
+			TokenStatus:    driver.UsageReported,
+			InputTokens:    int64Pointer(1),
+			OutputTokens:   int64Pointer(1),
+			CostStatus:     driver.UsageUnavailable,
+			CacheStatus:    driver.UsageUnavailable,
+			DurationMillis: int64Pointer(10),
+			Profile:        textPointer(profile),
+			Model:          textPointer(model),
+			Turns:          int64Pointer(turns),
+			ToolCalls:      int64Pointer(toolCalls),
+		}
+		body, err := driver.EncodeUsageReceipt(receipt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return body
+	}
+	facts := []journal.EvaluationFact{
+		{
+			Kind: journal.EvaluationAttempt, EffectKind: "driver.dispatch",
+			EffectState: journal.Succeeded, Attempt: 1,
+			Responsibility: "implementer_implementation",
+			Transport:      "completed",
+			Usage:          buildReceipt("profile-batching", "model-batch", 2, 6),
+			StartedAt:      started, FinishedAt: finished,
+		},
+		{
+			Kind: journal.EvaluationAttempt, EffectKind: "driver.dispatch",
+			EffectState: journal.Succeeded, Attempt: 2,
+			Responsibility: "implementer_implementation",
+			Transport:      "completed",
+			Usage:          buildReceipt("profile-single", "model-single", 6, 6),
+			StartedAt:      started, FinishedAt: finished,
+		},
+	}
+	store := &fakeEvaluationJournal{
+		window: journal.EvaluationWindow{
+			Run: journal.Run{
+				ID: "run-batching", Release: "release-1", CreatedAt: started,
+			},
+			ThroughOffset: 1,
+			ObservedAt:    finished,
+		},
+		facts: facts,
+	}
+	projector := &fakeSnapshotProjector{snapshots: []cockpit.Snapshot{{
+		Run: cockpit.RunView{
+			ID: "run-batching", Release: "release-1", State: "running",
+		},
+		ThroughOffset: 1,
+	}}}
+	evaluator, err := NewEvaluator(store, projector, "0.3.0-dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, changed, err := evaluator.Advance(context.Background(), "run-batching")
+	if err != nil || !changed {
+		t.Fatalf("advance = %t, %v", changed, err)
+	}
+	if len(record.Groups) != 2 {
+		t.Fatalf("groups = %#v", record.Groups)
+	}
+	var batching, single AttemptGroup
+	for _, group := range record.Groups {
+		switch group.Profile {
+		case "profile-batching":
+			batching = group
+		case "profile-single":
+			single = group
+		}
+	}
+	if batching.TurnEconomics.ToolCalls == nil || single.TurnEconomics.ToolCalls == nil ||
+		*batching.TurnEconomics.ToolCalls != *single.TurnEconomics.ToolCalls {
+		t.Fatalf(
+			"fixtures did not perform equal tool work: batching=%#v single=%#v",
+			batching.TurnEconomics, single.TurnEconomics,
+		)
+	}
+	if batching.TurnEconomics.Turns == nil || *batching.TurnEconomics.Turns != 2 ||
+		single.TurnEconomics.Turns == nil || *single.TurnEconomics.Turns != 6 {
+		t.Fatalf("turn counts not distinctly attributed: batching=%#v single=%#v",
+			batching.TurnEconomics, single.TurnEconomics)
+	}
+	if *batching.TurnEconomics.ToolCallsPerTurn.Numerator != 6 ||
+		*batching.TurnEconomics.ToolCallsPerTurn.Denominator != 2 ||
+		*single.TurnEconomics.ToolCallsPerTurn.Numerator != 6 ||
+		*single.TurnEconomics.ToolCallsPerTurn.Denominator != 6 {
+		t.Fatalf("tool-calls-per-turn ratios collapsed equal work into one figure: batching=%#v single=%#v",
+			batching.TurnEconomics.ToolCallsPerTurn, single.TurnEconomics.ToolCallsPerTurn)
+	}
+}

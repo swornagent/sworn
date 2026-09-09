@@ -1326,6 +1326,7 @@ func platformStartNativeContinuationMode(
 			parent,
 			invocation.RecoveryStepHook,
 			RecoveryStepProseNudge,
+			nil,
 		); err != nil {
 			return Observation{}, nil, err
 		}
@@ -1459,6 +1460,7 @@ func platformResumeNativeContinuationMode(
 			parent,
 			invocation.RecoveryStepHook,
 			RecoveryStepProseNudge,
+			nil,
 		); reserveErr != nil {
 			return Observation{}, nil, reserveErr
 		}

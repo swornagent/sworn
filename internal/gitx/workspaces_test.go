@@ -2,12 +2,14 @@ package gitx
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func createTrack(t *testing.T, repository *Repository, key TrackKey, head OID) {
@@ -1476,5 +1478,731 @@ func TestRefreshSealCollectsBoundedAuthorityPaths(t *testing.T) {
 	}
 	if gitErr.TotalPaths != 25 {
 		t.Fatalf("expected 25 total paths, got %d", gitErr.TotalPaths)
+	}
+}
+
+func TestCheckpointGCSurvival(t *testing.T) {
+	t.Parallel()
+
+	repo, base := newRepository(t, SHA1)
+	key := TrackKey{Release: "rel-gc", Track: "T1"}
+	createTrack(t, repo, key, base)
+
+	workspaces, err := NewRunWorkspaces(repo, "run-gc", testIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer workspaces.Close()
+
+	lease, err := workspaces.OpenTrack(key, ImplementationView)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	file := filepath.Join(lease.Path(), "preserved.txt")
+	if err := os.WriteFile(file, []byte("must survive gc"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	attempt := CheckpointAttempt{WorkID: "S1", Epoch: 1, Try: 1}
+	scope := CheckpointScope{Include: []string{"preserved.txt"}}
+
+	result, err := workspaces.CaptureCheckpoint(lease, attempt, "S1", scope, 0, nil)
+	if err != nil {
+		t.Fatalf("capture checkpoint failed: %v", err)
+	}
+	if err := lease.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Run aggressive git gc
+	if _, err := repo.run(nil, nil, "gc", "--prune=now"); err != nil {
+		t.Fatalf("git gc failed: %v", err)
+	}
+
+	// Checkpoint commit and tree must still exist in git object store
+	if _, err := repo.run(nil, nil, "cat-file", "-e", result.Commit.String()); err != nil {
+		t.Fatalf("checkpoint commit did not survive gc: %v", err)
+	}
+	if _, err := repo.run(nil, nil, "cat-file", "-e", result.Tree.String()); err != nil {
+		t.Fatalf("checkpoint tree did not survive gc: %v", err)
+	}
+}
+
+func TestCheckpointScopeViolationFencesWorkspace(t *testing.T) {
+	t.Parallel()
+
+	repo, base := newRepository(t, SHA1)
+	key := TrackKey{Release: "rel-scope", Track: "T1"}
+	createTrack(t, repo, key, base)
+
+	workspaces, err := NewRunWorkspaces(repo, "run-scope", testIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer workspaces.Close()
+
+	lease, err := workspaces.OpenTrack(key, ImplementationView)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Write allowed progress file
+	allowedPath := filepath.Join(lease.Path(), "allowed.txt")
+	if err := os.WriteFile(allowedPath, []byte("allowed progress"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write out-of-scope file
+	file := filepath.Join(lease.Path(), "forbidden.txt")
+	if err := os.WriteFile(file, []byte("out of scope"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	attempt := CheckpointAttempt{WorkID: "S1", Epoch: 1, Try: 1}
+	scope := CheckpointScope{Include: []string{"allowed.txt"}}
+
+	_, err = workspaces.CaptureCheckpoint(lease, attempt, "S1", scope, 0, nil)
+	if err == nil {
+		t.Fatal("expected scope violation error")
+	}
+	if !strings.Contains(err.Error(), "CHECKPOINT_SCOPE_VIOLATION") {
+		t.Fatalf("expected CHECKPOINT_SCOPE_VIOLATION, got: %v", err)
+	}
+
+	// Workspace MUST be fenced on ordinary scope violation to retain data
+	if !lease.IsFenced() {
+		t.Fatal("workspace should be fenced on scope violation")
+	}
+
+	path := lease.Path()
+
+	// Closing lease should NOT remove the worktree because it is fenced
+	if err := lease.Close(); err != nil {
+		t.Fatalf("lease close failed: %v", err)
+	}
+
+	// allowed.txt and forbidden.txt must both be preserved!
+	if _, err := os.Lstat(allowedPath); err != nil {
+		t.Fatalf("allowed.txt was deleted from quarantined workspace: %v", err)
+	}
+	if _, err := os.Lstat(file); err != nil {
+		t.Fatalf("forbidden.txt was deleted from quarantined workspace: %v", err)
+	}
+
+	// Verify .fence file exists
+	fenceFile := filepath.Join(path, WorkspaceFenceFile)
+	if _, err := os.Lstat(fenceFile); err != nil {
+		t.Fatalf(".fence file not found in quarantined workspace: %v", err)
+	}
+
+	// Close the current workspaces so newWorkspaces can acquire the lock
+	if err := workspaces.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Startup cleanup / recoverAbandoned should NOT delete fenced workspace
+	newWorkspaces, err := NewRunWorkspaces(repo, "run-scope", testIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer newWorkspaces.Close()
+
+	if _, err := os.Lstat(allowedPath); err != nil {
+		t.Fatalf("allowed.txt was removed by recoverAbandoned: %v", err)
+	}
+
+	// OpenTrack for same key must fail with WORKSPACE_FENCED
+	_, err = newWorkspaces.OpenTrack(key, ImplementationView)
+	if err == nil || !strings.Contains(err.Error(), "WORKSPACE_FENCED") {
+		t.Fatalf("expected WORKSPACE_FENCED, got: %v", err)
+	}
+}
+
+func TestCheckpointUnsupportedEntryFencesWorkspace(t *testing.T) {
+	t.Parallel()
+
+	repo, base := newRepository(t, SHA1)
+	key := TrackKey{Release: "rel-escape", Track: "T1"}
+	createTrack(t, repo, key, base)
+
+	workspaces, err := NewRunWorkspaces(repo, "run-escape", testIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer workspaces.Close()
+
+	lease, err := workspaces.OpenTrack(key, ImplementationView)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create escaping symlink
+	link := filepath.Join(lease.Path(), "escape_link")
+	if err := os.Symlink("/etc/passwd", link); err != nil {
+		t.Fatal(err)
+	}
+
+	attempt := CheckpointAttempt{WorkID: "S1", Epoch: 1, Try: 1}
+	scope := CheckpointScope{Include: []string{"escape_link"}}
+
+	_, err = workspaces.CaptureCheckpoint(lease, attempt, "S1", scope, 0, nil)
+	if err == nil {
+		t.Fatal("expected error on escaping symlink")
+	}
+	if !strings.Contains(err.Error(), "CHECKPOINT_UNSUPPORTED_ENTRY") {
+		t.Fatalf("expected CHECKPOINT_UNSUPPORTED_ENTRY, got: %v", err)
+	}
+
+	// Workspace must be fenced!
+	if !lease.IsFenced() {
+		t.Fatal("workspace should be fenced on escaping symlink")
+	}
+
+	path := lease.Path()
+
+	// Close lease - since it is fenced, it should NOT delete from disk
+	if err := lease.Close(); err != nil {
+		t.Fatalf("lease close failed: %v", err)
+	}
+
+	if _, err := os.Lstat(path); err != nil {
+		t.Fatalf("fenced workspace was deleted on Close: %v", err)
+	}
+
+	// Verify .fence file
+	fenceFile := filepath.Join(path, WorkspaceFenceFile)
+	if _, err := os.Lstat(fenceFile); err != nil {
+		t.Fatalf(".fence file not found in quarantined workspace: %v", err)
+	}
+
+	// Close the current workspaces so newWorkspaces can acquire the lock
+	if err := workspaces.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Startup cleanup / recoverAbandoned should NOT delete fenced workspace
+	newWorkspaces, err := NewRunWorkspaces(repo, "run-escape", testIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer newWorkspaces.Close()
+
+	if _, err := os.Lstat(path); err != nil {
+		t.Fatalf("fenced workspace was removed by recoverAbandoned: %v", err)
+	}
+
+	// OpenTrack for same key must fail with WORKSPACE_FENCED
+	_, err = newWorkspaces.OpenTrack(key, ImplementationView)
+	if err == nil || !strings.Contains(err.Error(), "WORKSPACE_FENCED") {
+		t.Fatalf("expected WORKSPACE_FENCED, got: %v", err)
+	}
+}
+
+func TestCheckpointCapacityExceededFencesWorkspace(t *testing.T) {
+	t.Parallel()
+
+	repo, base := newRepository(t, SHA1)
+	key := TrackKey{Release: "rel-capacity", Track: "T1"}
+	createTrack(t, repo, key, base)
+
+	workspaces, err := NewRunWorkspaces(repo, "run-capacity", testIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer workspaces.Close()
+
+	lease, err := workspaces.OpenTrack(key, ImplementationView)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	allowedPath := filepath.Join(lease.Path(), "data.txt")
+	if err := os.WriteFile(allowedPath, []byte("valuable progress"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	attempt := CheckpointAttempt{WorkID: "S1", Epoch: 1, Try: 1}
+	scope := CheckpointScope{Include: []string{"data.txt"}}
+
+	// Existing staged bytes already at capacity
+	_, err = workspaces.CaptureCheckpoint(lease, attempt, "S1", scope, MaxAggregateCheckpointBytes, nil)
+	if err == nil {
+		t.Fatal("expected capacity exceeded error")
+	}
+	if !strings.Contains(err.Error(), "CHECKPOINT_CAPACITY_EXCEEDED") {
+		t.Fatalf("expected CHECKPOINT_CAPACITY_EXCEEDED, got: %v", err)
+	}
+
+	if !lease.IsFenced() {
+		t.Fatal("workspace should be fenced on capacity exceeded")
+	}
+
+	path := lease.Path()
+	if err := lease.Close(); err != nil {
+		t.Fatalf("lease close failed: %v", err)
+	}
+
+	if _, err := os.Lstat(allowedPath); err != nil {
+		t.Fatalf("data.txt was deleted from quarantined workspace: %v", err)
+	}
+	_ = path
+}
+
+func TestCheckpointCorruptFenceRetainsQuarantine(t *testing.T) {
+	t.Parallel()
+
+	repo, base := newRepository(t, SHA1)
+	key := TrackKey{Release: "rel-corrupt-fence", Track: "T1"}
+	createTrack(t, repo, key, base)
+
+	workspaces, err := NewRunWorkspaces(repo, "run-corrupt-fence", testIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lease, err := workspaces.OpenTrack(key, ImplementationView)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dataFilePath := filepath.Join(lease.Path(), "data.txt")
+	if err := os.WriteFile(dataFilePath, []byte("progress"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Fence the lease
+	if err := lease.Fence("CHECKPOINT_UNSUPPORTED_ENTRY", "test entry", "S1"); err != nil {
+		t.Fatal(err)
+	}
+
+	path := lease.Path()
+
+	// Deliberately corrupt .fence file (e.g. truncated due to ENOSPC)
+	fenceFile := filepath.Join(path, WorkspaceFenceFile)
+	if err := os.WriteFile(fenceFile, []byte("{corrupt json truncated..."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Also corrupt auxiliary marker
+	auxMarker := filepath.Join(workspaces.fencesRoot, lease.Token())
+	if err := os.WriteFile(auxMarker, []byte("bad json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := lease.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := workspaces.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// New workspaces recovery must NOT remove the workspace even if fence is corrupt!
+	newWorkspaces, err := NewRunWorkspaces(repo, "run-corrupt-fence", testIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer newWorkspaces.Close()
+
+	if _, err := os.Lstat(dataFilePath); err != nil {
+		t.Fatalf("progress file was removed by recoverAbandoned on corrupt fence: %v", err)
+	}
+}
+
+func TestCheckpointGenerationPruning(t *testing.T) {
+	t.Parallel()
+
+	repo, base := newRepository(t, SHA1)
+	key := TrackKey{Release: "rel-prune", Track: "T1"}
+	createTrack(t, repo, key, base)
+
+	workspaces, err := NewRunWorkspaces(repo, "run-prune", testIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer workspaces.Close()
+
+	lease, err := workspaces.OpenTrack(key, ImplementationView)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.Close()
+
+	scope := CheckpointScope{Include: []string{"file.txt"}}
+
+	// Capture generations with attempt coordinates that exercise multi-digit sorting:
+	// try 1, 2, 10, 11, 12.
+	// Lexicographic string sort would put 10, 11, 12 before 2!
+	// Numeric coordinate sort preserves 10, 11, 12 and evicts 1, 2.
+	tries := []int64{1, 2, 10, 11, 12}
+	var lastRef string
+	for _, try := range tries {
+		filePath := filepath.Join(lease.Path(), "file.txt")
+		if err := os.WriteFile(filePath, []byte(fmt.Sprintf("content %d", try)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		attempt := CheckpointAttempt{WorkID: "S1", Epoch: 1, Try: try}
+		res, err := workspaces.CaptureCheckpoint(lease, attempt, "S1", scope, 0, nil)
+		if err != nil {
+			t.Fatalf("capture checkpoint try %d failed: %v", try, err)
+		}
+		lastRef = res.Ref
+
+		// Call prune after capture, passing the newly committed ref to never evict
+		_, err = workspaces.PruneCheckpointGenerations(key, "S1", MaxCheckpointGenerations, lastRef)
+		if err != nil {
+			t.Fatalf("prune checkpoint try %d failed: %v", try, err)
+		}
+	}
+
+	// Exactly 3 most recent generations should exist: tries 10, 11, 12
+	prefix := CheckpointRefPrefix + key.Release + "/" + key.Track + "/"
+	refs, err := repo.ListHeadRefsUnder(prefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workRefs []RefHead
+	for _, r := range refs {
+		if strings.HasPrefix(r.Ref, prefix+"S1-") {
+			workRefs = append(workRefs, r)
+		}
+	}
+	if len(workRefs) != MaxCheckpointGenerations {
+		t.Fatalf("expected %d retained generations, got %d: %#v", MaxCheckpointGenerations, len(workRefs), workRefs)
+	}
+
+	// Verify that the 3 retained refs are indeed 10, 11, 12
+	refSet := make(map[string]bool)
+	for _, r := range workRefs {
+		refSet[r.Ref] = true
+	}
+	for _, expectedTry := range []int64{10, 11, 12} {
+		expectedRef := fmt.Sprintf("%sS1-1-%d", prefix, expectedTry)
+		if !refSet[expectedRef] {
+			t.Fatalf("expected retained generation %s, but found refs: %#v", expectedRef, workRefs)
+		}
+	}
+}
+
+func TestCheckpointBoundsOversizeAndTooManyFiles(t *testing.T) {
+	t.Parallel()
+
+	repo, base := newRepository(t, SHA1)
+	key := TrackKey{Release: "rel-bounds", Track: "T1"}
+	createTrack(t, repo, key, base)
+
+	workspaces, err := NewRunWorkspaces(repo, "run-bounds", testIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer workspaces.Close()
+
+	lease, err := workspaces.OpenTrack(key, ImplementationView)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.Close()
+
+	// Aggregate capacity check
+	attempt := CheckpointAttempt{WorkID: "S1", Epoch: 1, Try: 1}
+	scope := CheckpointScope{Include: []string{"test.txt"}}
+	if err := os.WriteFile(filepath.Join(lease.Path(), "test.txt"), []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Passing existingStagedBytes = MaxAggregateCheckpointBytes
+	_, err = workspaces.CaptureCheckpoint(lease, attempt, "S1", scope, MaxAggregateCheckpointBytes, nil)
+	if err == nil || !strings.Contains(err.Error(), "CHECKPOINT_CAPACITY_EXCEEDED") {
+		t.Fatalf("expected CHECKPOINT_CAPACITY_EXCEEDED, got: %v", err)
+	}
+}
+
+// TestAdoptAbandonedWorkspaceRefusedByLiveWorkerHelper is the subprocess
+// half of TestAdoptAbandonedWorkspaceRefusesLiveWorkerThenSucceedsAfterExit:
+// a genuinely separate OS process that opens and attributes a track
+// workspace, signals readiness, then blocks holding its real writer flock
+// until told to exit - so the parent test observes an actually-live worker,
+// not a simulated one.
+func TestAdoptAbandonedWorkspaceRefusedByLiveWorkerHelper(t *testing.T) {
+	if os.Getenv("SWORN_WORKSPACE_LIVE_HELPER") != "1" {
+		return
+	}
+	repository, err := Open(
+		os.Getenv("SWORN_WORKSPACE_LIVE_REPOSITORY"),
+		os.Getenv("SWORN_WORKSPACE_LIVE_GIT"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := TrackKey{
+		Release: os.Getenv("SWORN_WORKSPACE_LIVE_RELEASE"),
+		Track:   os.Getenv("SWORN_WORKSPACE_LIVE_TRACK"),
+	}
+	workspaces, err := NewRunWorkspaces(repository, "live-worker-run", testIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := workspaces.OpenTrack(key, ImplementationView)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attribution := WorkspaceAttribution{
+		CommonDir:    repository.CommonDir(),
+		RunID:        "live-worker-run",
+		Release:      key.Release,
+		Track:        key.Track,
+		Slice:        "S2",
+		PreparedBase: lease.Head().String(),
+	}
+	if err := workspaces.AttributeWorkspace(lease, attribution); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(lease.Path(), "live.txt"),
+		[]byte("a genuinely live worker\n"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		os.Getenv("SWORN_WORKSPACE_LIVE_TOKEN_PATH"),
+		[]byte(lease.Token()),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	readyPath := os.Getenv("SWORN_WORKSPACE_LIVE_READY_PATH")
+	if err := os.WriteFile(readyPath, []byte("ready"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	releasePath := os.Getenv("SWORN_WORKSPACE_LIVE_RELEASE_PATH")
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, statErr := os.Lstat(releasePath); statErr == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	// A hard exit: the writer flock releases when this process's file
+	// descriptors close, but nothing here ever ran its own cleanup, exactly
+	// like a killed production worker.
+	os.Exit(0)
+}
+
+func TestAdoptAbandonedWorkspaceRefusesLiveWorkerThenRecoversAfterExit(t *testing.T) {
+	t.Parallel()
+
+	repository, base := newRepository(t, SHA1)
+	key := TrackKey{Release: "rel-live-worker", Track: "T1"}
+	createTrack(t, repository, key, base)
+
+	root := t.TempDir()
+	tokenPath := filepath.Join(root, "token")
+	readyPath := filepath.Join(root, "ready")
+	releasePath := filepath.Join(root, "release")
+
+	command := exec.Command(os.Args[0], "-test.run=^TestAdoptAbandonedWorkspaceRefusedByLiveWorkerHelper$")
+	command.Env = append(
+		os.Environ(),
+		"SWORN_WORKSPACE_LIVE_HELPER=1",
+		"SWORN_WORKSPACE_LIVE_REPOSITORY="+repository.Root(),
+		"SWORN_WORKSPACE_LIVE_GIT="+repository.GitExecutable(),
+		"SWORN_WORKSPACE_LIVE_RELEASE="+key.Release,
+		"SWORN_WORKSPACE_LIVE_TRACK="+key.Track,
+		"SWORN_WORKSPACE_LIVE_TOKEN_PATH="+tokenPath,
+		"SWORN_WORKSPACE_LIVE_READY_PATH="+readyPath,
+		"SWORN_WORKSPACE_LIVE_RELEASE_PATH="+releasePath,
+	)
+	var output strings.Builder
+	command.Stdout = &output
+	command.Stderr = &output
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Lstat(readyPath); err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	rawToken, err := os.ReadFile(tokenPath)
+	if err != nil {
+		t.Fatalf("live worker never became ready: %v\n%s", err, output.String())
+	}
+	token := string(rawToken)
+
+	// A second, independent run racing the exact same physical track: the
+	// per-(commonDir, track) writer lock, not either run's own attribution
+	// bookkeeping, is what must refuse this - the same primitive
+	// reconcileOneWorkspace relies on when the liveness of a prior worker on
+	// this track is ambiguous rather than already known-abandoned. This
+	// second run has no attribution record of its own for the live worker's
+	// token; it is only trying to touch the same track key.
+	contender, err := NewRunWorkspaces(repository, "live-worker-contender", testIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := contender.AdoptAbandonedWorkspace(token, key, base); err == nil {
+		t.Fatal("expected adoption of a live worker's track to be refused")
+	} else {
+		requireGitxErrorCode(t, err, "WORKSPACE_OWNER_ACTIVE")
+	}
+	if err := contender.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Let the live worker hard-exit, then confirm the exact same run it
+	// belonged to can recover it once liveness is no longer ambiguous - the
+	// production continuation path, not a foreign takeover.
+	if err := os.WriteFile(releasePath, []byte("go"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := command.Wait(); err != nil {
+		t.Fatalf("live worker helper: %v\n%s", err, output.String())
+	}
+
+	replacement, err := NewRunWorkspaces(repository, "live-worker-run", testIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer replacement.Close()
+
+	listed, err := replacement.ListAttributions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 1 || listed[0].Token != token {
+		t.Fatalf("expected the live worker's attribution to survive for recovery, got %#v", listed)
+	}
+	head, err := ParseOID(repository.ObjectFormat(), listed[0].PreparedBase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adopted, err := replacement.AdoptAbandonedWorkspace(token, key, head)
+	if err != nil {
+		t.Fatalf("adopt after live worker exited: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(adopted.Path(), "live.txt")); err != nil {
+		t.Fatalf("adopted workspace lost the live worker's bytes: %v", err)
+	}
+}
+
+// TestWorkspaceCleanupCrashHelper is the subprocess half of
+// TestRunWorkspacesRecoverAbandonedDebrisAfterCleanupCrash. It sets the
+// package's own crash var directly rather than through
+// SWORN_TEST_CRASH_AFTER_EFFECT/testHooksFromEnv, since this is a fresh
+// process re-executing the test binary itself, not a built product binary
+// that would need the link-time gate to accept the hook at all.
+func TestWorkspaceCleanupCrashHelper(t *testing.T) {
+	if os.Getenv("SWORN_WORKSPACE_CLEANUP_CRASH_HELPER") != "1" {
+		return
+	}
+	testCrashAfterEffect = "workspace.cleanup"
+	repository, err := Open(
+		os.Getenv("SWORN_WORKSPACE_CRASH_REPOSITORY"),
+		os.Getenv("SWORN_WORKSPACE_CRASH_GIT"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewRunWorkspaces(repository, "hard-exit-run", testIdentity); err != nil {
+		t.Fatalf("recoverAbandoned failed before reaching its crash seam: %v", err)
+	}
+	t.Fatal("recoverAbandoned did not crash at the workspace.cleanup seam")
+}
+
+// TestRunWorkspacesRecoverAbandonedDebrisAfterCleanupCrash is S2's fifth
+// crash cut. workspace.cleanup sits inside recoverAbandoned's reclaim of
+// unattributed debris - a tree from a process that died before it ever
+// attributed the tree at all, the only kind recoverAbandoned's cleanup ever
+// reaches, since an attributed tree is reconciliation's job instead. The
+// debris here comes from the existing hard-exit fixture above, so the cut is
+// exercised against real orphaned bytes rather than a synthetic fixture.
+func TestRunWorkspacesRecoverAbandonedDebrisAfterCleanupCrash(t *testing.T) {
+	t.Parallel()
+
+	repository, base := newRepository(t, SHA1)
+	key := TrackKey{Release: "release-hard-exit", Track: "T1"}
+	createTrack(t, repository, key, base)
+
+	pathRecord := filepath.Join(t.TempDir(), "abandoned-path")
+	debrisCommand := exec.Command(os.Args[0], "-test.run=^TestRunWorkspacesHardExitHelper$")
+	debrisCommand.Env = append(
+		os.Environ(),
+		"SWORN_WORKSPACE_CRASH_HELPER=1",
+		"SWORN_WORKSPACE_CRASH_REPOSITORY="+repository.Root(),
+		"SWORN_WORKSPACE_CRASH_GIT="+repository.GitExecutable(),
+		"SWORN_WORKSPACE_CRASH_PATH="+pathRecord,
+	)
+	if output, err := debrisCommand.CombinedOutput(); err != nil {
+		t.Fatalf("debris helper: %v\n%s", err, output)
+	}
+	rawPath, err := os.ReadFile(pathRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	abandonedPath := string(rawPath)
+	if _, err := os.Lstat(abandonedPath); err != nil {
+		t.Fatalf("debris was not left behind: %v", err)
+	}
+
+	crashCommand := exec.Command(os.Args[0], "-test.run=^TestWorkspaceCleanupCrashHelper$")
+	crashCommand.Env = append(
+		os.Environ(),
+		"SWORN_WORKSPACE_CLEANUP_CRASH_HELPER=1",
+		"SWORN_WORKSPACE_CRASH_REPOSITORY="+repository.Root(),
+		"SWORN_WORKSPACE_CRASH_GIT="+repository.GitExecutable(),
+	)
+	output, err := crashCommand.CombinedOutput()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 86 {
+		t.Fatalf("workspace.cleanup cut = %v\n%s", err, output)
+	}
+
+	// The cut landed after the debris was identified but before anything was
+	// removed: the tree, its worktree registration and its lease marker all
+	// still exist exactly as they did before the crashed attempt.
+	if _, err := os.Lstat(abandonedPath); err != nil {
+		t.Fatalf("cut removed the debris tree instead of leaving it in place: %v", err)
+	}
+	registered, err := registeredWorktreePaths(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsWorkspacePath(registered, abandonedPath) {
+		t.Fatal("cut removed the debris worktree registration")
+	}
+
+	// An ordinary restart of the same run converges: the same unattributed
+	// debris is reclaimed exactly once, with no error from colliding with
+	// the half-finished prior attempt's own marker or tree.
+	replacement, err := NewRunWorkspaces(repository, "hard-exit-run", testIdentity)
+	if err != nil {
+		t.Fatalf("replacement did not converge on the interrupted cleanup: %v", err)
+	}
+	if _, err := os.Lstat(abandonedPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("replacement did not remove the debris tree: %v", err)
+	}
+	registered, err = registeredWorktreePaths(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if containsWorkspacePath(registered, abandonedPath) {
+		t.Fatal("replacement did not remove the debris worktree registration")
+	}
+	if err := replacement.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// A second replacement start (idempotent replay) finds nothing left to
+	// reclaim and raises no error: recovery of this debris is not repeated.
+	again, err := NewRunWorkspaces(repository, "hard-exit-run", testIdentity)
+	if err != nil {
+		t.Fatalf("idempotent replay after convergence: %v", err)
+	}
+	if err := again.Close(); err != nil {
+		t.Fatal(err)
 	}
 }

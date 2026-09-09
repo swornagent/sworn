@@ -10,11 +10,10 @@ import (
 	"testing"
 )
 
-// floorSummaryFixture and floorDetailFixture clear both content floors
-// (MinSubmissionSummaryFloorBytes, MinSubmissionDetailFloorBytes) without
-// self-declaring as a probe, so tests in this file can compose a submission
-// that reaches the refusal branch under test rather than tripping A2 or A3
-// first.
+// floorSummaryFixture and floorDetailFixture are compact, non-empty
+// summary/detail text that never self-declares as a probe, so tests in this
+// file can compose a submission that reaches the refusal branch under test
+// rather than tripping A2 first.
 const (
 	floorSummaryFixture = "Compact responsibility summary padded so this fixture clears the submission content floor for its dedicated A1/A2/A3 refusal-detail regression coverage across every named branch."
 	floorDetailFixture  = "Bounded detail padded so this fixture clears the detail content floor for its dedicated A1/A2/A3 refusal-detail regression coverage across every named branch tested here, well past the two-hundred-byte bound.\n"
@@ -110,67 +109,6 @@ func TestSubmissionDeclaresProbeMatchesObservedPayloadsAndAdmitsHonestWork(t *te
 	}
 }
 
-// TestSubmissionFloorCheckRefusesBelowFloorAndExemptsNonFlooredResponsibilities
-// pins A3: each of the five floored responsibilities refuses a summary or
-// detail under its own byte floor and names which, while
-// captain_plan_review and assembly_verification stay exempt even when both
-// fields are tiny.
-func TestSubmissionFloorCheckRefusesBelowFloorAndExemptsNonFlooredResponsibilities(t *testing.T) {
-	t.Parallel()
-	longSummary := strings.Repeat("s", MinSubmissionSummaryFloorBytes)
-	longDetail := strings.Repeat("d", MinSubmissionDetailFloorBytes)
-	shortSummary := strings.Repeat("s", MinSubmissionSummaryFloorBytes-1)
-	shortDetail := strings.Repeat("d", MinSubmissionDetailFloorBytes-1)
-
-	tests := []struct {
-		name           string
-		responsibility Responsibility
-		summary        string
-		detail         string
-		wantCode       string
-		wantField      string
-		wantBound      string
-	}{
-		{"planner below summary floor", PlannerProposal, shortSummary, longDetail, "SUBMISSION_BELOW_FLOOR", "summary", "min_submission_summary_floor_bytes"},
-		{"planner below detail floor", PlannerProposal, longSummary, shortDetail, "SUBMISSION_BELOW_FLOOR", "detail", "min_submission_detail_floor_bytes"},
-		{"planner exactly at floor admitted", PlannerProposal, longSummary, longDetail, "", "", ""},
-		{"assembly verification exempt even when tiny", AssemblyVerification, "x", "y", "", "", ""},
-		{"captain plan review exempt even when tiny", CaptainPlanReview, "x", "y", "", "", ""},
-		{"implementer design below summary floor", ImplementerDesign, shortSummary, longDetail, "SUBMISSION_BELOW_FLOOR", "summary", "min_submission_summary_floor_bytes"},
-		{"captain review below detail floor", CaptainReview, longSummary, shortDetail, "SUBMISSION_BELOW_FLOOR", "detail", "min_submission_detail_floor_bytes"},
-		{"work verification below summary floor first", WorkVerification, shortSummary, shortDetail, "SUBMISSION_BELOW_FLOOR", "summary", "min_submission_summary_floor_bytes"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			err := submissionFloorCheck(Submission{
-				Responsibility: tc.responsibility,
-				Summary:        tc.summary,
-				Detail:         tc.detail,
-			})
-			if tc.wantCode == "" {
-				if err != nil {
-					t.Fatalf("submissionFloorCheck(%s) = %v, want nil", tc.name, err)
-				}
-				return
-			}
-			var contractErr *ContractError
-			if !errors.As(err, &contractErr) || contractErr.Code != tc.wantCode {
-				t.Fatalf("submissionFloorCheck(%s) = %v, want code %s", tc.name, err, tc.wantCode)
-			}
-			var detail submissionRefusalDetail
-			if json.Unmarshal([]byte(contractErr.Detail), &detail) != nil ||
-				detail.Check != "submit.content_floor" ||
-				detail.Field != tc.wantField || detail.Bound != tc.wantBound {
-				t.Fatalf(
-					"submissionFloorCheck(%s) detail = %s, want field=%s bound=%s",
-					tc.name, contractErr.Detail, tc.wantField, tc.wantBound,
-				)
-			}
-		})
-	}
-}
-
 // TestSubmitEncodeDetailAttachesBoundOnlyForResourceLimit pins Captain
 // correction C2: the max_submission_bytes bound is named only when the
 // wrapped EncodeSubmission error is actually RESOURCE_LIMIT.
@@ -231,7 +169,7 @@ func TestTruncateSubmissionScopeLintPathsBoundsEncodedBytesAndMarksTruncation(t 
 // tool results - not a unit-level construction of the error.
 func TestToolSubmitNamesEveryRefusalBranch(t *testing.T) {
 	invocation, _, _ := memoryInvocationFixture(t)
-	invocation.RecoveryStepHook = func(context.Context, RecoveryStepKind) error { return nil }
+	invocation.RecoveryStepHook = func(context.Context, RecoveryStepKind, *SubmitRefusal) error { return nil }
 	session, err := newToolSession(invocation)
 	if err != nil {
 		t.Fatal(err)
@@ -362,7 +300,7 @@ func TestToolSubmitNamesEveryRefusalBranch(t *testing.T) {
 // neither ever seals.
 func TestToolSubmitRefusesSelfDeclaredProbePlainAndPaddedPastTheFloor(t *testing.T) {
 	invocation, _, _ := memoryInvocationFixture(t)
-	invocation.RecoveryStepHook = func(context.Context, RecoveryStepKind) error { return nil }
+	invocation.RecoveryStepHook = func(context.Context, RecoveryStepKind, *SubmitRefusal) error { return nil }
 	session, err := newToolSession(invocation)
 	if err != nil {
 		t.Fatal(err)
@@ -404,11 +342,13 @@ func TestToolSubmitRefusesSelfDeclaredProbePlainAndPaddedPastTheFloor(t *testing
 func TestNamedSubmissionRefusalCostsOneCorrectionNoTryAndCorrectedFollowUpSucceeds(t *testing.T) {
 	invocation, _, _ := memoryInvocationFixture(t)
 	reservations := 0
-	invocation.RecoveryStepHook = func(_ context.Context, kind RecoveryStepKind) error {
+	var lastRefusal *SubmitRefusal
+	invocation.RecoveryStepHook = func(_ context.Context, kind RecoveryStepKind, refusal *SubmitRefusal) error {
 		if kind != RecoveryStepSubmissionCorrection {
 			t.Fatalf("reservation kind = %s", kind)
 		}
 		reservations++
+		lastRefusal = refusal
 		return nil
 	}
 	invocation.recoverableInput = &RecoverableTurnInput{
@@ -422,18 +362,23 @@ func TestNamedSubmissionRefusalCostsOneCorrectionNoTryAndCorrectedFollowUpSuccee
 	}
 	defer session.Close()
 
-	belowFloor := map[string]any{
+	missingPlan := map[string]any{
 		"schema_version": SubmissionSchemaVersion,
 		"invocation_id":  invocation.Request.InvocationID,
 		"responsibility": string(PlannerProposal),
-		"summary":        "short",
-		"detail":         "short",
-		"plan":           planMember(t),
+		"summary":        floorSummaryFixture,
+		"detail":         floorDetailFixture,
+		// plan omitted: a planner_proposal requires Plan != nil, so this
+		// still-refused substantive case (SUBMISSION_SHAPE_MISMATCH)
+		// replaces the removed A3 content-floor refusal this fixture used.
 	}
-	res := executeToolJSON(t, session, "below-floor", "sworn_submit", map[string]any{"submission": belowFloor})
-	requireSubmissionRefusalDetail(t, res.Content, "SUBMISSION_BELOW_FLOOR", "submit.content_floor", "summary", "min_submission_summary_floor_bytes")
+	res := executeToolJSON(t, session, "shape-mismatch", "sworn_submit", map[string]any{"submission": missingPlan})
+	requireSubmissionRefusalDetail(t, res.Content, "SUBMISSION_SHAPE_MISMATCH", "submit.validate", "plan", "")
 	if reservations != 1 {
 		t.Fatalf("reservations = %d, want 1", reservations)
+	}
+	if lastRefusal == nil || lastRefusal.Code != "SUBMISSION_SHAPE_MISMATCH" || lastRefusal.Detail == "" {
+		t.Fatalf("reserved refusal = %#v, want the exact SUBMISSION_SHAPE_MISMATCH refusal", lastRefusal)
 	}
 	terminated, terminalErr := session.terminated()
 	if terminated || terminalErr != nil {

@@ -34,6 +34,7 @@ Commands:
   cancel    Stop a run at a safe boundary.
   takeover  Continue after the previous Sworn process stopped.
   retry     Retry one stopped work item.
+  grant     Admit an explicit bounded capacity grant for a budget-parked work item.
   answer    Answer a saved question that needs human judgment.
   approve   Admit one exact plan approval (low-level recovery/scripting).
   migrate-records  Move the reserved records root from .baton/releases to .sworn/records (one-time, operator-gated).
@@ -112,6 +113,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runControl(journal.Cancel, args[1:], stdout, stderr)
 	case "retry":
 		return runControl(journal.Retry, args[1:], stdout, stderr)
+	case "grant":
+		return runGrant(args[1:], stdout, stderr)
 	case "takeover":
 		return runControl(journal.Takeover, args[1:], stdout, stderr)
 	case "answer":
@@ -692,6 +695,90 @@ func runControl(kind journal.ControlKind, args []string, stdout, stderr io.Write
 	}
 	if kind == journal.Resume || kind == journal.Takeover {
 		_, _ = service.Wait(ctx, options["--run"])
+	}
+	return 0
+}
+
+func runGrant(args []string, stdout, stderr io.Writer) int {
+	values := []string{
+		"--run", "--journal", "--command", "--generation",
+		"--work", "--epoch", "--unit", "--amount",
+	}
+	options, ok := parseOptionsWithOptionalValues(
+		args,
+		values,
+		[]string{"--config"},
+		nil,
+		[]string{"--acknowledge-unknown-usage"},
+	)
+	if !ok {
+		fmt.Fprintln(
+			stderr,
+			"usage: sworn grant --run ID --journal PATH --command ID --generation N "+
+				"--work SHA256 --epoch N --unit UNIT --amount N "+
+				"[--acknowledge-unknown-usage] [--config ABS]",
+		)
+		return 2
+	}
+	generation, err := strconv.ParseInt(options["--generation"], 10, 64)
+	if err != nil || generation < 0 {
+		fmt.Fprintln(
+			stderr,
+			"sworn grant: generation must be the non-negative whole number from the latest board",
+		)
+		return 2
+	}
+	epoch, err := strconv.ParseInt(options["--epoch"], 10, 64)
+	if err != nil || epoch < 1 {
+		fmt.Fprintln(
+			stderr,
+			"sworn grant: epoch must be the positive whole number from the latest board",
+		)
+		return 2
+	}
+	amount, err := strconv.ParseInt(options["--amount"], 10, 64)
+	if err != nil || amount <= 0 {
+		fmt.Fprintln(stderr, "sworn grant: amount must be a positive whole number")
+		return 2
+	}
+	ctx := context.Background()
+	service, factory, err := openRuntimeService(
+		ctx,
+		options["--journal"],
+		options["--config"],
+	)
+	if err != nil {
+		writeCommandFailure(
+			stderr,
+			"grant",
+			"Could not open the saved run or its AI connections.",
+			err,
+		)
+		return 1
+	}
+	defer service.Close()
+	defer factory.Close()
+	status, err := service.Control(ctx, runtimepkg.ControlCommand{
+		RunID: options["--run"], ID: options["--command"], Kind: journal.Grant,
+		ExpectedGeneration:      generation,
+		WorkID:                  options["--work"],
+		ExpectedEpoch:           epoch,
+		Unit:                    options["--unit"],
+		Amount:                  amount,
+		AcknowledgeUnknownUsage: options["--acknowledge-unknown-usage"] == "true",
+	})
+	if err != nil {
+		writeCommandFailure(
+			stderr,
+			"grant",
+			"Could not apply that grant to the current run.",
+			err,
+		)
+		return 1
+	}
+	if err := writeStatusText(stdout, status); err != nil {
+		fmt.Fprintln(stderr, "sworn grant: output failed")
+		return 1
 	}
 	return 0
 }

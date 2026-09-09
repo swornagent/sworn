@@ -1227,3 +1227,173 @@ func TestTakeoverDuringUnexpiredLeaseExitsNonZeroWithActionableWait(t *testing.T
 		t.Fatalf("stderr missing technical code: %q", stderrStr)
 	}
 }
+
+// seedEconomyTurnCrossing opens the journal at journalPath and journals one
+// completed driver.dispatch attempt that crosses the turn-economy budget
+// (S4-resumable-budget-stops A1/A2), with a durable, digest-verified usage
+// observation an admission gate's economySpent can read back - the same
+// shape a real production crossing leaves, built directly rather than
+// through a live dispatch so this CLI test stays journal-only.
+func seedEconomyTurnCrossing(t *testing.T, journalPath, runID, workID string, turns int64) {
+	t.Helper()
+	ctx := context.Background()
+	store, err := journal.Open(ctx, journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	now := time.Now().UTC()
+	effectID := journal.AttemptEffectID(workID, 1, 1)
+	dummyDigest := "sha256:" + strings.Repeat("0", 64)
+	if err := store.EnsureAttempt(ctx, journal.Command{
+		RunID: runID, ReplayKey: effectID, Kind: "driver.dispatch",
+		Payload: []byte("{}\n"), CreatedAt: now,
+	}, journal.Effect{
+		RunID: runID, ID: effectID, ReplayKey: effectID, Kind: "driver.dispatch",
+		State: journal.Pending, BeforeDigest: dummyDigest, ExpectedDigest: dummyDigest,
+		UpdatedAt: now,
+	}, journal.EffectAttempt{WorkID: workID, Epoch: 1, Try: 1}); err != nil {
+		t.Fatal(err)
+	}
+	claim, err := store.Claim(ctx, runID, effectID, now, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	usage, err := driver.NormalizeUsage(
+		&driver.Usage{InputTokens: 10_000, OutputTokens: 20_000}, nil, "sworn.openai",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	usage.Turns, usage.ToolCalls = &turns, &turns
+	observationBody, err := json.Marshal(driver.Observation{
+		TransportStatus: driver.RunnerError, Usage: usage,
+		Diagnostic: driver.Diagnostic{Code: "economy_turn_budget"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	usageBody, err := driver.EncodeUsageReceipt(usage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Complete(ctx, journal.Completion{
+		RunID: runID, EffectID: effectID, Token: claim.Token,
+		State: journal.OperationalFailed, ErrorCode: "ECONOMY_TURN_BUDGET_EXCEEDED",
+		Attempt: &journal.Attempt{
+			Number: 1, Responsibility: string(driver.ImplementerImplementation),
+			TransportStatus: string(driver.RunnerError),
+			ObservationDigest: func() string {
+				sum := sha256.Sum256(observationBody)
+				return "sha256:" + fmt.Sprintf("%x", sum)
+			}(),
+			Usage: usageBody, ObservationBody: observationBody,
+		},
+		EventKind: "dispatch_operational_failure", EventBody: []byte("{}"), At: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestGrantCommandRejectsEveryOpenOrAmbiguousShapeBeforeIO pins A2's "cmd/
+// sworn control-command tests" anchor at the argument-shape boundary: every
+// missing or malformed required flag is refused with usage guidance and
+// exit code 2, before the command ever opens the journal or an AI
+// connection - matching the closed-shape convention every other runtime
+// command already follows.
+func TestGrantCommandRejectsEveryOpenOrAmbiguousShapeBeforeIO(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"grant", "--run", "r1"}, "usage: sworn grant"},
+		{[]string{"grant", "--run", "r1", "--journal", "/blocking", "--command", "c1",
+			"--generation", "0", "--work", "sha256:" + strings.Repeat("a", 64),
+			"--epoch", "0", "--unit", "economy_turns", "--amount", "1"},
+			"epoch must be the positive whole number"},
+		{[]string{"grant", "--run", "r1", "--journal", "/blocking", "--command", "c1",
+			"--generation", "-1", "--work", "sha256:" + strings.Repeat("a", 64),
+			"--epoch", "1", "--unit", "economy_turns", "--amount", "1"},
+			"generation must be the non-negative whole number"},
+		{[]string{"grant", "--run", "r1", "--journal", "/blocking", "--command", "c1",
+			"--generation", "0", "--work", "sha256:" + strings.Repeat("a", 64),
+			"--epoch", "1", "--unit", "economy_turns", "--amount", "0"},
+			"amount must be a positive whole number"},
+	}
+	for _, test := range tests {
+		var stdout, stderr bytes.Buffer
+		if code := run(test.args, &stdout, &stderr); code != 2 {
+			t.Fatalf("run(%v) = %d, stderr = %q, want 2", test.args, code, stderr.String())
+		}
+		if stdout.Len() != 0 || !strings.Contains(stderr.String(), test.want) {
+			t.Fatalf("run(%v) stdout = %q, stderr = %q, want stderr containing %q",
+				test.args, stdout.String(), stderr.String(), test.want)
+		}
+		if strings.Contains(stderr.String(), "/blocking") {
+			t.Fatalf("run(%v) consumed or exposed ignored path: %q", test.args, stderr.String())
+		}
+	}
+}
+
+// TestGrantCommandRefusalCodesAndSuccessfulUnblock pins A2's "cmd/sworn
+// control-command tests" anchor end to end on the real compiled binary
+// surface: a bare retry over an active economy crossing is refused
+// ECONOMY_GRANT_REQUIRED, a grant naming the wrong unit is refused
+// GRANT_WRONG_UNIT, and a correctly-targeted grant clears the park and
+// reports the run no longer parked - all through the exact `sworn grant`/
+// `sworn retry` argument surface an operator types, never the internal
+// Service.Control API directly.
+func TestGrantCommandRefusalCodesAndSuccessfulUnblock(t *testing.T) {
+	journalPath := boardJournalFixture(t)
+	workID := "sha256:" + strings.Repeat("c", 64)
+	seedEconomyTurnCrossing(t, journalPath, "run-1", workID, 201)
+
+	var retryOut, retryErr bytes.Buffer
+	if code := run([]string{
+		"retry", "--run", "run-1", "--journal", journalPath,
+		"--command", "bare-retry-1", "--generation", "0",
+		"--work", workID, "--epoch", "1",
+	}, &retryOut, &retryErr); code != 1 {
+		t.Fatalf("bare retry exit = %d, stdout = %q, stderr = %q", code, retryOut.String(), retryErr.String())
+	}
+	if !strings.Contains(retryErr.String(), "Technical code: ECONOMY_GRANT_REQUIRED") {
+		t.Fatalf("bare retry stderr missing technical code: %q", retryErr.String())
+	}
+
+	var wrongOut, wrongErr bytes.Buffer
+	if code := run([]string{
+		"grant", "--run", "run-1", "--journal", journalPath,
+		"--command", "wrong-unit-1", "--generation", "0",
+		"--work", workID, "--epoch", "1",
+		"--unit", "economy_output_tokens", "--amount", "500",
+	}, &wrongOut, &wrongErr); code != 1 {
+		t.Fatalf("wrong-unit grant exit = %d, stdout = %q, stderr = %q", code, wrongOut.String(), wrongErr.String())
+	}
+	if !strings.Contains(wrongErr.String(), "Technical code: GRANT_WRONG_UNIT") {
+		t.Fatalf("wrong-unit grant stderr missing technical code: %q", wrongErr.String())
+	}
+
+	var grantOut, grantErr bytes.Buffer
+	if code := run([]string{
+		"grant", "--run", "run-1", "--journal", journalPath,
+		"--command", "grant-1", "--generation", "0",
+		"--work", workID, "--epoch", "1",
+		"--unit", "economy_turns", "--amount", "500",
+	}, &grantOut, &grantErr); code != 0 {
+		t.Fatalf("grant exit = %d, stdout = %q, stderr = %q", code, grantOut.String(), grantErr.String())
+	}
+	if !strings.Contains(grantOut.String(), "state: running") {
+		t.Fatalf("grant stdout did not report the run unblocked back to running: %q", grantOut.String())
+	}
+
+	var replayOut, replayErr bytes.Buffer
+	if code := run([]string{
+		"grant", "--run", "run-1", "--journal", journalPath,
+		"--command", "grant-1", "--generation", "0",
+		"--work", workID, "--epoch", "1",
+		"--unit", "economy_turns", "--amount", "500",
+	}, &replayOut, &replayErr); code != 0 {
+		t.Fatalf("replayed grant exit = %d, stdout = %q, stderr = %q", code, replayOut.String(), replayErr.String())
+	}
+}
