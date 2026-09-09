@@ -2819,6 +2819,116 @@ func TestScanNativeEventsSecretTripOutranksByteBudget(t *testing.T) {
 	}
 }
 
+// A1: nativeStreamBudgetFailure's own production caller - the cumulative
+// crossing branch inside platformRunNative that turns scanNativeEvents'
+// ECONOMY_OUTPUT_BUDGET_EXCEEDED into the receipt-bearing failure
+// Observation the runtime park gate reads - gets exercised for real, driving
+// the real native adapter dispatch (platformInvokeNative -> platformRunNative
+// -> scanNativeEvents) against a deterministic fixture CLI that emits its
+// real identity event and then a single event line sized to cross a
+// configured limits.max_native_output_stream_bytes, rather than only
+// exercising scanNativeEvents directly as a standalone unit.
+func TestNativeStreamCumulativeByteBudgetCrossingAtRealAdapterDispatch(t *testing.T) {
+	setNativeMemoryRootEnv(t)
+	for _, family := range []ProfileFamily{ProfileCodex, ProfileClaude} {
+		family := family
+		t.Run(string(family), func(t *testing.T) {
+			binary := buildNativeContinuation(t)
+			digest, err := executableDigest(binary)
+			if err != nil {
+				t.Fatal(err)
+			}
+			config := nativeContinuationConfigFixture(t, family, binary, digest)
+			configBody, err := canonicalJSON(config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			identity := AdapterIdentity{
+				Key: config.Key, ID: config.ID, Version: config.Version,
+				ConfigurationDigest: Digest(configBody),
+			}
+			ref := config.CredentialRefs[0]
+			credential := filepath.Join(t.TempDir(), "credential")
+			if err := os.WriteFile(
+				credential,
+				[]byte(`{"token":"native-stream-budget-credential-canary"}`),
+				0o600,
+			); err != nil {
+				t.Fatal(err)
+			}
+			adapter := &nativeAdapter{
+				identity: identity,
+				config:   config,
+				resolve: func(context.Context, string) (string, error) {
+					return credential, nil
+				},
+				refs: map[string]struct{}{ref: {}},
+			}
+			profile := ProfileConfig{
+				Key:     "native-stream-budget-profile-" + string(family),
+				Adapter: identity.Key, Network: NetworkRequired,
+				CredentialRef: &ref,
+			}
+			selected := SelectedProfile{
+				Profile: profile,
+				Adapter: identity,
+				Model:   "native-continuation-model",
+				adapter: adapter,
+			}
+			base, _, _ := memoryInvocationFixture(t)
+			base.Selected = selected
+			request, err := NewRequest(
+				"native-stream-budget-pad",
+				RoleImplementer,
+				profile.Key,
+				selected.Model,
+				Workspace{Path: GuestWorkspacePath, Access: ReadOnly},
+				base.Request.Inputs,
+				true,
+				Limits{
+					TimeoutMillis:              20_000,
+					OutputBytes:                65_536,
+					MaxNativeOutputStreamBytes: MaxProviderResponseBytes,
+				},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			permission, err := NewSubmissionPermission(
+				request,
+				selected,
+				ContainmentReadOnly,
+				ImplementerDesign,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			invocation := base
+			invocation.Request = request
+			invocation.Permission = permission
+
+			observation, err := platformInvokeNative(
+				context.Background(),
+				invocation,
+				config,
+				credential,
+				nativeSurfaceCertificate{},
+			)
+			if !IsCode(err, "ECONOMY_OUTPUT_BUDGET_EXCEEDED") ||
+				observation.TransportStatus != RunnerError ||
+				observation.Diagnostic.Code != "economy_output_budget_bytes" ||
+				observation.Usage.NativeStreamBytes == nil ||
+				*observation.Usage.NativeStreamBytes <= MaxProviderResponseBytes {
+				t.Fatalf(
+					"native adapter dispatch = observation %#v, error %v",
+					observation,
+					err,
+				)
+			}
+		})
+	}
+}
+
 func parseTOMLKey(t *testing.T, body []byte, key string) string {
 	t.Helper()
 	prefix := key + " = "
