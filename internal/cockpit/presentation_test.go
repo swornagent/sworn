@@ -69,6 +69,26 @@ func TestPresentSnapshotPrioritisesUnconfirmedFactsAndHumanAttention(
 	}
 }
 
+// A4: a parked run offering a "grant" action (an economy budget crossing)
+// presents "Stopped at a budget limit", distinct from the plain retry
+// failure copy, and directs the operator to the latest grant action rather
+// than a bare retry.
+func TestPresentSnapshotNamesBudgetLimitForGrantAction(t *testing.T) {
+	t.Parallel()
+
+	grant := Snapshot{
+		Run:     RunView{State: "parked"},
+		Actions: []Action{{Kind: "grant", Unit: runtimepkg.ParkCauseEconomyTurns}},
+	}
+	got := PresentSnapshot(grant)
+	if got.Status != "Stopped at a budget limit" {
+		t.Fatalf("grant presentation status = %#v", got)
+	}
+	if !strings.Contains(got.Next, "Grant") || !strings.Contains(got.NeedsYou, "grant capacity") {
+		t.Fatalf("grant presentation copy = %#v", got)
+	}
+}
+
 // A4: the board names a degradation park instead of the flat parked text.
 func TestPresentRunStateNamesDegradationPark(t *testing.T) {
 	t.Parallel()

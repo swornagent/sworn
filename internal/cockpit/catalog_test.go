@@ -272,6 +272,45 @@ func TestProjectNeedsYouNamesDegradationPark(t *testing.T) {
 	}
 }
 
+// A4/A2: a parked run whose first pinned work crossed an economy budget
+// names "grant" as the needs-you action, since a bare retry over an active
+// economy crossing is refused ECONOMY_GRANT_REQUIRED - never "retry", which
+// non-economy pinned causes (exhaustion, identical_failure) still use.
+func TestProjectNeedsYouNamesGrantForEconomyPinnedWork(t *testing.T) {
+	t.Parallel()
+
+	economy := []DiscoveredRunStatus{
+		{
+			Binding: journal.Run{
+				ID:      "run-economy",
+				Release: "release-economy",
+			},
+			Status: runtimepkg.RunStatus{
+				RunID: "run-economy",
+				State: "parked",
+				PinnedWork: []runtimepkg.PinnedWork{
+					{
+						WorkID: "sha256:" + strings.Repeat("a", 64),
+						Lane:   "T1",
+						Cause:  runtimepkg.ParkCauseEconomyOutputTokens,
+						Code:   "ECONOMY_OUTPUT_BUDGET_EXCEEDED",
+					},
+				},
+			},
+		},
+	}
+	needsYou := ProjectNeedsYou(economy)
+	if len(needsYou) != 1 {
+		t.Fatalf("needsYou = %#v", needsYou)
+	}
+	item := needsYou[0]
+	if item.Action != "grant" ||
+		item.State != "parked" ||
+		item.WorkID != "sha256:"+strings.Repeat("a", 64) {
+		t.Fatalf("economy needs-you item = %#v", item)
+	}
+}
+
 func TestBuildProjectCatalogIncludesReleasesRunsAndNeedsYou(t *testing.T) {
 	t.Parallel()
 

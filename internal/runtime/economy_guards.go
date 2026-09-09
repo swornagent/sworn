@@ -100,10 +100,13 @@ func (s *Service) economyGuardsParked(
 // regardless of which nested dispatch-work identity convention it chose for
 // dispatchWork itself. found is false only for a direct dispatch (no git.seal
 // cycle ever names it), in which case owner echoes dispatchWork unchanged.
+// epochKnown is false only when a git.seal cycle names dispatchWork but its
+// own ReplayKey fails to parse (a malformed or foreign journal entry);
+// callers must not treat a zero outerEpoch as a real epoch in that case.
 func dispatchCycleOwner(
 	snapshot journal.Snapshot,
 	dispatchWork string,
-) (owner string, outerEpoch int64, found bool) {
+) (owner string, outerEpoch int64, found bool, epochKnown bool) {
 	for _, command := range snapshot.Commands {
 		if command.Kind != "git.seal" {
 			continue
@@ -119,10 +122,11 @@ func dispatchCycleOwner(
 		owner = workIdentity(cycle.Before, "git.seal")
 		if _, epoch, _, err := attemptCoordinates(command.ReplayKey); err == nil {
 			outerEpoch = epoch
+			epochKnown = true
 		}
-		return owner, outerEpoch, true
+		return owner, outerEpoch, true, epochKnown
 	}
-	return dispatchWork, 0, false
+	return dispatchWork, 0, false, false
 }
 
 // ownerWorkForDispatch maps a driver.dispatch work identity to the work
@@ -133,7 +137,7 @@ func dispatchCycleOwner(
 // inner dispatch work, matching the exhaustion scan's derived-work
 // exclusion).
 func ownerWorkForDispatch(snapshot journal.Snapshot, dispatchWork string) string {
-	owner, _, found := dispatchCycleOwner(snapshot, dispatchWork)
+	owner, _, found, _ := dispatchCycleOwner(snapshot, dispatchWork)
 	if !found {
 		return dispatchWork
 	}
@@ -185,13 +189,24 @@ func ownerWorkForDispatch(snapshot journal.Snapshot, dispatchWork string) string
 //     attempt, regardless of which convention chose dispatchWork), and that
 //     recovered value - not the dispatch effect's own parsed epoch - is
 //     compared against the owner's current RetryEpochs entry.
+//
+// When the owning git.seal command's own ReplayKey fails to parse on the
+// per-attempt convention, the outer epoch this dispatchWork was built under
+// cannot be recovered at all. That is a malformed-journal condition, not
+// evidence of staleness: treating it as epoch 0 would silently drop a real
+// crossing from economyParkCrossings and let a bare Retry bypass the grant
+// requirement it exists to enforce (fails open). This function instead
+// fails closed - it reports the attempt current, which keeps the crossing
+// parked - exactly as every other reader on this path (attemptCoordinates
+// on the effect ID itself, validateDriverRecoveryCommand's CORRUPT_JOURNAL)
+// already refuses rather than silently skips an unparseable identity.
 func dispatchAttemptIsCurrentEpoch(
 	snapshot journal.Snapshot,
 	control journal.ControlProjection,
 	work string,
 	epoch int64,
 ) bool {
-	owner, outerEpoch, nested := dispatchCycleOwner(snapshot, work)
+	owner, outerEpoch, nested, epochKnown := dispatchCycleOwner(snapshot, work)
 	if !nested {
 		current := control.RetryEpochs[work]
 		if current == 0 {
@@ -205,6 +220,9 @@ func dispatchAttemptIsCurrentEpoch(
 	}
 	if workIdentity(owner, "driver.dispatch") == work {
 		return epoch == current
+	}
+	if !epochKnown {
+		return true
 	}
 	return outerEpoch == current
 }

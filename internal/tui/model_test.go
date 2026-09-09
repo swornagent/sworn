@@ -333,6 +333,41 @@ func TestCancelConfirmationAndBoundedMultilineAttentionAnswer(t *testing.T) {
 	}
 }
 
+// A4: a "grant" action opens the free-text answer overlay (never the bare
+// confirmation overlay a bypassed grant-required refusal would suggest),
+// labels itself distinctly by unit and work, and dispatches the operator's
+// typed amount/acknowledge text verbatim to the backend, unmodified.
+func TestGrantActionOpensAnswerOverlayAndDispatchesTypedAmount(t *testing.T) {
+	selection := Selection{Release: "release", RunID: "run", Source: "source"}
+	grant := cockpit.Action{
+		Kind: "grant", ExpectedGeneration: 5,
+		WorkID: "sha256:" + strings.Repeat("c", 64), ExpectedEpoch: 3,
+		Unit: "economy_turns",
+	}
+	backend, m := readyBoardModel(selection, grant)
+
+	if label := m.actionLabel(grant); !strings.Contains(label, "economy_turns") ||
+		!strings.Contains(label, "Grant") {
+		t.Fatalf("grant label = %q, want it to name the unit", label)
+	}
+
+	updateModel(t, m, runeKey('a'))
+	updateModel(t, m, specialKey(tea.KeyEnter))
+	if m.overlay != overlayAnswer {
+		t.Fatalf("grant overlay = %d, want overlayAnswer (never confirm-only)", m.overlay)
+	}
+	updateModel(t, m, runesKey("500 ack"))
+	execute := updateModel(t, m, specialKey(tea.KeyCtrlS))
+	if execute == nil {
+		t.Fatal("grant answer did not dispatch")
+	}
+	updateModel(t, m, execute())
+	if len(backend.executed) != 1 || backend.executed[0].action != grant ||
+		backend.executed[0].answer != "500 ack" || backend.executed[0].selection != selection {
+		t.Fatalf("grant execution = %#v, want amount+ack answer dispatched verbatim", backend.executed)
+	}
+}
+
 func TestRiskyActionsRequireConfirmation(t *testing.T) {
 	for _, kind := range []string{"start", "start_delegated", "cancel", "retry", "takeover", "captain_delegation_revoke", "captain_delegation_replace"} {
 		if !confirmAction(kind) {

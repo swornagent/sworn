@@ -1834,6 +1834,51 @@ func TestDispatchAttemptIsCurrentEpochOnPerAttemptIdentityConvention(t *testing.
 	}
 }
 
+// TestDispatchAttemptIsCurrentEpochFailsClosedOnUnparseableReplayKey pins
+// V2's fail-open edge (a FAIL finding): a per-attempt-identity dispatch
+// work whose owning git.seal command carries a ReplayKey that does not
+// parse as AttemptEffectID(workID, epoch, try) - a malformed or foreign
+// journal entry - must still be reported current (fail closed, keeping the
+// crossing parked) rather than compared against a fabricated epoch 0,
+// which would silently drop a real crossing from economyParkCrossings and
+// let a bare Retry bypass the grant requirement.
+func TestDispatchAttemptIsCurrentEpochFailsClosedOnUnparseableReplayKey(t *testing.T) {
+	t.Parallel()
+	outerBefore := "outer-before-fingerprint"
+	dispatchWork := workIdentity("some-malformed-owner-key", "driver.dispatch")
+	payload, err := json.Marshal(struct {
+		Before       string `json:"before"`
+		DispatchWork string `json:"dispatch_work"`
+	}{Before: outerBefore, DispatchWork: dispatchWork})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := journal.Snapshot{
+		Commands: []journal.Command{
+			{Kind: "git.seal", ReplayKey: "not-a-valid-attempt-effect-id", Payload: payload},
+		},
+		Effects: []journal.Effect{
+			{
+				ID: journal.AttemptEffectID(dispatchWork, 1, 1), Kind: "driver.dispatch",
+				State: journal.OperationalFailed, ErrorCode: "ECONOMY_TURN_BUDGET_EXCEEDED",
+			},
+		},
+	}
+	owner := workIdentity(outerBefore, "git.seal")
+	control := journal.ControlProjection{RetryEpochs: map[string]int64{owner: 2}}
+
+	if !dispatchAttemptIsCurrentEpoch(snapshot, control, dispatchWork, 1) {
+		t.Fatal("dispatch work with an unparseable owning ReplayKey reported stale (fails open); want current (fails closed)")
+	}
+	crossings := economyParkCrossings(snapshot, control)
+	if len(crossings) != 1 || crossings[0].work != dispatchWork {
+		t.Fatalf(
+			"economyParkCrossings = %#v, want exactly one crossing naming %s (dropped by the fail-open bug otherwise)",
+			crossings, dispatchWork,
+		)
+	}
+}
+
 // TestEconomyParkFactsForCarriesCrossingWorkAndDispatchedBudget pins C6/V1:
 // the reported budget is the exact per-work ceiling the crossing's own
 // attempt was dispatched under - never a live, cumulative recomputation
