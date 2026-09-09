@@ -389,6 +389,24 @@ func trustedBubblewrap() (string, error) {
 	return resolved, nil
 }
 
+// ProbeNestedContainment reports whether this process can mount a nested
+// bubblewrap sandbox, by running exactly trustedBubblewrap's own trust
+// checks (resolution, mode bits, uid-0 ownership, and the capability
+// probe) - the same checks every real containment dispatch (runToolBash's
+// Bash tool, the Native adapter) is refused against otherwise. It returns
+// nil when nested containment is available, or the same ISOLATION_UNAVAILABLE
+// contract error a dispatch would raise.
+//
+// It exists so callers outside this package - today, the TUI PTY tests that
+// drive a real WorkVerification Bash call - can skip cleanly on the exact
+// production predicate instead of re-deriving it by hand and drifting from
+// it. It is additive only: every existing containment call site still goes
+// through trustedBubblewrap directly, unchanged.
+func ProbeNestedContainment() error {
+	_, err := trustedBubblewrap()
+	return err
+}
+
 // reservedMaskNames and withoutGit are defined in the shared invoke.go file so
 // request admission, the input projection and the tool path guard can read the
 // engine-computed reserved set on every platform; the Linux containment sites

@@ -634,50 +634,26 @@ func installHostedDrivePlan(t *testing.T, root string, plan baton.Plan) {
 // (internal/driver/tools_linux.go) always contains that call in its own
 // bwrap invocation, regardless of adapter - there is no test-only bypass for
 // it (the SWORN_TEST_UNCONTAINED_DISPATCH escape hatch only covers the fake
-// driver's dispatch path, not this tool). Containment trusts the bwrap
-// binary only when the filesystem reports it as owned by uid 0
-// (internal/driver's trustedBubblewrap, mirrored here since it is
-// unexported). Inside an already-sandboxed worker that is never true: the
-// outer sandbox's user namespace maps only the worker's own uid, so a
-// genuinely uid-0-owned bwrap on the host reads back as the unmapped
-// overflow uid (65534) from inside it. AGENTS.md documents exactly this
-// boundary for nested containment ("every nested dispatch returns
-// ISOLATION_UNAVAILABLE"); an already-contained worker running this test
-// hits the identical wall, just reached through a WorkVerification Bash
-// call instead of the e2e suite. Left unskipped, every retry of that Bash
-// call is refused, the run burns its whole turn budget on automatic
-// submission corrections it can never satisfy, and this test spends its
-// full 30-second completion poll finding that out.
+// driver's dispatch path, not this tool). driver.ProbeNestedContainment runs
+// the exact production trust check (trustedBubblewrap): the bwrap binary
+// must resolve to a regular, executable, non-group/world-writable file owned
+// by uid 0. Inside an already-sandboxed worker that is never true: the outer
+// sandbox's user namespace maps only the worker's own uid, so a genuinely
+// uid-0-owned bwrap on the host reads back as the unmapped overflow uid
+// (65534) from inside it. AGENTS.md documents exactly this boundary for
+// nested containment ("every nested dispatch returns ISOLATION_UNAVAILABLE");
+// an already-contained worker running this test hits the identical wall,
+// just reached through a WorkVerification Bash call instead of the e2e
+// suite. Left unskipped, every retry of that Bash call is refused, the run
+// burns its whole turn budget on automatic submission corrections it can
+// never satisfy, and this test spends its full 30-second completion poll
+// finding that out.
 func requireNestedBubblewrapTrust(t *testing.T) {
 	t.Helper()
-	executable := os.Getenv(gitx.EnvBubblewrap)
-	if executable == "" {
-		path, err := exec.LookPath("bwrap")
-		if err != nil {
-			t.Skip("nested bubblewrap containment is unavailable: bwrap is not installed")
-		}
-		executable = path
-	}
-	if !filepath.IsAbs(executable) {
-		t.Skip("nested bubblewrap containment is unavailable: bwrap did not resolve to an absolute path")
-	}
-	resolved, err := filepath.EvalSymlinks(executable)
-	if err != nil {
-		t.Skipf("nested bubblewrap containment is unavailable: %s did not resolve: %v", executable, err)
-	}
-	info, err := os.Lstat(resolved)
-	if err != nil || !info.Mode().IsRegular() ||
-		info.Mode().Perm()&0o111 == 0 || info.Mode().Perm()&0o022 != 0 {
-		t.Skipf("nested bubblewrap containment is unavailable: %s failed the containment binary's trust checks", resolved)
-	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		t.Skipf("nested bubblewrap containment is unavailable: %s ownership could not be read", resolved)
-	}
-	if stat.Uid != 0 {
+	if err := driver.ProbeNestedContainment(); err != nil {
 		t.Skipf(
-			"nested bubblewrap containment is unavailable: %s is not trusted as uid 0 from this process (reads as uid %d) - this process is itself running inside a sandboxed worker, which cannot nest containment (AGENTS.md)",
-			resolved, stat.Uid,
+			"nested bubblewrap containment is unavailable (%v): this process is itself running inside a sandboxed worker, which cannot nest containment (AGENTS.md)",
+			err,
 		)
 	}
 }
