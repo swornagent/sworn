@@ -1444,9 +1444,11 @@ func (s *Service) Control(ctx context.Context, command ControlCommand) (RunStatu
 		return RunStatus{}, runtimeFail("MIGRATION_REQUIRED", nil)
 	}
 	if command.Kind == journal.Retry || command.Kind == journal.Grant {
-		if err := s.admitEconomyControl(ctx, manifest, command); err != nil {
+		admitted, err := s.admitEconomyControl(ctx, manifest, command)
+		if err != nil {
 			return RunStatus{}, err
 		}
+		command = admitted
 	}
 	if _, err := s.journal.ApplyControl(
 		ctx,
@@ -1519,14 +1521,25 @@ func (s *Service) Control(ctx context.Context, command ControlCommand) (RunStatu
 // it.
 //
 // For Grant, command.WorkID names the exact dispatch-work identity of the
-// crossing it targets - the same convention Retry's WorkID already carries,
-// and the identity journal.ApplyControl's epoch advance, GrantedAmount and
-// captureEffectiveLimits' later freeze are all keyed by (S4-resumable-
-// budget-stops V3; a prior revision of this gate keyed Grant by the outer,
-// board-visible work instead, which left RetryEpochs and GrantedAmount
-// keyed differently than the current-epoch filter and freeze that read
-// them). The command is refused GRANT_WRONG_UNIT when no active
-// current-epoch economy crossing names this exact dispatch work and
+// crossing it targets, the identity GrantedAmount, AcknowledgedUnknownUsage
+// and captureEffectiveLimits' later freeze are all keyed by
+// (S4-resumable-budget-stops V3; a prior revision of this gate keyed Grant
+// by the outer, board-visible work instead, which left those maps keyed
+// differently than the freeze that read them). Returns the command with
+// RetryWorkID set to the crossing's owner when that owner differs from
+// WorkID (a nested git.seal-wrapped dispatch): that owner, not the stable
+// dispatch-work identity itself, is the work whose retry epoch actually
+// governs the dispatch's own attempt-identity space (implementSlice reads
+// the owner's epoch to build every one of its nested attempts' effect IDs),
+// so a Grant must advance that same counter to stay current - never the
+// dispatch work's own epoch, which the journal deliberately leaves
+// unwritten so a nested dispatch keeps inheriting its enclosing cycle's
+// epoch (S4-resumable-budget-stops V2; V3's prior revision advanced the
+// dispatch work's own RetryEpochs entry instead, desynchronizing it from
+// the epoch every subsequent attempt of that same work is actually built
+// under, which permanently pinned the lane after its first grant). The
+// command is refused GRANT_WRONG_UNIT when no active current-epoch economy
+// crossing names this exact dispatch work and
 // command.Unit, GRANT_ABOVE_HARD_CEILING when the saturating sum of the
 // manifest's own effective ceiling, this work's already-admitted grants and
 // this command's Amount would exceed the absolute hard ceiling for that
@@ -1537,10 +1550,22 @@ func (s *Service) admitEconomyControl(
 	ctx context.Context,
 	manifest admittedManifest,
 	command journal.ControlCommand,
-) error {
+) (journal.ControlCommand, error) {
 	snapshot, err := s.journal.Snapshot(ctx, command.RunID)
 	if err != nil {
-		return runtimeFail("JOURNAL_READ_FAILED", err)
+		return command, runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	if command.Kind == journal.Grant {
+		// Stamped before the replay short-circuit below, from data (the
+		// git.seal command naming this dispatch work, if any) that predates
+		// and never changes across an admitted Grant's own replay: an exact
+		// replay must marshal the identical command body journal.ApplyControl
+		// already has on file, RetryWorkID included, or its own replay
+		// resolution would wrongly see a conflicting body (S4-resumable-
+		// budget-stops V2).
+		if outer := ownerWorkForDispatch(snapshot, command.WorkID); outer != command.WorkID {
+			command.RetryWorkID = outer
+		}
 	}
 	if controlCommandReplayed(snapshot, command) {
 		// An exact (or conflicting) replay of an already-recorded control
@@ -1550,11 +1575,11 @@ func (s *Service) admitEconomyControl(
 		// epoch advance and admitted amount are already durable, so
 		// re-deriving admission against that already-advanced state would
 		// spuriously refuse the exact command that advanced it.
-		return nil
+		return command, nil
 	}
 	control, err := s.journal.ControlProjection(ctx, command.RunID)
 	if err != nil {
-		return runtimeFail("JOURNAL_READ_FAILED", err)
+		return command, runtimeFail("JOURNAL_READ_FAILED", err)
 	}
 	if command.Kind == journal.Retry {
 		outer := ownerWorkForDispatch(snapshot, command.WorkID)
@@ -1562,12 +1587,12 @@ func (s *Service) admitEconomyControl(
 			ctx, snapshot, control, manifest, command.RunID, outer,
 		)
 		if crossErr != nil {
-			return crossErr
+			return command, crossErr
 		}
 		if crossed {
-			return runtimeFail("ECONOMY_GRANT_REQUIRED", nil)
+			return command, runtimeFail("ECONOMY_GRANT_REQUIRED", nil)
 		}
-		return nil
+		return command, nil
 	}
 	// Grant names the exact dispatch-work identity of the crossing it
 	// targets, the same convention Retry's WorkID already carries and the
@@ -1583,10 +1608,10 @@ func (s *Service) admitEconomyControl(
 		ctx, snapshot, control, manifest, command.RunID, outer,
 	)
 	if crossErr != nil {
-		return crossErr
+		return command, crossErr
 	}
 	if !crossed || facts.work != command.WorkID || facts.cause != command.Unit {
-		return runtimeFail("GRANT_WRONG_UNIT", nil)
+		return command, runtimeFail("GRANT_WRONG_UNIT", nil)
 	}
 	existingGranted := int64(0)
 	if amounts, ok := control.GrantedAmount[command.WorkID]; ok {
@@ -1595,7 +1620,7 @@ func (s *Service) admitEconomyControl(
 	original := economyEffectiveOriginal(manifest.value.Limits, command.Unit)
 	total := saturatingAddInt64(saturatingAddInt64(original, existingGranted), command.Amount)
 	if total > economyHardCeiling(command.Unit) {
-		return runtimeFail("GRANT_ABOVE_HARD_CEILING", nil)
+		return command, runtimeFail("GRANT_ABOVE_HARD_CEILING", nil)
 	}
 	acknowledged := control.AcknowledgedUnknownUsage[command.WorkID] ||
 		command.AcknowledgeUnknownUsage
@@ -1603,12 +1628,12 @@ func (s *Service) admitEconomyControl(
 		ctx, s.journal, manifest, command.RunID, outer, acknowledged,
 	)
 	if spentErr != nil {
-		return spentErr
+		return command, spentErr
 	}
 	if unknown {
-		return runtimeFail("ECONOMY_USAGE_UNKNOWN", nil)
+		return command, runtimeFail("ECONOMY_USAGE_UNKNOWN", nil)
 	}
-	return nil
+	return command, nil
 }
 
 // controlCommandReplayed reports whether a control command sharing
@@ -1650,10 +1675,12 @@ func (s *Service) activeEconomyCrossing(
 		if err != nil {
 			return economyParkFacts{}, false, err
 		}
+		dispatchedLimits := economyCrossingDispatchedLimits(
+			snapshot, manifest.value.Limits, crossing,
+		)
 		return economyParkFactsFor(
 			crossing,
-			manifest.value.Limits,
-			control.GrantedAmount[crossing.work],
+			dispatchedLimits,
 			spentTurns,
 			spentTokens,
 			spentBytes,

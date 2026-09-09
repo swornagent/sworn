@@ -790,7 +790,14 @@ func safeActions(
 		if unit == "" {
 			continue
 		}
-		epoch := control.RetryEpochs[pinned.DispatchWorkID]
+		// The epoch a Grant is checked and advances against is the crossing's
+		// owner (pinned.WorkID, the board-visible lane work), never the
+		// crossing's own stable dispatch-work identity
+		// (pinned.DispatchWorkID): that owner's epoch is what the runtime
+		// admission gate reads back too (Service.admitEconomyControl's
+		// RetryWorkID), and for a direct dispatch the two identities already
+		// coincide (S4-resumable-budget-stops V2).
+		epoch := control.RetryEpochs[pinned.WorkID]
 		if epoch == 0 {
 			epoch = 1
 		}

@@ -6084,8 +6084,11 @@ func (s *Service) pinCrossingLanes(
 		if spentErr != nil {
 			return nil, spentErr
 		}
+		dispatchedLimits := economyCrossingDispatchedLimits(
+			snapshot, engine.manifest.value.Limits, crossing,
+		)
 		facts := economyParkFactsFor(
-			crossing, engine.manifest.value.Limits, control.GrantedAmount[crossing.work],
+			crossing, dispatchedLimits,
 			spentTurns, spentTokens, spentBytes, diagnosticCode,
 		)
 		body, err := economyParkEventBody(runID, owner, facts)

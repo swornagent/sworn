@@ -216,10 +216,12 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		if spentErr != nil {
 			return RunStatus{}, spentErr
 		}
+		dispatchedLimits := economyCrossingDispatchedLimits(
+			snapshot, manifest.value.Limits, economyCrossings[0],
+		)
 		facts := economyParkFactsFor(
 			economyCrossings[0],
-			manifest.value.Limits,
-			control.GrantedAmount[economyCrossings[0].work],
+			dispatchedLimits,
 			spentTurns,
 			spentTokens,
 			spentBytes,
@@ -476,8 +478,11 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		if spentErr != nil {
 			return RunStatus{}, spentErr
 		}
+		dispatchedLimits := economyCrossingDispatchedLimits(
+			snapshot, manifest.value.Limits, crossing,
+		)
 		economyByOwner[owner] = economyParkFactsFor(
-			crossing, manifest.value.Limits, control.GrantedAmount[crossing.work],
+			crossing, dispatchedLimits,
 			spentTurns, spentTokens, spentBytes, diagnosticCode,
 		)
 	}

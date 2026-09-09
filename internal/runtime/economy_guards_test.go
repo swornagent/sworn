@@ -1753,47 +1753,102 @@ func TestOwnerWorkForDispatchResolvesNestedGitSealWork(t *testing.T) {
 	}
 }
 
-// TestEconomyParkFactsForCarriesCrossingWorkAndGrantedBudget pins C6/V1: the
-// reported budget is the currently effective ceiling (manifest plus every
-// admitted grant for the crossing's own dispatch-work identity), and the
-// facts carry that exact dispatch-work identity - never the lane-level
-// owner a caller's own map may be keyed by - so a Grant built from it always
-// names the crossing it was computed from.
-func TestEconomyParkFactsForCarriesCrossingWorkAndGrantedBudget(t *testing.T) {
+// TestEconomyParkFactsForCarriesCrossingWorkAndDispatchedBudget pins C6/V1:
+// the reported budget is the exact per-work ceiling the crossing's own
+// attempt was dispatched under - never a live, cumulative recomputation
+// from the current grant total, which a later grant can move out from under
+// a still-current crossing (V1's regression) - and the facts carry the
+// crossing's own dispatch-work identity - never the lane-level owner a
+// caller's own map may be keyed by - so a Grant built from it always names
+// the crossing it was computed from.
+func TestEconomyParkFactsForCarriesCrossingWorkAndDispatchedBudget(t *testing.T) {
 	t.Parallel()
 	crossing := economyGuardCrossing{
 		work: testWork(), code: "ECONOMY_TURN_BUDGET_EXCEEDED",
 	}
-	granted := map[string]int64{ParkCauseEconomyTurns: 150}
-	facts := economyParkFactsFor(
-		crossing, driver.Limits{}, granted, 350, 0, 0, "",
+	// A post-grant re-crossing: the driver was dispatched under a raised,
+	// already-headroom-adjusted ceiling (frozen EffectiveLimits), and it
+	// crossed again at exactly that many turns. Reporting that same figure
+	// back as budget makes spent >= budget hold, matching driver/provider.go's
+	// own turnCount >= turnBudget trigger.
+	granted := economyParkFactsFor(
+		crossing, driver.Limits{MaxTurnsPerWork: 499}, 499, 0, 0, "",
 	)
-	if facts.work != crossing.work {
-		t.Fatalf("facts.work = %s, want %s", facts.work, crossing.work)
+	if granted.work != crossing.work {
+		t.Fatalf("facts.work = %s, want %s", granted.work, crossing.work)
 	}
-	if facts.cause != ParkCauseEconomyTurns || facts.spent != 350 {
-		t.Fatalf("facts = %#v", facts)
+	if granted.cause != ParkCauseEconomyTurns || granted.spent != 499 {
+		t.Fatalf("facts = %#v", granted)
 	}
-	if facts.budget != driver.DefaultMaxTurnsPerWork+150 {
-		t.Fatalf("facts.budget = %d, want %d", facts.budget, driver.DefaultMaxTurnsPerWork+150)
+	if granted.budget != 499 {
+		t.Fatalf("facts.budget = %d, want the dispatched ceiling 499", granted.budget)
 	}
-	// With no admitted grant, the budget is the plain manifest ceiling,
-	// byte-identical to every pre-grant journal.
+	// Before any grant, the crossing's own attempt was dispatched under the
+	// plain manifest ceiling, byte-identical to every pre-grant journal.
 	ungranted := economyParkFactsFor(
-		crossing, driver.Limits{}, nil, 201, 0, 0, "",
+		crossing, driver.Limits{}, 201, 0, 0, "",
 	)
 	if ungranted.budget != driver.DefaultMaxTurnsPerWork {
 		t.Fatalf("ungranted budget = %d, want %d", ungranted.budget, driver.DefaultMaxTurnsPerWork)
 	}
 }
 
-// TestGrantAdmissionUnblocksCrossingAndReplaysOnce pins A2/A3/V2/V3 at the
-// Service.Control seam: an admitted Grant advances the crossing's own
-// dispatch-work epoch and clears its economy park, and an exact replay of
-// that same Grant command is admitted idempotently rather than refused
+// TestEconomyCrossingDispatchedLimitsReadsFrozenEffectiveLimits pins V1's
+// read seam: economyCrossingDispatchedLimits recovers the exact ceiling a
+// crossing's own attempt was dispatched under from that attempt's own
+// journaled driver.dispatch command (its frozen
+// productionWorkContext.EffectiveLimits), by the crossing's effect ID -
+// never the live, current grant total, which a later grant can move for the
+// same work without touching an already-recorded attempt's own binding -
+// and falls back to the manifest's raw limits for an attempt dispatched
+// before any grant existed.
+func TestEconomyCrossingDispatchedLimitsReadsFrozenEffectiveLimits(t *testing.T) {
+	t.Parallel()
+	work := testWork()
+	crossing := economyGuardCrossing{
+		work: work, code: "ECONOMY_TURN_BUDGET_EXCEEDED",
+		effectID: journal.AttemptEffectID(work, 2, 1),
+	}
+	frozen := driver.Limits{MaxTurnsPerWork: 499}
+	payload := mustJSON(productionDispatchCommand{
+		Context: productionWorkContext{
+			Slice: "S4", Responsibility: driver.ImplementerImplementation,
+			Attempt: 1, EffectiveLimits: &frozen,
+		},
+	})
+	snapshot := journal.Snapshot{
+		Commands: []journal.Command{{
+			ReplayKey: crossing.effectID, Kind: "driver.dispatch", Payload: payload,
+		}},
+	}
+	manifestLimits := driver.Limits{}
+	resolved := economyCrossingDispatchedLimits(snapshot, manifestLimits, crossing)
+	if resolved.EffectiveMaxTurnsPerWork() != 499 {
+		t.Fatalf("resolved turns = %d, want 499", resolved.EffectiveMaxTurnsPerWork())
+	}
+	// No matching command (an attempt dispatched before any grant existed,
+	// so its own payload carries no EffectiveLimits, or no command found at
+	// all) falls back to the manifest's own raw limits, unchanged.
+	before := economyGuardCrossing{
+		work: work, code: "ECONOMY_TURN_BUDGET_EXCEEDED",
+		effectID: journal.AttemptEffectID(work, 1, 1),
+	}
+	fallback := economyCrossingDispatchedLimits(
+		journal.Snapshot{}, manifestLimits, before,
+	)
+	if fallback.EffectiveMaxTurnsPerWork() != driver.DefaultMaxTurnsPerWork {
+		t.Fatalf("fallback turns = %d, want manifest default %d",
+			fallback.EffectiveMaxTurnsPerWork(), driver.DefaultMaxTurnsPerWork)
+	}
+}
+
+// TestGrantAdmissionUnblocksCrossingAndReplaysOnce pins A2/A3 at the
+// Service.Control seam, for a direct (non-nested) dispatch where the
+// crossing's own work and its owner coincide: an admitted Grant advances
+// that work's retry epoch and clears its economy park, and an exact replay
+// of that same Grant command is admitted idempotently rather than refused
 // GRANT_WRONG_UNIT against the epoch its own first admission already
-// advanced (the V2 defect: admitEconomyControl ran before
-// journal.ApplyControl's own replay short-circuit could ever be reached).
+// advanced.
 func TestGrantAdmissionUnblocksCrossingAndReplaysOnce(t *testing.T) {
 	t.Parallel()
 	fixture := newEconomyGuardFixture(t, driver.Limits{

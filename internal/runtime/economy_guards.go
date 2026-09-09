@@ -116,6 +116,33 @@ func ownerWorkForDispatch(snapshot journal.Snapshot, dispatchWork string) string
 	return dispatchWork
 }
 
+// economyCrossingEpochKey names the RetryEpochs key a driver.dispatch
+// effect's own current-epoch check applies (S4-resumable-budget-stops V2):
+// for a direct dispatch, work's own RetryEpochs entry, exactly as before -
+// its owner is itself. For a nested git.seal-wrapped dispatch built with a
+// stable, epoch-independent identity (the recovery-enabled production
+// path), that identity carries no retry history of its own: EnsureAttempt
+// leaves its RetryEpochs entry permanently unwritten so it keeps inheriting
+// whichever epoch its enclosing git.seal cycle presents (its owner's own
+// RetryEpochs, which Retry and Grant alike advance - see
+// ControlCommand.RetryWorkID), so the current-epoch check must read that
+// same owner key to stay in sync with the epoch every one of that work's
+// attempts is actually built under. A nested dispatch built with a
+// per-attempt (epoch/try-embedded) identity instead - the
+// recovery-disabled or scope-refusal-escaped path - carries no such
+// inheritance and is left keyed by its own identity unchanged, matching
+// its own, already-correct, always-fresh-per-attempt behavior.
+func economyCrossingEpochKey(snapshot journal.Snapshot, work string) string {
+	owner := ownerWorkForDispatch(snapshot, work)
+	if owner == work {
+		return work
+	}
+	if workIdentity(owner, "driver.dispatch") == work {
+		return owner
+	}
+	return work
+}
+
 // economyGuardCrossing names one current-epoch driver.dispatch effect whose
 // failure code proves a per-work economy budget crossing (A1). The durable
 // code is the authority; the spent figures are read back from that exact
@@ -154,7 +181,7 @@ func economyParkCrossings(
 		if coordErr != nil {
 			continue
 		}
-		current := control.RetryEpochs[work]
+		current := control.RetryEpochs[economyCrossingEpochKey(snapshot, work)]
 		if current == 0 {
 			current = 1
 		}
@@ -203,16 +230,24 @@ type economyParkFacts struct {
 // ECONOMY_OUTPUT_BUDGET_EXCEEDED top-level code, so diagnosticCode - the
 // observation's Diagnostic.Code, read back by economySpent - is the
 // disambiguating signal; the top-level code alone cannot tell them apart.
-// granted is the crossing's own dispatch-work's cumulative admitted Grant
-// amount per unit (control.GrantedAmount[crossing.work]): the reported
-// budget is the currently effective ceiling (original plus every admitted
-// grant), never the stale pre-grant manifest figure, so a re-crossing after
-// a grant always satisfies spent >= budget and the board names the exact
-// limit the driver was actually bound to (A1, C6).
+// limits is the exact per-work economy ceiling the crossing's own attempt
+// was dispatched under - economyCrossingDispatchedLimits' result: that
+// attempt's frozen EffectiveLimits when captureEffectiveLimits had already
+// applied an admitted grant at its dispatch-build time, else the plain
+// manifest limits. spent and budget must always share that one attempt's
+// own basis (S4-resumable-budget-stops V1): a live, possibly-since-changed
+// cumulative grant total is never comparable to spentTurns/spentTokens/
+// spentBytes, which economySpent reads back from that exact attempt alone,
+// because a later grant's headroom recomputation folds in every attempt's
+// spend since the work's very first dispatch, not just this one's. Because
+// the driver dispatch itself fails exactly when its own turn/token/byte
+// count reaches the limits it was given (driver/provider.go), reporting
+// that same limits value back as budget makes spent >= budget hold by
+// construction on every crossing, first or later, and names the board the
+// exact ceiling the dispatch actually ran under (A1, C6).
 func economyParkFactsFor(
 	crossing economyGuardCrossing,
 	limits driver.Limits,
-	granted map[string]int64,
 	spentTurns, spentTokens, spentBytes int64,
 	diagnosticCode string,
 ) economyParkFacts {
@@ -221,29 +256,51 @@ func economyParkFactsFor(
 	case crossing.code == "ECONOMY_TURN_BUDGET_EXCEEDED":
 		facts.cause = ParkCauseEconomyTurns
 		facts.spent = spentTurns
-		facts.budget = saturatingAddInt64(
-			limits.EffectiveMaxTurnsPerWork(), granted[ParkCauseEconomyTurns],
-		)
+		facts.budget = limits.EffectiveMaxTurnsPerWork()
 		facts.knob = EconomyTurnsUnblockKnob
 	case crossing.code == "ECONOMY_OUTPUT_BUDGET_EXCEEDED" &&
 		diagnosticCode == "economy_output_budget_bytes":
 		facts.cause = ParkCauseEconomyOutputBytes
 		facts.spent = spentBytes
-		facts.budget = saturatingAddInt64(
-			limits.EffectiveMaxNativeOutputStreamBytes(),
-			granted[ParkCauseEconomyOutputBytes],
-		)
+		facts.budget = limits.EffectiveMaxNativeOutputStreamBytes()
 		facts.knob = EconomyOutputBytesUnblockKnob
 	case crossing.code == "ECONOMY_OUTPUT_BUDGET_EXCEEDED":
 		facts.cause = ParkCauseEconomyOutputTokens
 		facts.spent = spentTokens
-		facts.budget = saturatingAddInt64(
-			limits.EffectiveMaxOutputTokensPerWork(),
-			granted[ParkCauseEconomyOutputTokens],
-		)
+		facts.budget = limits.EffectiveMaxOutputTokensPerWork()
 		facts.knob = EconomyOutputTokensUnblockKnob
 	}
 	return facts
+}
+
+// economyCrossingDispatchedLimits returns the exact per-work economy limits
+// the crossing's own attempt was dispatched under (S4-resumable-budget-stops
+// V1): its frozen productionWorkContext.EffectiveLimits, read back from that
+// exact attempt's own driver.dispatch command by replay key (the same
+// dispatchContext seam economyWorkSpent's acknowledged-gap fallback already
+// reads), when captureEffectiveLimits had already applied an admitted grant
+// at that attempt's own dispatch-build time; else the manifest's own raw
+// limits, exactly as an attempt dispatched before any grant existed. This is
+// never a live re-derivation from the current, possibly-since-advanced
+// grant total: it is always the one figure the crossing's own attempt was
+// actually bound to.
+func economyCrossingDispatchedLimits(
+	snapshot journal.Snapshot,
+	manifestLimits driver.Limits,
+	crossing economyGuardCrossing,
+) driver.Limits {
+	for _, command := range snapshot.Commands {
+		if command.ReplayKey != crossing.effectID || command.Kind != "driver.dispatch" {
+			continue
+		}
+		var parsed productionDispatchCommand
+		if json.Unmarshal(command.Payload, &parsed) == nil &&
+			parsed.Context.EffectiveLimits != nil {
+			return *parsed.Context.EffectiveLimits
+		}
+		break
+	}
+	return manifestLimits
 }
 
 // decodeAttemptUsageReceipt is the shared digest-verified decode seam for an
@@ -482,7 +539,7 @@ func identicalFailureParkCrossings(
 		if coordErr != nil {
 			continue
 		}
-		current := control.RetryEpochs[work]
+		current := control.RetryEpochs[economyCrossingEpochKey(snapshot, work)]
 		if current == 0 {
 			current = 1
 		}

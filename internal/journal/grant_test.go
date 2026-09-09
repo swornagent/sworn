@@ -162,3 +162,64 @@ func TestGrantAdmitsAdvancesEpochAndFoldsProjection(t *testing.T) {
 		t.Fatalf("conflicting replay = %v, want REPLAY_CONFLICT", err)
 	}
 }
+
+// TestGrantWithRetryWorkIDAdvancesOwnerEpochNotDispatchWork proves the
+// S4-resumable-budget-stops V2 repair at the journal layer: a Grant whose
+// RetryWorkID names a different work than WorkID (a nested git.seal-wrapped
+// dispatch, where the crossing's own dispatch-work identity carries no
+// independent retry history of its own) checks and advances RetryEpochs
+// under RetryWorkID, leaves WorkID's own RetryEpochs entry untouched, and
+// still folds GrantedAmount/AcknowledgedUnknownUsage under WorkID exactly
+// as before - the two identities are tracked independently, never
+// conflated.
+func TestGrantWithRetryWorkIDAdvancesOwnerEpochNotDispatchWork(t *testing.T) {
+	t.Parallel()
+	store, run, _, _ := journalFixture(t)
+	ctx := context.Background()
+	now := run.CreatedAt.Add(time.Second)
+	dispatchWork := digest([]byte("nested-dispatch-work"))
+	owner := digest([]byte("outer-git-seal-work"))
+
+	grant := ControlCommand{
+		RunID: run.ID, ID: "nested-grant-1", Kind: Grant,
+		WorkID: dispatchWork, RetryWorkID: owner, ExpectedEpoch: 1,
+		Unit: "economy_turns", Amount: 500,
+	}
+	receipt, err := store.ApplyControl(ctx, grant, now)
+	if err != nil || receipt.Epoch != 2 {
+		t.Fatalf("grant = %#v, %v", receipt, err)
+	}
+	projection, err := store.ControlProjection(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projection.RetryEpochs[owner] != 2 {
+		t.Fatalf("owner retry epoch = %d, want 2", projection.RetryEpochs[owner])
+	}
+	if _, retried := projection.RetryEpochs[dispatchWork]; retried {
+		t.Fatalf("dispatch-work retry epoch = %#v, want no entry",
+			projection.RetryEpochs[dispatchWork])
+	}
+	if projection.GrantedAmount[dispatchWork]["economy_turns"] != 500 {
+		t.Fatalf("granted amount = %#v, want 500 under the dispatch work",
+			projection.GrantedAmount[dispatchWork])
+	}
+
+	// A second grant at the stale owner epoch (1, already advanced to 2) is
+	// refused, proving the epoch check itself reads RetryWorkID, not WorkID.
+	stale := ControlCommand{
+		RunID: run.ID, ID: "nested-grant-2", Kind: Grant,
+		ExpectedGeneration: 1,
+		WorkID:             dispatchWork, RetryWorkID: owner, ExpectedEpoch: 1,
+		Unit: "economy_turns", Amount: 10,
+	}
+	if _, err := store.ApplyControl(ctx, stale, now); !IsCode(err, "STALE_RETRY_EPOCH") {
+		t.Fatalf("stale nested grant = %v, want STALE_RETRY_EPOCH", err)
+	}
+
+	// An exact replay of the first grant still returns the original receipt.
+	replay, err := store.ApplyControl(ctx, grant, now.Add(time.Hour))
+	if err != nil || replay != receipt {
+		t.Fatalf("replay = %#v, %v, want %#v", replay, err, receipt)
+	}
+}
