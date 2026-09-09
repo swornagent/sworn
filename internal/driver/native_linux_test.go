@@ -1817,6 +1817,7 @@ func TestNativeContinuationResumesExactPrivateSessionWithFreshAuthority(
 			prose.RecoveryStepHook = func(
 				_ context.Context,
 				kind RecoveryStepKind,
+				_ *SubmitRefusal,
 			) error {
 				if kind != RecoveryStepProseNudge {
 					t.Fatalf("native recovery kind = %s", kind)

@@ -54,12 +54,13 @@ func hostRepairResult(err error) []byte {
 	return nil
 }
 
-// Capture only the immediately preceding retry under identical authority.
-// Missing legacy payloads fail closed instead of silently repeating work.
-func captureHostRepair(ctx context.Context, engine *engine, coordinates dispatchCoordinates, before string, plan *productionPlanBinding) (*productionHostRepair, error) {
-	if coordinates.Responsibility != driver.ImplementerImplementation || (coordinates.Try <= 1 && coordinates.Epoch <= 1) {
-		return nil, nil
-	}
+// priorAttemptCoordinates finds the immediately preceding implementer
+// attempt under before's own authority: the same epoch's previous try, or
+// (when this is a fresh epoch's first try) the latest try of the highest
+// prior epoch that actually ran a git.seal for this exact before. Shared by
+// captureHostRepair and captureSubmissionRepair so both repair paths locate
+// the identical predecessor.
+func priorAttemptCoordinates(ctx context.Context, engine *engine, coordinates dispatchCoordinates, before string) (dispatchCoordinates, bool, error) {
 	work := workIdentity(before, "git.seal")
 	prior := coordinates
 	prior.Try--
@@ -68,7 +69,7 @@ func captureHostRepair(ctx context.Context, engine *engine, coordinates dispatch
 		// failure from the previous epoch instead of forgetting its cause.
 		snapshot, err := engineSnapshot(ctx, engine)
 		if err != nil {
-			return nil, err
+			return dispatchCoordinates{}, false, err
 		}
 		prior.Epoch, prior.Try = 0, 0
 		for _, effect := range snapshot.Effects {
@@ -81,8 +82,25 @@ func captureHostRepair(ctx context.Context, engine *engine, coordinates dispatch
 			}
 		}
 		if prior.Epoch == 0 {
-			return nil, nil
+			return dispatchCoordinates{}, false, nil
 		}
+	}
+	return prior, true, nil
+}
+
+// Capture only the immediately preceding retry under identical authority.
+// Missing legacy payloads fail closed instead of silently repeating work.
+func captureHostRepair(ctx context.Context, engine *engine, coordinates dispatchCoordinates, before string, plan *productionPlanBinding) (*productionHostRepair, error) {
+	if coordinates.Responsibility != driver.ImplementerImplementation || (coordinates.Try <= 1 && coordinates.Epoch <= 1) {
+		return nil, nil
+	}
+	work := workIdentity(before, "git.seal")
+	prior, found, err := priorAttemptCoordinates(ctx, engine, coordinates, before)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, nil
 	}
 	outer, outerErr := engine.journal.Effect(ctx, engine.manifest.value.RunID, journal.AttemptEffectID(work, prior.Epoch, prior.Try))
 	if outerErr != nil && !journal.IsCode(outerErr, "EFFECT_NOT_FOUND") {

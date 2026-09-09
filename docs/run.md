@@ -433,6 +433,20 @@ consumers can observe the stop without waiting for another scheduler tick.
 This does not invent a human approval question or authorize an automatic
 budget increase.
 
+## Submission-refusal repair input
+
+When a submitted handoff is refused for a field-level reason (an
+implementer's malformed or incomplete `sworn_submit` call), that refusal is
+durably reserved before it is ever returned to the worker, alongside the
+dispatch try that raised it. If correction exhausts its budget or the
+process stops before a valid handoff, the next same-authority continuation
+receives that exact refusal and matching checkpoint provenance as
+`submission_repair` in its work context - again **unverified repair
+input**, never a candidate receipt or a verifier PASS - so it can complete
+the handoff on the retained code instead of an empty commit or a blind
+regeneration. A refusal already corrected by an accepted submission in the
+same or a later try is not replayed as outstanding.
+
 For worktree-hosted operation, pass the intended `--operator-config` explicitly
 to `sworn serve`. Default discovery searches the current checkout; a config
 in another linked checkout is not automatically inherited. Check telemetry

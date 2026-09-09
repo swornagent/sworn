@@ -3,6 +3,7 @@ package driver
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"net"
 	"strings"
 	"testing"
@@ -196,6 +197,89 @@ func TestEverySubmissionPermissionRowAcceptsOnlyItsExactShape(t *testing.T) {
 				t.Fatalf("conflict seal = %#v, bytes=%q, error=%v", conflictSeal, conflictBytes, err)
 			}
 		})
+	}
+}
+
+// TestValidateSubmissionRequiresNonEmptyDetailOnlyForFlooredResponsibilities
+// pins A3: decodeToolSubmission (the live author-side tool boundary)
+// refuses INVALID_DETAIL for empty or whitespace-only Detail on exactly the
+// five responsibilities detailRequiredResponsibility names, and admits
+// empty Detail for captain_plan_review and assembly_verification.
+// ValidateSubmission itself stays permissive on Detail emptiness (Captain
+// correction C3), because DecodeSubmission also re-admits historical and
+// scripted-fixture bytes that predate this rule.
+func TestDecodeToolSubmissionRequiresNonEmptyDetailOnlyForFlooredResponsibilities(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name           string
+		responsibility Responsibility
+		decision       DecisionOutcome
+		wantRequired   bool
+	}{
+		{"planner proposal", PlannerProposal, "", true},
+		{"implementer design", ImplementerDesign, "", true},
+		{"implementer implementation", ImplementerImplementation, "", true},
+		{"captain review", CaptainReview, DecisionProceed, true},
+		{"work verification", WorkVerification, DecisionPass, true},
+		{"captain plan review", CaptainPlanReview, DecisionProceed, false},
+		{"assembly verification", AssemblyVerification, DecisionPass, false},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			for _, detail := range []string{"", "   "} {
+				submission := submissionFixture(
+					t, "invocation-detail-floor", test.responsibility, test.decision,
+				)
+				submission.Detail = detail
+				body, err := EncodeSubmission(submission)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var root any
+				if err := json.Unmarshal(body, &root); err != nil {
+					t.Fatal(err)
+				}
+				_, err = decodeToolSubmission(root)
+				if test.wantRequired {
+					if !IsCode(err, "INVALID_DETAIL") {
+						t.Fatalf(
+							"%s detail=%q: decodeToolSubmission = %v, want INVALID_DETAIL",
+							test.name, detail, err,
+						)
+					}
+					continue
+				}
+				if err != nil {
+					t.Fatalf(
+						"%s detail=%q: decodeToolSubmission = %v, want nil",
+						test.name, detail, err,
+					)
+				}
+			}
+		})
+	}
+}
+
+// TestValidateSubmissionAdmitsEmptyDetailForHistoricalDecode pins Captain
+// correction C3 directly: ValidateSubmission (and so DecodeSubmission, used
+// for stored/scripted bytes) must not retroactively refuse a pre-floor
+// submission whose Detail is empty for a responsibility decodeToolSubmission
+// now requires Detail for.
+func TestValidateSubmissionAdmitsEmptyDetailForHistoricalDecode(t *testing.T) {
+	t.Parallel()
+	submission := submissionFixture(t, "invocation-detail-historical", PlannerProposal, "")
+	submission.Detail = ""
+	if err := ValidateSubmission(submission); err != nil {
+		t.Fatalf("ValidateSubmission = %v, want nil for historical empty detail", err)
+	}
+	body, err := EncodeSubmission(submission)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeSubmission(body); err != nil {
+		t.Fatalf("DecodeSubmission = %v, want nil for historical empty detail", err)
 	}
 }
 

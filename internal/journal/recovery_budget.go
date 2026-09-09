@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -74,6 +75,42 @@ type RecoveryStepCommand struct {
 	Ordinal    int64               `json:"ordinal"`
 	Kind       RecoveryStepKind    `json:"kind"`
 	Accounting *RecoveryAccounting `json:"accounting,omitempty"`
+	// Refusal names the exact submission refusal this malformed_correction
+	// step reserved, so a continuation after a killed worker or host still
+	// reads the outstanding refusal that made it durable. It rides the same
+	// content-free-by-default step: nil for every other reservation.
+	Refusal *RecoveryStepRefusal `json:"refusal,omitempty"`
+}
+
+// RecoveryStepRefusal is one submission refusal's exact code/detail, plus
+// the dispatch try that raised it, carried on a RecoveryMalformedCorrection
+// step. SourceEpoch/SourceTry let a later continuation confirm the refusal
+// it reads back is the one immediately preceding it, not a stale one.
+type RecoveryStepRefusal struct {
+	Code        string `json:"code"`
+	Detail      string `json:"detail,omitempty"`
+	SourceEpoch int64  `json:"source_epoch"`
+	SourceTry   int64  `json:"source_try"`
+}
+
+const maxRecoveryStepRefusalDetailBytes = 262_144
+
+func validRecoveryStepRefusal(value RecoveryStepRefusal) bool {
+	return validateIdentity(value.Code, "code") == nil &&
+		utf8.ValidString(value.Detail) &&
+		len([]byte(value.Detail)) <= maxRecoveryStepRefusalDetailBytes &&
+		!strings.ContainsRune(value.Detail, '\x00') &&
+		!strings.ContainsRune(value.Detail, '\r') &&
+		value.SourceEpoch >= 1 && value.SourceEpoch <= recoveryMaximumValue &&
+		value.SourceTry >= 1 && value.SourceTry <= recoveryMaximumValue
+}
+
+func cloneRecoveryStepRefusal(value *RecoveryStepRefusal) *RecoveryStepRefusal {
+	if value == nil {
+		return nil
+	}
+	result := *value
+	return &result
 }
 
 type RecoveryStepReceipt struct {
@@ -97,6 +134,11 @@ type RecoveryBudgetProjection struct {
 	Parked           bool                `json:"parked"`
 	LastStepID       string              `json:"last_step_id,omitempty"`
 	Accounting       *RecoveryAccounting `json:"accounting,omitempty"`
+	// LastRefusal is the latest malformed_correction step's Refusal seen
+	// across the whole cycle, independent of TurnID (unlike Corrections):
+	// a continuation after a retry needs the last outstanding refusal even
+	// though RecoveryBinding carries no dispatch try or retry epoch.
+	LastRefusal *RecoveryStepRefusal `json:"last_refusal,omitempty"`
 }
 
 type recoveryStepRecord struct {
@@ -177,6 +219,11 @@ func validateRecoveryStep(value RecoveryStepCommand) error {
 	}
 	if value.Accounting != nil &&
 		!validRecoveryAccounting(*value.Accounting) {
+		return fail("INVALID_RECOVERY_STEP", nil)
+	}
+	if value.Refusal != nil &&
+		(value.Kind != RecoveryMalformedCorrection ||
+			!validRecoveryStepRefusal(*value.Refusal)) {
 		return fail("INVALID_RECOVERY_STEP", nil)
 	}
 	return nil
@@ -365,6 +412,7 @@ func recoveryBudgetOnConnection(
 			if step.Binding.TurnID == binding.TurnID {
 				result.Corrections++
 			}
+			result.LastRefusal = cloneRecoveryStepRefusal(step.Refusal)
 		case RecoveryProseNudge:
 			if step.Binding.TurnID == binding.TurnID {
 				result.Nudges++
@@ -555,6 +603,9 @@ func reserveRecoveryStepOnConnection(
 		projection.Accounting = cloneRecoveryAccounting(
 			command.Accounting,
 		)
+	}
+	if command.Kind == RecoveryMalformedCorrection {
+		projection.LastRefusal = cloneRecoveryStepRefusal(command.Refusal)
 	}
 	projection.NextOrdinal++
 	projection.LastStepID = command.ID

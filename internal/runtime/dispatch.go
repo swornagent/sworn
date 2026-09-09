@@ -900,7 +900,9 @@ func (s *Service) invokePreparedDriver(
 	)
 	if recovery != nil {
 		invocation.RecoveryStepHook =
-			s.turnRecoveryStepHook(owner, recovery)
+			s.turnRecoveryStepHook(
+				owner, recovery, coordinates.Epoch, coordinates.Try,
+			)
 	}
 	if (prepared.fake || prepared.productionContext == nil) &&
 		recovery != nil {

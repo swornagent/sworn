@@ -11,22 +11,26 @@ func TestReserveRecoveryStepAdmitsMalformedToolCallAndRefusesWithoutHook(
 ) {
 	t.Parallel()
 	var reserved RecoveryStepKind
-	hook := func(_ context.Context, kind RecoveryStepKind) error {
+	var reservedRefusal *SubmitRefusal
+	hook := func(_ context.Context, kind RecoveryStepKind, refusal *SubmitRefusal) error {
 		reserved = kind
+		reservedRefusal = refusal
 		return nil
 	}
+	wantRefusal := &SubmitRefusal{Code: "TEST_CODE", Detail: "test detail"}
 	if err := reserveRecoveryStep(
-		context.Background(), hook, RecoveryStepMalformedToolCall,
-	); err != nil || reserved != RecoveryStepMalformedToolCall {
-		t.Fatalf("reserve = %v, reserved = %s", err, reserved)
+		context.Background(), hook, RecoveryStepMalformedToolCall, wantRefusal,
+	); err != nil || reserved != RecoveryStepMalformedToolCall ||
+		reservedRefusal != wantRefusal {
+		t.Fatalf("reserve = %v, reserved = %s, refusal = %#v", err, reserved, reservedRefusal)
 	}
 	if err := reserveRecoveryStep(
-		context.Background(), nil, RecoveryStepMalformedToolCall,
+		context.Background(), nil, RecoveryStepMalformedToolCall, nil,
 	); !IsCode(err, "RECOVERY_STEP_REFUSED") {
 		t.Fatalf("expected RECOVERY_STEP_REFUSED without a hook, got: %v", err)
 	}
 	if err := reserveRecoveryStep(
-		context.Background(), hook, RecoveryStepKind("unknown_kind"),
+		context.Background(), hook, RecoveryStepKind("unknown_kind"), nil,
 	); !IsCode(err, "RECOVERY_STEP_REFUSED") {
 		t.Fatalf("expected RECOVERY_STEP_REFUSED for an unknown kind, got: %v", err)
 	}

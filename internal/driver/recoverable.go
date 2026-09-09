@@ -24,9 +24,21 @@ const (
 )
 
 // RecoveryStepHook lets the runtime durably reserve one bounded automatic
-// action before the driver emits it. It carries no content or identity; the
-// runtime closure owns those bindings and the journal transaction.
-type RecoveryStepHook func(context.Context, RecoveryStepKind) error
+// action before the driver emits it. It carries no identity; the runtime
+// closure owns bindings and the journal transaction. refusal is non-nil
+// only for the one submission-refusal call site (rejectSubmission) and
+// names the exact ContractError code/detail being reserved, so a killed
+// worker or host still leaves that refusal durably readable by the next
+// continuation.
+type RecoveryStepHook func(ctx context.Context, kind RecoveryStepKind, refusal *SubmitRefusal) error
+
+// SubmitRefusal is the exact code/detail of a submission refusal, read
+// straight off the *ContractError rejectSubmission already holds. No
+// submitted byte ever reaches it.
+type SubmitRefusal struct {
+	Code   string
+	Detail string
+}
 
 // SealedProposalHook durably records the exact plan bytes, and any
 // proposal-carried new-contract bytes keyed by contract_path, at the
@@ -95,6 +107,7 @@ func reserveRecoveryStep(
 	ctx context.Context,
 	hook RecoveryStepHook,
 	kind RecoveryStepKind,
+	refusal *SubmitRefusal,
 ) error {
 	if ctx == nil || hook == nil ||
 		(kind != RecoveryStepSubmissionCorrection &&
@@ -102,7 +115,7 @@ func reserveRecoveryStep(
 			kind != RecoveryStepMalformedToolCall) {
 		return fail("RECOVERY_STEP_REFUSED")
 	}
-	if err := hook(ctx, kind); err != nil {
+	if err := hook(ctx, kind, refusal); err != nil {
 		return fail("RECOVERY_STEP_REFUSED")
 	}
 	return nil

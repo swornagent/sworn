@@ -247,7 +247,7 @@ func toolDefinitions(access WorkspaceAccess) []providerToolDefinition {
 		},
 		providerToolDefinition{
 			Name:        "sworn_submit",
-			Description: "Include only the prompt's result_fields. For plan/checks/contracts declare decoded byte_count and sha256:<64 lowercase hex> digest, then either inline base64 bytes or (preferred for large content) a path to a file holding the exact bytes — write it under /tmp or /home/sworn first; detail may be empty.",
+			Description: "Include only the prompt's result_fields. For plan/checks/contracts declare decoded byte_count and sha256:<64 lowercase hex> digest, then either inline base64 bytes or (preferred for large content) a path to a file holding the exact bytes — write it under /tmp or /home/sworn first; detail may be empty only for captain_plan_review and assembly_verification.",
 			InputSchema: json.RawMessage(swornSubmitInputSchema),
 		},
 	)
@@ -759,10 +759,16 @@ func (session *toolSession) rejectSubmission(
 		return session.submitErr
 	}
 	session.mu.Unlock()
+	var refusal *SubmitRefusal
+	var contractErr *ContractError
+	if errors.As(err, &contractErr) {
+		refusal = &SubmitRefusal{Code: contractErr.Code, Detail: contractErr.Detail}
+	}
 	if reserveErr := reserveRecoveryStep(
 		ctx,
 		session.invocation.RecoveryStepHook,
 		RecoveryStepSubmissionCorrection,
+		refusal,
 	); reserveErr != nil {
 		session.mu.Lock()
 		session.terminal = true
@@ -994,8 +1000,15 @@ func decodeToolSubmission(value any) (Submission, error) {
 	if declared, bound := submissionDeclaresProbe(submission.Detail); declared {
 		return Submission{}, submissionProbeError("detail", bound)
 	}
-	if err := submissionFloorCheck(submission); err != nil {
-		return Submission{}, err
+	// Enforced only at this author-side boundary, not inside
+	// ValidateSubmission: that function also re-admits historical and
+	// scripted-fixture bytes decoded straight from storage (DecodeSubmission,
+	// used by production_dispatch.go, service.go, manifest.go and
+	// claimed_dispatch_recovery.go), which predate this rule and must keep
+	// decoding.
+	if detailRequiredResponsibility(submission.Responsibility) &&
+		strings.TrimSpace(submission.Detail) == "" {
+		return Submission{}, submissionValidateError("INVALID_DETAIL", "detail")
 	}
 	if err := ValidateSubmission(submission); err != nil {
 		return Submission{}, err

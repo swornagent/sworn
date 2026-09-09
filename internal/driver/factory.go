@@ -299,7 +299,7 @@ func (factory *ProductionDriverFactory) certificationInvocation(
 		// (one prose nudge, MaxSubmissionCorrections); with no hook a model
 		// that opens in prose fails RECOVERY_STEP_REFUSED instead of being
 		// nudged, which made certification flaky for reasoning models.
-		RecoveryStepHook: func(context.Context, RecoveryStepKind) error {
+		RecoveryStepHook: func(context.Context, RecoveryStepKind, *SubmitRefusal) error {
 			return nil
 		},
 	}, nil
