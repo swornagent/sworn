@@ -1437,6 +1437,11 @@ func (s *Service) Control(ctx context.Context, command ControlCommand) (RunStatu
 	if manifest.legacyVersion != "" {
 		return RunStatus{}, runtimeFail("MIGRATION_REQUIRED", nil)
 	}
+	if command.Kind == journal.Retry || command.Kind == journal.Grant {
+		if err := s.admitEconomyControl(ctx, manifest, command); err != nil {
+			return RunStatus{}, err
+		}
+	}
 	if _, err := s.journal.ApplyControl(
 		ctx,
 		command,
@@ -1488,6 +1493,124 @@ func (s *Service) Control(ctx context.Context, command ControlCommand) (RunStatu
 	}
 	s.startBackgroundDrive(command.RunID, owner)
 	return s.Status(ctx, command.RunID)
+}
+
+// admitEconomyControl is the runtime-layer admission gate for Retry and
+// Grant commands naming an economy-crossed work (S4-resumable-budget-stops
+// A2/A3). It runs before journal.ApplyControl is ever called, because it
+// needs admittedManifest, economyParkCrossings and ownerWorkForDispatch —
+// exactly the machinery the lane-scoped park gate already uses, and none of
+// which journal.ApplyControl has access to.
+//
+// For Retry, any active current-epoch economy crossing on the work
+// command.WorkID resolves to (through ownerWorkForDispatch, since a Retry's
+// WorkID names the exact per-attempt dispatch, which may be a nested
+// git.seal-wrapped work) refuses the bare Retry with ECONOMY_GRANT_REQUIRED:
+// today's leak let a bare Retry sail through whenever the crossing happened
+// to land on a try or epoch journal.ApplyControl's own gate did not treat
+// as exhausted. After this change, every economy-cause crossing routes
+// exclusively through Grant, uniformly regardless of which try triggered
+// it.
+//
+// For Grant, command.WorkID already names the outer, board-visible work
+// (the same identity Grant's admitted amount, and captureEffectiveLimits'
+// later freeze, are both keyed by). The command is refused
+// GRANT_WRONG_UNIT when no active current-epoch economy crossing names
+// command.Unit specifically, GRANT_ABOVE_HARD_CEILING when the saturating
+// sum of the manifest's own effective ceiling, this work's already-admitted
+// grants and this command's Amount would exceed the absolute hard ceiling
+// for that unit, and ECONOMY_USAGE_UNKNOWN when this work's cumulative
+// recorded spend carries a crash-before-receipt gap this command (or an
+// earlier admitted Grant for the same work) has not acknowledged.
+func (s *Service) admitEconomyControl(
+	ctx context.Context,
+	manifest admittedManifest,
+	command journal.ControlCommand,
+) error {
+	snapshot, err := s.journal.Snapshot(ctx, command.RunID)
+	if err != nil {
+		return runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	control, err := s.journal.ControlProjection(ctx, command.RunID)
+	if err != nil {
+		return runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	if command.Kind == journal.Retry {
+		outer := ownerWorkForDispatch(snapshot, command.WorkID)
+		_, crossed, crossErr := s.activeEconomyCrossing(
+			ctx, snapshot, control, manifest, command.RunID, outer,
+		)
+		if crossErr != nil {
+			return crossErr
+		}
+		if crossed {
+			return runtimeFail("ECONOMY_GRANT_REQUIRED", nil)
+		}
+		return nil
+	}
+	facts, crossed, crossErr := s.activeEconomyCrossing(
+		ctx, snapshot, control, manifest, command.RunID, command.WorkID,
+	)
+	if crossErr != nil {
+		return crossErr
+	}
+	if !crossed || facts.cause != command.Unit {
+		return runtimeFail("GRANT_WRONG_UNIT", nil)
+	}
+	existingGranted := int64(0)
+	if amounts, ok := control.GrantedAmount[command.WorkID]; ok {
+		existingGranted = amounts[command.Unit]
+	}
+	original := economyEffectiveOriginal(manifest.value.Limits, command.Unit)
+	total := saturatingAddInt64(saturatingAddInt64(original, existingGranted), command.Amount)
+	if total > economyHardCeiling(command.Unit) {
+		return runtimeFail("GRANT_ABOVE_HARD_CEILING", nil)
+	}
+	acknowledged := control.AcknowledgedUnknownUsage[command.WorkID] ||
+		command.AcknowledgeUnknownUsage
+	_, _, _, unknown, spentErr := economyWorkSpent(
+		ctx, s.journal, manifest, command.RunID, command.WorkID, acknowledged,
+	)
+	if spentErr != nil {
+		return spentErr
+	}
+	if unknown {
+		return runtimeFail("ECONOMY_USAGE_UNKNOWN", nil)
+	}
+	return nil
+}
+
+// activeEconomyCrossing names the current-epoch economy crossing scoped to
+// the outer work identity work, if one exists, reusing the exact
+// economyParkCrossings/ownerWorkForDispatch pipeline the lane-scoped park
+// gate already uses.
+func (s *Service) activeEconomyCrossing(
+	ctx context.Context,
+	snapshot journal.Snapshot,
+	control journal.ControlProjection,
+	manifest admittedManifest,
+	runID string,
+	work string,
+) (economyParkFacts, bool, error) {
+	for _, crossing := range economyParkCrossings(snapshot, control) {
+		if ownerWorkForDispatch(snapshot, crossing.work) != work {
+			continue
+		}
+		spentTurns, spentTokens, spentBytes, diagnosticCode, err :=
+			s.economySpent(ctx, runID, crossing)
+		if err != nil {
+			return economyParkFacts{}, false, err
+		}
+		return economyParkFactsFor(
+			crossing,
+			manifest.value.Limits,
+			spentTurns,
+			spentTokens,
+			spentBytes,
+			diagnosticCode,
+		), true, nil
+	}
+	return economyParkFacts{}, false, nil
 }
 
 func (s *Service) acquireControlOwner(

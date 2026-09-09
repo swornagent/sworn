@@ -198,6 +198,13 @@ func PresentSnapshot(snapshot Snapshot) RunPresentation {
 			return presentation
 		}
 		for _, action := range snapshot.Actions {
+			if action.Kind == "grant" {
+				presentation.Status = "Stopped at a budget limit"
+				presentation.What = "Sworn stopped this work after it reached its configured turn, token, or output-byte budget."
+				presentation.Next = "Grant more capacity for the named unit using the latest action, then the run continues."
+				presentation.NeedsYou = "Yes — grant capacity before the run continues."
+				return presentation
+			}
 			if action.Kind != "retry" {
 				continue
 			}

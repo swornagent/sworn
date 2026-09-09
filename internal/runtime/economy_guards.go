@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 
 	"github.com/swornagent/sworn/internal/driver"
@@ -225,6 +226,44 @@ func economyParkFactsFor(
 	return facts
 }
 
+// decodeAttemptUsageReceipt is the shared digest-verified decode seam for an
+// attempt's observation body: the canonical inner usage receipt plus its
+// diagnostic code, re-verified byte-identical against its own re-encoding.
+// It refuses a not-stored or partial observation as corruption, matching
+// the guarantee callers that only ever invoke it against a proven-crossing
+// attempt already rely on.
+func decodeAttemptUsageReceipt(
+	observed journal.AttemptObservation,
+) (driver.UsageReceipt, string, error) {
+	if !observed.Stored || observed.Partial {
+		return driver.UsageReceipt{}, "", runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	var body struct {
+		Usage      json.RawMessage `json:"usage"`
+		Diagnostic struct {
+			Code string `json:"code"`
+		} `json:"diagnostic"`
+	}
+	if err := json.Unmarshal(observed.Body, &body); err != nil ||
+		len(body.Usage) == 0 {
+		return driver.UsageReceipt{}, "", runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	var receipt driver.UsageReceipt
+	decoder := json.NewDecoder(bytes.NewReader(body.Usage))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&receipt); err != nil {
+		return driver.UsageReceipt{}, "", runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
+		return driver.UsageReceipt{}, "", runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	canonical, err := driver.EncodeUsageReceipt(receipt)
+	if err != nil || !bytes.Equal(canonical, body.Usage) {
+		return driver.UsageReceipt{}, "", runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	return receipt, body.Diagnostic.Code, nil
+}
+
 // economySpent reads the engine-counted spend back from the exact attempt
 // that crossed the budget, through the targeted, digest-verified
 // AttemptObservation seam (never the recency-windowed ReadObservation, whose
@@ -246,31 +285,9 @@ func (s *Service) economySpent(
 	if err != nil {
 		return 0, 0, 0, "", runtimeFail("JOURNAL_READ_FAILED", err)
 	}
-	if !observed.Stored || observed.Partial {
-		return 0, 0, 0, "", runtimeFail("CORRUPT_JOURNAL", nil)
-	}
-	var body struct {
-		Usage      json.RawMessage `json:"usage"`
-		Diagnostic struct {
-			Code string `json:"code"`
-		} `json:"diagnostic"`
-	}
-	if err := json.Unmarshal(observed.Body, &body); err != nil ||
-		len(body.Usage) == 0 {
-		return 0, 0, 0, "", runtimeFail("CORRUPT_JOURNAL", nil)
-	}
-	var receipt driver.UsageReceipt
-	decoder := json.NewDecoder(bytes.NewReader(body.Usage))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&receipt); err != nil {
-		return 0, 0, 0, "", runtimeFail("CORRUPT_JOURNAL", nil)
-	}
-	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
-		return 0, 0, 0, "", runtimeFail("CORRUPT_JOURNAL", nil)
-	}
-	canonical, err := driver.EncodeUsageReceipt(receipt)
-	if err != nil || !bytes.Equal(canonical, body.Usage) {
-		return 0, 0, 0, "", runtimeFail("CORRUPT_JOURNAL", nil)
+	receipt, diagnosticCode, err := decodeAttemptUsageReceipt(observed)
+	if err != nil {
+		return 0, 0, 0, "", err
 	}
 	if receipt.Turns != nil {
 		spentTurns = *receipt.Turns
@@ -281,7 +298,123 @@ func (s *Service) economySpent(
 	if receipt.NativeStreamBytes != nil {
 		spentBytes = *receipt.NativeStreamBytes
 	}
-	return spentTurns, spentTokens, spentBytes, body.Diagnostic.Code, nil
+	return spentTurns, spentTokens, spentBytes, diagnosticCode, nil
+}
+
+// economyEffectiveOriginal names the manifest's own effective per-work
+// ceiling for one Grant unit, before any admitted grant: the same
+// Effective* accessor productionRequestForContextFreshness would otherwise
+// feed the driver unchanged.
+func economyEffectiveOriginal(limits driver.Limits, unit string) int64 {
+	switch unit {
+	case ParkCauseEconomyTurns:
+		return limits.EffectiveMaxTurnsPerWork()
+	case ParkCauseEconomyOutputTokens:
+		return limits.EffectiveMaxOutputTokensPerWork()
+	case ParkCauseEconomyOutputBytes:
+		return limits.EffectiveMaxNativeOutputStreamBytes()
+	default:
+		return 0
+	}
+}
+
+// economyHardCeiling names the absolute, manifest-independent hard ceiling
+// for one Grant unit: the exact constants driver.ValidateRequest already
+// enforces, never a value this feature invents.
+func economyHardCeiling(unit string) int64 {
+	switch unit {
+	case ParkCauseEconomyTurns:
+		return driver.MaxTurnsPerWorkLimit
+	case ParkCauseEconomyOutputTokens:
+		return driver.MaxOutputTokensPerWorkLimit
+	case ParkCauseEconomyOutputBytes:
+		return driver.MaxNativeOutputStreamBytesLimit
+	default:
+		return 0
+	}
+}
+
+// saturatingAddInt64 adds two non-negative int64 values without wrapping.
+// Every caller in this feature only ever adds non-negative amounts (a
+// manifest ceiling, a cumulative granted total, or a validated positive
+// Grant amount), so an amount large enough to overflow trivially exceeds
+// any finite hard ceiling once saturated.
+func saturatingAddInt64(a, b int64) int64 {
+	if a > math.MaxInt64-b {
+		return math.MaxInt64
+	}
+	return a + b
+}
+
+// economyWorkSpent folds a work's cumulative recorded economy spend across
+// every driver.dispatch attempt whose owner work resolves to work (A3): the
+// engine-counted turns, output tokens and native-stream bytes actually
+// recorded, restart- and retry-safe because it is recomputed from durable
+// journal history rather than cached. unknown is true only when a terminal
+// (non-claimed, non-pending) attempt's usage cannot be read back and
+// acknowledged is false; an acknowledged gap instead substitutes that
+// attempt's own already-declared per-attempt ceiling (its frozen
+// EffectiveLimits when it had one, else the raw manifest limits) — a real,
+// bounded number, never zero and never an invented vendor total.
+func economyWorkSpent(
+	ctx context.Context,
+	store *journal.Store,
+	manifest admittedManifest,
+	runID string,
+	work string,
+	acknowledged bool,
+) (turns, tokens, nativeBytes int64, unknown bool, err error) {
+	snapshot, snapErr := store.Snapshot(ctx, runID)
+	if snapErr != nil {
+		return 0, 0, 0, false, runtimeFail("JOURNAL_READ_FAILED", snapErr)
+	}
+	commands := make(map[string]journal.Command, len(snapshot.Commands))
+	for _, command := range snapshot.Commands {
+		commands[command.ReplayKey] = command
+	}
+	for _, effect := range snapshot.Effects {
+		if effect.Kind != "driver.dispatch" ||
+			effect.State == journal.Pending || effect.State == journal.Claimed {
+			continue
+		}
+		dispatchWork, _, try, coordErr := attemptCoordinates(effect.ID)
+		if coordErr != nil || ownerWorkForDispatch(snapshot, dispatchWork) != work {
+			continue
+		}
+		observed, obsErr := store.AttemptObservation(ctx, runID, effect.ID, try)
+		if obsErr != nil && !journal.IsCode(obsErr, "ATTEMPT_NOT_FOUND") {
+			return 0, 0, 0, false, runtimeFail("JOURNAL_READ_FAILED", obsErr)
+		}
+		if obsErr != nil || !observed.Stored || observed.Partial {
+			if !acknowledged {
+				unknown = true
+				continue
+			}
+			ceiling := manifest.value.Limits
+			if attemptContext, ok := dispatchContext(commands, effect.ReplayKey); ok &&
+				attemptContext.EffectiveLimits != nil {
+				ceiling = *attemptContext.EffectiveLimits
+			}
+			turns += ceiling.EffectiveMaxTurnsPerWork()
+			tokens += ceiling.EffectiveMaxOutputTokensPerWork()
+			nativeBytes += ceiling.EffectiveMaxNativeOutputStreamBytes()
+			continue
+		}
+		receipt, _, decodeErr := decodeAttemptUsageReceipt(observed)
+		if decodeErr != nil {
+			return 0, 0, 0, false, decodeErr
+		}
+		if receipt.Turns != nil {
+			turns += *receipt.Turns
+		}
+		if receipt.OutputTokens != nil {
+			tokens += *receipt.OutputTokens
+		}
+		if receipt.NativeStreamBytes != nil {
+			nativeBytes += *receipt.NativeStreamBytes
+		}
+	}
+	return turns, tokens, nativeBytes, unknown, nil
 }
 
 // identicalFailureFacts carries everything a park surface names for an

@@ -221,6 +221,36 @@ sworn retry \
   --config /absolute/path/drivers.json
 ```
 
+A work item that stopped because it reached its configured API-turn,
+API-output-token, or native-output-byte budget parks with its code retained
+and no accepted candidate; `retry` alone is refused for it
+(`ECONOMY_GRANT_REQUIRED`). `grant` admits an explicit, finite, bounded
+capacity increase for exactly the named unit and work item, then the same
+run continues from the preserved work:
+
+```sh
+sworn grant \
+  --run RUN_ID \
+  --journal /absolute/path/run.sqlite \
+  --command UNIQUE_COMMAND_ID \
+  --generation CURRENT_GENERATION \
+  --work SHA256_FROM_LATEST_ACTION \
+  --epoch EPOCH_FROM_LATEST_ACTION \
+  --unit economy_turns \
+  --amount 50 \
+  --config /absolute/path/drivers.json
+```
+
+`--unit` is one of `economy_turns`, `economy_output_tokens`, or
+`economy_output_bytes`, matching the board's named exhausted unit. A grant is
+refused above the hard per-invocation ceiling (`GRANT_ABOVE_HARD_CEILING`),
+for the wrong unit (`GRANT_WRONG_UNIT`), or when this work's recorded spend
+carries a crash-before-usage-receipt gap that has not been acknowledged
+(`ECONOMY_USAGE_UNKNOWN`) — add `--acknowledge-unknown-usage` only once you
+have reviewed that gap and accept resuming within this work's own
+already-declared ceiling. A grant unblocks only its named work and unit; it
+never changes the driver, model, or any other limit.
+
 Sworn's orchestrator handles a worker turn that ends with a question, reports a
 block, or does not return a usable handoff. It can resume the same worker with
 an answer grounded in saved facts, ask the Captain for advice, retry an

@@ -232,6 +232,13 @@ type Action struct {
 	MessageID          string                      `json:"message_id,omitempty"`
 	Approval           *runtimepkg.ApprovalCommand `json:"approval,omitempty"`
 	CaptainDelegation  *CaptainDelegationAction    `json:"captain_delegation,omitempty"`
+	// Unit names the Grant-only economy unit a "grant" action targets,
+	// pre-filled from the pinned work's own park cause. Amount and
+	// AcknowledgeUnknownUsage are left for the operator to supply at
+	// execution time; the board never guesses a capacity amount.
+	Unit                    string `json:"unit,omitempty"`
+	Amount                  int64  `json:"amount,omitempty"`
+	AcknowledgeUnknownUsage bool   `json:"acknowledge_unknown_usage,omitempty"`
 }
 
 // CaptainDelegationAction carries the complete immutable authority binding

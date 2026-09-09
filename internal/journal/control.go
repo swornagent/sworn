@@ -21,7 +21,35 @@ const (
 	Cancel   ControlKind = "cancel"
 	Retry    ControlKind = "retry"
 	Takeover ControlKind = "takeover"
+	// Grant is an explicit, operator-authorized, finite capacity grant for
+	// one economy unit on one work (S4-resumable-budget-stops A2). It is a
+	// sibling ControlKind to Retry, not a layer on top of it: applying a
+	// Grant always advances the work's retry epoch exactly like Retry does,
+	// but carries no try-exhaustion admissibility check of its own — the
+	// runtime-layer economy-crossing gate that admits it (Service.Control)
+	// is a strictly more specific precondition than Retry's.
+	Grant ControlKind = "grant"
 )
+
+// The Grant unit vocabulary is the closed set of economy causes a grant can
+// name, matching the wire values of runtime.ParkCauseEconomyTurns,
+// ParkCauseEconomyOutputTokens and ParkCauseEconomyOutputBytes exactly. This
+// package cannot import runtime (runtime imports journal), so the strings
+// are duplicated literals, not a shared constant.
+const (
+	grantUnitTurns        = "economy_turns"
+	grantUnitOutputTokens = "economy_output_tokens"
+	grantUnitOutputBytes  = "economy_output_bytes"
+)
+
+func validGrantUnit(unit string) bool {
+	switch unit {
+	case grantUnitTurns, grantUnitOutputTokens, grantUnitOutputBytes:
+		return true
+	default:
+		return false
+	}
+}
 
 type ControlCommand struct {
 	RunID              string      `json:"run_id"`
@@ -30,6 +58,15 @@ type ControlCommand struct {
 	ExpectedGeneration int64       `json:"expected_generation"`
 	WorkID             string      `json:"work_id,omitempty"`
 	ExpectedEpoch      int64       `json:"expected_epoch,omitempty"`
+	// Unit, Amount and AcknowledgeUnknownUsage are Grant-only fields
+	// (A2/A3): Unit is one of the closed grantUnit* values, Amount is the
+	// positive additional allowance admitted for that unit, and
+	// AcknowledgeUnknownUsage durably records an operator's explicit
+	// decision to proceed past a crash-before-usage-receipt accounting gap
+	// in this work's history.
+	Unit                    string `json:"unit,omitempty"`
+	Amount                  int64  `json:"amount,omitempty"`
+	AcknowledgeUnknownUsage bool   `json:"acknowledge_unknown_usage,omitempty"`
 }
 
 type ControlReceipt struct {
@@ -43,6 +80,15 @@ type ControlProjection struct {
 	Generation  int64
 	Desired     string
 	RetryEpochs map[string]int64
+	// GrantedAmount is the cumulative admitted Grant amount per work, per
+	// unit (A3): work -> unit -> total. Absent for a work with no admitted
+	// Grant.
+	GrantedAmount map[string]map[string]int64
+	// AcknowledgedUnknownUsage records, per work, whether any admitted
+	// Grant for it ever carried AcknowledgeUnknownUsage=true. Once true it
+	// stays true: the operator decision it records is durable, not
+	// per-command.
+	AcknowledgedUnknownUsage map[string]bool
 }
 
 type OwnerLease struct {
@@ -145,11 +191,20 @@ func validControl(command ControlCommand) error {
 	}
 	switch command.Kind {
 	case Pause, Resume, Cancel, Takeover:
-		if command.WorkID != "" || command.ExpectedEpoch != 0 {
+		if command.WorkID != "" || command.ExpectedEpoch != 0 ||
+			command.Unit != "" || command.Amount != 0 ||
+			command.AcknowledgeUnknownUsage {
 			return fail("INVALID_CONTROL", nil)
 		}
 	case Retry:
-		if err := validateDigest(command.WorkID); err != nil || command.ExpectedEpoch < 1 {
+		if err := validateDigest(command.WorkID); err != nil || command.ExpectedEpoch < 1 ||
+			command.Unit != "" || command.Amount != 0 ||
+			command.AcknowledgeUnknownUsage {
+			return fail("INVALID_CONTROL", nil)
+		}
+	case Grant:
+		if err := validateDigest(command.WorkID); err != nil || command.ExpectedEpoch < 1 ||
+			!validGrantUnit(command.Unit) || command.Amount <= 0 {
 			return fail("INVALID_CONTROL", nil)
 		}
 	default:
@@ -159,7 +214,12 @@ func validControl(command ControlCommand) error {
 }
 
 func projectionOnConnection(ctx context.Context, conn *sql.Conn, runID string) (ControlProjection, error) {
-	result := ControlProjection{Desired: "running", RetryEpochs: map[string]int64{}}
+	result := ControlProjection{
+		Desired:                  "running",
+		RetryEpochs:              map[string]int64{},
+		GrantedAmount:            map[string]map[string]int64{},
+		AcknowledgedUnknownUsage: map[string]bool{},
+	}
 	rows, err := conn.QueryContext(ctx,
 		`SELECT payload FROM commands WHERE run_id = ? AND kind LIKE 'control.%'`, runID)
 	if err != nil {
@@ -205,6 +265,15 @@ func projectionOnConnection(ctx context.Context, conn *sql.Conn, runID string) (
 			result.Desired = "cancelled"
 		case Retry:
 			result.RetryEpochs[command.WorkID] = command.ExpectedEpoch + 1
+		case Grant:
+			result.RetryEpochs[command.WorkID] = command.ExpectedEpoch + 1
+			if result.GrantedAmount[command.WorkID] == nil {
+				result.GrantedAmount[command.WorkID] = map[string]int64{}
+			}
+			result.GrantedAmount[command.WorkID][command.Unit] += command.Amount
+			if command.AcknowledgeUnknownUsage {
+				result.AcknowledgedUnknownUsage[command.WorkID] = true
+			}
 		}
 	}
 	return result, nil
@@ -371,6 +440,23 @@ func (s *Store) ApplyControl(ctx context.Context, command ControlCommand, at tim
 				if !admissible {
 					return fail("WORK_NOT_EXHAUSTED", nil)
 				}
+			}
+			receipt.Epoch = epoch + 1
+		}
+		if command.Kind == Grant {
+			// Grant carries no try-exhaustion admissibility check here: the
+			// runtime-layer economy-crossing gate that admits a Grant
+			// command before it ever reaches ApplyControl (Service.Control)
+			// is a strictly more specific precondition — an active
+			// current-epoch economy crossing already proves the try chain
+			// is stuck, on any try, not only the third. Grant only ever
+			// re-derives the generic epoch-staleness check Retry shares.
+			epoch := projection.RetryEpochs[command.WorkID]
+			if epoch == 0 {
+				epoch = 1
+			}
+			if epoch != command.ExpectedEpoch {
+				return fail("STALE_RETRY_EPOCH", nil)
 			}
 			receipt.Epoch = epoch + 1
 		}

@@ -763,6 +763,14 @@ func safeActions(
 		}
 	}
 	for _, effect := range status.Effects {
+		// An economy-caused exhaustion never offers a bare retry (S4-
+		// resumable-budget-stops): the control gate refuses it with
+		// ECONOMY_GRANT_REQUIRED, so the board must not name a verb
+		// ApplyControl will reject. The grant action below covers it
+		// instead, from status.PinnedWork.
+		if isEconomyErrorCode(effect.ErrorCode) {
+			continue
+		}
 		work, epoch, ok := exhaustedAttempt(effect)
 		currentEpoch := control.RetryEpochs[work]
 		if currentEpoch == 0 {
@@ -776,6 +784,23 @@ func safeActions(
 				ExpectedEpoch:      epoch,
 			})
 		}
+	}
+	for _, pinned := range status.PinnedWork {
+		unit := economyGrantUnit(pinned.Cause)
+		if unit == "" {
+			continue
+		}
+		epoch := control.RetryEpochs[pinned.WorkID]
+		if epoch == 0 {
+			epoch = 1
+		}
+		result = append(result, Action{
+			Kind:               string(journal.Grant),
+			ExpectedGeneration: generation,
+			WorkID:             pinned.WorkID,
+			ExpectedEpoch:      epoch,
+			Unit:               unit,
+		})
 	}
 	if delegation := status.CaptainDelegation; delegation != nil &&
 		delegation.State == "active" {
@@ -795,6 +820,26 @@ func safeActions(
 		)
 	}
 	return result
+}
+
+func isEconomyErrorCode(code string) bool {
+	return code == "ECONOMY_TURN_BUDGET_EXCEEDED" ||
+		code == "ECONOMY_OUTPUT_BUDGET_EXCEEDED"
+}
+
+// economyGrantUnit maps a PinnedWork cause to the Grant unit it admits, or
+// "" for a cause a Grant does not apply to (identical_failure, exhaustion).
+// The cause and unit vocabularies share their exact string values by
+// construction (runtime.ParkCauseEconomy*).
+func economyGrantUnit(cause string) string {
+	switch cause {
+	case runtimepkg.ParkCauseEconomyTurns,
+		runtimepkg.ParkCauseEconomyOutputTokens,
+		runtimepkg.ParkCauseEconomyOutputBytes:
+		return cause
+	default:
+		return ""
+	}
 }
 
 func exhaustedAttempt(effect runtimepkg.EffectStatus) (string, int64, bool) {

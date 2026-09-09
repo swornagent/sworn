@@ -283,7 +283,8 @@ func (m *model) handleActionKey(key tea.KeyMsg) tea.Cmd {
 			return nil
 		}
 		action := m.board.Actions[m.actionCursor]
-		if action.Kind == "answer_attention" || action.Kind == "start_delegated" ||
+		if action.Kind == "answer_attention" || action.Kind == "grant" ||
+			action.Kind == "start_delegated" ||
 			action.Kind == "captain_delegation_replace" {
 			m.pendingAction = action
 			m.answer = ""
@@ -310,7 +311,8 @@ func (m *model) handleAnswerKey(key tea.KeyMsg) tea.Cmd {
 			m.statusMsg = "Provide the required bounded text before continuing."
 			return nil
 		}
-		if m.pendingAction.Kind == "answer_attention" {
+		if m.pendingAction.Kind == "answer_attention" ||
+			m.pendingAction.Kind == "grant" {
 			return m.execute(m.pendingAction, m.answer)
 		}
 		if _, err := runtimepkg.ParseCaptainDelegation([]byte(m.answer)); err != nil {
@@ -625,6 +627,8 @@ func (m *model) actionLabel(action cockpit.Action) string {
 		return "Take over run"
 	case "retry":
 		return "Retry work " + shortActionID(action.WorkID)
+	case "grant":
+		return "Grant " + action.Unit + " for work " + shortActionID(action.WorkID)
 	case "answer_attention":
 		for _, attention := range m.board.Attentions {
 			if attention.ID == action.AttentionID &&

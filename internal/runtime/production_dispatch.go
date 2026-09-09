@@ -175,6 +175,17 @@ type productionWorkContext struct {
 	PriorSubmission    *productionPriorSubmissionBinding `json:"prior_submission,omitempty"`
 	HostRepair         *productionHostRepair             `json:"host_repair,omitempty"`
 	SubmissionRepair   *productionSubmissionRepair       `json:"submission_repair,omitempty"`
+	// EffectiveLimits is the frozen, per-work economy allowance
+	// (S4-resumable-budget-stops A3): when a work has an admitted Grant,
+	// this holds a full copy of the manifest's Limits with only the
+	// granted-and-currently-headroom-positive unit fields overridden to
+	// original+granted-spent, computed once at dispatch-build time. Every
+	// later re-derivation of this exact dispatch's request reads this
+	// persisted, frozen value instead of recomputing from live grant/spend
+	// state, so the request digest never depends on anything mutable. Nil
+	// for a work with no admitted grant, byte-identical to every
+	// pre-grant journal.
+	EffectiveLimits *driver.Limits `json:"effective_limits,omitempty"`
 }
 
 type productionPriorSubmissionBinding struct {
@@ -541,6 +552,15 @@ func captureProductionWorkContext(
 			return productionWorkContext{}, nil, err
 		}
 	}
+	if err := captureEffectiveLimits(
+		ctx,
+		engine,
+		coordinates,
+		before,
+		&workContext,
+	); err != nil {
+		return productionWorkContext{}, nil, err
+	}
 	body := mustJSON(workContext)
 	if len(body) > driver.MaxInputFileBytes {
 		return productionWorkContext{}, nil,
@@ -550,6 +570,96 @@ func captureProductionWorkContext(
 		return productionWorkContext{}, nil, err
 	}
 	return workContext, body, nil
+}
+
+// captureEffectiveLimits freezes a granted work's effective per-work economy
+// limits once, at dispatch-build time (S4-resumable-budget-stops A3): a
+// work with no admitted grant leaves EffectiveLimits nil, byte-identical to
+// every pre-grant journal. work is the same outer, board-visible work
+// identity ownerWorkForDispatch resolves a nested git.seal-wrapped dispatch
+// to, matching the identity Service.Control's admission gate and the park
+// board both already key grants and park facts by.
+func captureEffectiveLimits(
+	ctx context.Context,
+	engine *engine,
+	coordinates dispatchCoordinates,
+	before string,
+	workContext *productionWorkContext,
+) error {
+	workID := driverWorkIdentity(
+		engine.manifest.digest,
+		coordinates.Slice,
+		coordinates.Responsibility,
+		coordinates.BatonAttempt,
+		before,
+	)
+	snapshot, err := engineSnapshot(ctx, engine)
+	if err != nil {
+		return err
+	}
+	work := ownerWorkForDispatch(snapshot, workID)
+	control, err := engine.journal.ControlProjection(
+		ctx,
+		engine.manifest.value.RunID,
+	)
+	if err != nil {
+		return runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	granted, ok := control.GrantedAmount[work]
+	if !ok || len(granted) == 0 {
+		return nil
+	}
+	acknowledged := control.AcknowledgedUnknownUsage[work]
+	turnsSpent, tokensSpent, bytesSpent, unknown, err := economyWorkSpent(
+		ctx,
+		engine.journal,
+		engine.manifest,
+		engine.manifest.value.RunID,
+		work,
+		acknowledged,
+	)
+	if err != nil {
+		return err
+	}
+	if unknown {
+		return runtimeFail("ECONOMY_USAGE_UNKNOWN", nil)
+	}
+	limits := engine.manifest.value.Limits
+	for unit, amount := range granted {
+		original := economyEffectiveOriginal(engine.manifest.value.Limits, unit)
+		var spent int64
+		switch unit {
+		case ParkCauseEconomyTurns:
+			spent = turnsSpent
+		case ParkCauseEconomyOutputTokens:
+			spent = tokensSpent
+		case ParkCauseEconomyOutputBytes:
+			spent = bytesSpent
+		default:
+			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		headroom := saturatingAddInt64(original, amount) - spent
+		floor := int64(1)
+		if unit == ParkCauseEconomyOutputBytes {
+			floor = driver.MaxProviderResponseBytes
+		}
+		if headroom < floor {
+			// A non-positive or sub-floor headroom must fail closed with a
+			// named limitation and preserved work, never fall back to the
+			// full manifest allowance (S4-resumable-budget-stops C3).
+			return runtimeFail("ECONOMY_GRANT_INEFFECTIVE", nil)
+		}
+		switch unit {
+		case ParkCauseEconomyTurns:
+			limits.MaxTurnsPerWork = headroom
+		case ParkCauseEconomyOutputTokens:
+			limits.MaxOutputTokensPerWork = headroom
+		case ParkCauseEconomyOutputBytes:
+			limits.MaxNativeOutputStreamBytes = headroom
+		}
+	}
+	workContext.EffectiveLimits = &limits
+	return nil
 }
 
 func captainReviewBefore(proposal admittedPlanProposal, delegation CaptainDelegationState) string {
@@ -1383,7 +1493,8 @@ func validateProductionWorkContext(
 			workContext.Refusal != nil ||
 			workContext.HostRepair != nil ||
 			workContext.PriorSubmission != nil ||
-			workContext.SubmissionRepair != nil) {
+			workContext.SubmissionRepair != nil ||
+			workContext.EffectiveLimits != nil) {
 		return runtimeFail("CORRUPT_JOURNAL", nil)
 	}
 	if workContext.PriorSubmission != nil {
@@ -1679,6 +1790,15 @@ func productionWorkContextV1(
 		return productionWorkContext{},
 			runtimeFail("CORRUPT_JOURNAL", nil)
 	}
+	if workContext.EffectiveLimits != nil {
+		// A v1 downgrade must refuse rather than silently strip a grant
+		// into an ineffective one (S4-resumable-budget-stops C4): the v1
+		// shape has no field to carry it, and productionWorkContextV1 must
+		// never turn an admitted, effective grant into a request that
+		// quietly reverts to the raw manifest limits.
+		return productionWorkContext{},
+			runtimeFail("ECONOMY_GRANT_INCOMPATIBLE_V1", nil)
+	}
 	workContext.SchemaVersion = productionWorkContextVersionV1
 	workContext.Track = ""
 	workContext.PreparedBase = ""
@@ -1859,13 +1979,30 @@ func productionRequestForContextFreshness(
 		},
 		inputs,
 		fresh,
-		manifest.value.Limits,
+		effectiveLimits(workContext, manifest),
 	)
 	if err != nil {
 		return driver.Request{},
 			runtimeFail("CORRUPT_JOURNAL", err)
 	}
 	return request, nil
+}
+
+// effectiveLimits is the single seam every request-freshness re-derivation
+// site funnels through (S4-resumable-budget-stops, closing Disproof 1): a
+// persisted, frozen EffectiveLimits makes the request digest a pure
+// function of already-committed bytes, re-derivable from the persisted
+// context alone with no read of live grant/spend state. A work with no
+// admitted grant reads the raw manifest limits unchanged, byte-identical
+// for every journal that predates this slice.
+func effectiveLimits(
+	workContext productionWorkContext,
+	manifest admittedManifest,
+) driver.Limits {
+	if workContext.EffectiveLimits != nil {
+		return *workContext.EffectiveLimits
+	}
+	return manifest.value.Limits
 }
 
 func productionInputContents(

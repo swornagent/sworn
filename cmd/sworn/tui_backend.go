@@ -693,6 +693,8 @@ func (b *projectTUIBackend) executeRunAction(
 ) error {
 	configPath := run.configPath
 	var commandID string
+	var grantAmount int64
+	var grantAcknowledge bool
 	switch action.Kind {
 	case "approve":
 		if answer != "" || action.Approval == nil {
@@ -710,6 +712,17 @@ func (b *projectTUIBackend) executeRunAction(
 	case "resume", "takeover", "retry":
 		if answer != "" {
 			return errors.New("the current board does not allow that action")
+		}
+		var err error
+		commandID, err = b.commandID()
+		if err != nil {
+			return errors.New("project control is unavailable")
+		}
+	case "grant":
+		var parseErr error
+		grantAmount, grantAcknowledge, parseErr = parseGrantAnswer(answer)
+		if parseErr != nil {
+			return parseErr
 		}
 		var err error
 		commandID, err = b.commandID()
@@ -754,6 +767,18 @@ func (b *projectTUIBackend) executeRunAction(
 			WorkID:             action.WorkID, ExpectedEpoch: action.ExpectedEpoch,
 		}
 		err = replayPendingTUIControl(ctx, commands, command)
+	case "grant":
+		command := cockpit.ControlCommand{
+			RunID: run.binding.ID, CommandID: commandID,
+			Kind:                    journal.Grant,
+			ExpectedGeneration:      action.ExpectedGeneration,
+			WorkID:                  action.WorkID,
+			ExpectedEpoch:           action.ExpectedEpoch,
+			Unit:                    action.Unit,
+			Amount:                  grantAmount,
+			AcknowledgeUnknownUsage: grantAcknowledge,
+		}
+		err = replayPendingTUIControl(ctx, commands, command)
 	case "answer_attention":
 		_, err = commands.AnswerAttention(ctx, cockpit.AnswerAttentionCommand{
 			RunID: run.binding.ID, AttentionID: action.AttentionID,
@@ -788,6 +813,32 @@ func (b *projectTUIBackend) executeRunAction(
 		return errors.New("the current board rejected that action")
 	}
 	return nil
+}
+
+// parseGrantAnswer reads a grant action's free-text answer field: a
+// positive whole number amount, optionally followed by "ack" to durably
+// acknowledge a crash-before-usage-receipt accounting gap for this work.
+// The board offers no numeric input widget of its own, so the grant action
+// reuses the same free-text answer mechanism answer_attention already uses.
+func parseGrantAnswer(answer string) (int64, bool, error) {
+	fields := strings.Fields(answer)
+	if len(fields) == 0 || len(fields) > 2 {
+		return 0, false, errors.New(
+			"the amount must be a positive whole number, optionally " +
+				"followed by \"ack\" to acknowledge unknown prior usage",
+		)
+	}
+	amount, err := strconv.ParseInt(fields[0], 10, 64)
+	if err != nil || amount <= 0 {
+		return 0, false, errors.New("the amount must be a positive whole number")
+	}
+	if len(fields) == 2 {
+		if fields[1] != "ack" {
+			return 0, false, errors.New("the second word must be \"ack\" or omitted")
+		}
+		return amount, true, nil
+	}
+	return amount, false, nil
 }
 
 type tuiControlAPI interface {

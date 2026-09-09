@@ -168,11 +168,19 @@ func ProjectNeedsYou(runs []DiscoveredRunStatus) []NeedsYouItem {
 		// unblocks it.
 		if run.Status.State == "parked" {
 			if len(run.Status.PinnedWork) != 0 {
+				action := "retry"
+				if economyGrantUnit(run.Status.PinnedWork[0].Cause) != "" {
+					// The first pinned work crossed an economy budget:
+					// retry alone is refused (ECONOMY_GRANT_REQUIRED), so
+					// the needs-you row must name the verb that actually
+					// unblocks it (S4-resumable-budget-stops A2).
+					action = "grant"
+				}
 				items = append(items, NeedsYouItem{
 					RunID:   run.Binding.ID,
 					Release: run.Binding.Release,
 					State:   "parked",
-					Action:  "retry",
+					Action:  action,
 					Reason:  pinnedWorkNeedsYouReason(run.Status.PinnedWork),
 					WorkID:  run.Status.PinnedWork[0].WorkID,
 				})
