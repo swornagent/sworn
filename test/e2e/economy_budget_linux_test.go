@@ -79,6 +79,13 @@ const (
 	economyOutputTokenBudget        = 8_000
 	economyOutputTokenGenerousTurns = 500
 	economyOutputTokenGrant         = 2_000
+	// economyIndependentTrackContent is the content the second, independent
+	// track's Implementer writes and submits on its own first attempt in
+	// TestRealBinaryEconomyTurnBudgetParksOneTrackWhileIndependentTrack-
+	// Completes (S4-resumable-budget-stops A5): it never touches the
+	// economy-parked track's own scope path, so both tracks' real
+	// production-adapter cases share one HTTP provider without colliding.
+	economyIndependentTrackContent = "economy budget independent track content\n"
 )
 
 func economyBudgetPlan(t *testing.T) ([]byte, baton.Plan) {
@@ -119,6 +126,81 @@ func economyBudgetPlan(t *testing.T) ([]byte, baton.Plan) {
 	body := []byte(
 		"```baton-plan-v2\n" + string(metadataBody) +
 			"\n```\n\nDeterministic real-binary economy-budget E2E.\n",
+	)
+	plan, err := baton.ParsePlan(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return body, plan
+}
+
+// economyBudgetTwoTrackPlan adds a second, wholly independent track T2/S2
+// (scoped to two.txt, never one.txt) beside economyBudgetPlan's T1/S1, in
+// the same shape the pre-existing walking-skeleton/topology real-binary
+// fixtures already use for two independent tracks (e2ePlan): neither track
+// depends on the other, so S4-resumable-budget-stops A5's economy-parked-
+// track-beside-a-finishing-track scenario needs no new scheduling behavior,
+// only a second scope for the same real HTTP-provider journey to drive.
+func economyBudgetTwoTrackPlan(t *testing.T) ([]byte, baton.Plan) {
+	t.Helper()
+	metadata := baton.Metadata{
+		SchemaVersion: baton.PlanVersion,
+		Release:       "economy-budget-two-track-release",
+		Revision:      1,
+		PreviousPlan:  nil,
+		Repository:    "acme-repo",
+		TargetRef:     "refs/heads/main",
+		ApprovalRef:   "operator://economy-budget-two-track-release/1",
+		Tracks: []baton.Track{
+			{
+				ID:        "T1",
+				DependsOn: []string{},
+				Slices: []baton.Slice{{
+					ID:      "S1",
+					Outcome: "Deliver the budget-grant fixture value.",
+					Scope: baton.Scope{
+						Include: []string{"one.txt"},
+						Exclude: []string{},
+					},
+					Acceptance: []baton.Criterion{{
+						ID:   "A-S1",
+						Text: "The granted value is present in the exact product tree.",
+					}},
+					Checks:      []string{"check one.txt"},
+					Constraints: []string{"deterministic local provider"},
+					DependsOn:   []string{},
+					Consumes:    []string{},
+				}},
+			},
+			{
+				ID:        "T2",
+				DependsOn: []string{},
+				Slices: []baton.Slice{{
+					ID:      "S2",
+					Outcome: "Deliver the independent-track fixture value.",
+					Scope: baton.Scope{
+						Include: []string{"two.txt"},
+						Exclude: []string{},
+					},
+					Acceptance: []baton.Criterion{{
+						ID:   "A-S2",
+						Text: "The independent value is present in the exact product tree.",
+					}},
+					Checks:      []string{"check two.txt"},
+					Constraints: []string{"deterministic local provider"},
+					DependsOn:   []string{},
+					Consumes:    []string{},
+				}},
+			},
+		},
+	}
+	metadataBody, err := json.MarshalIndent(metadata, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := []byte(
+		"```baton-plan-v2\n" + string(metadataBody) +
+			"\n```\n\nDeterministic real-binary economy-budget two-track E2E.\n",
 	)
 	plan, err := baton.ParsePlan(body)
 	if err != nil {
@@ -175,9 +257,10 @@ func economyBudgetConfig(
 
 func economyBudgetManifest(
 	t *testing.T,
-	runID, repository string,
+	runID, repository, release string,
 	config driver.LoadedDriverConfig,
 	maxTurnsPerWork, maxOutputTokensPerWork int64,
+	maxParallelTracks int,
 ) []byte {
 	t.Helper()
 	selection := driver.ModelSelection{
@@ -189,10 +272,10 @@ func economyBudgetManifest(
 		SchemaVersion:     swornruntime.ManifestVersion,
 		RunID:             runID,
 		Repository:        repository,
-		Release:           "economy-budget-release",
+		Release:           release,
 		TargetRef:         "refs/heads/main",
 		Intent:            "Prove a real turn-budget park, an explicit grant and resumed completion.",
-		MaxParallelTracks: 1,
+		MaxParallelTracks: maxParallelTracks,
 		Authority: swornruntime.ProjectAuthority{
 			Project: "acme-repo", ExternalAuthorizer: "operator",
 		},
@@ -399,7 +482,12 @@ func (provider *economyBudgetProvider) verificationResponse(
 				reruns, prompt.InvocationID,
 			)
 		}
-		return "Bash", map[string]any{"script": "check one.txt || true"}, nil
+		parts := strings.Split(prompt.InvocationID, "/")
+		checkPath := "one.txt"
+		if len(parts) == 6 && parts[1] != "S1" {
+			checkPath = "two.txt"
+		}
+		return "Bash", map[string]any{"script": "check " + checkPath + " || true"}, nil
 	}
 	arguments, err := provider.submissionArguments(prompt)
 	return "sworn_submit", arguments, err
@@ -438,7 +526,12 @@ func (provider *economyBudgetProvider) plannerResponse(
 // submit within the manifest's tiny turn budget, so the driver's own
 // ECONOMY_TURN_BUDGET_EXCEEDED guard - not a fixture shortcut - ends it
 // (A1). Every later attempt (the fresh dispatch a grant admits) writes the
-// real content and submits well inside its granted headroom.
+// real content and submits well inside its granted headroom. A dispatch for
+// any slice other than S1 (only present in
+// TestRealBinaryEconomyTurnBudgetParksOneTrackWhileIndependentTrackCompletes'
+// second, independent track) never stalls regardless of epoch: A5 needs
+// that track to finish on its own while S1 is parked, not to reach its own
+// economy ceiling.
 func (provider *economyBudgetProvider) implementerResponse(
 	prompt recoveryE2EModelPrompt,
 	turn int,
@@ -446,6 +539,20 @@ func (provider *economyBudgetProvider) implementerResponse(
 	parts := strings.Split(prompt.InvocationID, "/")
 	if len(parts) != 6 {
 		return "", nil, fmt.Errorf("unexpected invocation id %q", prompt.InvocationID)
+	}
+	if parts[1] != "S1" {
+		switch turn {
+		case 1:
+			return "Write", map[string]any{
+				"path":    "/workspace/two.txt",
+				"content": economyIndependentTrackContent,
+			}, nil
+		case 2:
+			arguments, err := provider.submissionArguments(prompt)
+			return "sworn_submit", arguments, err
+		default:
+			return "", nil, fmt.Errorf("independent track implementer attempt reached turn %d", turn)
+		}
 	}
 	if parts[4] == "1" {
 		stallTurns := provider.effectiveStallTurns()
@@ -546,7 +653,8 @@ func TestRealBinaryEconomyTurnBudgetParksGrantsAndResumes(t *testing.T) {
 	}
 	manifestPath := writeManifest(
 		t, root, economyBudgetManifest(
-			t, "economy-budget", repository, loaded, economyBudgetStallTurns, 0,
+			t, "economy-budget", repository, "economy-budget-release", loaded,
+			economyBudgetStallTurns, 0, 1,
 		),
 	)
 	journalPath := filepath.Join(root, "run.sqlite")
@@ -777,8 +885,8 @@ func TestRealBinaryEconomyOutputTokenBudgetParksGrantsAndResumes(t *testing.T) {
 	}
 	manifestPath := writeManifest(
 		t, root, economyBudgetManifest(
-			t, "economy-output-tokens", repository, loaded,
-			economyOutputTokenGenerousTurns, economyOutputTokenBudget,
+			t, "economy-output-tokens", repository, "economy-budget-release", loaded,
+			economyOutputTokenGenerousTurns, economyOutputTokenBudget, 1,
 		),
 	)
 	journalPath := filepath.Join(root, "run.sqlite")
@@ -972,6 +1080,250 @@ func TestRealBinaryEconomyOutputTokenBudgetParksGrantsAndResumes(t *testing.T) {
 			"implementation attempts' recorded output tokens = %v, want [%d 10] "+
 				"(exhausted-then-granted, never reset)",
 			implementationOutputTokens, spentTokens,
+		)
+	}
+}
+
+// TestRealBinaryEconomyTurnBudgetParksOneTrackWhileIndependentTrackCompletes
+// drives the same compiled sworn binary and real OpenAI-shaped HTTP
+// provider as the turn-budget and output-token scenarios above, this time
+// over economyBudgetTwoTrackPlan's two wholly independent tracks
+// (S4-resumable-budget-stops A5): T1/S1 reaches the real turn budget on its
+// first Implementer attempt and parks with its uncommitted code durably
+// retained, exactly as the single-track scenario proves, while T2/S2's own
+// Implementer never stalls and its slice reaches an independent pass in the
+// very same drive - so the run only reports parked once T1 is the sole
+// remaining admissible work, not because T2 was blocked by it. Only after
+// an explicit grant unblocks T1 does the release reach assembly, which
+// integrates both tracks' exact passed products - S1's granted content and
+// S2's already-independently-passed content - into one real merged
+// candidate, proving A5's "subsequent authorized continuation, independent
+// verification and assembly integrate the exact passed product" over the
+// real compiled binary and real target repository, not a unit-level double.
+func TestRealBinaryEconomyTurnBudgetParksOneTrackWhileIndependentTrackCompletes(t *testing.T) {
+	t.Parallel()
+	repository := newProductRepository(t)
+	planBytes, plan := economyBudgetTwoTrackPlan(t)
+	provider := &economyBudgetProvider{t: t, planBytes: planBytes, turns: make(map[string]int)}
+	providerHTTP := httptest.NewServer(http.HandlerFunc(provider.serve))
+	defer providerHTTP.Close()
+
+	root := t.TempDir()
+	configBody, loaded := economyBudgetConfig(t, providerHTTP.URL)
+	configPath := filepath.Join(root, "drivers.json")
+	if err := os.WriteFile(configPath, configBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const runID, release = "economy-budget-two-track", "economy-budget-two-track-release"
+	manifestPath := writeManifest(
+		t, root, economyBudgetManifest(
+			t, runID, repository, release, loaded, economyBudgetStallTurns, 0, 2,
+		),
+	)
+	journalPath := filepath.Join(root, "run.sqlite")
+	swornBinary := filepath.Join(root, "sworn")
+	buildBinary(t, swornBinary, "./cmd/sworn", "")
+	environment := map[string]string{"SWORN_ECONOMY_BUDGET_KEY": economyBudgetSecret}
+	targetBefore := runGit(t, repository, "rev-parse", "main")
+
+	stdout, stderr := runBinaryWithEnvironment(
+		t, swornBinary, 0, environment,
+		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
+	)
+	if stderr != "" || !strings.Contains(stdout, "  state: parked") {
+		t.Fatalf("initial run stdout=%q stderr=%q", stdout, stderr)
+	}
+	stdout = answerRecoveryPlannerSummary(
+		t, swornBinary, runID, journalPath, configPath, environment,
+	)
+	if !strings.Contains(stdout, "  state: awaiting_approval") {
+		t.Fatalf("planner summary answer stdout=%q", stdout)
+	}
+
+	authorizePlan(t, journalPath, runID, plan)
+	installApprovedPlan(t, repository, planBytes)
+
+	stdout, stderr = runBinaryWithEnvironment(
+		t, swornBinary, 0, environment,
+		"resume", "--run", runID, "--journal", journalPath,
+		"--command", "resume-1", "--generation", "0", "--config", configPath,
+	)
+	if stderr != "" {
+		t.Fatalf("resume stdout=%q stderr=%q", stdout, stderr)
+	}
+
+	stdout, stderr = runBinaryWithEnvironment(
+		t, swornBinary, 0, environment,
+		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
+	)
+	if stderr != "" || !strings.Contains(stdout, "  state: parked") {
+		t.Fatalf(
+			"expected T1's first attempt to exhaust its real turn budget and "+
+				"park while T2 finishes independently: stdout=%q stderr=%q", stdout, stderr,
+		)
+	}
+
+	// A5: the exhausted track (S1) has not passed and no assembly candidate
+	// exists yet, while the independent track (S2) has already reached its
+	// own pass - proving T1's park neither stalled nor was gated on T2, and
+	// T2's completion did not itself trigger assembly ahead of T1.
+	state := readBatonState(t, repository, release)
+	s1, ok1 := state.Slice("S1")
+	s2, ok2 := state.Slice("S2")
+	if !ok1 || !ok2 || s1.Pass != nil || s2.Pass == nil || state.Assembly.Candidate != nil {
+		t.Fatalf("two-track parking isolation: S1=%#v S2=%#v assembly=%#v", s1, s2, state.Assembly)
+	}
+
+	statusBody, statusErr := runBinary(
+		t, swornBinary, 0, "status", "--run", runID, "--journal", journalPath, "--json",
+	)
+	var status swornruntime.RunStatus
+	if statusErr != "" || json.Unmarshal([]byte(statusBody), &status) != nil {
+		t.Fatalf("status body=%q stderr=%q", statusBody, statusErr)
+	}
+	if status.State != "parked" || status.Park == nil ||
+		status.Park.Cause != swornruntime.ParkCauseEconomyTurns ||
+		status.Park.Spent != economyBudgetStallTurns ||
+		status.Park.Budget != economyBudgetStallTurns ||
+		status.Park.UnblockKnob != swornruntime.EconomyTurnsUnblockKnob {
+		t.Fatalf("economy park status = %#v", status.Park)
+	}
+	if len(status.PinnedWork) != 1 ||
+		status.PinnedWork[0].Cause != swornruntime.ParkCauseEconomyTurns ||
+		status.PinnedWork[0].DispatchWorkID == "" {
+		t.Fatalf("pinned work = %#v", status.PinnedWork)
+	}
+	if runGit(t, repository, "rev-parse", "main") != targetBefore {
+		t.Fatalf("parked run advanced target authority before any candidate was accepted")
+	}
+
+	// A1/S1-durable-unverified-checkpoints: T1's own uncommitted one.txt is
+	// durably preserved under the journal's checkpoint ref, distinct from
+	// T2's own already-passed two.txt content, which this test asserts
+	// separately after assembly.
+	ctx := context.Background()
+	store, err := journal.OpenReadOnly(ctx, journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	checkpoints, err := store.ListUnverifiedCheckpoints(ctx, runID)
+	if err != nil || len(checkpoints) == 0 {
+		t.Fatalf("no unverified checkpoints recorded in journal: %v (%d)", err, len(checkpoints))
+	}
+	preservedCheckpoint := checkpoints[len(checkpoints)-1]
+	if preservedCheckpoint.Slice != "S1" ||
+		preservedCheckpoint.DispatchWork != status.PinnedWork[0].DispatchWorkID ||
+		preservedCheckpoint.Epoch != 1 || preservedCheckpoint.CheckpointRef == "" {
+		t.Fatalf("checkpoint = %#v, want T1's own parked attempt", preservedCheckpoint)
+	}
+	runGit(t, repository, "rev-parse", "--verify", preservedCheckpoint.CheckpointRef)
+	preservedContent, preserveErr := exec.Command(
+		e2eGit, "-C", repository, "show", preservedCheckpoint.CheckpointRef+":one.txt",
+	).Output()
+	if preserveErr != nil ||
+		string(preservedContent) != "interim unsubmitted content, never accepted\n" {
+		t.Fatalf(
+			"checkpoint one.txt = %q, error = %v; T1's uncommitted work was "+
+				"not durably preserved beside T2's independent completion",
+			preservedContent, preserveErr,
+		)
+	}
+
+	boardBody, boardErr := runBinary(
+		t, swornBinary, 0, "board", "--run", runID, "--journal", journalPath, "--json",
+	)
+	var board cockpit.Snapshot
+	if boardErr != "" || json.Unmarshal([]byte(boardBody), &board) != nil {
+		t.Fatalf("board body=%q stderr=%q", boardBody, boardErr)
+	}
+	var grantAction *cockpit.Action
+	for index := range board.Actions {
+		if board.Actions[index].Kind == "grant" {
+			grantAction = &board.Actions[index]
+		}
+	}
+	if board.Run.State != "parked" || grantAction == nil ||
+		grantAction.WorkID != status.PinnedWork[0].DispatchWorkID ||
+		grantAction.Unit != swornruntime.ParkCauseEconomyTurns ||
+		grantAction.ExpectedEpoch != 1 {
+		t.Fatalf("board grant action = %#v pinned=%#v", grantAction, status.PinnedWork)
+	}
+
+	grantOut, grantErr := runBinaryWithEnvironment(
+		t, swornBinary, 0, environment,
+		"grant", "--run", runID, "--journal", journalPath,
+		"--command", "grant-1",
+		"--generation", fmt.Sprintf("%d", grantAction.ExpectedGeneration),
+		"--work", grantAction.WorkID,
+		"--epoch", fmt.Sprintf("%d", grantAction.ExpectedEpoch),
+		"--unit", grantAction.Unit,
+		"--amount", fmt.Sprintf("%d", economyBudgetGrant), "--config", configPath,
+	)
+	if grantErr != "" || !strings.Contains(grantOut, "  state: running") {
+		t.Fatalf("grant stdout=%q stderr=%q", grantOut, grantErr)
+	}
+
+	stdout, stderr = runBinaryWithEnvironment(
+		t, swornBinary, 0, environment,
+		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
+	)
+	if stderr != "" || !strings.Contains(stdout, "  state: complete") {
+		t.Fatalf("post-grant run stdout=%q stderr=%q", stdout, stderr)
+	}
+
+	// A5: assembly, once T1's grant admits its completion, integrates the
+	// exact product both tracks passed - S1's freshly granted one.txt and
+	// S2's already-independent two.txt - into one real merged candidate.
+	finalState := readBatonState(t, repository, release)
+	if finalState.Assembly.Outcome != "merged" ||
+		runGit(t, repository, "rev-parse", "main") == targetBefore ||
+		runGit(t, repository, "show", "main:one.txt") !=
+			strings.TrimSuffix(economyBudgetContent, "\n") ||
+		runGit(t, repository, "show", "main:two.txt") !=
+			strings.TrimSuffix(economyIndependentTrackContent, "\n") {
+		t.Fatalf("final state=%#v", finalState.Assembly)
+	}
+
+	finalStatusBody, finalStatusErr := runBinary(
+		t, swornBinary, 0, "status", "--run", runID, "--journal", journalPath, "--json",
+	)
+	var finalStatus swornruntime.RunStatus
+	if finalStatusErr != "" || json.Unmarshal([]byte(finalStatusBody), &finalStatus) != nil {
+		t.Fatalf("final status body=%q stderr=%q", finalStatusBody, finalStatusErr)
+	}
+	if finalStatus.Park != nil || len(finalStatus.PinnedWork) != 0 {
+		t.Fatalf("final status still parked/pinned: %#v", finalStatus)
+	}
+
+	// A3: T1's recorded turns survive the restart additively, unaffected by
+	// T2's own concurrent, unrelated attempt.
+	observation, err := store.ReadObservation(
+		ctx, runID, journal.MaxObservationAttempts, journal.MaxObservationEvents,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s1EffectPrefix := "attempt/" + strings.TrimPrefix(status.PinnedWork[0].DispatchWorkID, "sha256:") + "/"
+	var s1ImplementationTurns []int64
+	for _, attempt := range observation.Attempts {
+		if attempt.Responsibility != string(driver.ImplementerImplementation) ||
+			!strings.HasPrefix(attempt.EffectID, s1EffectPrefix) {
+			continue
+		}
+		var usage driver.UsageReceipt
+		if err := json.Unmarshal(attempt.Usage, &usage); err != nil || usage.Turns == nil {
+			t.Fatalf("S1 implementation attempt usage=%s error=%v", attempt.Usage, err)
+		}
+		s1ImplementationTurns = append(s1ImplementationTurns, *usage.Turns)
+	}
+	if len(s1ImplementationTurns) != 2 ||
+		s1ImplementationTurns[0] != economyBudgetStallTurns ||
+		s1ImplementationTurns[1] != 2 {
+		t.Fatalf(
+			"S1 implementation attempts' recorded turns = %v, want [%d 2] "+
+				"(exhausted-then-granted, never reset, independent of T2)",
+			s1ImplementationTurns, economyBudgetStallTurns,
 		)
 	}
 }
