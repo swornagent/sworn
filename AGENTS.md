@@ -45,8 +45,8 @@ Before committing, run:
 GOFLAGS=-buildvcs=false go test -count=1 \
   ./cmd/sworn ./internal/... ./tools/...
 GOFLAGS=-buildvcs=false go test -count=1 \
-  -parallel=1 -timeout=35m ./test/e2e
-GOFLAGS=-buildvcs=false go test -count=1 -race \
+  -parallel=1 -timeout=45m ./test/e2e
+GOFLAGS=-buildvcs=false go test -count=1 -race -timeout=20m \
   ./cmd/sworn ./internal/... ./tools/...
 GOFLAGS=-buildvcs=false go vet ./...
 gofmt -l ./cmd ./internal ./tools
@@ -55,6 +55,12 @@ gofmt -l ./cmd ./internal ./tools
 Run the long process tests once and in order. Use the race detector on the
 product packages, not on the timing-sensitive end-to-end suite. These are the
 same boundaries used by CI.
+
+The serial E2E deadline includes the complete production restoration journey;
+35 minutes previously expired with passing cases still progressing. Runtime's
+race suite also outgrew Go's implicit 10-minute package deadline. Keep these
+explicit harness budgets aligned with CI and new slice contracts. Do not drop
+assertions or change model budgets to work around a test-runner timeout.
 
 `gofmt -l` must print nothing. CI enforces formatting as its own step, so a
 slice contract that omits this check can pass every gate it declares and
