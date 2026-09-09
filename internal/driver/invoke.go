@@ -531,8 +531,10 @@ func classifyKind(code string, hardLimit bool) RefusalKind {
 // Detail after it passes validateText at maxProviderErrorDetailBytes), and
 // the structured exception A3 adds (NATIVE_SURFACE_INVALID carries a
 // {"check":...,"head":...} envelope, structurally re-validated by
-// revalidateNativeSurfaceDetail rather than validateText). Every other code,
-// and any non-conforming detail, is dropped exactly as before.
+// revalidateNativeSurfaceDetail rather than validateText), joined by
+// CONTINUATION_INVALID's own engine vocabulary (a site label or the
+// correlate envelope, re-validated by revalidateContinuationDetail). Every
+// other code, and any non-conforming detail, is dropped exactly as before.
 func normalizeAdapterError(err error) error {
 	switch {
 	case errors.Is(err, context.Canceled):
@@ -550,6 +552,10 @@ func normalizeAdapterError(err error) error {
 				}
 			} else if contractErr.Code == "PROCESS_START_FAILED" {
 				if detail, ok := revalidateSandboxStartDetail(contractErr.Detail); ok {
+					return &ContractError{Code: contractErr.Code, Detail: detail, Kind: kind}
+				}
+			} else if contractErr.Code == "CONTINUATION_INVALID" {
+				if detail, ok := revalidateContinuationDetail(contractErr.Detail); ok {
 					return &ContractError{Code: contractErr.Code, Detail: detail, Kind: kind}
 				}
 			} else if plainDetailCode(contractErr.Code) &&

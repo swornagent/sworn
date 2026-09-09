@@ -5,7 +5,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -808,6 +811,221 @@ func (ledger *continuationLedger) Close() {
 	clear(ledger.ids)
 	ledger.total = 0
 	ledger.steps = 0
+}
+
+// maxCorrelateDetailIDBytes bounds the offending correlation id a
+// correlate-failure Detail may carry verbatim. It is deliberately well under
+// MaxCorrelationIDBytes (the bound correlate itself applies): an id longer
+// than this is recorded by length alone, never truncated into something that
+// reads like a real id.
+const maxCorrelateDetailIDBytes = 128
+
+// maxCorrelateDetailBytes bounds the whole encoded envelope at the funnel.
+const maxCorrelateDetailBytes = 512
+
+// The closed vocabularies a correlate-failure Detail may name: which
+// mechanism refused, where the id came from, and - for a duplicate - whether
+// the id it clashed with was admitted by this same turn or an earlier one.
+// An operator reading the dispatch record answers "provider repeated an id"
+// versus "the engine synthesised a colliding one" from these three fields
+// alone, which is exactly what the recorded failure could not answer before.
+const (
+	correlateCauseDuplicate       = "duplicate_id"
+	correlateCauseInvalid         = "invalid_id"
+	correlateIDProvider           = "provider"
+	correlateIDSynthesised        = "synthesised"
+	correlateDuplicateSameTurn    = "same_turn"
+	correlateDuplicateEarlierTurn = "earlier_turn"
+)
+
+// correlateDetailIDPattern is the closed identifier shape an offending id
+// must match to ride the record verbatim. Provider ids are provider-chosen
+// text, and validateText (all correlate applies) admits any bounded
+// control-free UTF-8, prose included; this pattern is the narrower bound that
+// keeps a provider from writing sentences into a durable failure record. An
+// id outside it is recorded as a length, never as bytes. '#' is admitted
+// because the engine's own deterministic disambiguation suffix uses it.
+var correlateDetailIDPattern = regexp.MustCompile(`^[A-Za-z0-9_.:@+/#-]{1,128}$`)
+
+// continuationSiteLabelPattern is the shape of the plain site labels
+// failContinuation emits. Every such label is a string literal in this
+// package - TestNoUnlabelledContinuationInvalidConstructor enforces exactly
+// that - so a label is engine vocabulary by construction, never provider
+// text, and may cross the funnel as the name of the mechanism that refused.
+var continuationSiteLabelPattern = regexp.MustCompile(
+	`^continuation\.[a-z0-9_]{1,32}\.[a-z0-9_]{1,64}$`,
+)
+
+// correlateFailureDetail is the canonical-JSON envelope a correlation
+// failure carries as CONTINUATION_INVALID Detail. It mirrors the idiom
+// sandboxStartDetail and nativeSurfaceDetail already use for their own codes:
+// a named site plus bounded, secret-free facts, structurally re-validated at
+// the normalizeAdapterError funnel before it may ride into a durable record.
+// It carries no prompt, argument, or response content - only the correlation
+// id itself, its provenance, and the position that produced it.
+type correlateFailureDetail struct {
+	Site  string `json:"site"`
+	Cause string `json:"cause"`
+	// IDSource says whether the id came off the wire or was synthesised by
+	// the engine: the single fact that separates a provider quirk from an
+	// engine collision.
+	IDSource string `json:"id_source"`
+	// ID is the offending id when its shape admits recording it verbatim;
+	// IDBytes is its length in bytes either way, so a redacted id is still
+	// a measured fact rather than an absence.
+	ID      string `json:"id,omitempty"`
+	IDBytes int    `json:"id_bytes"`
+	// Step and Part are 1-based, matching the numbering the synthesised id
+	// itself uses ("gemini-<step>-<part>").
+	Step int `json:"step"`
+	Part int `json:"part"`
+	// DuplicateScope is set only for a duplicate: same_turn means the id it
+	// clashed with was admitted earlier in this same provider turn,
+	// earlier_turn that it was admitted by a previous turn of this
+	// conversation.
+	DuplicateScope string `json:"duplicate_scope,omitempty"`
+	// DisambiguationAttempted marks that the engine tried its deterministic
+	// suffix and that retry also failed, so the recorded failure is not one
+	// the automatic path could absorb.
+	DisambiguationAttempted bool `json:"disambiguation_attempted,omitempty"`
+}
+
+// correlateFailureCause maps a ledger correlate refusal onto the closed
+// cause vocabulary. An error from anywhere else yields no cause, and
+// failCorrelate then falls back to the plain site label.
+func correlateFailureCause(err error) string {
+	var contractErr *ContractError
+	if !errors.As(err, &contractErr) ||
+		contractErr.Code != "CONTINUATION_INVALID" {
+		return ""
+	}
+	switch contractErr.Detail {
+	case "continuation.ledger.correlate_duplicate_id":
+		return correlateCauseDuplicate
+	case "continuation.ledger.correlate_invalid_id":
+		return correlateCauseInvalid
+	default:
+		return ""
+	}
+}
+
+// recordedCorrelateID renders the offending id for the record: the id itself
+// when its shape is a closed identifier within the recording bound, and
+// nothing at all otherwise. There is no truncation path on purpose.
+func recordedCorrelateID(id string) string {
+	if len(id) > maxCorrelateDetailIDBytes ||
+		!correlateDetailIDPattern.MatchString(id) {
+		return ""
+	}
+	return id
+}
+
+// failCorrelate raises the CONTINUATION_INVALID a correlation failure has
+// always raised, now carrying the structured envelope. A detail that cannot
+// be encoded or does not satisfy its own vocabulary degrades to the plain
+// site label: the refusal is never weakened or renamed by an evidence bug.
+func failCorrelate(detail correlateFailureDetail) error {
+	plain, named := correlateSiteRefusal(detail.Site)
+	if !named {
+		return failContinuation("continuation.correlate.site_unknown")
+	}
+	body := correlateDetailBytes(detail)
+	if body == "" {
+		return plain
+	}
+	return &ContractError{Code: "CONTINUATION_INVALID", Detail: body}
+}
+
+func correlateDetailBytes(detail correlateFailureDetail) string {
+	if !validCorrelateSite(detail.Site) || !validCorrelateDetail(detail) {
+		return ""
+	}
+	body, err := json.Marshal(detail)
+	if err != nil || len(body) > maxCorrelateDetailBytes {
+		return ""
+	}
+	return string(body)
+}
+
+// correlateSiteRefusal is the single definition of the closed vocabulary of
+// correlation sites whose failure may carry the envelope: it maps a site onto
+// the plain-label refusal that site raised before the envelope existed, so
+// admitting a site and defining its fallback cannot drift apart. A site
+// outside it fails safe - the envelope is refused at construction and at the
+// funnel alike, so a raise-site bug can only lose evidence, never publish an
+// unnamed site. The repeated literal is deliberate: every failContinuation
+// label in this package is a string literal by contract
+// (TestNoUnlabelledContinuationInvalidConstructor).
+func correlateSiteRefusal(site string) (error, bool) {
+	switch site {
+	case "continuation.gemini.accept_function_correlate_failed":
+		return failContinuation(
+			"continuation.gemini.accept_function_correlate_failed",
+		), true
+	default:
+		return nil, false
+	}
+}
+
+func validCorrelateSite(site string) bool {
+	_, named := correlateSiteRefusal(site)
+	return named
+}
+
+func validCorrelateDetail(detail correlateFailureDetail) bool {
+	switch detail.Cause {
+	case correlateCauseDuplicate, correlateCauseInvalid:
+	default:
+		return false
+	}
+	switch detail.IDSource {
+	case correlateIDProvider, correlateIDSynthesised:
+	default:
+		return false
+	}
+	switch detail.DuplicateScope {
+	case "", correlateDuplicateSameTurn, correlateDuplicateEarlierTurn:
+	default:
+		return false
+	}
+	if detail.Cause != correlateCauseDuplicate && detail.DuplicateScope != "" {
+		return false
+	}
+	if detail.ID != "" && recordedCorrelateID(detail.ID) != detail.ID {
+		return false
+	}
+	if detail.ID != "" && detail.IDBytes != len(detail.ID) {
+		return false
+	}
+	return detail.IDBytes >= 0 && detail.IDBytes <= MaxProviderResponseBytes &&
+		detail.Step >= 1 && detail.Part >= 1
+}
+
+// revalidateContinuationDetail structurally re-validates a
+// CONTINUATION_INVALID Detail at the normalizeAdapterError funnel. Two shapes
+// pass: the correlate envelope above, and the plain site label every other
+// continuation exit already raises (engine string literals, pinned as such by
+// TestNoUnlabelledContinuationInvalidConstructor). Anything else - and the
+// empty Detail - drops entirely, exactly as every CONTINUATION_INVALID Detail
+// did before this seam existed.
+func revalidateContinuationDetail(detail string) (string, bool) {
+	if detail == "" || len(detail) > maxCorrelateDetailBytes {
+		return "", false
+	}
+	if continuationSiteLabelPattern.MatchString(detail) {
+		return detail, true
+	}
+	var envelope correlateFailureDetail
+	decoder := json.NewDecoder(strings.NewReader(detail))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&envelope); err != nil || decoder.More() {
+		return "", false
+	}
+	canonical := correlateDetailBytes(envelope)
+	if canonical == "" {
+		return "", false
+	}
+	return canonical, true
 }
 
 func validOpaqueText(body []byte) bool {
