@@ -5931,16 +5931,20 @@ func (s *Service) driveLoop(ctx context.Context, engine *engine, owner journal.O
 			return nil
 		}
 		plannerNeeded := isPlannerNeeded(state)
-		// Lane-scoped drain (A1): an economy or identical-failure crossing
-		// pins only the candidate lane it belongs to - no further tries for
-		// that lane's ready slice this round - instead of parking the whole
-		// run before the ready computation even runs. A crossing that maps
-		// to no candidate lane (a stale crossing left by work the current
-		// state no longer applies to) pins nothing, exactly as a
-		// non-applicable exhaustion is ignored today.
+		// Lane-scoped drain (A1): an economy, identical-failure, or
+		// exhaustion crossing pins only the candidate lane it belongs to -
+		// no further tries for that lane's ready slice this round - instead
+		// of parking the whole run before the ready computation even runs.
+		// An economy or identical-failure crossing that maps to no candidate
+		// lane pins nothing: it is a stale crossing left by work the current
+		// state no longer applies to. An exhaustion park is matched by the
+		// slice lineage the journal attributes it to, so it still pins its
+		// lane after a target-head move re-identified every candidate work,
+		// and the loop cannot spend a fresh try budget on work the run is
+		// already parked on (sworn#293).
 		lanes := readyLaneCandidates(engine.manifest, nil, true, state, snapshot)
 		pinnedLanes, err := s.pinCrossingLanes(
-			ctx, engine, owner.RunID, snapshot, projection, lanes,
+			ctx, engine, owner.RunID, snapshot, projection, lanes, state,
 		)
 		if err != nil {
 			return err
@@ -6048,17 +6052,24 @@ func (s *Service) driveLoop(ctx context.Context, engine *engine, owner journal.O
 }
 
 // pinCrossingLanes journals the typed park event for every current-epoch
-// economy or identical-failure crossing, exactly once per (cause, work) -
-// appendParkEventOnce's replay key already makes this idempotent across
-// re-drives - and returns the set of lane names pinned: the candidate lane
-// (if any) whose works contain the crossing's owning work
+// economy, identical-failure, or exhaustion crossing, exactly once per
+// (cause, work) - appendParkEventOnce's replay key already makes this
+// idempotent across re-drives - and returns the set of lane names pinned:
+// the candidate lane (if any) whose works contain the crossing's owning work
 // (ownerWorkForDispatch, mapping a nested implementer dispatch to its
-// enclosing git.seal work). A crossing that maps to no candidate lane still
-// gets its event journaled (the fact of the crossing is recorded
-// regardless), but pins nothing and excludes no lane's ready slice from
-// this round's dispatch: it is a stale crossing left by work the current
-// state no longer applies to, exactly as a non-applicable exhaustion is
-// ignored today.
+// enclosing git.seal work). An economy or identical-failure crossing that
+// maps to no candidate lane still gets its event journaled (the fact of the
+// crossing is recorded regardless), but pins nothing and excludes no lane's
+// ready slice from this round's dispatch: it is a stale crossing left by
+// work the current state no longer applies to.
+//
+// An exhaustion park is different, and it is why this function needs state:
+// a spent try budget is a fact about a slice, and every candidate work
+// identity binds the target head, so matching that park by work identity
+// alone lets a commit on the target branch hand the same slice a fresh
+// budget under a new identity. It is matched by slice lineage instead, and
+// it stands until a retry or cancel control, or new journaled work for that
+// slice, spends it (sworn#293).
 func (s *Service) pinCrossingLanes(
 	ctx context.Context,
 	engine *engine,
@@ -6066,6 +6077,7 @@ func (s *Service) pinCrossingLanes(
 	snapshot journal.Snapshot,
 	control journal.ControlProjection,
 	lanes []laneCandidates,
+	state baton.State,
 ) (map[string]struct{}, error) {
 	pinned := make(map[string]struct{})
 	laneFor := func(work string) (string, bool) {
@@ -6120,7 +6132,38 @@ func (s *Service) pinCrossingLanes(
 			pinned[lane] = struct{}{}
 		}
 	}
+	exhausted, refusals := exhaustedWorks(snapshot, control, nil)
+	exhaustionParks := exhaustionParkCrossings(
+		engine.manifest, snapshot, exhausted, refusals,
+	)
+	for _, park := range exhaustionParks {
+		body, err := exhaustionParkEventBody(runID, park)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.appendParkEventOnce(
+			ctx, runID, ParkCauseExhaustion, body,
+		); err != nil {
+			return nil, err
+		}
+	}
+	candidates := laneNames(lanes)
+	for lane := range exhaustionParksByLane(state, exhaustionParks) {
+		if _, candidate := candidates[lane]; candidate {
+			pinned[lane] = struct{}{}
+		}
+	}
 	return pinned, nil
+}
+
+// laneNames is the candidate lanes' name set, for pinning a lane a standing
+// park names by lineage rather than by one of its work identities.
+func laneNames(lanes []laneCandidates) map[string]struct{} {
+	names := make(map[string]struct{}, len(lanes))
+	for _, lane := range lanes {
+		names[lane.lane] = struct{}{}
+	}
+	return names
 }
 
 func (s *Service) recoverClaimedBatonAction(ctx context.Context, engine *engine,
