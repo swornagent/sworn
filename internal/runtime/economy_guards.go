@@ -90,15 +90,20 @@ func (s *Service) economyGuardsParked(
 	return false, nil
 }
 
-// ownerWorkForDispatch maps a driver.dispatch work identity to the work
-// identity a lane-scoped park gate is scoped to: the dispatch's own work
-// identity when it is a direct dispatch, or the enclosing git.seal work when
-// it is a nested implementer dispatch (readyLaneCandidates adds only the
-// outer git.seal work to a track's implement-stage candidate set, never the
-// inner dispatch work, matching the exhaustion scan's derived-work
-// exclusion). The git.seal command payload names its own before authority,
-// from which the outer work identity is recomputed deterministically.
-func ownerWorkForDispatch(snapshot journal.Snapshot, dispatchWork string) string {
+// dispatchCycleOwner scans the journal's git.seal commands for the one
+// whose payload names dispatchWork as its own cycle's dispatch work, and
+// returns both the outer work identity that cycle was sealed under (the
+// git.seal command's own before authority, recomputed deterministically)
+// and the outer epoch that cycle was actually built under - recovered from
+// the git.seal command's own ReplayKey, which implementSlice always sets to
+// AttemptEffectID(workID, epoch, try) for the outer work's own attempt,
+// regardless of which nested dispatch-work identity convention it chose for
+// dispatchWork itself. found is false only for a direct dispatch (no git.seal
+// cycle ever names it), in which case owner echoes dispatchWork unchanged.
+func dispatchCycleOwner(
+	snapshot journal.Snapshot,
+	dispatchWork string,
+) (owner string, outerEpoch int64, found bool) {
 	for _, command := range snapshot.Commands {
 		if command.Kind != "git.seal" {
 			continue
@@ -111,36 +116,97 @@ func ownerWorkForDispatch(snapshot journal.Snapshot, dispatchWork string) string
 			cycle.DispatchWork != dispatchWork {
 			continue
 		}
-		return workIdentity(cycle.Before, "git.seal")
+		owner = workIdentity(cycle.Before, "git.seal")
+		if _, epoch, _, err := attemptCoordinates(command.ReplayKey); err == nil {
+			outerEpoch = epoch
+		}
+		return owner, outerEpoch, true
 	}
-	return dispatchWork
+	return dispatchWork, 0, false
 }
 
-// economyCrossingEpochKey names the RetryEpochs key a driver.dispatch
-// effect's own current-epoch check applies (S4-resumable-budget-stops V2):
-// for a direct dispatch, work's own RetryEpochs entry, exactly as before -
-// its owner is itself. For a nested git.seal-wrapped dispatch built with a
-// stable, epoch-independent identity (the recovery-enabled production
-// path), that identity carries no retry history of its own: EnsureAttempt
-// leaves its RetryEpochs entry permanently unwritten so it keeps inheriting
-// whichever epoch its enclosing git.seal cycle presents (its owner's own
-// RetryEpochs, which Retry and Grant alike advance - see
-// ControlCommand.RetryWorkID), so the current-epoch check must read that
-// same owner key to stay in sync with the epoch every one of that work's
-// attempts is actually built under. A nested dispatch built with a
-// per-attempt (epoch/try-embedded) identity instead - the
-// recovery-disabled or scope-refusal-escaped path - carries no such
-// inheritance and is left keyed by its own identity unchanged, matching
-// its own, already-correct, always-fresh-per-attempt behavior.
-func economyCrossingEpochKey(snapshot journal.Snapshot, work string) string {
-	owner := ownerWorkForDispatch(snapshot, work)
-	if owner == work {
-		return work
+// ownerWorkForDispatch maps a driver.dispatch work identity to the work
+// identity a lane-scoped park gate is scoped to: the dispatch's own work
+// identity when it is a direct dispatch, or the enclosing git.seal work when
+// it is a nested implementer dispatch (readyLaneCandidates adds only the
+// outer git.seal work to a track's implement-stage candidate set, never the
+// inner dispatch work, matching the exhaustion scan's derived-work
+// exclusion).
+func ownerWorkForDispatch(snapshot journal.Snapshot, dispatchWork string) string {
+	owner, _, found := dispatchCycleOwner(snapshot, dispatchWork)
+	if !found {
+		return dispatchWork
+	}
+	return owner
+}
+
+// dispatchAttemptIsCurrentEpoch reports whether a driver.dispatch effect
+// whose parsed identity is (work, epoch) is still built under the current
+// retry epoch (S4-resumable-budget-stops V2): the same comparison every
+// lane-scoped park/retry admission gate needs, generalized across every
+// dispatch-work identity convention implementSlice can build.
+//
+// For a direct dispatch, work is its own RetryEpochs entry, exactly as
+// Retry/Grant already key and advance it, unchanged from before this
+// feature.
+//
+// For any nested git.seal-wrapped dispatch, work is never the right key:
+// PinnedWork.WorkID - what the board names and what a Retry command's
+// WorkID and a Grant's RetryWorkID both target (see
+// ControlCommand.RetryWorkID and resolveLanePins) - is always the owner,
+// never the dispatch work, so the owner's RetryEpochs entry is the only
+// counter Retry or Grant ever actually advances for a nested dispatch; a
+// nested dispatch's own RetryEpochs entry is never written by any caller.
+// What "epoch" means for the comparison then splits by convention:
+//
+//   - The stable, epoch-independent identity the recovery-enabled
+//     production path builds (workIdentity(workID,"driver.dispatch"),
+//     constant across every epoch and try of that work) carries the outer
+//     epoch in the dispatch effect's own parsed epoch field (childEpoch is
+//     set to the outer epoch at build time), so epoch compares directly
+//     against the owner's current RetryEpochs entry.
+//   - The per-attempt, epoch/try-embedded identity the recovery-disabled or
+//     scope-refusal-escaped path builds
+//     (workIdentity(effectID,"driver.dispatch"), a fresh identity every
+//     outer epoch and try) always sets childEpoch/childTry to 1: epoch is
+//     structurally always 1 and carries no information about which outer
+//     epoch actually built it, so it can never be the right value to
+//     compare - comparing it anyway (as a prior revision of this function
+//     did, by resolving to the same "owner" key and relying on the parsed
+//     epoch field for both conventions) either wrongly treats a superseded
+//     dispatchWork as permanently current (against a never-written
+//     RetryEpochs[work] default) or wrongly treats a genuinely fresh one as
+//     permanently stale (once the owner's epoch has advanced past 1),
+//     because 1 never actually reflects the outer epoch this specific
+//     dispatchWork was built under. The outer epoch that actually built it
+//     is instead recovered structurally: dispatchCycleOwner reads it back
+//     from the owning git.seal command's own ReplayKey (always
+//     AttemptEffectID(workID, outerEpoch, try) for the outer work's own
+//     attempt, regardless of which convention chose dispatchWork), and that
+//     recovered value - not the dispatch effect's own parsed epoch - is
+//     compared against the owner's current RetryEpochs entry.
+func dispatchAttemptIsCurrentEpoch(
+	snapshot journal.Snapshot,
+	control journal.ControlProjection,
+	work string,
+	epoch int64,
+) bool {
+	owner, outerEpoch, nested := dispatchCycleOwner(snapshot, work)
+	if !nested {
+		current := control.RetryEpochs[work]
+		if current == 0 {
+			current = 1
+		}
+		return epoch == current
+	}
+	current := control.RetryEpochs[owner]
+	if current == 0 {
+		current = 1
 	}
 	if workIdentity(owner, "driver.dispatch") == work {
-		return owner
+		return epoch == current
 	}
-	return work
+	return outerEpoch == current
 }
 
 // economyGuardCrossing names one current-epoch driver.dispatch effect whose
@@ -181,11 +247,7 @@ func economyParkCrossings(
 		if coordErr != nil {
 			continue
 		}
-		current := control.RetryEpochs[economyCrossingEpochKey(snapshot, work)]
-		if current == 0 {
-			current = 1
-		}
-		if epoch != current {
+		if !dispatchAttemptIsCurrentEpoch(snapshot, control, work, epoch) {
 			continue
 		}
 		existing, found := byWork[work]
@@ -539,11 +601,7 @@ func identicalFailureParkCrossings(
 		if coordErr != nil {
 			continue
 		}
-		current := control.RetryEpochs[economyCrossingEpochKey(snapshot, work)]
-		if current == 0 {
-			current = 1
-		}
-		if epoch != current {
+		if !dispatchAttemptIsCurrentEpoch(snapshot, control, work, epoch) {
 			continue
 		}
 		tries, ok := byWork[work]
