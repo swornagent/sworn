@@ -1464,6 +1464,14 @@ func (s *Service) Control(ctx context.Context, command ControlCommand) (RunStatu
 		}
 		return RunStatus{}, runtimeFail("CONTROL_REJECTED", err)
 	}
+	if command.Kind == journal.Grant {
+		// S4-resumable-budget-stops A3: the grant is already durably
+		// journaled above; this crashes the operator's own grant process
+		// before it can start or report resumed execution, so a later,
+		// independent process must find and continue from the recorded
+		// grant on its own.
+		crashHumanTurnBarrier("after_grant_recorded")
+	}
 	if command.Kind == journal.Cancel {
 		cleanupErr := s.closeRunRecoverableContinuations(command.RunID)
 		status, statusErr := s.Status(ctx, command.RunID)

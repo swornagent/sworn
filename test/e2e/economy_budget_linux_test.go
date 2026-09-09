@@ -1327,3 +1327,196 @@ func TestRealBinaryEconomyTurnBudgetParksOneTrackWhileIndependentTrackCompletes(
 		)
 	}
 }
+
+// TestRealBinaryEconomyGrantSurvivesCrashBeforeResumedExecution drives the
+// same compiled sworn binary and real OpenAI-shaped HTTP provider as
+// TestRealBinaryEconomyTurnBudgetParksGrantsAndResumes up through the real
+// turn-budget park and the board's grant action, then kills the operator's
+// own `sworn grant` process at the real named crash cut
+// internal/runtime/service.go's Control applies for Grant
+// (S4-resumable-budget-stops A3): the grant is already durably journaled
+// when the process exits 86, before it can report success or start any
+// resumed execution. A wholly independent `status` process must find that
+// recorded grant on its own; an exact replay of the identical grant command
+// - the retry an operator makes after never seeing its own confirmation -
+// must be the idempotent, once-admitted grant A2 promises, never a second
+// one; and the resumed attempt reached by a fresh `run` process afterward
+// must still show the pre-crash and post-grant turns recorded additively,
+// never reset or doubled by the crash.
+func TestRealBinaryEconomyGrantSurvivesCrashBeforeResumedExecution(t *testing.T) {
+	t.Parallel()
+	repository := newProductRepository(t)
+	planBytes, plan := economyBudgetPlan(t)
+	provider := &economyBudgetProvider{t: t, planBytes: planBytes, turns: make(map[string]int)}
+	providerHTTP := httptest.NewServer(http.HandlerFunc(provider.serve))
+	defer providerHTTP.Close()
+
+	root := t.TempDir()
+	configBody, loaded := economyBudgetConfig(t, providerHTTP.URL)
+	configPath := filepath.Join(root, "drivers.json")
+	if err := os.WriteFile(configPath, configBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const runID, release = "economy-budget-grant-crash", "economy-budget-release"
+	manifestPath := writeManifest(
+		t, root, economyBudgetManifest(
+			t, runID, repository, release, loaded, economyBudgetStallTurns, 0, 1,
+		),
+	)
+	journalPath := filepath.Join(root, "run.sqlite")
+	buildRoot := t.TempDir()
+	swornBinary := filepath.Join(buildRoot, "sworn")
+	buildBinary(t, swornBinary, "./cmd/sworn", "")
+	crashBinary := filepath.Join(buildRoot, "sworn-grant-crash")
+	buildBinary(t, crashBinary, "./cmd/sworn", hookGateLDFlags)
+	environment := map[string]string{"SWORN_ECONOMY_BUDGET_KEY": economyBudgetSecret}
+	targetBefore := runGit(t, repository, "rev-parse", "main")
+
+	stdout, stderr := runBinaryWithEnvironment(
+		t, swornBinary, 0, environment,
+		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
+	)
+	if stderr != "" || !strings.Contains(stdout, "  state: parked") {
+		t.Fatalf("initial run stdout=%q stderr=%q", stdout, stderr)
+	}
+	stdout = answerRecoveryPlannerSummary(
+		t, swornBinary, runID, journalPath, configPath, environment,
+	)
+	if !strings.Contains(stdout, "  state: awaiting_approval") {
+		t.Fatalf("planner summary answer stdout=%q", stdout)
+	}
+
+	authorizePlan(t, journalPath, runID, plan)
+	installApprovedPlan(t, repository, planBytes)
+
+	stdout, stderr = runBinaryWithEnvironment(
+		t, swornBinary, 0, environment,
+		"resume", "--run", runID, "--journal", journalPath,
+		"--command", "resume-1", "--generation", "0", "--config", configPath,
+	)
+	if stderr != "" {
+		t.Fatalf("resume stdout=%q stderr=%q", stdout, stderr)
+	}
+
+	stdout, stderr = runBinaryWithEnvironment(
+		t, swornBinary, 0, environment,
+		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
+	)
+	if stderr != "" || !strings.Contains(stdout, "  state: parked") {
+		t.Fatalf(
+			"expected the implementer's first attempt to exhaust its real turn "+
+				"budget and park: stdout=%q stderr=%q", stdout, stderr,
+		)
+	}
+
+	boardBody, boardErr := runBinary(
+		t, swornBinary, 0, "board", "--run", runID, "--journal", journalPath, "--json",
+	)
+	var board cockpit.Snapshot
+	if boardErr != "" || json.Unmarshal([]byte(boardBody), &board) != nil {
+		t.Fatalf("board body=%q stderr=%q", boardBody, boardErr)
+	}
+	var grantAction *cockpit.Action
+	for index := range board.Actions {
+		if board.Actions[index].Kind == "grant" {
+			grantAction = &board.Actions[index]
+		}
+	}
+	if board.Run.State != "parked" || grantAction == nil {
+		t.Fatalf("board grant action = %#v", grantAction)
+	}
+
+	grantArgs := []string{
+		"grant", "--run", runID, "--journal", journalPath,
+		"--command", "grant-1",
+		"--generation", fmt.Sprintf("%d", grantAction.ExpectedGeneration),
+		"--work", grantAction.WorkID,
+		"--epoch", fmt.Sprintf("%d", grantAction.ExpectedEpoch),
+		"--unit", grantAction.Unit,
+		"--amount", fmt.Sprintf("%d", economyBudgetGrant), "--config", configPath,
+	}
+	crashEnvironment := map[string]string{
+		"SWORN_ECONOMY_BUDGET_KEY":    economyBudgetSecret,
+		"SWORN_TEST_HUMAN_TURN_CRASH": "after_grant_recorded",
+	}
+	runBinaryWithEnvironment(t, crashBinary, 86, crashEnvironment, grantArgs...)
+
+	// A3: the grant was already durably journaled before the crash - a
+	// wholly independent process reads the recorded grant back and reports
+	// no remaining park or pinned work, before any resumed execution has
+	// happened at all.
+	statusBody, statusErr := runBinary(
+		t, swornBinary, 0, "status", "--run", runID, "--journal", journalPath, "--json",
+	)
+	var status swornruntime.RunStatus
+	if statusErr != "" || json.Unmarshal([]byte(statusBody), &status) != nil {
+		t.Fatalf("status body=%q stderr=%q", statusBody, statusErr)
+	}
+	if status.State == "parked" || status.Park != nil || len(status.PinnedWork) != 0 {
+		t.Fatalf("status after crashed-but-recorded grant = %#v", status)
+	}
+
+	// The same grant command, replayed by a normal process after the
+	// crashed one never reported success, is an exact idempotent replay -
+	// not a second admitted grant - matching A2's "duplicate replay grants
+	// once".
+	replayOut, replayErr := runBinaryWithEnvironment(
+		t, swornBinary, 0, environment, grantArgs...,
+	)
+	if replayErr != "" || !strings.Contains(replayOut, "  state: running") {
+		t.Fatalf("grant replay stdout=%q stderr=%q", replayOut, replayErr)
+	}
+
+	stdout, stderr = runBinaryWithEnvironment(
+		t, swornBinary, 0, environment,
+		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
+	)
+	if stderr != "" || !strings.Contains(stdout, "  state: complete") {
+		t.Fatalf("resumed execution after crashed grant stdout=%q stderr=%q", stdout, stderr)
+	}
+
+	finalState := readBatonState(t, repository, release)
+	if finalState.Assembly.Outcome != "merged" ||
+		runGit(t, repository, "rev-parse", "main") == targetBefore ||
+		runGit(t, repository, "show", "main:one.txt") !=
+			strings.TrimSuffix(economyBudgetContent, "\n") {
+		t.Fatalf("final state=%#v", finalState.Assembly)
+	}
+
+	// A3: recorded spending survives the crash rather than resetting or
+	// doubling - the pre-crash exhausted attempt and the post-grant
+	// completion are both durably readable, additive, exactly as an
+	// uninterrupted grant proves.
+	ctx := context.Background()
+	store, err := journal.OpenReadOnly(ctx, journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	observation, err := store.ReadObservation(
+		ctx, runID, journal.MaxObservationAttempts, journal.MaxObservationEvents,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var implementationTurns []int64
+	for _, attempt := range observation.Attempts {
+		if attempt.Responsibility != string(driver.ImplementerImplementation) {
+			continue
+		}
+		var usage driver.UsageReceipt
+		if err := json.Unmarshal(attempt.Usage, &usage); err != nil || usage.Turns == nil {
+			t.Fatalf("implementation attempt usage=%s error=%v", attempt.Usage, err)
+		}
+		implementationTurns = append(implementationTurns, *usage.Turns)
+	}
+	if len(implementationTurns) != 2 ||
+		implementationTurns[0] != economyBudgetStallTurns ||
+		implementationTurns[1] != 2 {
+		t.Fatalf(
+			"implementation attempts' recorded turns = %v, want [%d 2] "+
+				"(exhausted-then-granted through a real crash, never reset, never doubled)",
+			implementationTurns, economyBudgetStallTurns,
+		)
+	}
+}
