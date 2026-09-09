@@ -2088,3 +2088,121 @@ func TestAdoptAbandonedWorkspaceRefusesLiveWorkerThenRecoversAfterExit(t *testin
 		t.Fatalf("adopted workspace lost the live worker's bytes: %v", err)
 	}
 }
+
+// TestWorkspaceCleanupCrashHelper is the subprocess half of
+// TestRunWorkspacesRecoverAbandonedDebrisAfterCleanupCrash. It sets the
+// package's own crash var directly rather than through
+// SWORN_TEST_CRASH_AFTER_EFFECT/testHooksFromEnv, since this is a fresh
+// process re-executing the test binary itself, not a built product binary
+// that would need the link-time gate to accept the hook at all.
+func TestWorkspaceCleanupCrashHelper(t *testing.T) {
+	if os.Getenv("SWORN_WORKSPACE_CLEANUP_CRASH_HELPER") != "1" {
+		return
+	}
+	testCrashAfterEffect = "workspace.cleanup"
+	repository, err := Open(
+		os.Getenv("SWORN_WORKSPACE_CRASH_REPOSITORY"),
+		os.Getenv("SWORN_WORKSPACE_CRASH_GIT"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewRunWorkspaces(repository, "hard-exit-run", testIdentity); err != nil {
+		t.Fatalf("recoverAbandoned failed before reaching its crash seam: %v", err)
+	}
+	t.Fatal("recoverAbandoned did not crash at the workspace.cleanup seam")
+}
+
+// TestRunWorkspacesRecoverAbandonedDebrisAfterCleanupCrash is S2's fifth
+// crash cut. workspace.cleanup sits inside recoverAbandoned's reclaim of
+// unattributed debris - a tree from a process that died before it ever
+// attributed the tree at all, the only kind recoverAbandoned's cleanup ever
+// reaches, since an attributed tree is reconciliation's job instead. The
+// debris here comes from the existing hard-exit fixture above, so the cut is
+// exercised against real orphaned bytes rather than a synthetic fixture.
+func TestRunWorkspacesRecoverAbandonedDebrisAfterCleanupCrash(t *testing.T) {
+	t.Parallel()
+
+	repository, base := newRepository(t, SHA1)
+	key := TrackKey{Release: "release-hard-exit", Track: "T1"}
+	createTrack(t, repository, key, base)
+
+	pathRecord := filepath.Join(t.TempDir(), "abandoned-path")
+	debrisCommand := exec.Command(os.Args[0], "-test.run=^TestRunWorkspacesHardExitHelper$")
+	debrisCommand.Env = append(
+		os.Environ(),
+		"SWORN_WORKSPACE_CRASH_HELPER=1",
+		"SWORN_WORKSPACE_CRASH_REPOSITORY="+repository.Root(),
+		"SWORN_WORKSPACE_CRASH_GIT="+repository.GitExecutable(),
+		"SWORN_WORKSPACE_CRASH_PATH="+pathRecord,
+	)
+	if output, err := debrisCommand.CombinedOutput(); err != nil {
+		t.Fatalf("debris helper: %v\n%s", err, output)
+	}
+	rawPath, err := os.ReadFile(pathRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	abandonedPath := string(rawPath)
+	if _, err := os.Lstat(abandonedPath); err != nil {
+		t.Fatalf("debris was not left behind: %v", err)
+	}
+
+	crashCommand := exec.Command(os.Args[0], "-test.run=^TestWorkspaceCleanupCrashHelper$")
+	crashCommand.Env = append(
+		os.Environ(),
+		"SWORN_WORKSPACE_CLEANUP_CRASH_HELPER=1",
+		"SWORN_WORKSPACE_CRASH_REPOSITORY="+repository.Root(),
+		"SWORN_WORKSPACE_CRASH_GIT="+repository.GitExecutable(),
+	)
+	output, err := crashCommand.CombinedOutput()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 86 {
+		t.Fatalf("workspace.cleanup cut = %v\n%s", err, output)
+	}
+
+	// The cut landed after the debris was identified but before anything was
+	// removed: the tree, its worktree registration and its lease marker all
+	// still exist exactly as they did before the crashed attempt.
+	if _, err := os.Lstat(abandonedPath); err != nil {
+		t.Fatalf("cut removed the debris tree instead of leaving it in place: %v", err)
+	}
+	registered, err := registeredWorktreePaths(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsWorkspacePath(registered, abandonedPath) {
+		t.Fatal("cut removed the debris worktree registration")
+	}
+
+	// An ordinary restart of the same run converges: the same unattributed
+	// debris is reclaimed exactly once, with no error from colliding with
+	// the half-finished prior attempt's own marker or tree.
+	replacement, err := NewRunWorkspaces(repository, "hard-exit-run", testIdentity)
+	if err != nil {
+		t.Fatalf("replacement did not converge on the interrupted cleanup: %v", err)
+	}
+	if _, err := os.Lstat(abandonedPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("replacement did not remove the debris tree: %v", err)
+	}
+	registered, err = registeredWorktreePaths(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if containsWorkspacePath(registered, abandonedPath) {
+		t.Fatal("replacement did not remove the debris worktree registration")
+	}
+	if err := replacement.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// A second replacement start (idempotent replay) finds nothing left to
+	// reclaim and raises no error: recovery of this debris is not repeated.
+	again, err := NewRunWorkspaces(repository, "hard-exit-run", testIdentity)
+	if err != nil {
+		t.Fatalf("idempotent replay after convergence: %v", err)
+	}
+	if err := again.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
