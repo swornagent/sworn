@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func createTrack(t *testing.T, repository *Repository, key TrackKey, head OID) {
@@ -1913,5 +1914,177 @@ func TestCheckpointBoundsOversizeAndTooManyFiles(t *testing.T) {
 	_, err = workspaces.CaptureCheckpoint(lease, attempt, "S1", scope, MaxAggregateCheckpointBytes, nil)
 	if err == nil || !strings.Contains(err.Error(), "CHECKPOINT_CAPACITY_EXCEEDED") {
 		t.Fatalf("expected CHECKPOINT_CAPACITY_EXCEEDED, got: %v", err)
+	}
+}
+
+// TestAdoptAbandonedWorkspaceRefusedByLiveWorkerHelper is the subprocess
+// half of TestAdoptAbandonedWorkspaceRefusesLiveWorkerThenSucceedsAfterExit:
+// a genuinely separate OS process that opens and attributes a track
+// workspace, signals readiness, then blocks holding its real writer flock
+// until told to exit - so the parent test observes an actually-live worker,
+// not a simulated one.
+func TestAdoptAbandonedWorkspaceRefusedByLiveWorkerHelper(t *testing.T) {
+	if os.Getenv("SWORN_WORKSPACE_LIVE_HELPER") != "1" {
+		return
+	}
+	repository, err := Open(
+		os.Getenv("SWORN_WORKSPACE_LIVE_REPOSITORY"),
+		os.Getenv("SWORN_WORKSPACE_LIVE_GIT"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := TrackKey{
+		Release: os.Getenv("SWORN_WORKSPACE_LIVE_RELEASE"),
+		Track:   os.Getenv("SWORN_WORKSPACE_LIVE_TRACK"),
+	}
+	workspaces, err := NewRunWorkspaces(repository, "live-worker-run", testIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := workspaces.OpenTrack(key, ImplementationView)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attribution := WorkspaceAttribution{
+		CommonDir:    repository.CommonDir(),
+		RunID:        "live-worker-run",
+		Release:      key.Release,
+		Track:        key.Track,
+		Slice:        "S2",
+		PreparedBase: lease.Head().String(),
+	}
+	if err := workspaces.AttributeWorkspace(lease, attribution); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(lease.Path(), "live.txt"),
+		[]byte("a genuinely live worker\n"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		os.Getenv("SWORN_WORKSPACE_LIVE_TOKEN_PATH"),
+		[]byte(lease.Token()),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	readyPath := os.Getenv("SWORN_WORKSPACE_LIVE_READY_PATH")
+	if err := os.WriteFile(readyPath, []byte("ready"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	releasePath := os.Getenv("SWORN_WORKSPACE_LIVE_RELEASE_PATH")
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, statErr := os.Lstat(releasePath); statErr == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	// A hard exit: the writer flock releases when this process's file
+	// descriptors close, but nothing here ever ran its own cleanup, exactly
+	// like a killed production worker.
+	os.Exit(0)
+}
+
+func TestAdoptAbandonedWorkspaceRefusesLiveWorkerThenRecoversAfterExit(t *testing.T) {
+	t.Parallel()
+
+	repository, base := newRepository(t, SHA1)
+	key := TrackKey{Release: "rel-live-worker", Track: "T1"}
+	createTrack(t, repository, key, base)
+
+	root := t.TempDir()
+	tokenPath := filepath.Join(root, "token")
+	readyPath := filepath.Join(root, "ready")
+	releasePath := filepath.Join(root, "release")
+
+	command := exec.Command(os.Args[0], "-test.run=^TestAdoptAbandonedWorkspaceRefusedByLiveWorkerHelper$")
+	command.Env = append(
+		os.Environ(),
+		"SWORN_WORKSPACE_LIVE_HELPER=1",
+		"SWORN_WORKSPACE_LIVE_REPOSITORY="+repository.Root(),
+		"SWORN_WORKSPACE_LIVE_GIT="+repository.GitExecutable(),
+		"SWORN_WORKSPACE_LIVE_RELEASE="+key.Release,
+		"SWORN_WORKSPACE_LIVE_TRACK="+key.Track,
+		"SWORN_WORKSPACE_LIVE_TOKEN_PATH="+tokenPath,
+		"SWORN_WORKSPACE_LIVE_READY_PATH="+readyPath,
+		"SWORN_WORKSPACE_LIVE_RELEASE_PATH="+releasePath,
+	)
+	var output strings.Builder
+	command.Stdout = &output
+	command.Stderr = &output
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Lstat(readyPath); err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	rawToken, err := os.ReadFile(tokenPath)
+	if err != nil {
+		t.Fatalf("live worker never became ready: %v\n%s", err, output.String())
+	}
+	token := string(rawToken)
+
+	// A second, independent run racing the exact same physical track: the
+	// per-(commonDir, track) writer lock, not either run's own attribution
+	// bookkeeping, is what must refuse this - the same primitive
+	// reconcileOneWorkspace relies on when the liveness of a prior worker on
+	// this track is ambiguous rather than already known-abandoned. This
+	// second run has no attribution record of its own for the live worker's
+	// token; it is only trying to touch the same track key.
+	contender, err := NewRunWorkspaces(repository, "live-worker-contender", testIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := contender.AdoptAbandonedWorkspace(token, key, base); err == nil {
+		t.Fatal("expected adoption of a live worker's track to be refused")
+	} else {
+		requireGitxErrorCode(t, err, "WORKSPACE_OWNER_ACTIVE")
+	}
+	if err := contender.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Let the live worker hard-exit, then confirm the exact same run it
+	// belonged to can recover it once liveness is no longer ambiguous - the
+	// production continuation path, not a foreign takeover.
+	if err := os.WriteFile(releasePath, []byte("go"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := command.Wait(); err != nil {
+		t.Fatalf("live worker helper: %v\n%s", err, output.String())
+	}
+
+	replacement, err := NewRunWorkspaces(repository, "live-worker-run", testIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer replacement.Close()
+
+	listed, err := replacement.ListAttributions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 1 || listed[0].Token != token {
+		t.Fatalf("expected the live worker's attribution to survive for recovery, got %#v", listed)
+	}
+	head, err := ParseOID(repository.ObjectFormat(), listed[0].PreparedBase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adopted, err := replacement.AdoptAbandonedWorkspace(token, key, head)
+	if err != nil {
+		t.Fatalf("adopt after live worker exited: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(adopted.Path(), "live.txt")); err != nil {
+		t.Fatalf("adopted workspace lost the live worker's bytes: %v", err)
 	}
 }
