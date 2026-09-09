@@ -1407,6 +1407,7 @@ func (s *Service) dispatchRoleWithScope(ctx context.Context, engine *engine, wor
 				Epoch:           epoch,
 				Try:             try,
 				InvocationScope: invocationScope,
+				DispatchWork:    workID,
 			},
 			journal.EffectAttempt{WorkID: workID, Epoch: epoch, Try: try},
 			before,
@@ -2545,6 +2546,7 @@ func (s *Service) implementSlice(ctx context.Context, engine *engine, owner jour
 				BatonAttempt:   slice.Attempt,
 				Epoch:          epoch,
 				Try:            try,
+				DispatchWork:   dispatchWork,
 			},
 			journal.Effect{
 				RunID: owner.RunID, ID: effectID,
@@ -2648,6 +2650,7 @@ func (s *Service) executeClaimedImplementationCycle(
 			BatonAttempt:   slice.Attempt,
 			Epoch:          epoch,
 			Try:            try,
+			DispatchWork:   active.cycle.DispatchWork,
 		},
 		active.outer,
 	)
@@ -6082,7 +6085,7 @@ func (s *Service) pinCrossingLanes(
 			return nil, spentErr
 		}
 		facts := economyParkFactsFor(
-			crossing, engine.manifest.value.Limits,
+			crossing, engine.manifest.value.Limits, control.GrantedAmount[crossing.work],
 			spentTurns, spentTokens, spentBytes, diagnosticCode,
 		)
 		body, err := economyParkEventBody(runID, owner, facts)

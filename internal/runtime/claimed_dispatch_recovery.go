@@ -1031,6 +1031,7 @@ func validateCurrentProductionDispatchContext(
 			BatonAttempt:   persisted.Attempt,
 			Epoch:          persisted.Epoch,
 			Try:            persisted.Try,
+			DispatchWork:   dispatch.dispatchWork,
 		},
 		persisted.Before,
 		preparedDriverDispatch{
@@ -1482,8 +1483,9 @@ func driverRecoveryWorkIdentity(
 }
 
 type driverRecoveryCommand struct {
-	fake       *fakeScript
-	production *productionDispatchCommand
+	fake         *fakeScript
+	production   *productionDispatchCommand
+	dispatchWork string
 }
 
 func validateDriverRecoveryCommand(
@@ -1506,7 +1508,18 @@ func validateDriverRecoveryCommand(
 			return driverRecoveryCommand{},
 				runtimeFail("CORRUPT_JOURNAL", err)
 		}
-		return driverRecoveryCommand{production: &persisted}, nil
+		// dispatchWork is read back from the effect's own journaled
+		// identity, not re-derived: it is this exact attempt's
+		// AttemptEffectID work component, the only source that stays
+		// correct for a nested implementer dispatch (S4-resumable-budget-
+		// stops V3).
+		dispatchWork, _, _, coordErr := attemptCoordinates(effect.ID)
+		if coordErr != nil {
+			return driverRecoveryCommand{}, runtimeFail("CORRUPT_JOURNAL", coordErr)
+		}
+		return driverRecoveryCommand{
+			production: &persisted, dispatchWork: dispatchWork,
+		}, nil
 	}
 	var script fakeScript
 	if json.Unmarshal(command.Payload, &script) != nil ||

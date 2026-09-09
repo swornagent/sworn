@@ -790,14 +790,14 @@ func safeActions(
 		if unit == "" {
 			continue
 		}
-		epoch := control.RetryEpochs[pinned.WorkID]
+		epoch := control.RetryEpochs[pinned.DispatchWorkID]
 		if epoch == 0 {
 			epoch = 1
 		}
 		result = append(result, Action{
 			Kind:               string(journal.Grant),
 			ExpectedGeneration: generation,
-			WorkID:             pinned.WorkID,
+			WorkID:             pinned.DispatchWorkID,
 			ExpectedEpoch:      epoch,
 			Unit:               unit,
 		})

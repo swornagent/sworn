@@ -219,6 +219,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		facts := economyParkFactsFor(
 			economyCrossings[0],
 			manifest.value.Limits,
+			control.GrantedAmount[economyCrossings[0].work],
 			spentTurns,
 			spentTokens,
 			spentBytes,
@@ -476,7 +477,8 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 			return RunStatus{}, spentErr
 		}
 		economyByOwner[owner] = economyParkFactsFor(
-			crossing, manifest.value.Limits, spentTurns, spentTokens, spentBytes, diagnosticCode,
+			crossing, manifest.value.Limits, control.GrantedAmount[crossing.work],
+			spentTurns, spentTokens, spentBytes, diagnosticCode,
 		)
 	}
 	identicalByOwner := make(map[string]identicalFailureFacts, len(identicalCrossings))
@@ -769,6 +771,7 @@ func validateAttentionDispatchBinding(
 			BatonAttempt:   context.Attempt,
 			Epoch:          context.Epoch,
 			Try:            context.Try,
+			DispatchWork:   work,
 		}
 		before = context.Before
 	} else {
@@ -1057,8 +1060,9 @@ func resolveLanePins(
 			}
 			pinnedWork = append(pinnedWork, PinnedWork{
 				WorkID: work, Lane: lane.lane, Cause: facts.cause,
-				Code:   economyCrossingCode(facts.cause),
-				Detail: economySpentDetail(facts),
+				Code:           economyCrossingCode(facts.cause),
+				Detail:         economySpentDetail(facts),
+				DispatchWorkID: facts.work,
 			})
 			laneParks = append(laneParks, lanePinFacts{
 				work: work, facts: parkFacts{economy: &facts},

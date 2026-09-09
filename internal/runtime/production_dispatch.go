@@ -43,6 +43,15 @@ type dispatchCoordinates struct {
 	Epoch           int64
 	Try             int64
 	InvocationScope string
+	// DispatchWork is this attempt's own driver.dispatch work identity: the
+	// same value embedded in its own AttemptEffectID, distinct from the
+	// outer git.seal work a nested implementer dispatch resolves to
+	// (ownerWorkForDispatch). Set by the caller that already computed it
+	// for the attempt's EffectAttempt.WorkID; captureEffectiveLimits reads
+	// it instead of re-deriving a work identity that can silently diverge
+	// from the journaled effect (S4-resumable-budget-stops V3). Left empty
+	// by callers that predate this field or never economy-grant.
+	DispatchWork string
 }
 
 type productionAuthorityBinding struct {
@@ -556,7 +565,6 @@ func captureProductionWorkContext(
 		ctx,
 		engine,
 		coordinates,
-		before,
 		&workContext,
 	); err != nil {
 		return productionWorkContext{}, nil, err
@@ -575,29 +583,35 @@ func captureProductionWorkContext(
 // captureEffectiveLimits freezes a granted work's effective per-work economy
 // limits once, at dispatch-build time (S4-resumable-budget-stops A3): a
 // work with no admitted grant leaves EffectiveLimits nil, byte-identical to
-// every pre-grant journal. work is the same outer, board-visible work
-// identity ownerWorkForDispatch resolves a nested git.seal-wrapped dispatch
-// to, matching the identity Service.Control's admission gate and the park
-// board both already key grants and park facts by.
+// every pre-grant journal. coordinates.DispatchWork is this exact attempt's
+// own driver.dispatch work identity - the value embedded in its own
+// AttemptEffectID, set by the caller that already computed it rather than
+// re-derived here, because a nested implementer dispatch's own identity is
+// not reconstructible from (manifest digest, slice, responsibility,
+// attempt, before) alone (S4-resumable-budget-stops V3): only that exact
+// identity matches what Service.Control's admission gate,
+// journal.ApplyControl's epoch advance and economyParkCrossings'
+// current-epoch filter all key GrantedAmount, AcknowledgedUnknownUsage and
+// RetryEpochs by. An absent DispatchWork (a caller that predates this field,
+// or a dispatch kind that never grants) matches no GrantedAmount entry and
+// leaves EffectiveLimits nil, exactly like a work with no admitted grant.
+// The lane-level owner identity (ownerWorkForDispatch) is used only to
+// scope the cumulative spend fold below, matching admitEconomyControl.
 func captureEffectiveLimits(
 	ctx context.Context,
 	engine *engine,
 	coordinates dispatchCoordinates,
-	before string,
 	workContext *productionWorkContext,
 ) error {
-	workID := driverWorkIdentity(
-		engine.manifest.digest,
-		coordinates.Slice,
-		coordinates.Responsibility,
-		coordinates.BatonAttempt,
-		before,
-	)
+	dispatchWork := coordinates.DispatchWork
+	if dispatchWork == "" {
+		return nil
+	}
 	snapshot, err := engineSnapshot(ctx, engine)
 	if err != nil {
 		return err
 	}
-	work := ownerWorkForDispatch(snapshot, workID)
+	owner := ownerWorkForDispatch(snapshot, dispatchWork)
 	control, err := engine.journal.ControlProjection(
 		ctx,
 		engine.manifest.value.RunID,
@@ -605,17 +619,17 @@ func captureEffectiveLimits(
 	if err != nil {
 		return runtimeFail("JOURNAL_READ_FAILED", err)
 	}
-	granted, ok := control.GrantedAmount[work]
+	granted, ok := control.GrantedAmount[dispatchWork]
 	if !ok || len(granted) == 0 {
 		return nil
 	}
-	acknowledged := control.AcknowledgedUnknownUsage[work]
+	acknowledged := control.AcknowledgedUnknownUsage[dispatchWork]
 	turnsSpent, tokensSpent, bytesSpent, unknown, err := economyWorkSpent(
 		ctx,
 		engine.journal,
 		engine.manifest,
 		engine.manifest.value.RunID,
-		work,
+		owner,
 		acknowledged,
 	)
 	if err != nil {

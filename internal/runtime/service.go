@@ -156,6 +156,12 @@ type PinnedWork struct {
 	Cause  string `json:"cause"`
 	Code   string `json:"code,omitempty"`
 	Detail string `json:"detail,omitempty"`
+	// DispatchWorkID is the crossing's own dispatch-work identity for an
+	// economy-caused pin (empty for identical-failure/exhaustion pins,
+	// whose Retry action is already keyed by WorkID unchanged). A Grant
+	// targeting this pin must name DispatchWorkID as its WorkID, not the
+	// lane-level WorkID above (S4-resumable-budget-stops V3).
+	DispatchWorkID string `json:"dispatch_work_id,omitempty"`
 }
 
 // RecoveryAction names the one control verb currently admissible for a run
@@ -1512,16 +1518,21 @@ func (s *Service) Control(ctx context.Context, command ControlCommand) (RunStatu
 // exclusively through Grant, uniformly regardless of which try triggered
 // it.
 //
-// For Grant, command.WorkID already names the outer, board-visible work
-// (the same identity Grant's admitted amount, and captureEffectiveLimits'
-// later freeze, are both keyed by). The command is refused
-// GRANT_WRONG_UNIT when no active current-epoch economy crossing names
-// command.Unit specifically, GRANT_ABOVE_HARD_CEILING when the saturating
-// sum of the manifest's own effective ceiling, this work's already-admitted
-// grants and this command's Amount would exceed the absolute hard ceiling
-// for that unit, and ECONOMY_USAGE_UNKNOWN when this work's cumulative
-// recorded spend carries a crash-before-receipt gap this command (or an
-// earlier admitted Grant for the same work) has not acknowledged.
+// For Grant, command.WorkID names the exact dispatch-work identity of the
+// crossing it targets - the same convention Retry's WorkID already carries,
+// and the identity journal.ApplyControl's epoch advance, GrantedAmount and
+// captureEffectiveLimits' later freeze are all keyed by (S4-resumable-
+// budget-stops V3; a prior revision of this gate keyed Grant by the outer,
+// board-visible work instead, which left RetryEpochs and GrantedAmount
+// keyed differently than the current-epoch filter and freeze that read
+// them). The command is refused GRANT_WRONG_UNIT when no active
+// current-epoch economy crossing names this exact dispatch work and
+// command.Unit, GRANT_ABOVE_HARD_CEILING when the saturating sum of the
+// manifest's own effective ceiling, this work's already-admitted grants and
+// this command's Amount would exceed the absolute hard ceiling for that
+// unit, and ECONOMY_USAGE_UNKNOWN when this work's cumulative recorded
+// spend carries a crash-before-receipt gap this command (or an earlier
+// admitted Grant for the same work) has not acknowledged.
 func (s *Service) admitEconomyControl(
 	ctx context.Context,
 	manifest admittedManifest,
@@ -1530,6 +1541,16 @@ func (s *Service) admitEconomyControl(
 	snapshot, err := s.journal.Snapshot(ctx, command.RunID)
 	if err != nil {
 		return runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	if controlCommandReplayed(snapshot, command) {
+		// An exact (or conflicting) replay of an already-recorded control
+		// command is journal.ApplyControl's own short-circuit to resolve,
+		// never this gate's (S4-resumable-budget-stops A2 "duplicate
+		// replay grants once"): by the time a Grant was first admitted, its
+		// epoch advance and admitted amount are already durable, so
+		// re-deriving admission against that already-advanced state would
+		// spuriously refuse the exact command that advanced it.
+		return nil
 	}
 	control, err := s.journal.ControlProjection(ctx, command.RunID)
 	if err != nil {
@@ -1548,13 +1569,23 @@ func (s *Service) admitEconomyControl(
 		}
 		return nil
 	}
+	// Grant names the exact dispatch-work identity of the crossing it
+	// targets, the same convention Retry's WorkID already carries and the
+	// one identity journal.ApplyControl, economyParkCrossings' current-epoch
+	// filter and captureEffectiveLimits all key their own facts by
+	// (S4-resumable-budget-stops V3): admissibility is resolved through the
+	// crossing's owner (a nested implementer dispatch's crossing is scoped
+	// to its enclosing git.seal work, exactly as Retry's), but the crossing
+	// found must be this exact named dispatch work, never merely any
+	// crossing sharing its owner.
+	outer := ownerWorkForDispatch(snapshot, command.WorkID)
 	facts, crossed, crossErr := s.activeEconomyCrossing(
-		ctx, snapshot, control, manifest, command.RunID, command.WorkID,
+		ctx, snapshot, control, manifest, command.RunID, outer,
 	)
 	if crossErr != nil {
 		return crossErr
 	}
-	if !crossed || facts.cause != command.Unit {
+	if !crossed || facts.work != command.WorkID || facts.cause != command.Unit {
 		return runtimeFail("GRANT_WRONG_UNIT", nil)
 	}
 	existingGranted := int64(0)
@@ -1569,7 +1600,7 @@ func (s *Service) admitEconomyControl(
 	acknowledged := control.AcknowledgedUnknownUsage[command.WorkID] ||
 		command.AcknowledgeUnknownUsage
 	_, _, _, unknown, spentErr := economyWorkSpent(
-		ctx, s.journal, manifest, command.RunID, command.WorkID, acknowledged,
+		ctx, s.journal, manifest, command.RunID, outer, acknowledged,
 	)
 	if spentErr != nil {
 		return spentErr
@@ -1578,6 +1609,24 @@ func (s *Service) admitEconomyControl(
 		return runtimeFail("ECONOMY_USAGE_UNKNOWN", nil)
 	}
 	return nil
+}
+
+// controlCommandReplayed reports whether a control command sharing
+// command.ID's replay key is already durable, regardless of whether its
+// body matches this exact command: either way, journal.ApplyControl - not
+// this admission gate - is the authority that resolves an exact replay's
+// cached receipt versus a conflicting ID reuse's REPLAY_CONFLICT refusal.
+func controlCommandReplayed(
+	snapshot journal.Snapshot,
+	command journal.ControlCommand,
+) bool {
+	replayKey := "control/" + command.ID
+	for _, existing := range snapshot.Commands {
+		if existing.ReplayKey == replayKey {
+			return true
+		}
+	}
+	return false
 }
 
 // activeEconomyCrossing names the current-epoch economy crossing scoped to
@@ -1604,6 +1653,7 @@ func (s *Service) activeEconomyCrossing(
 		return economyParkFactsFor(
 			crossing,
 			manifest.value.Limits,
+			control.GrantedAmount[crossing.work],
 			spentTurns,
 			spentTokens,
 			spentBytes,

@@ -1137,6 +1137,14 @@ func (s *Service) invokeRecoverableWorker(
 				// resumed replan dispatch look stale against its own
 				// request.
 				InvocationScope: prepared.productionContext.InvocationScope,
+				// cycle.binding.ProgressID is this turn's own dispatch-work
+				// identity (the same value status.go's recovery validation
+				// compares attemptCoordinates(effect.ID) against): without
+				// it, a mid-turn resume on a granted work reconstructs a
+				// nil EffectiveLimits against the already-frozen non-nil
+				// value and spuriously reports STALE_DISPATCH
+				// (S4-resumable-budget-stops V3).
+				DispatchWork: cycle.binding.ProgressID,
 			},
 			before,
 			prepared,

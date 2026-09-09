@@ -186,6 +186,11 @@ func economyParkCrossings(
 // crossing: the cause, the engine-counted spend, the effective budget the
 // dispatch crossed, and the manifest knob that unblocks it.
 type economyParkFacts struct {
+	// work is the crossing's own dispatch-work identity (economyGuardCrossing.work):
+	// the same identity a Grant targeting this crossing must name as its
+	// ControlCommand.WorkID, distinct from the lane-scoped owner identity
+	// callers key their own per-owner maps by (S4-resumable-budget-stops V3).
+	work   string
 	cause  string
 	spent  int64
 	budget int64
@@ -198,29 +203,44 @@ type economyParkFacts struct {
 // ECONOMY_OUTPUT_BUDGET_EXCEEDED top-level code, so diagnosticCode - the
 // observation's Diagnostic.Code, read back by economySpent - is the
 // disambiguating signal; the top-level code alone cannot tell them apart.
+// granted is the crossing's own dispatch-work's cumulative admitted Grant
+// amount per unit (control.GrantedAmount[crossing.work]): the reported
+// budget is the currently effective ceiling (original plus every admitted
+// grant), never the stale pre-grant manifest figure, so a re-crossing after
+// a grant always satisfies spent >= budget and the board names the exact
+// limit the driver was actually bound to (A1, C6).
 func economyParkFactsFor(
 	crossing economyGuardCrossing,
 	limits driver.Limits,
+	granted map[string]int64,
 	spentTurns, spentTokens, spentBytes int64,
 	diagnosticCode string,
 ) economyParkFacts {
-	facts := economyParkFacts{}
+	facts := economyParkFacts{work: crossing.work}
 	switch {
 	case crossing.code == "ECONOMY_TURN_BUDGET_EXCEEDED":
 		facts.cause = ParkCauseEconomyTurns
 		facts.spent = spentTurns
-		facts.budget = limits.EffectiveMaxTurnsPerWork()
+		facts.budget = saturatingAddInt64(
+			limits.EffectiveMaxTurnsPerWork(), granted[ParkCauseEconomyTurns],
+		)
 		facts.knob = EconomyTurnsUnblockKnob
 	case crossing.code == "ECONOMY_OUTPUT_BUDGET_EXCEEDED" &&
 		diagnosticCode == "economy_output_budget_bytes":
 		facts.cause = ParkCauseEconomyOutputBytes
 		facts.spent = spentBytes
-		facts.budget = limits.EffectiveMaxNativeOutputStreamBytes()
+		facts.budget = saturatingAddInt64(
+			limits.EffectiveMaxNativeOutputStreamBytes(),
+			granted[ParkCauseEconomyOutputBytes],
+		)
 		facts.knob = EconomyOutputBytesUnblockKnob
 	case crossing.code == "ECONOMY_OUTPUT_BUDGET_EXCEEDED":
 		facts.cause = ParkCauseEconomyOutputTokens
 		facts.spent = spentTokens
-		facts.budget = limits.EffectiveMaxOutputTokensPerWork()
+		facts.budget = saturatingAddInt64(
+			limits.EffectiveMaxOutputTokensPerWork(),
+			granted[ParkCauseEconomyOutputTokens],
+		)
 		facts.knob = EconomyOutputTokensUnblockKnob
 	}
 	return facts

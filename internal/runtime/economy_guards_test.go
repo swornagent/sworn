@@ -1721,3 +1721,147 @@ func TestParseParkEventNewCausesAndLegacyByteStability(t *testing.T) {
 		}
 	}
 }
+
+// TestOwnerWorkForDispatchResolvesNestedGitSealWork pins the exact identity
+// contract S4-resumable-budget-stops V3's repair depends on: a nested
+// implementer dispatch work resolves to its enclosing git.seal work only
+// when a git.seal command actually names it as DispatchWork, and a direct
+// (non-nested) dispatch work with no such command falls back unchanged -
+// the same fallback captureEffectiveLimits and admitEconomyControl rely on
+// for planner/captain/verifier dispatches, which are never git.seal-wrapped.
+func TestOwnerWorkForDispatchResolvesNestedGitSealWork(t *testing.T) {
+	t.Parallel()
+	outerBefore := "outer-before-fingerprint"
+	outerWork := workIdentity(outerBefore, "git.seal")
+	dispatchWork := workIdentity(outerWork, "driver.dispatch")
+	payload, err := json.Marshal(struct {
+		Before       string `json:"before"`
+		DispatchWork string `json:"dispatch_work"`
+	}{Before: outerBefore, DispatchWork: dispatchWork})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := journal.Snapshot{
+		Commands: []journal.Command{{Kind: "git.seal", Payload: payload}},
+	}
+	if resolved := ownerWorkForDispatch(snapshot, dispatchWork); resolved != outerWork {
+		t.Fatalf("ownerWorkForDispatch(nested) = %s, want outer %s", resolved, outerWork)
+	}
+	direct := testWork()
+	if resolved := ownerWorkForDispatch(snapshot, direct); resolved != direct {
+		t.Fatalf("ownerWorkForDispatch(direct) = %s, want unchanged %s", resolved, direct)
+	}
+}
+
+// TestEconomyParkFactsForCarriesCrossingWorkAndGrantedBudget pins C6/V1: the
+// reported budget is the currently effective ceiling (manifest plus every
+// admitted grant for the crossing's own dispatch-work identity), and the
+// facts carry that exact dispatch-work identity - never the lane-level
+// owner a caller's own map may be keyed by - so a Grant built from it always
+// names the crossing it was computed from.
+func TestEconomyParkFactsForCarriesCrossingWorkAndGrantedBudget(t *testing.T) {
+	t.Parallel()
+	crossing := economyGuardCrossing{
+		work: testWork(), code: "ECONOMY_TURN_BUDGET_EXCEEDED",
+	}
+	granted := map[string]int64{ParkCauseEconomyTurns: 150}
+	facts := economyParkFactsFor(
+		crossing, driver.Limits{}, granted, 350, 0, 0, "",
+	)
+	if facts.work != crossing.work {
+		t.Fatalf("facts.work = %s, want %s", facts.work, crossing.work)
+	}
+	if facts.cause != ParkCauseEconomyTurns || facts.spent != 350 {
+		t.Fatalf("facts = %#v", facts)
+	}
+	if facts.budget != driver.DefaultMaxTurnsPerWork+150 {
+		t.Fatalf("facts.budget = %d, want %d", facts.budget, driver.DefaultMaxTurnsPerWork+150)
+	}
+	// With no admitted grant, the budget is the plain manifest ceiling,
+	// byte-identical to every pre-grant journal.
+	ungranted := economyParkFactsFor(
+		crossing, driver.Limits{}, nil, 201, 0, 0, "",
+	)
+	if ungranted.budget != driver.DefaultMaxTurnsPerWork {
+		t.Fatalf("ungranted budget = %d, want %d", ungranted.budget, driver.DefaultMaxTurnsPerWork)
+	}
+}
+
+// TestGrantAdmissionUnblocksCrossingAndReplaysOnce pins A2/A3/V2/V3 at the
+// Service.Control seam: an admitted Grant advances the crossing's own
+// dispatch-work epoch and clears its economy park, and an exact replay of
+// that same Grant command is admitted idempotently rather than refused
+// GRANT_WRONG_UNIT against the epoch its own first admission already
+// advanced (the V2 defect: admitEconomyControl ran before
+// journal.ApplyControl's own replay short-circuit could ever be reached).
+func TestGrantAdmissionUnblocksCrossingAndReplaysOnce(t *testing.T) {
+	t.Parallel()
+	fixture := newEconomyGuardFixture(t, driver.Limits{
+		TimeoutMillis: 30_000,
+		OutputBytes:   65_536,
+	})
+	work := fixture.readyWork(t)
+	fixture.failedDispatchAttempt(
+		t, work, 1, 1, "ECONOMY_TURN_BUDGET_EXCEEDED", "",
+		economyUsageReceipt(t, "sworn.openai", 10_000, 20_000, 201, 201),
+	)
+	before, err := fixture.service.Status(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.State != "parked" || before.Park == nil ||
+		before.Park.Cause != ParkCauseEconomyTurns {
+		t.Fatalf("status before grant = %#v", before)
+	}
+
+	command := journal.ControlCommand{
+		RunID: fixture.manifest.value.RunID, ID: "grant-turns-1", Kind: journal.Grant,
+		ExpectedGeneration: 0,
+		WorkID:             work, ExpectedEpoch: 1,
+		Unit: ParkCauseEconomyTurns, Amount: 500,
+	}
+	if _, err := fixture.service.Control(fixture.ctx, command); err != nil {
+		t.Fatalf("grant = %v", err)
+	}
+	projection, err := fixture.store.ControlProjection(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projection.RetryEpochs[work] != 2 {
+		t.Fatalf("retry epoch after grant = %d, want 2", projection.RetryEpochs[work])
+	}
+	if projection.GrantedAmount[work][ParkCauseEconomyTurns] != 500 {
+		t.Fatalf("granted amount = %#v, want 500", projection.GrantedAmount[work])
+	}
+	after, err := fixture.service.Status(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Park != nil {
+		t.Fatalf("status after grant still parks on economy = %#v", after.Park)
+	}
+
+	if _, err := fixture.service.Control(fixture.ctx, command); err != nil {
+		t.Fatalf("replayed grant = %v, want nil (idempotent replay)", err)
+	}
+	replayed, err := fixture.store.ControlProjection(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replayed.GrantedAmount[work][ParkCauseEconomyTurns] != 500 {
+		t.Fatalf("granted amount after replay = %#v, want unchanged 500",
+			replayed.GrantedAmount[work])
+	}
+	if replayed.RetryEpochs[work] != 2 {
+		t.Fatalf("retry epoch after replay = %d, want unchanged 2", replayed.RetryEpochs[work])
+	}
+
+	// A conflicting body reusing the same command ID is refused, not
+	// silently admitted: the replay short-circuit only ever covers an
+	// exact byte-identical resubmission.
+	conflict := command
+	conflict.Amount = 999
+	if _, err := fixture.service.Control(fixture.ctx, conflict); !IsCode(err, "CONTROL_REJECTED") {
+		t.Fatalf("conflicting grant = %v, want CONTROL_REJECTED (REPLAY_CONFLICT)", err)
+	}
+}
