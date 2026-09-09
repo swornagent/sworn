@@ -301,8 +301,10 @@ it quarantines the worktree under a `.fence` record.
 Startup and shutdown cleanup skips fenced workspaces, and new writers are
 refused with `WORKSPACE_FENCED` to prevent overwriting uncheckpointed progress.
 The board and `sworn status --json` distinguish unverified saved work
-(`saved`), restored work (`restored`), and capture failure with a fenced
-workspace (`fenced`), reporting the affected slice and failure reason.
+(`saved`), restored work (`restored`), interrupted-process recovery data
+(`salvaged`, or `restored_salvaged` once restored), and capture failure with a
+fenced workspace (`fenced`), reporting the affected slice and failure reason.
+See "Interrupted-process reconciliation" below for `salvaged`.
 
 To reclaim or resolve a quarantined workspace:
 
@@ -314,6 +316,43 @@ To reclaim or resolve a quarantined workspace:
    ```
    Or remove the `.fence` marker file inside the workspace root so normal
    abandoned-workspace cleanup can reclaim it.
+
+### Interrupted-process reconciliation
+
+If the driving process is killed (host crash, `SIGKILL`, power loss) after a
+production implementation worker has opened its workspace and written scoped
+code, but before it hands off or checkpoints, that worktree is not silently
+deleted by the replacement owner's ordinary abandoned-workspace cleanup.
+Sworn durably attributes an implementation workspace to its run before any
+driver dispatch begins; a replacement owner's first owned cycle scans for
+attributed abandoned workspaces, admits the sole writer for that track (a
+live prior worker or an already-quarantined workspace is left alone), and
+either finds nothing changed since its prepared base or captures the
+interrupted bytes as an explicitly **unverified salvaged checkpoint** before
+the worktree is reclaimed.
+
+A salvaged checkpoint is not the same durability claim as an ordinary saved
+checkpoint:
+
+- **`saved`**: a completed capture, staged and measured by the same worker
+  that wrote it, with the tree digest recorded before the workspace closed.
+- **`salvaged`**: recovered from a workspace whose owning process never
+  reached its own checkpoint or handoff. It may be a complete write, or it
+  may reflect a filesystem write that had not finished when the process
+  died; sudden power loss during an unacknowledged write is never reported
+  as zero-loss recovery. `sworn status --json` and the board report
+  `salvaged` (or `restored_salvaged` once a later attempt restores it)
+  distinctly from `saved`/`restored`, alongside the same affected slice,
+  tree digest, and file/byte counts.
+
+A changed plan, contract, or track base between the interrupted attempt and
+the replacement owner's authority blocks automatic restoration into the new
+authority: the checkpoint stays exactly where it is, under its Git ref and
+journal row, inspectable with a specific `stale_base`, `stale_plan`, or
+`stale_contract` reason, rather than silently rebasing or discarding it.
+Ownership mismatch, a foreign run or repository attribution, or a corrupt
+recovery binding fences the workspace the same way a capture fault does,
+rather than restoring it or clearing the way by deleting it.
 
 ## Configure one AI connection
 

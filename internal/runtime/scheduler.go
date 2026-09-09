@@ -3752,10 +3752,28 @@ func (s *Service) runImplementationCycle(ctx context.Context, engine *engine,
 		_ = workspace.Close()
 		return sealedRecord{}, runtimeFail("CHECKPOINT_LOOKUP_FAILED", cpErr)
 	}
-	if latestCP != nil {
-		if latestCP.PreparedBase == workspace.Head().String() &&
-			latestCP.Release == cycle.Release &&
-			latestCP.Track == cycle.Track {
+	plan, sliceDecl, contractDigest, authorityErr := resolveSliceAuthority(fresh, cycle.Slice)
+	if authorityErr != nil {
+		_ = workspace.Close()
+		return sealedRecord{}, runtimeFail("CHECKPOINT_STATE_LOOKUP_FAILED", authorityErr)
+	}
+	currentAuthority := authorityFingerprint{
+		PreparedBase:   workspace.Head().String(),
+		PlanOID:        cycle.Plan,
+		PlanDigest:     plan.Digest(),
+		ContractDigest: contractDigest,
+	}
+	if latestCP != nil && latestCP.Release == cycle.Release && latestCP.Track == cycle.Track {
+		checkpoint := authorityFingerprint{
+			PreparedBase:   latestCP.PreparedBase,
+			PlanOID:        latestCP.PlanOID,
+			PlanDigest:     latestCP.PlanDigest,
+			ContractDigest: latestCP.ContractDigest,
+		}
+		// Changed plan, contract, or track base blocks automatic restoration
+		// into the new authority; the checkpoint stays untouched under its
+		// ref and journal row, inspectable as stale rather than restored.
+		if staleReason(currentAuthority, checkpoint) == "" {
 			treeOID, parseErr := gitx.ParseOID(engine.repository.ObjectFormat(), latestCP.TreeOID)
 			if parseErr != nil {
 				_ = workspace.Close()
@@ -3777,6 +3795,35 @@ func (s *Service) runImplementationCycle(ctx context.Context, engine *engine,
 				RestoredAt:    time.Now().UTC().Format(time.RFC3339Nano),
 			}, time.Now())
 		}
+	}
+	dispatchWork, dispatchEpoch, dispatchTry, coordErr := attemptCoordinates(cycle.DispatchEffect)
+	if coordErr != nil {
+		_ = workspace.Close()
+		return sealedRecord{}, runtimeFail("CORRUPT_JOURNAL", coordErr)
+	}
+	attribution := gitx.WorkspaceAttribution{
+		RunID:          owner.RunID,
+		CommonDir:      engine.repository.CommonDir(),
+		Release:        cycle.Release,
+		Track:          cycle.Track,
+		Slice:          cycle.Slice,
+		PlanOID:        currentAuthority.PlanOID,
+		PlanDigest:     currentAuthority.PlanDigest,
+		ContractPath:   sliceDecl.ContractPath,
+		ContractDigest: currentAuthority.ContractDigest,
+		PreparedBase:   currentAuthority.PreparedBase,
+		DispatchWork:   dispatchWork,
+		Epoch:          dispatchEpoch,
+		Try:            dispatchTry,
+		ScopeInclude:   sliceDecl.Scope.Include,
+		ScopeExclude:   sliceDecl.Scope.Exclude,
+	}
+	if err := engine.workspaces.AttributeWorkspace(workspace, attribution); err != nil {
+		_ = workspace.Close()
+		return sealedRecord{}, runtimeFail("WORKSPACE_ATTRIBUTION_FAILED", err)
+	}
+	if testCrashAfterEffect == "workspace.attribute" {
+		os.Exit(86)
 	}
 	if engine.manifest.value.production() {
 		record, preparedClaim, dispatchErr :=
@@ -3816,12 +3863,10 @@ func (s *Service) runImplementationCycle(ctx context.Context, engine *engine,
 			outer,
 		)
 	}
-	dispatchWork, dispatchEpoch, dispatchTry, dispatchErr :=
-		attemptCoordinates(cycle.DispatchEffect)
-	if dispatchErr != nil || dispatchWork != cycle.DispatchWork {
+	if dispatchWork != cycle.DispatchWork {
 		_ = workspace.Close()
 		return sealedRecord{},
-			runtimeFail("CORRUPT_JOURNAL", dispatchErr)
+			runtimeFail("CORRUPT_JOURNAL", nil)
 	}
 	submission, err := s.runDriverEffect(
 		ctx,
@@ -7230,6 +7275,9 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 	}
 	if control.Desired != "running" {
 		return s.Status(context.Background(), runID)
+	}
+	if err := s.reconcileInterruptedWorkspaces(ownedCtx, engine, owner); err != nil {
+		return RunStatus{}, err
 	}
 	if err := s.processCaptainPlannerContinuations(ownedCtx, engine, owner); err != nil {
 		return RunStatus{}, err

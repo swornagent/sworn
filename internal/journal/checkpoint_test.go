@@ -73,6 +73,93 @@ func TestJournalUnverifiedCheckpointPersistenceAndRecovery(t *testing.T) {
 	}
 }
 
+func TestJournalUnverifiedCheckpointSalvagedRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	store, run, _, _ := journalFixture(t)
+	ctx := context.Background()
+	now := run.CreatedAt.Add(time.Second)
+
+	cp := UnverifiedCheckpoint{
+		Repository:     run.Repository,
+		RunID:          run.ID,
+		Release:        run.Release,
+		Track:          "T1",
+		Slice:          "S2",
+		PlanOID:        "1111111111111111111111111111111111111111",
+		PlanDigest:     "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+		ContractDigest: "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+		PreparedBase:   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		DispatchWork:   "S2",
+		Epoch:          1,
+		Try:            1,
+		CheckpointRef:  "refs/heads/checkpoints/rel/T1/S2-1-1",
+		CommitOID:      "3333333333333333333333333333333333333333",
+		TreeOID:        "4444444444444444444444444444444444444444",
+		TreeDigest:     "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+		StagedBytes:    64,
+		FileCount:      1,
+		Salvaged:       true,
+	}
+	if err := store.RecordUnverifiedCheckpoint(ctx, cp, now); err != nil {
+		t.Fatalf("record salvaged checkpoint failed: %v", err)
+	}
+	latest, err := store.LatestUnverifiedCheckpoint(ctx, run.ID, "S2")
+	if err != nil || latest == nil {
+		t.Fatalf("latest checkpoint failed: %v, %v", latest, err)
+	}
+	if !latest.Salvaged {
+		t.Fatalf("expected Salvaged to round-trip true, got %#v", latest)
+	}
+}
+
+// TestJournalUnverifiedCheckpointLegacyBodyDecodesUnsalvaged proves the
+// additive-field contract directly: a v1 event body recorded before Salvaged
+// existed has no "salvaged" key at all, and must decode with Salvaged ==
+// false rather than failing or defaulting to some other value.
+func TestJournalUnverifiedCheckpointLegacyBodyDecodesUnsalvaged(t *testing.T) {
+	t.Parallel()
+
+	store, run, _, _ := journalFixture(t)
+	ctx := context.Background()
+	now := run.CreatedAt.Add(time.Second)
+
+	legacyBody := []byte(`{
+		"schema_version": "sworn.unverified-checkpoint/v1",
+		"repository": "` + run.Repository + `",
+		"run_id": "` + run.ID + `",
+		"release": "` + run.Release + `",
+		"track": "T1",
+		"slice": "S1",
+		"plan_oid": "1111111111111111111111111111111111111111",
+		"plan_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+		"contract_path": "contracts/S1.json",
+		"contract_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+		"prepared_base": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"dispatch_work": "S1",
+		"epoch": 1,
+		"try": 1,
+		"checkpoint_ref": "refs/heads/checkpoints/rel/T1/S1-1-1",
+		"commit_oid": "3333333333333333333333333333333333333333",
+		"tree_oid": "4444444444444444444444444444444444444444",
+		"tree_digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+		"staged_bytes": 1024,
+		"file_count": 2,
+		"created_at": "2026-01-01T00:00:00Z"
+	}`)
+	if err := store.AppendEvent(ctx, run.ID, UnverifiedCheckpointEventKind, legacyBody, now); err != nil {
+		t.Fatalf("append legacy checkpoint event failed: %v", err)
+	}
+
+	latest, err := store.LatestUnverifiedCheckpoint(ctx, run.ID, "S1")
+	if err != nil || latest == nil {
+		t.Fatalf("latest checkpoint failed: %v, %v", latest, err)
+	}
+	if latest.Salvaged {
+		t.Fatalf("expected a pre-Salvaged event body to decode Salvaged == false, got %#v", latest)
+	}
+}
+
 func TestJournalCheckpointRestoredPersistenceAndRecovery(t *testing.T) {
 	t.Parallel()
 

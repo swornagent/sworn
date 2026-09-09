@@ -386,6 +386,9 @@ func RenderTerminalWidth(snapshot Snapshot, width int) string {
 			if cp.FailureReason != "" {
 				cpFields = append(cpFields, "reason="+terminalQuote(cp.FailureReason))
 			}
+			if cp.StaleReason != "" {
+				cpFields = append(cpFields, "stale="+terminalQuote(cp.StaleReason))
+			}
 			renderer.line(2, fields(cpFields...))
 		}
 	}

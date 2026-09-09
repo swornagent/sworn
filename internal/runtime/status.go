@@ -541,8 +541,15 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	cps, _ := s.journal.ListUnverifiedCheckpoints(ctx, runID)
 	for _, cp := range cps {
 		cpStatus := "saved"
+		if cp.Salvaged {
+			cpStatus = "salvaged"
+		}
 		if restoredRefs[cp.CheckpointRef] {
-			cpStatus = "restored"
+			if cp.Salvaged {
+				cpStatus = "restored_salvaged"
+			} else {
+				cpStatus = "restored"
+			}
 		}
 		st := CheckpointStatus{
 			Status:        cpStatus,
@@ -553,6 +560,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 			AffectedSlice: cp.Slice,
 			StagedBytes:   cp.StagedBytes,
 			FileCount:     cp.FileCount,
+			StaleReason:   currentCheckpointStaleReason(state, stateErr, cp),
 		}
 		result.Checkpoints = append(result.Checkpoints, st)
 	}

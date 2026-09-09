@@ -92,16 +92,32 @@ func (l *WorkspaceLease) Fence(reason, detail, slice string) error {
 	}
 	l.fenced = true
 	l.fenceReason = reason
+	// A fence marker is now the durable retain-reason for this tree; the
+	// attribution record (if any) has served its purpose and would otherwise
+	// make reconciliation try to re-adopt an already-quarantined tree.
+	_ = l.owner.ClearAttribution(l.token)
+	return writeFenceRecord(l.path, l.owner.fencesRoot, l.token, l.owner.identity, l.key, slice, reason, detail)
+}
+
+// writeFenceRecord dual-writes the quarantine marker inside the workspace
+// tree and to the owner's auxiliary fences directory, for both a live lease
+// (WorkspaceLease.Fence) and a scan that found an abandoned tree with no live
+// lease object yet (a corrupt or foreign attribution record).
+func writeFenceRecord(
+	treePath, fencesRoot, token, identity string,
+	key TrackKey,
+	slice, reason, detail string,
+) error {
 	fenceRecord := WorkspaceFence{
-		Token:     l.token,
-		Identity:  l.owner.identity,
-		Release:   l.key.Release,
-		Track:     l.key.Track,
+		Token:     token,
+		Identity:  identity,
+		Release:   key.Release,
+		Track:     key.Track,
 		Slice:     slice,
 		Reason:    reason,
 		Detail:    detail,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
-		Path:      l.path,
+		Path:      treePath,
 	}
 	body, err := json.MarshalIndent(fenceRecord, "", "  ")
 	if err != nil {
@@ -110,13 +126,13 @@ func (l *WorkspaceLease) Fence(reason, detail, slice string) error {
 	fenceBody := append(body, '\n')
 
 	var writeErrs []error
-	fencePath := filepath.Join(l.path, WorkspaceFenceFile)
+	fencePath := filepath.Join(treePath, WorkspaceFenceFile)
 	if err := os.WriteFile(fencePath, fenceBody, 0o600); err != nil {
 		writeErrs = append(writeErrs, err)
 	}
-	if l.owner.fencesRoot != "" {
-		_ = os.MkdirAll(l.owner.fencesRoot, 0o700)
-		auxPath := filepath.Join(l.owner.fencesRoot, l.token)
+	if fencesRoot != "" {
+		_ = os.MkdirAll(fencesRoot, 0o700)
+		auxPath := filepath.Join(fencesRoot, token)
 		if err := os.WriteFile(auxPath, fenceBody, 0o600); err != nil {
 			writeErrs = append(writeErrs, err)
 		}
@@ -581,6 +597,13 @@ func (w *Workspaces) CaptureCheckpoint(
 	if err != nil {
 		_ = lease.Fence("CHECKPOINT_CORRUPT", "parse tree failed", slice)
 		return CheckpointResult{}, err
+	}
+
+	// The written tree has no ref yet and is unreachable from any commit: an
+	// interrupt here leaves an object in the odb that nothing reports as a
+	// completed checkpoint, and restart safely re-stages and re-binds.
+	if testCrashAfterEffect == "checkpoint.prepare" {
+		os.Exit(86)
 	}
 
 	timestamp, timestampErr := w.repository.CommitTimestamp(lease.head)

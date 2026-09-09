@@ -133,6 +133,12 @@ type CheckpointStatus struct {
 	FailureReason string `json:"failure_reason,omitempty"`
 	StagedBytes   int64  `json:"staged_bytes,omitempty"`
 	FileCount     int    `json:"file_count,omitempty"`
+	// StaleReason is one of stale_base, stale_plan, or stale_contract when
+	// this checkpoint's recorded authority no longer matches the run's
+	// current plan/contract/track authority, computed fresh at status time
+	// rather than stored: the checkpoint itself never changes meaning, only
+	// whether it remains eligible for automatic restoration.
+	StaleReason string `json:"stale_reason,omitempty"`
 }
 
 // PinnedWork names one work item a lane-scoped park crossing has pinned: no

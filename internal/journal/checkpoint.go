@@ -33,6 +33,12 @@ type UnverifiedCheckpoint struct {
 	StagedBytes    int64  `json:"staged_bytes"`
 	FileCount      int    `json:"file_count"`
 	CreatedAt      string `json:"created_at"`
+	// Salvaged is true when this checkpoint was captured from an abandoned
+	// workspace during interrupted-work reconciliation rather than from a
+	// live worker's own dispatch. It is additive: a v1 event body recorded
+	// before this field existed decodes with Salvaged == false, which is the
+	// correct meaning for every checkpoint that field predates.
+	Salvaged bool `json:"salvaged,omitempty"`
 }
 
 // RecordUnverifiedCheckpoint persists an unverified checkpoint event into the events table.
