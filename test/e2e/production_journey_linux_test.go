@@ -44,6 +44,10 @@ type journeyProvider struct {
 	repair              bool
 	preservation        bool
 	faultMode           string
+	// submissionCorrectionFault drives the A2/C5 malformed-then-corrected
+	// submission crash-cut scenario, isolated from preservation/faultMode
+	// so it composes with the ordinary journey unaffected.
+	submissionCorrectionFault bool
 	// slicePaths overrides the slice -> product path table this Planner's plan
 	// promises. It stays nil for the original production journey, which keeps
 	// using journeySlicePaths(); a journey whose plan declares different
@@ -51,9 +55,16 @@ type journeyProvider struct {
 	// product path that plan's scope admits.
 	slicePaths map[string]string
 
-	mu                     sync.Mutex
-	plannerFactReads       int
-	preservationAsserted   bool
+	mu                   sync.Mutex
+	plannerFactReads     int
+	preservationAsserted bool
+	// firstImplementerPrompt captures, for each ImplementerImplementation
+	// invocation ID this journey drives under submissionCorrectionFault,
+	// the exact raw turn-2 prompt bytes (the request carrying turn 1's own
+	// tool result back) - proof, read back out of band by the test, of
+	// what production_dispatch actually projected into a resumed
+	// continuation's own prompt.
+	firstImplementerPrompt map[string][]byte
 	turns                  map[string]int
 	families               map[string]driver.ProfileFamily
 	models                 map[string]string
@@ -187,6 +198,14 @@ func (provider *journeyProvider) serve(
 	provider.families[prompt.InvocationID] = family
 	provider.models[prompt.InvocationID] = model
 	provider.access[prompt.InvocationID] = prompt.Workspace.Access
+	if provider.submissionCorrectionFault &&
+		prompt.Responsibility == driver.ImplementerImplementation &&
+		turn == 2 {
+		if provider.firstImplementerPrompt == nil {
+			provider.firstImplementerPrompt = map[string][]byte{}
+		}
+		provider.firstImplementerPrompt[prompt.InvocationID] = append([]byte(nil), body...)
+	}
 	provider.mu.Unlock()
 
 	toolName := "sworn_submit"
@@ -195,6 +214,10 @@ func (provider *journeyProvider) serve(
 		toolName, arguments, err = provider.plannerResponse(
 			prompt, turn, toolResults,
 		)
+	} else if prompt.Responsibility == driver.ImplementerImplementation &&
+		provider.submissionCorrectionFault &&
+		submissionCorrectionFaultSlice(prompt.InvocationID) {
+		toolName, arguments, err = provider.submissionCorrectionFaultResponse(prompt, turn)
 	} else if prompt.Responsibility == driver.ImplementerImplementation &&
 		turn == 1 {
 		parts := strings.Split(prompt.InvocationID, "/")
@@ -648,12 +671,16 @@ func (provider *journeyProvider) submissionArguments(
 		SchemaVersion:  driver.SubmissionSchemaVersion,
 		InvocationID:   prompt.InvocationID,
 		Responsibility: prompt.Responsibility,
-		Summary: "Deterministic production journey " + string(prompt.Responsibility) +
-			", padded so every scripted responsibility this deterministic production journey drives clears the submission content floor for its coverage across the registry.",
+		Summary:        "Deterministic production journey step for " + string(prompt.Responsibility) + ".",
 		// No trailing newline: the delegated captain decision command
 		// re-carries this detail and validCaptainDecisionText refuses
-		// leading or trailing whitespace.
-		Detail: "Sealed through the common configured production driver registry, padded so every scripted responsibility this deterministic production journey drives clears the submission detail content floor for its coverage.",
+		// leading or trailing whitespace. Deliberately concise and
+		// non-padded (A3): the registry-wide submission content floor this
+		// text once padded past no longer exists, so every scripted
+		// responsibility this deterministic journey drives across the
+		// whole configured-provider registry now also exercises A3's
+		// headline claim that a short, honest submission seals.
+		Detail: "Sealed through the common configured production driver registry.",
 	}
 	var err error
 	switch prompt.Responsibility {
@@ -995,6 +1022,97 @@ func preservationFirstTry(invocation string) bool {
 	return len(parts) == 6 && parts[5] == "1"
 }
 
+// submissionCorrectionFaultSlice reports whether invocation is the one
+// slice (A1) the A2/C5 submission-correction crash-cut scenario drives;
+// every other slice in that same registry-wide journey is unaffected.
+func submissionCorrectionFaultSlice(invocation string) bool {
+	parts := strings.Split(invocation, "/")
+	return len(parts) == 6 && parts[1] == "A1"
+}
+
+// submissionCorrectionFaultResponse drives A1's implementer_implementation
+// through the A2/C5 malformed-then-corrected submission crash cut. On the
+// first try: turn 1 writes the product file as usual, turn 2 submits a
+// submission this implementer would otherwise never author -
+// whitespace-only Detail - so the live sworn_submit tool boundary refuses
+// it INVALID_DETAIL (A3's own mechanism) and durably reserves the exact
+// refusal before any correction is ever seen, and turn 3 (which would
+// otherwise carry that correction back in the same session) simulates the
+// crash instead: the provider transport fails, so the refusal is never
+// resolved in this try. On every later try - a fresh session with no
+// memory of the turns above - turn 1 reads back production_dispatch's own
+// work-context.json input, which is the read-back proof this scenario
+// exists to establish (production_dispatch's submission_repair carries
+// the exact outstanding refusal into that JSON), turn 2 rewrites the
+// identical product file, and turn 3 submits the real, valid submission -
+// correcting the refusal without anything in this script ever having told
+// it what that refusal was.
+func (provider *journeyProvider) submissionCorrectionFaultResponse(
+	prompt journeyPrompt, turn int,
+) (string, map[string]any, error) {
+	firstTry := preservationFirstTry(prompt.InvocationID)
+	switch {
+	case firstTry && turn == 1:
+		return "Write", map[string]any{
+			"path":    "/workspace/one-a.txt",
+			"content": "A1 production journey\n",
+		}, nil
+	case firstTry && turn == 2:
+		checks, err := driver.NewCheckBytes(
+			[]byte("deterministic production implementation checks\n"),
+		)
+		if err != nil {
+			return "", nil, err
+		}
+		malformed := driver.Submission{
+			SchemaVersion:  driver.SubmissionSchemaVersion,
+			InvocationID:   prompt.InvocationID,
+			Responsibility: driver.ImplementerImplementation,
+			Summary:        "Deterministic production journey step for implementer_implementation.",
+			Detail:         "   ",
+			Checks:         checks,
+		}
+		encoded, err := driver.EncodeSubmission(malformed)
+		if err != nil {
+			return "", nil, err
+		}
+		var value map[string]any
+		if err := json.Unmarshal(encoded, &value); err != nil {
+			return "", nil, err
+		}
+		return "sworn_submit", map[string]any{"submission": value}, nil
+	case firstTry && turn == 3:
+		return "", nil, fmt.Errorf("simulated implementer dispatch stop without handoff")
+	case !firstTry && turn == 1:
+		return "Read", map[string]any{
+			"path": driver.GuestInputPath + "/work-context.json",
+		}, nil
+	case !firstTry && turn == 2:
+		return "Write", map[string]any{
+			"path":    "/workspace/one-a.txt",
+			"content": "A1 production journey\n",
+		}, nil
+	case !firstTry && turn == 3:
+		return provider.submissionArgumentsTool(prompt)
+	}
+	return "", nil, fmt.Errorf(
+		"unexpected submission-correction turn %d for %q", turn, prompt.InvocationID,
+	)
+}
+
+// submissionArgumentsTool wraps submissionArguments with the sworn_submit
+// tool name, matching the shape submissionCorrectionFaultResponse's other
+// branches return.
+func (provider *journeyProvider) submissionArgumentsTool(
+	prompt journeyPrompt,
+) (string, map[string]any, error) {
+	arguments, err := provider.submissionArguments(prompt)
+	if err != nil {
+		return "", nil, err
+	}
+	return "sworn_submit", arguments, nil
+}
+
 func TestPreservationFaultOnlyOnFirstTry(t *testing.T) {
 	for invocation, want := range map[string]bool{
 		"run/A1/implementer_implementation/1/1/1": true,
@@ -1163,6 +1281,172 @@ func TestConfiguredProductionPreservationAndRestorationJourney(
 	}
 	if err := exec.Command(e2eGit, "-C", repository, "show", "main:base.txt").Run(); err == nil {
 		t.Fatal("expected base.txt to be deleted from main, but it was found")
+	}
+}
+
+// TestConfiguredProductionSubmissionCorrectionCrashCutRepairsExactRefusal
+// pins A2's checkpoint-and-refusal restoration and Captain correction C5
+// end to end, composed with the same S1/S2 preservation/reconciliation
+// mechanism the preservation journey above already proves: on slice A1's
+// first try, the scripted implementer submits whitespace-only Detail,
+// which the live sworn_submit tool boundary refuses INVALID_DETAIL (A3)
+// and durably reserves; the crash cut then lands on the very next turn,
+// before this try's correction is ever seen, exactly like the preservation
+// journey's own crash cut. The retried try is a fresh session with no
+// memory of any of that - it can only correct the exact outstanding
+// refusal by reading production_dispatch's own submission_repair
+// projection back out of work-context.json, which is what this journey
+// actually drives its retried implementer to do and what the test asserts
+// against that turn's own raw prompt bytes, not an inferred success.
+func TestConfiguredProductionSubmissionCorrectionCrashCutRepairsExactRefusal(
+	t *testing.T,
+) {
+	t.Parallel()
+	repository := newProductRepository(t)
+	planBytes, plan := productionPreservationPlan(t, repository)
+	provider := &journeyProvider{
+		t: t, planBytes: planBytes, submissionCorrectionFault: true,
+		turns:    make(map[string]int),
+		families: make(map[string]driver.ProfileFamily),
+		models:   make(map[string]string),
+		access:   make(map[string]driver.WorkspaceAccess),
+	}
+	providerHTTP := httptest.NewServer(http.HandlerFunc(provider.serve))
+	defer providerHTTP.Close()
+
+	configBody, loaded := productionJourneyConfig(t, providerHTTP.URL)
+	root := t.TempDir()
+	configPath := filepath.Join(root, "drivers.json")
+	if err := os.WriteFile(configPath, configBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifestBody := productionJourneyManifest(t, repository, loaded)
+	manifestPath := writeManifest(t, root, manifestBody)
+	journalPath := filepath.Join(root, "run.sqlite")
+	swornBinary := filepath.Join(root, "sworn")
+	buildBinary(t, swornBinary, "./cmd/sworn", "")
+
+	// 1. Initial run: parks on planner summary
+	stdout, stderr := runBinaryWithEnvironment(
+		t, swornBinary, 0,
+		map[string]string{
+			"SWORN_JOURNEY_OPENAI_KEY": journeyOpenAISecret,
+			"SWORN_JOURNEY_GEMINI_KEY": journeyGeminiSecret,
+		},
+		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
+	)
+	if stderr != "" || !strings.Contains(stdout, "  state: parked") {
+		t.Fatalf("production start stdout=%q stderr=%q", stdout, stderr)
+	}
+
+	// 2. Answer planner summary
+	attention := openPlannerSummaryAttention(t, swornBinary, "production-journey", journalPath)
+	_, stderr = runBinaryWithEnvironmentTimeout(
+		t, swornBinary, 0,
+		map[string]string{
+			"SWORN_JOURNEY_OPENAI_KEY": journeyOpenAISecret,
+			"SWORN_JOURNEY_GEMINI_KEY": journeyGeminiSecret,
+		},
+		180*time.Second,
+		"answer", "--run", "production-journey", "--journal", journalPath,
+		"--attention", attention.ID, "--generation", "1", "--answer", journeySummaryAnswer,
+		"--config", configPath,
+	)
+	if stderr != "" {
+		t.Fatalf("production summary answer stderr=%q", stderr)
+	}
+
+	// 3. Propose plan -> awaiting_approval
+	stdout, stderr = runBinaryWithEnvironmentTimeout(
+		t, swornBinary, 0,
+		map[string]string{
+			"SWORN_JOURNEY_OPENAI_KEY": journeyOpenAISecret,
+			"SWORN_JOURNEY_GEMINI_KEY": journeyGeminiSecret,
+		},
+		180*time.Second,
+		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
+	)
+	if stderr != "" || !strings.Contains(stdout, "  state: awaiting_approval") {
+		t.Fatalf("production plan proposal stdout=%q stderr=%q", stdout, stderr)
+	}
+
+	// 4. Authorize plan and resume
+	authorizePlan(t, journalPath, "production-journey", plan)
+	installApprovedPlan(t, repository, planBytes)
+	_, stderr = runBinaryWithEnvironmentTimeout(
+		t, swornBinary, 0,
+		map[string]string{
+			"SWORN_JOURNEY_OPENAI_KEY": journeyOpenAISecret,
+			"SWORN_JOURNEY_GEMINI_KEY": journeyGeminiSecret,
+		},
+		180*time.Second,
+		"resume", "--run", "production-journey", "--journal", journalPath,
+		"--command", "resume-1", "--generation", "0", "--config", configPath,
+	)
+	assertExpectedPreservationStderr(t, stderr)
+
+	// 5. Run execution: A1's first try writes the product file, submits
+	// whitespace-only Detail (refused INVALID_DETAIL, durably reserved),
+	// then crashes before ever seeing that refusal. The automatic retry's
+	// own fresh session reads work-context.json, rewrites the identical
+	// product file, and submits the real submission - correcting the
+	// refusal it can only have learned of through submission_repair.
+	stdout, stderr = runBinaryWithEnvironmentTimeout(
+		t, swornBinary, 0,
+		map[string]string{
+			"SWORN_JOURNEY_OPENAI_KEY": journeyOpenAISecret,
+			"SWORN_JOURNEY_GEMINI_KEY": journeyGeminiSecret,
+		},
+		180*time.Second,
+		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
+	)
+	assertExpectedPreservationStderr(t, stderr)
+	if !strings.Contains(stdout, "  state: complete") {
+		t.Fatalf("production run stdout=%q stderr=%q", stdout, stderr)
+	}
+
+	provider.mu.Lock()
+	var retryPrompt []byte
+	for invocationID, body := range provider.firstImplementerPrompt {
+		parts := strings.Split(invocationID, "/")
+		if len(parts) == 6 && parts[1] == "A1" && parts[5] == "2" {
+			retryPrompt = body
+		}
+	}
+	provider.mu.Unlock()
+	if retryPrompt == nil {
+		t.Fatal("no captured turn-2 prompt for A1's second try")
+	}
+	if !bytes.Contains(retryPrompt, []byte("submission_repair")) ||
+		!bytes.Contains(retryPrompt, []byte("INVALID_DETAIL")) {
+		t.Fatalf(
+			"retried try's own prompt does not carry the exact outstanding refusal: %s",
+			retryPrompt,
+		)
+	}
+
+	store, err := journal.OpenReadOnly(context.Background(), journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	checkpoints, err := store.ListUnverifiedCheckpoints(context.Background(), "production-journey")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, checkpoint := range checkpoints {
+		if checkpoint.Slice == "A1" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("no unverified checkpoint recorded for A1 across the crash cut")
+	}
+
+	if got, err := exec.Command(e2eGit, "-C", repository, "show", "main:one-a.txt").Output(); err != nil ||
+		string(got) != "A1 production journey\n" {
+		t.Fatalf("A1 product content = %q, error = %v", got, err)
 	}
 }
 
