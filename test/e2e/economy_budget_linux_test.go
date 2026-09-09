@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -556,6 +557,42 @@ func TestRealBinaryEconomyTurnBudgetParksGrantsAndResumes(t *testing.T) {
 		t.Fatalf("parked run advanced target authority before any candidate was accepted")
 	}
 
+	// A1/S1-durable-unverified-checkpoints: the affected work parks "with
+	// that code durably retained" - not merely un-submitted. Read the
+	// journal's own unverified checkpoint back and confirm the first
+	// attempt's uncommitted /workspace/one.txt content is durably reachable
+	// under the checkpoint ref in the real target repository, distinct from
+	// the granted attempt's later fresh write (which this test asserts
+	// separately, after the grant, as the accepted final content).
+	ctx := context.Background()
+	store, err := journal.OpenReadOnly(ctx, journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	checkpoints, err := store.ListUnverifiedCheckpoints(ctx, "economy-budget")
+	if err != nil || len(checkpoints) == 0 {
+		t.Fatalf("no unverified checkpoints recorded in journal: %v (%d)", err, len(checkpoints))
+	}
+	preservedCheckpoint := checkpoints[len(checkpoints)-1]
+	if preservedCheckpoint.Slice != "S1" ||
+		preservedCheckpoint.DispatchWork != status.PinnedWork[0].DispatchWorkID ||
+		preservedCheckpoint.Epoch != 1 || preservedCheckpoint.CheckpointRef == "" {
+		t.Fatalf("checkpoint = %#v, want the parked attempt's own", preservedCheckpoint)
+	}
+	runGit(t, repository, "rev-parse", "--verify", preservedCheckpoint.CheckpointRef)
+	preservedContent, preserveErr := exec.Command(
+		e2eGit, "-C", repository, "show", preservedCheckpoint.CheckpointRef+":one.txt",
+	).Output()
+	if preserveErr != nil ||
+		string(preservedContent) != "interim unsubmitted content, never accepted\n" {
+		t.Fatalf(
+			"checkpoint one.txt = %q, error = %v; the parked attempt's "+
+				"uncommitted work was not durably preserved",
+			preservedContent, preserveErr,
+		)
+	}
+
 	// A4: the real compiled board surface, not a unit-level double, names
 	// the exact exhausted work, its unit and its epoch.
 	boardBody, boardErr := runBinary(
@@ -622,12 +659,6 @@ func TestRealBinaryEconomyTurnBudgetParksGrantsAndResumes(t *testing.T) {
 	// A3: recorded spending survives the crash-adjacent park/grant/resume
 	// restart rather than resetting - both attempts' engine-counted turns
 	// are durably readable, additive across the retry.
-	ctx := context.Background()
-	store, err := journal.OpenReadOnly(ctx, journalPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
 	observation, err := store.ReadObservation(
 		ctx, "economy-budget", journal.MaxObservationAttempts, journal.MaxObservationEvents,
 	)
