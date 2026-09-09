@@ -61,6 +61,24 @@ const (
 	// persistent failure fails loud with a named cause instead of quietly
 	// spinning into the turn budget.
 	economyBudgetVerificationRerunCap = 3
+	// economyOutputTokenBudgetTurns, economyOutputTokenPerStallTurn and
+	// economyOutputTokenBudget drive TestRealBinaryEconomyOutputTokenBudget-
+	// ParksGrantsAndResumes's separate real-adapter A1 case: the same first
+	// Implementer attempt writes scoped code and never submits, but this
+	// time the real driver's own ECONOMY_OUTPUT_BUDGET_EXCEEDED cumulative-
+	// output-token guard ends it, not the turn guard - so the manifest's own
+	// max_turns_per_work stays generous (economyOutputTokenGenerousTurns)
+	// while max_output_tokens_per_work is the tiny, real ceiling. Three
+	// requests of economyOutputTokenPerStallTurn each cross
+	// economyOutputTokenBudget on the loop-top check before a fourth
+	// request would ever be built, leaving every other scripted
+	// responsibility (each reporting the fixture's small default per-turn
+	// count) generous headroom under the same ceiling.
+	economyOutputTokenBudgetTurns   = 3
+	economyOutputTokenPerStallTurn  = 3_000
+	economyOutputTokenBudget        = 8_000
+	economyOutputTokenGenerousTurns = 500
+	economyOutputTokenGrant         = 2_000
 )
 
 func economyBudgetPlan(t *testing.T) ([]byte, baton.Plan) {
@@ -159,7 +177,7 @@ func economyBudgetManifest(
 	t *testing.T,
 	runID, repository string,
 	config driver.LoadedDriverConfig,
-	maxTurnsPerWork int64,
+	maxTurnsPerWork, maxOutputTokensPerWork int64,
 ) []byte {
 	t.Helper()
 	selection := driver.ModelSelection{
@@ -189,9 +207,10 @@ func economyBudgetManifest(
 			Recovery: selection,
 		},
 		Limits: driver.Limits{
-			TimeoutMillis:   30_000,
-			OutputBytes:     65_536,
-			MaxTurnsPerWork: maxTurnsPerWork,
+			TimeoutMillis:          30_000,
+			OutputBytes:            65_536,
+			MaxTurnsPerWork:        maxTurnsPerWork,
+			MaxOutputTokensPerWork: maxOutputTokensPerWork,
 		},
 	}
 	body, err := json.Marshal(manifest)
@@ -214,10 +233,48 @@ func economyBudgetManifest(
 type economyBudgetProvider struct {
 	t         *testing.T
 	planBytes []byte
+	// stallTurns overrides economyBudgetStallTurns for the first
+	// Implementer attempt's own park-triggering turn count. Zero keeps the
+	// turn-budget default; a caller driving a different economy unit (e.g.
+	// output tokens) names the number of real requests that unit's own
+	// crossing takes to cross its own, separately configured budget.
+	stallTurns int
+	// stallTokensPerTurn, when set, is the completion_tokens the first
+	// Implementer attempt's own requests report - the real per-request
+	// signal an output-token budget crossing is measured from - instead of
+	// the fixture's default per-turn token count every other responsibility
+	// and every other attempt keeps reporting.
+	stallTokensPerTurn int64
 
 	mu                 sync.Mutex
 	turns              map[string]int
 	verificationReruns map[string]int
+}
+
+func (provider *economyBudgetProvider) effectiveStallTurns() int {
+	if provider.stallTurns > 0 {
+		return provider.stallTurns
+	}
+	return economyBudgetStallTurns
+}
+
+// completionTokens is the real per-request completion_tokens the scripted
+// HTTP provider reports. Only the first Implementer attempt (invocation
+// epoch 1, which never submits) reports the fixture's raised per-turn
+// count when one is configured; every other attempt and responsibility
+// keeps the small fixed count the turn-budget scenario already relies on
+// staying well under any economy ceiling this journey configures.
+func (provider *economyBudgetProvider) completionTokens(
+	prompt recoveryE2EModelPrompt,
+) int64 {
+	if provider.stallTokensPerTurn > 0 &&
+		prompt.Responsibility == driver.ImplementerImplementation {
+		parts := strings.Split(prompt.InvocationID, "/")
+		if len(parts) == 6 && parts[4] == "1" {
+			return provider.stallTokensPerTurn
+		}
+	}
+	return 5
 }
 
 func (provider *economyBudgetProvider) nextTurn(invocationID string) int {
@@ -286,7 +343,7 @@ func (provider *economyBudgetProvider) serve(
 			"finish_reason": "tool_calls",
 		}},
 		"usage": map[string]any{
-			"prompt_tokens": 7, "completion_tokens": 5,
+			"prompt_tokens": 7, "completion_tokens": provider.completionTokens(prompt),
 		},
 	})
 }
@@ -391,18 +448,19 @@ func (provider *economyBudgetProvider) implementerResponse(
 		return "", nil, fmt.Errorf("unexpected invocation id %q", prompt.InvocationID)
 	}
 	if parts[4] == "1" {
+		stallTurns := provider.effectiveStallTurns()
 		switch {
-		case turn < economyBudgetStallTurns:
+		case turn < stallTurns:
 			return "Bash", map[string]any{"script": "true"}, nil
-		case turn == economyBudgetStallTurns:
+		case turn == stallTurns:
 			return "Write", map[string]any{
 				"path":    "/workspace/one.txt",
 				"content": "interim unsubmitted content, never accepted\n",
 			}, nil
 		default:
 			return "", nil, fmt.Errorf(
-				"first implementer attempt reached turn %d; the turn budget "+
-					"should have stopped it at %d", turn, economyBudgetStallTurns,
+				"first implementer attempt reached turn %d; its economy "+
+					"budget should have stopped it at %d", turn, stallTurns,
 			)
 		}
 	}
@@ -488,7 +546,7 @@ func TestRealBinaryEconomyTurnBudgetParksGrantsAndResumes(t *testing.T) {
 	}
 	manifestPath := writeManifest(
 		t, root, economyBudgetManifest(
-			t, "economy-budget", repository, loaded, economyBudgetStallTurns,
+			t, "economy-budget", repository, loaded, economyBudgetStallTurns, 0,
 		),
 	)
 	journalPath := filepath.Join(root, "run.sqlite")
@@ -683,6 +741,237 @@ func TestRealBinaryEconomyTurnBudgetParksGrantsAndResumes(t *testing.T) {
 			"implementation attempts' recorded turns = %v, want [%d 2] "+
 				"(exhausted-then-granted, never reset)",
 			implementationTurns, economyBudgetStallTurns,
+		)
+	}
+}
+
+// TestRealBinaryEconomyOutputTokenBudgetParksGrantsAndResumes drives the
+// same compiled sworn binary and real OpenAI-shaped HTTP provider as
+// TestRealBinaryEconomyTurnBudgetParksGrantsAndResumes, but crosses a
+// separate real economy unit (S4-resumable-budget-stops A1's second
+// anchor): a manifest with a generous turn budget but a tiny
+// max_output_tokens_per_work forces the Implementer's first attempt to
+// reach that ceiling - measured from the real per-request completion_tokens
+// counts the driver's own conversation loop actually accumulates, never a
+// fixture-injected receipt - with scoped code already written but never
+// submitted. The park, its checkpoint, the board's named unit, the grant
+// and the resumed completion all reuse the identical real surfaces the
+// turn-budget scenario proves, this time under ParkCauseEconomyOutputTokens.
+func TestRealBinaryEconomyOutputTokenBudgetParksGrantsAndResumes(t *testing.T) {
+	t.Parallel()
+	repository := newProductRepository(t)
+	planBytes, plan := economyBudgetPlan(t)
+	provider := &economyBudgetProvider{
+		t: t, planBytes: planBytes, turns: make(map[string]int),
+		stallTurns:         economyOutputTokenBudgetTurns,
+		stallTokensPerTurn: economyOutputTokenPerStallTurn,
+	}
+	providerHTTP := httptest.NewServer(http.HandlerFunc(provider.serve))
+	defer providerHTTP.Close()
+
+	root := t.TempDir()
+	configBody, loaded := economyBudgetConfig(t, providerHTTP.URL)
+	configPath := filepath.Join(root, "drivers.json")
+	if err := os.WriteFile(configPath, configBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := writeManifest(
+		t, root, economyBudgetManifest(
+			t, "economy-output-tokens", repository, loaded,
+			economyOutputTokenGenerousTurns, economyOutputTokenBudget,
+		),
+	)
+	journalPath := filepath.Join(root, "run.sqlite")
+	swornBinary := filepath.Join(root, "sworn")
+	buildBinary(t, swornBinary, "./cmd/sworn", "")
+	environment := map[string]string{"SWORN_ECONOMY_BUDGET_KEY": economyBudgetSecret}
+	targetBefore := runGit(t, repository, "rev-parse", "main")
+
+	stdout, stderr := runBinaryWithEnvironment(
+		t, swornBinary, 0, environment,
+		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
+	)
+	if stderr != "" || !strings.Contains(stdout, "  state: parked") {
+		t.Fatalf("initial run stdout=%q stderr=%q", stdout, stderr)
+	}
+	stdout = answerRecoveryPlannerSummary(
+		t, swornBinary, "economy-output-tokens", journalPath, configPath, environment,
+	)
+	if !strings.Contains(stdout, "  state: awaiting_approval") {
+		t.Fatalf("planner summary answer stdout=%q", stdout)
+	}
+
+	authorizePlan(t, journalPath, "economy-output-tokens", plan)
+	installApprovedPlan(t, repository, planBytes)
+
+	stdout, stderr = runBinaryWithEnvironment(
+		t, swornBinary, 0, environment,
+		"resume", "--run", "economy-output-tokens", "--journal", journalPath,
+		"--command", "resume-1", "--generation", "0", "--config", configPath,
+	)
+	if stderr != "" {
+		t.Fatalf("resume stdout=%q stderr=%q", stdout, stderr)
+	}
+
+	stdout, stderr = runBinaryWithEnvironment(
+		t, swornBinary, 0, environment,
+		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
+	)
+	if stderr != "" || !strings.Contains(stdout, "  state: parked") {
+		t.Fatalf(
+			"expected the implementer's first attempt to exhaust its real "+
+				"output-token budget and park: stdout=%q stderr=%q", stdout, stderr,
+		)
+	}
+
+	statusBody, statusErr := runBinary(
+		t, swornBinary, 0, "status", "--run", "economy-output-tokens", "--journal", journalPath, "--json",
+	)
+	var status swornruntime.RunStatus
+	if statusErr != "" || json.Unmarshal([]byte(statusBody), &status) != nil {
+		t.Fatalf("status body=%q stderr=%q", statusBody, statusErr)
+	}
+	spentTokens := int64(economyOutputTokenBudgetTurns) * economyOutputTokenPerStallTurn
+	if status.State != "parked" || status.Park == nil ||
+		status.Park.Cause != swornruntime.ParkCauseEconomyOutputTokens ||
+		status.Park.Spent != spentTokens ||
+		status.Park.Budget != economyOutputTokenBudget ||
+		status.Park.UnblockKnob != swornruntime.EconomyOutputTokensUnblockKnob {
+		t.Fatalf("economy output-token park status = %#v", status.Park)
+	}
+	if len(status.PinnedWork) != 1 ||
+		status.PinnedWork[0].Cause != swornruntime.ParkCauseEconomyOutputTokens ||
+		status.PinnedWork[0].DispatchWorkID == "" {
+		t.Fatalf("pinned work = %#v", status.PinnedWork)
+	}
+	if runGit(t, repository, "rev-parse", "main") != targetBefore {
+		t.Fatalf("parked run advanced target authority before any candidate was accepted")
+	}
+
+	// A1/S1-durable-unverified-checkpoints: the same durable-preservation
+	// fact the turn-budget scenario proves, now for the output-token unit -
+	// the first attempt's uncommitted /workspace/one.txt is durably
+	// reachable under the real journal's checkpoint ref in the real target
+	// repository, distinct from the granted attempt's later fresh write.
+	ctx := context.Background()
+	store, err := journal.OpenReadOnly(ctx, journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	checkpoints, err := store.ListUnverifiedCheckpoints(ctx, "economy-output-tokens")
+	if err != nil || len(checkpoints) == 0 {
+		t.Fatalf("no unverified checkpoints recorded in journal: %v (%d)", err, len(checkpoints))
+	}
+	preservedCheckpoint := checkpoints[len(checkpoints)-1]
+	if preservedCheckpoint.Slice != "S1" ||
+		preservedCheckpoint.DispatchWork != status.PinnedWork[0].DispatchWorkID ||
+		preservedCheckpoint.Epoch != 1 || preservedCheckpoint.CheckpointRef == "" {
+		t.Fatalf("checkpoint = %#v, want the parked attempt's own", preservedCheckpoint)
+	}
+	runGit(t, repository, "rev-parse", "--verify", preservedCheckpoint.CheckpointRef)
+	preservedContent, preserveErr := exec.Command(
+		e2eGit, "-C", repository, "show", preservedCheckpoint.CheckpointRef+":one.txt",
+	).Output()
+	if preserveErr != nil ||
+		string(preservedContent) != "interim unsubmitted content, never accepted\n" {
+		t.Fatalf(
+			"checkpoint one.txt = %q, error = %v; the parked attempt's "+
+				"uncommitted work was not durably preserved",
+			preservedContent, preserveErr,
+		)
+	}
+
+	// A4: the real compiled board surface names the exact exhausted work,
+	// its unit (economy_output_tokens, not the turns cause) and its epoch.
+	boardBody, boardErr := runBinary(
+		t, swornBinary, 0, "board", "--run", "economy-output-tokens", "--journal", journalPath, "--json",
+	)
+	var board cockpit.Snapshot
+	if boardErr != "" || json.Unmarshal([]byte(boardBody), &board) != nil {
+		t.Fatalf("board body=%q stderr=%q", boardBody, boardErr)
+	}
+	var grantAction *cockpit.Action
+	for index := range board.Actions {
+		if board.Actions[index].Kind == "grant" {
+			grantAction = &board.Actions[index]
+		}
+	}
+	if board.Run.State != "parked" || grantAction == nil ||
+		grantAction.WorkID != status.PinnedWork[0].DispatchWorkID ||
+		grantAction.Unit != swornruntime.ParkCauseEconomyOutputTokens ||
+		grantAction.ExpectedEpoch != 1 {
+		t.Fatalf("board grant action = %#v pinned=%#v", grantAction, status.PinnedWork)
+	}
+
+	grantOut, grantErr := runBinaryWithEnvironment(
+		t, swornBinary, 0, environment,
+		"grant", "--run", "economy-output-tokens", "--journal", journalPath,
+		"--command", "grant-1",
+		"--generation", fmt.Sprintf("%d", grantAction.ExpectedGeneration),
+		"--work", grantAction.WorkID,
+		"--epoch", fmt.Sprintf("%d", grantAction.ExpectedEpoch),
+		"--unit", grantAction.Unit,
+		"--amount", fmt.Sprintf("%d", economyOutputTokenGrant), "--config", configPath,
+	)
+	if grantErr != "" || !strings.Contains(grantOut, "  state: running") {
+		t.Fatalf("grant stdout=%q stderr=%q", grantOut, grantErr)
+	}
+
+	stdout, stderr = runBinaryWithEnvironment(
+		t, swornBinary, 0, environment,
+		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
+	)
+	if stderr != "" || !strings.Contains(stdout, "  state: complete") {
+		t.Fatalf("post-grant run stdout=%q stderr=%q", stdout, stderr)
+	}
+
+	finalState := readBatonState(t, repository, "economy-budget-release")
+	if finalState.Assembly.Outcome != "merged" ||
+		runGit(t, repository, "rev-parse", "main") == targetBefore ||
+		runGit(t, repository, "show", "main:one.txt") !=
+			strings.TrimSuffix(economyBudgetContent, "\n") {
+		t.Fatalf("final state=%#v", finalState.Assembly)
+	}
+
+	finalStatusBody, finalStatusErr := runBinary(
+		t, swornBinary, 0, "status", "--run", "economy-output-tokens", "--journal", journalPath, "--json",
+	)
+	var finalStatus swornruntime.RunStatus
+	if finalStatusErr != "" || json.Unmarshal([]byte(finalStatusBody), &finalStatus) != nil {
+		t.Fatalf("final status body=%q stderr=%q", finalStatusBody, finalStatusErr)
+	}
+	if finalStatus.Park != nil || len(finalStatus.PinnedWork) != 0 {
+		t.Fatalf("final status still parked/pinned: %#v", finalStatus)
+	}
+
+	// A3: recorded output-token spending survives the restart additively -
+	// the exhausted first attempt's real per-request count, then the
+	// granted attempt's own small real count, never reset.
+	observation, err := store.ReadObservation(
+		ctx, "economy-output-tokens", journal.MaxObservationAttempts, journal.MaxObservationEvents,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var implementationOutputTokens []int64
+	for _, attempt := range observation.Attempts {
+		if attempt.Responsibility != string(driver.ImplementerImplementation) {
+			continue
+		}
+		var usage driver.UsageReceipt
+		if err := json.Unmarshal(attempt.Usage, &usage); err != nil || usage.OutputTokens == nil {
+			t.Fatalf("implementation attempt usage=%s error=%v", attempt.Usage, err)
+		}
+		implementationOutputTokens = append(implementationOutputTokens, *usage.OutputTokens)
+	}
+	if len(implementationOutputTokens) != 2 ||
+		implementationOutputTokens[0] != spentTokens ||
+		implementationOutputTokens[1] != 10 {
+		t.Fatalf(
+			"implementation attempts' recorded output tokens = %v, want [%d 10] "+
+				"(exhausted-then-granted, never reset)",
+			implementationOutputTokens, spentTokens,
 		)
 	}
 }
