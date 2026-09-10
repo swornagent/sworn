@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"math"
 	"strings"
 
 	"github.com/swornagent/sworn/internal/driver"
@@ -75,21 +77,36 @@ func (s *Service) economyGuardsParked(
 		manifest.value.EffectiveIdenticalFailureParkAfter(),
 	) {
 		if ownerWorkForDispatch(snapshot, crossing.work) == work {
-			return true, nil
+			// This gate can return directly out of the drive loop. Persist
+			// the park here so notification consumers see the stop even
+			// when there is no subsequent scheduler tick.
+			body, err := identicalFailureParkEventBody(runID, work, crossing)
+			if err != nil {
+				return false, err
+			}
+			return true, s.appendParkEventOnce(ctx, runID, ParkCauseIdenticalFailure, body)
 		}
 	}
 	return false, nil
 }
 
-// ownerWorkForDispatch maps a driver.dispatch work identity to the work
-// identity a lane-scoped park gate is scoped to: the dispatch's own work
-// identity when it is a direct dispatch, or the enclosing git.seal work when
-// it is a nested implementer dispatch (readyLaneCandidates adds only the
-// outer git.seal work to a track's implement-stage candidate set, never the
-// inner dispatch work, matching the exhaustion scan's derived-work
-// exclusion). The git.seal command payload names its own before authority,
-// from which the outer work identity is recomputed deterministically.
-func ownerWorkForDispatch(snapshot journal.Snapshot, dispatchWork string) string {
+// dispatchCycleOwner scans the journal's git.seal commands for the one
+// whose payload names dispatchWork as its own cycle's dispatch work, and
+// returns both the outer work identity that cycle was sealed under (the
+// git.seal command's own before authority, recomputed deterministically)
+// and the outer epoch that cycle was actually built under - recovered from
+// the git.seal command's own ReplayKey, which implementSlice always sets to
+// AttemptEffectID(workID, epoch, try) for the outer work's own attempt,
+// regardless of which nested dispatch-work identity convention it chose for
+// dispatchWork itself. found is false only for a direct dispatch (no git.seal
+// cycle ever names it), in which case owner echoes dispatchWork unchanged.
+// epochKnown is false only when a git.seal cycle names dispatchWork but its
+// own ReplayKey fails to parse (a malformed or foreign journal entry);
+// callers must not treat a zero outerEpoch as a real epoch in that case.
+func dispatchCycleOwner(
+	snapshot journal.Snapshot,
+	dispatchWork string,
+) (owner string, outerEpoch int64, found bool, epochKnown bool) {
 	for _, command := range snapshot.Commands {
 		if command.Kind != "git.seal" {
 			continue
@@ -102,9 +119,112 @@ func ownerWorkForDispatch(snapshot journal.Snapshot, dispatchWork string) string
 			cycle.DispatchWork != dispatchWork {
 			continue
 		}
-		return workIdentity(cycle.Before, "git.seal")
+		owner = workIdentity(cycle.Before, "git.seal")
+		if _, epoch, _, err := attemptCoordinates(command.ReplayKey); err == nil {
+			outerEpoch = epoch
+			epochKnown = true
+		}
+		return owner, outerEpoch, true, epochKnown
 	}
-	return dispatchWork
+	return dispatchWork, 0, false, false
+}
+
+// ownerWorkForDispatch maps a driver.dispatch work identity to the work
+// identity a lane-scoped park gate is scoped to: the dispatch's own work
+// identity when it is a direct dispatch, or the enclosing git.seal work when
+// it is a nested implementer dispatch (readyLaneCandidates adds only the
+// outer git.seal work to a track's implement-stage candidate set, never the
+// inner dispatch work, matching the exhaustion scan's derived-work
+// exclusion).
+func ownerWorkForDispatch(snapshot journal.Snapshot, dispatchWork string) string {
+	owner, _, found, _ := dispatchCycleOwner(snapshot, dispatchWork)
+	if !found {
+		return dispatchWork
+	}
+	return owner
+}
+
+// dispatchAttemptIsCurrentEpoch reports whether a driver.dispatch effect
+// whose parsed identity is (work, epoch) is still built under the current
+// retry epoch (S4-resumable-budget-stops V2): the same comparison every
+// lane-scoped park/retry admission gate needs, generalized across every
+// dispatch-work identity convention implementSlice can build.
+//
+// For a direct dispatch, work is its own RetryEpochs entry, exactly as
+// Retry/Grant already key and advance it, unchanged from before this
+// feature.
+//
+// For any nested git.seal-wrapped dispatch, work is never the right key:
+// PinnedWork.WorkID - what the board names and what a Retry command's
+// WorkID and a Grant's RetryWorkID both target (see
+// ControlCommand.RetryWorkID and resolveLanePins) - is always the owner,
+// never the dispatch work, so the owner's RetryEpochs entry is the only
+// counter Retry or Grant ever actually advances for a nested dispatch; a
+// nested dispatch's own RetryEpochs entry is never written by any caller.
+// What "epoch" means for the comparison then splits by convention:
+//
+//   - The stable, epoch-independent identity the recovery-enabled
+//     production path builds (workIdentity(workID,"driver.dispatch"),
+//     constant across every epoch and try of that work) carries the outer
+//     epoch in the dispatch effect's own parsed epoch field (childEpoch is
+//     set to the outer epoch at build time), so epoch compares directly
+//     against the owner's current RetryEpochs entry.
+//   - The per-attempt, epoch/try-embedded identity the recovery-disabled or
+//     scope-refusal-escaped path builds
+//     (workIdentity(effectID,"driver.dispatch"), a fresh identity every
+//     outer epoch and try) always sets childEpoch/childTry to 1: epoch is
+//     structurally always 1 and carries no information about which outer
+//     epoch actually built it, so it can never be the right value to
+//     compare - comparing it anyway (as a prior revision of this function
+//     did, by resolving to the same "owner" key and relying on the parsed
+//     epoch field for both conventions) either wrongly treats a superseded
+//     dispatchWork as permanently current (against a never-written
+//     RetryEpochs[work] default) or wrongly treats a genuinely fresh one as
+//     permanently stale (once the owner's epoch has advanced past 1),
+//     because 1 never actually reflects the outer epoch this specific
+//     dispatchWork was built under. The outer epoch that actually built it
+//     is instead recovered structurally: dispatchCycleOwner reads it back
+//     from the owning git.seal command's own ReplayKey (always
+//     AttemptEffectID(workID, outerEpoch, try) for the outer work's own
+//     attempt, regardless of which convention chose dispatchWork), and that
+//     recovered value - not the dispatch effect's own parsed epoch - is
+//     compared against the owner's current RetryEpochs entry.
+//
+// When the owning git.seal command's own ReplayKey fails to parse on the
+// per-attempt convention, the outer epoch this dispatchWork was built under
+// cannot be recovered at all. That is a malformed-journal condition, not
+// evidence of staleness: treating it as epoch 0 would silently drop a real
+// crossing from economyParkCrossings and let a bare Retry bypass the grant
+// requirement it exists to enforce (fails open). This function instead
+// fails closed - it reports the attempt current, which keeps the crossing
+// parked - exactly as every other reader on this path (attemptCoordinates
+// on the effect ID itself, validateDriverRecoveryCommand's CORRUPT_JOURNAL)
+// already refuses rather than silently skips an unparseable identity.
+func dispatchAttemptIsCurrentEpoch(
+	snapshot journal.Snapshot,
+	control journal.ControlProjection,
+	work string,
+	epoch int64,
+) bool {
+	owner, outerEpoch, nested, epochKnown := dispatchCycleOwner(snapshot, work)
+	if !nested {
+		current := control.RetryEpochs[work]
+		if current == 0 {
+			current = 1
+		}
+		return epoch == current
+	}
+	current := control.RetryEpochs[owner]
+	if current == 0 {
+		current = 1
+	}
+	if workIdentity(owner, "driver.dispatch") == work {
+		return epoch == current
+	}
+	if !epochKnown {
+		return true
+	}
+	return outerEpoch == current
 }
 
 // economyGuardCrossing names one current-epoch driver.dispatch effect whose
@@ -145,11 +265,7 @@ func economyParkCrossings(
 		if coordErr != nil {
 			continue
 		}
-		current := control.RetryEpochs[work]
-		if current == 0 {
-			current = 1
-		}
-		if epoch != current {
+		if !dispatchAttemptIsCurrentEpoch(snapshot, control, work, epoch) {
 			continue
 		}
 		existing, found := byWork[work]
@@ -177,6 +293,11 @@ func economyParkCrossings(
 // crossing: the cause, the engine-counted spend, the effective budget the
 // dispatch crossed, and the manifest knob that unblocks it.
 type economyParkFacts struct {
+	// work is the crossing's own dispatch-work identity (economyGuardCrossing.work):
+	// the same identity a Grant targeting this crossing must name as its
+	// ControlCommand.WorkID, distinct from the lane-scoped owner identity
+	// callers key their own per-owner maps by (S4-resumable-budget-stops V3).
+	work   string
 	cause  string
 	spent  int64
 	budget int64
@@ -189,13 +310,28 @@ type economyParkFacts struct {
 // ECONOMY_OUTPUT_BUDGET_EXCEEDED top-level code, so diagnosticCode - the
 // observation's Diagnostic.Code, read back by economySpent - is the
 // disambiguating signal; the top-level code alone cannot tell them apart.
+// limits is the exact per-work economy ceiling the crossing's own attempt
+// was dispatched under - economyCrossingDispatchedLimits' result: that
+// attempt's frozen EffectiveLimits when captureEffectiveLimits had already
+// applied an admitted grant at its dispatch-build time, else the plain
+// manifest limits. spent and budget must always share that one attempt's
+// own basis (S4-resumable-budget-stops V1): a live, possibly-since-changed
+// cumulative grant total is never comparable to spentTurns/spentTokens/
+// spentBytes, which economySpent reads back from that exact attempt alone,
+// because a later grant's headroom recomputation folds in every attempt's
+// spend since the work's very first dispatch, not just this one's. Because
+// the driver dispatch itself fails exactly when its own turn/token/byte
+// count reaches the limits it was given (driver/provider.go), reporting
+// that same limits value back as budget makes spent >= budget hold by
+// construction on every crossing, first or later, and names the board the
+// exact ceiling the dispatch actually ran under (A1, C6).
 func economyParkFactsFor(
 	crossing economyGuardCrossing,
 	limits driver.Limits,
 	spentTurns, spentTokens, spentBytes int64,
 	diagnosticCode string,
 ) economyParkFacts {
-	facts := economyParkFacts{}
+	facts := economyParkFacts{work: crossing.work}
 	switch {
 	case crossing.code == "ECONOMY_TURN_BUDGET_EXCEEDED":
 		facts.cause = ParkCauseEconomyTurns
@@ -215,6 +351,74 @@ func economyParkFactsFor(
 		facts.knob = EconomyOutputTokensUnblockKnob
 	}
 	return facts
+}
+
+// economyCrossingDispatchedLimits returns the exact per-work economy limits
+// the crossing's own attempt was dispatched under (S4-resumable-budget-stops
+// V1): its frozen productionWorkContext.EffectiveLimits, read back from that
+// exact attempt's own driver.dispatch command by replay key (the same
+// dispatchContext seam economyWorkSpent's acknowledged-gap fallback already
+// reads), when captureEffectiveLimits had already applied an admitted grant
+// at that attempt's own dispatch-build time; else the manifest's own raw
+// limits, exactly as an attempt dispatched before any grant existed. This is
+// never a live re-derivation from the current, possibly-since-advanced
+// grant total: it is always the one figure the crossing's own attempt was
+// actually bound to.
+func economyCrossingDispatchedLimits(
+	snapshot journal.Snapshot,
+	manifestLimits driver.Limits,
+	crossing economyGuardCrossing,
+) driver.Limits {
+	for _, command := range snapshot.Commands {
+		if command.ReplayKey != crossing.effectID || command.Kind != "driver.dispatch" {
+			continue
+		}
+		var parsed productionDispatchCommand
+		if json.Unmarshal(command.Payload, &parsed) == nil &&
+			parsed.Context.EffectiveLimits != nil {
+			return *parsed.Context.EffectiveLimits
+		}
+		break
+	}
+	return manifestLimits
+}
+
+// decodeAttemptUsageReceipt is the shared digest-verified decode seam for an
+// attempt's observation body: the canonical inner usage receipt plus its
+// diagnostic code, re-verified byte-identical against its own re-encoding.
+// It refuses a not-stored or partial observation as corruption, matching
+// the guarantee callers that only ever invoke it against a proven-crossing
+// attempt already rely on.
+func decodeAttemptUsageReceipt(
+	observed journal.AttemptObservation,
+) (driver.UsageReceipt, string, error) {
+	if !observed.Stored || observed.Partial {
+		return driver.UsageReceipt{}, "", runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	var body struct {
+		Usage      json.RawMessage `json:"usage"`
+		Diagnostic struct {
+			Code string `json:"code"`
+		} `json:"diagnostic"`
+	}
+	if err := json.Unmarshal(observed.Body, &body); err != nil ||
+		len(body.Usage) == 0 {
+		return driver.UsageReceipt{}, "", runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	var receipt driver.UsageReceipt
+	decoder := json.NewDecoder(bytes.NewReader(body.Usage))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&receipt); err != nil {
+		return driver.UsageReceipt{}, "", runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
+		return driver.UsageReceipt{}, "", runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	canonical, err := driver.EncodeUsageReceipt(receipt)
+	if err != nil || !bytes.Equal(canonical, body.Usage) {
+		return driver.UsageReceipt{}, "", runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	return receipt, body.Diagnostic.Code, nil
 }
 
 // economySpent reads the engine-counted spend back from the exact attempt
@@ -238,31 +442,9 @@ func (s *Service) economySpent(
 	if err != nil {
 		return 0, 0, 0, "", runtimeFail("JOURNAL_READ_FAILED", err)
 	}
-	if !observed.Stored || observed.Partial {
-		return 0, 0, 0, "", runtimeFail("CORRUPT_JOURNAL", nil)
-	}
-	var body struct {
-		Usage      json.RawMessage `json:"usage"`
-		Diagnostic struct {
-			Code string `json:"code"`
-		} `json:"diagnostic"`
-	}
-	if err := json.Unmarshal(observed.Body, &body); err != nil ||
-		len(body.Usage) == 0 {
-		return 0, 0, 0, "", runtimeFail("CORRUPT_JOURNAL", nil)
-	}
-	var receipt driver.UsageReceipt
-	decoder := json.NewDecoder(bytes.NewReader(body.Usage))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&receipt); err != nil {
-		return 0, 0, 0, "", runtimeFail("CORRUPT_JOURNAL", nil)
-	}
-	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
-		return 0, 0, 0, "", runtimeFail("CORRUPT_JOURNAL", nil)
-	}
-	canonical, err := driver.EncodeUsageReceipt(receipt)
-	if err != nil || !bytes.Equal(canonical, body.Usage) {
-		return 0, 0, 0, "", runtimeFail("CORRUPT_JOURNAL", nil)
+	receipt, diagnosticCode, err := decodeAttemptUsageReceipt(observed)
+	if err != nil {
+		return 0, 0, 0, "", err
 	}
 	if receipt.Turns != nil {
 		spentTurns = *receipt.Turns
@@ -273,7 +455,123 @@ func (s *Service) economySpent(
 	if receipt.NativeStreamBytes != nil {
 		spentBytes = *receipt.NativeStreamBytes
 	}
-	return spentTurns, spentTokens, spentBytes, body.Diagnostic.Code, nil
+	return spentTurns, spentTokens, spentBytes, diagnosticCode, nil
+}
+
+// economyEffectiveOriginal names the manifest's own effective per-work
+// ceiling for one Grant unit, before any admitted grant: the same
+// Effective* accessor productionRequestForContextFreshness would otherwise
+// feed the driver unchanged.
+func economyEffectiveOriginal(limits driver.Limits, unit string) int64 {
+	switch unit {
+	case ParkCauseEconomyTurns:
+		return limits.EffectiveMaxTurnsPerWork()
+	case ParkCauseEconomyOutputTokens:
+		return limits.EffectiveMaxOutputTokensPerWork()
+	case ParkCauseEconomyOutputBytes:
+		return limits.EffectiveMaxNativeOutputStreamBytes()
+	default:
+		return 0
+	}
+}
+
+// economyHardCeiling names the absolute, manifest-independent hard ceiling
+// for one Grant unit: the exact constants driver.ValidateRequest already
+// enforces, never a value this feature invents.
+func economyHardCeiling(unit string) int64 {
+	switch unit {
+	case ParkCauseEconomyTurns:
+		return driver.MaxTurnsPerWorkLimit
+	case ParkCauseEconomyOutputTokens:
+		return driver.MaxOutputTokensPerWorkLimit
+	case ParkCauseEconomyOutputBytes:
+		return driver.MaxNativeOutputStreamBytesLimit
+	default:
+		return 0
+	}
+}
+
+// saturatingAddInt64 adds two non-negative int64 values without wrapping.
+// Every caller in this feature only ever adds non-negative amounts (a
+// manifest ceiling, a cumulative granted total, or a validated positive
+// Grant amount), so an amount large enough to overflow trivially exceeds
+// any finite hard ceiling once saturated.
+func saturatingAddInt64(a, b int64) int64 {
+	if a > math.MaxInt64-b {
+		return math.MaxInt64
+	}
+	return a + b
+}
+
+// economyWorkSpent folds a work's cumulative recorded economy spend across
+// every driver.dispatch attempt whose owner work resolves to work (A3): the
+// engine-counted turns, output tokens and native-stream bytes actually
+// recorded, restart- and retry-safe because it is recomputed from durable
+// journal history rather than cached. unknown is true only when a terminal
+// (non-claimed, non-pending) attempt's usage cannot be read back and
+// acknowledged is false; an acknowledged gap instead substitutes that
+// attempt's own already-declared per-attempt ceiling (its frozen
+// EffectiveLimits when it had one, else the raw manifest limits) — a real,
+// bounded number, never zero and never an invented vendor total.
+func economyWorkSpent(
+	ctx context.Context,
+	store *journal.Store,
+	manifest admittedManifest,
+	runID string,
+	work string,
+	acknowledged bool,
+) (turns, tokens, nativeBytes int64, unknown bool, err error) {
+	snapshot, snapErr := store.Snapshot(ctx, runID)
+	if snapErr != nil {
+		return 0, 0, 0, false, runtimeFail("JOURNAL_READ_FAILED", snapErr)
+	}
+	commands := make(map[string]journal.Command, len(snapshot.Commands))
+	for _, command := range snapshot.Commands {
+		commands[command.ReplayKey] = command
+	}
+	for _, effect := range snapshot.Effects {
+		if effect.Kind != "driver.dispatch" ||
+			effect.State == journal.Pending || effect.State == journal.Claimed {
+			continue
+		}
+		dispatchWork, _, try, coordErr := attemptCoordinates(effect.ID)
+		if coordErr != nil || ownerWorkForDispatch(snapshot, dispatchWork) != work {
+			continue
+		}
+		observed, obsErr := store.AttemptObservation(ctx, runID, effect.ID, try)
+		if obsErr != nil && !journal.IsCode(obsErr, "ATTEMPT_NOT_FOUND") {
+			return 0, 0, 0, false, runtimeFail("JOURNAL_READ_FAILED", obsErr)
+		}
+		if obsErr != nil || !observed.Stored || observed.Partial {
+			if !acknowledged {
+				unknown = true
+				continue
+			}
+			ceiling := manifest.value.Limits
+			if attemptContext, ok := dispatchContext(commands, effect.ReplayKey); ok &&
+				attemptContext.EffectiveLimits != nil {
+				ceiling = *attemptContext.EffectiveLimits
+			}
+			turns += ceiling.EffectiveMaxTurnsPerWork()
+			tokens += ceiling.EffectiveMaxOutputTokensPerWork()
+			nativeBytes += ceiling.EffectiveMaxNativeOutputStreamBytes()
+			continue
+		}
+		receipt, _, decodeErr := decodeAttemptUsageReceipt(observed)
+		if decodeErr != nil {
+			return 0, 0, 0, false, decodeErr
+		}
+		if receipt.Turns != nil {
+			turns += *receipt.Turns
+		}
+		if receipt.OutputTokens != nil {
+			tokens += *receipt.OutputTokens
+		}
+		if receipt.NativeStreamBytes != nil {
+			nativeBytes += *receipt.NativeStreamBytes
+		}
+	}
+	return turns, tokens, nativeBytes, unknown, nil
 }
 
 // identicalFailureFacts carries everything a park surface names for an
@@ -321,11 +619,7 @@ func identicalFailureParkCrossings(
 		if coordErr != nil {
 			continue
 		}
-		current := control.RetryEpochs[work]
-		if current == 0 {
-			current = 1
-		}
-		if epoch != current {
+		if !dispatchAttemptIsCurrentEpoch(snapshot, control, work, epoch) {
 			continue
 		}
 		tries, ok := byWork[work]
@@ -466,6 +760,12 @@ func lineageHasLaterSuccess(
 func refusalDetail(result []byte, code string) string {
 	if len(result) == 0 {
 		return ""
+	}
+	if code == "HOST_CHECK_FAILED" {
+		var repair productionHostRepair
+		if json.Unmarshal(result, &repair) == nil && validateHostRepair(repair, repair.Submission.InvocationID, repair.FailedCheck.Slice) == nil {
+			return fmt.Sprintf("Host check %s for retained unverified candidate %s (exit %d). Inspect host_repair.failed_check before retrying.", repair.FailedCheck.Outcome, repair.FailedCheck.Candidate, repair.FailedCheck.ExitCode)
+		}
 	}
 	var refusal productionRefusalBinding
 	if err := json.Unmarshal(result, &refusal); err != nil {

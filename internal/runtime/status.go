@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -215,9 +216,12 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		if spentErr != nil {
 			return RunStatus{}, spentErr
 		}
+		dispatchedLimits := economyCrossingDispatchedLimits(
+			snapshot, manifest.value.Limits, economyCrossings[0],
+		)
 		facts := economyParkFactsFor(
 			economyCrossings[0],
-			manifest.value.Limits,
+			dispatchedLimits,
 			spentTurns,
 			spentTokens,
 			spentBytes,
@@ -474,8 +478,12 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		if spentErr != nil {
 			return RunStatus{}, spentErr
 		}
+		dispatchedLimits := economyCrossingDispatchedLimits(
+			snapshot, manifest.value.Limits, crossing,
+		)
 		economyByOwner[owner] = economyParkFactsFor(
-			crossing, manifest.value.Limits, spentTurns, spentTokens, spentBytes, diagnosticCode,
+			crossing, dispatchedLimits,
+			spentTurns, spentTokens, spentBytes, diagnosticCode,
 		)
 	}
 	identicalByOwner := make(map[string]identicalFailureFacts, len(identicalCrossings))
@@ -530,6 +538,66 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	} else {
 		result.Park = nil
 	}
+
+	restoredList, _ := s.journal.ListRestoredCheckpoints(ctx, runID)
+	restoredRefs := make(map[string]bool, len(restoredList))
+	for _, r := range restoredList {
+		restoredRefs[r.CheckpointRef] = true
+	}
+
+	cps, _ := s.journal.ListUnverifiedCheckpoints(ctx, runID)
+	for _, cp := range cps {
+		cpStatus := "saved"
+		if cp.Salvaged {
+			cpStatus = "salvaged"
+		}
+		if restoredRefs[cp.CheckpointRef] {
+			if cp.Salvaged {
+				cpStatus = "restored_salvaged"
+			} else {
+				cpStatus = "restored"
+			}
+		}
+		st := CheckpointStatus{
+			Status:        cpStatus,
+			CheckpointID:  cp.CheckpointRef,
+			TreeDigest:    cp.TreeDigest,
+			CommitOID:     cp.CommitOID,
+			TreeOID:       cp.TreeOID,
+			AffectedSlice: cp.Slice,
+			StagedBytes:   cp.StagedBytes,
+			FileCount:     cp.FileCount,
+			StaleReason:   currentCheckpointStaleReason(state, stateErr, cp),
+		}
+		result.Checkpoints = append(result.Checkpoints, st)
+	}
+
+	if snapshot.Run.Repository != "" {
+		commonDir := filepath.Join(snapshot.Run.Repository, ".git")
+		if repo, err := gitx.Open(snapshot.Run.Repository, s.gitExecutable); err == nil {
+			commonDir = repo.CommonDir()
+		}
+		fenced, _ := gitx.FencedWorkspacesForRun(commonDir, runID)
+		for _, f := range fenced {
+			fencedPath := f.Path
+			if fencedPath == "" {
+				fencedPath = f.Token
+			}
+			fencedStatus := CheckpointStatus{
+				Status:        "fenced",
+				AffectedSlice: f.Slice,
+				FailureReason: f.Reason,
+				FencedPath:    fencedPath,
+			}
+			result.Checkpoints = append(result.Checkpoints, fencedStatus)
+		}
+	}
+
+	if len(result.Checkpoints) > 0 {
+		latest := result.Checkpoints[len(result.Checkpoints)-1]
+		result.Checkpoint = &latest
+	}
+
 	return result, nil
 }
 
@@ -708,6 +776,7 @@ func validateAttentionDispatchBinding(
 			BatonAttempt:   context.Attempt,
 			Epoch:          context.Epoch,
 			Try:            context.Try,
+			DispatchWork:   work,
 		}
 		before = context.Before
 	} else {
@@ -996,8 +1065,9 @@ func resolveLanePins(
 			}
 			pinnedWork = append(pinnedWork, PinnedWork{
 				WorkID: work, Lane: lane.lane, Cause: facts.cause,
-				Code:   economyCrossingCode(facts.cause),
-				Detail: economySpentDetail(facts),
+				Code:           economyCrossingCode(facts.cause),
+				Detail:         economySpentDetail(facts),
+				DispatchWorkID: facts.work,
 			})
 			laneParks = append(laneParks, lanePinFacts{
 				work: work, facts: parkFacts{economy: &facts},

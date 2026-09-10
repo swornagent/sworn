@@ -623,6 +623,7 @@ func (adapter *loopAdapter) runConversation(
 					ctx,
 					invocation.RecoveryStepHook,
 					RecoveryStepMalformedToolCall,
+					nil,
 				); recoveryErr != nil {
 					return Observation{}, nil, recoveryErr
 				}
@@ -688,6 +689,7 @@ func (adapter *loopAdapter) runConversation(
 				ctx,
 				invocation.RecoveryStepHook,
 				RecoveryStepProseNudge,
+				nil,
 			); err != nil {
 				return Observation{}, nil, err
 			}

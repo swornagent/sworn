@@ -157,8 +157,13 @@ func buildBinary(t *testing.T, output, source, ldflags string) {
 // hookGateLDFlags links the single test-hook gate into a binary; the hooks
 // themselves travel per-process as SWORN_TEST_* environment values. One
 // shared binary therefore serves every crash-cut and lease permutation —
-// previously each permutation was its own link.
-const hookGateLDFlags = "-X=github.com/swornagent/sworn/internal/runtime.testHooksFromEnv=1"
+// previously each permutation was its own link. internal/gitx links its own
+// copy of the same gate (it must not import internal/runtime), so a crash
+// cut inside interrupted-work reconciliation (workspace attribution,
+// checkpoint capture, and abandoned-workspace cleanup) reads the identical
+// SWORN_TEST_CRASH_AFTER_EFFECT value through that independent link.
+const hookGateLDFlags = "-X=github.com/swornagent/sworn/internal/runtime.testHooksFromEnv=1" +
+	" -X=github.com/swornagent/sworn/internal/gitx.testHooksFromEnv=1"
 
 // uncontainedGateLDFlags links the test-only uncontained dispatch gate into a
 // binary. Like hookGateLDFlags it is reachable only through ldflags; a

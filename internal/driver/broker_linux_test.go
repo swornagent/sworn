@@ -19,6 +19,7 @@ func TestNativeBrokerRefusedCorrectionClosesWithoutResultBytes(t *testing.T) {
 	invocation.RecoveryStepHook = func(
 		_ context.Context,
 		kind RecoveryStepKind,
+		_ *SubmitRefusal,
 	) error {
 		if kind != RecoveryStepSubmissionCorrection {
 			t.Fatalf("recovery kind = %s", kind)

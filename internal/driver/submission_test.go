@@ -2,7 +2,9 @@ package driver
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
+	"encoding/json"
 	"net"
 	"strings"
 	"testing"
@@ -196,6 +198,180 @@ func TestEverySubmissionPermissionRowAcceptsOnlyItsExactShape(t *testing.T) {
 				t.Fatalf("conflict seal = %#v, bytes=%q, error=%v", conflictSeal, conflictBytes, err)
 			}
 		})
+	}
+}
+
+// TestDecodeToolSubmissionRequiresNonEmptyDetailOnlyForFlooredResponsibilities
+// pins A3: decodeToolSubmission (the live author-side tool boundary)
+// refuses INVALID_DETAIL for empty or whitespace-only Detail on exactly the
+// five responsibilities detailRequiredResponsibility names, and admits
+// empty Detail for captain_plan_review and assembly_verification.
+// ValidateSubmission itself stays permissive on Detail emptiness (Captain
+// correction C3), because DecodeSubmission also re-admits historical and
+// scripted-fixture bytes that predate this rule.
+func TestDecodeToolSubmissionRequiresNonEmptyDetailOnlyForFlooredResponsibilities(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name           string
+		responsibility Responsibility
+		decision       DecisionOutcome
+		wantRequired   bool
+	}{
+		{"planner proposal", PlannerProposal, "", true},
+		{"implementer design", ImplementerDesign, "", true},
+		{"implementer implementation", ImplementerImplementation, "", true},
+		{"captain review", CaptainReview, DecisionProceed, true},
+		{"work verification", WorkVerification, DecisionPass, true},
+		{"captain plan review", CaptainPlanReview, DecisionProceed, false},
+		{"assembly verification", AssemblyVerification, DecisionPass, false},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			for _, detail := range []string{"", "   "} {
+				submission := submissionFixture(
+					t, "invocation-detail-floor", test.responsibility, test.decision,
+				)
+				submission.Detail = detail
+				body, err := EncodeSubmission(submission)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var root any
+				if err := json.Unmarshal(body, &root); err != nil {
+					t.Fatal(err)
+				}
+				_, err = decodeToolSubmission(root)
+				if test.wantRequired {
+					if !IsCode(err, "INVALID_DETAIL") {
+						t.Fatalf(
+							"%s detail=%q: decodeToolSubmission = %v, want INVALID_DETAIL",
+							test.name, detail, err,
+						)
+					}
+					continue
+				}
+				if err != nil {
+					t.Fatalf(
+						"%s detail=%q: decodeToolSubmission = %v, want nil",
+						test.name, detail, err,
+					)
+				}
+			}
+		})
+	}
+}
+
+// TestValidateSubmissionAdmitsEmptyDetailForHistoricalDecode pins Captain
+// correction C3 directly: ValidateSubmission (and so DecodeSubmission, used
+// for stored/scripted bytes) must not retroactively refuse a pre-floor
+// submission whose Detail is empty for a responsibility decodeToolSubmission
+// now requires Detail for.
+func TestValidateSubmissionAdmitsEmptyDetailForHistoricalDecode(t *testing.T) {
+	t.Parallel()
+	submission := submissionFixture(t, "invocation-detail-historical", PlannerProposal, "")
+	submission.Detail = ""
+	if err := ValidateSubmission(submission); err != nil {
+		t.Fatalf("ValidateSubmission = %v, want nil for historical empty detail", err)
+	}
+	body, err := EncodeSubmission(submission)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeSubmission(body); err != nil {
+		t.Fatalf("DecodeSubmission = %v, want nil for historical empty detail", err)
+	}
+}
+
+// implementerImplementationSubmitInvocationFixture builds one
+// ImplementerImplementation, read-write toolSession invocation with no
+// projected inputs, so a positive-admission test can exercise the live
+// sworn_submit tool boundary for a floored responsibility without any
+// PlannerProposal-only yield-first or WorkVerification-only
+// check-evidence machinery in the way.
+func implementerImplementationSubmitInvocationFixture(t *testing.T) Invocation {
+	t.Helper()
+	request, err := NewRequest(
+		"invocation-implementer-admission",
+		RoleImplementer,
+		"fake-profile",
+		"selected-model",
+		Workspace{Path: "/workspace/project", Access: ReadWrite},
+		[]Input{},
+		true,
+		Limits{TimeoutMillis: 60_000, OutputBytes: 65_536},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter := &memoryAdapter{identity: AdapterIdentity{
+		Key:                 "fake-adapter",
+		ID:                  FakeDriverID,
+		Version:             FakeDriverVersion,
+		ConfigurationDigest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+	}}
+	selected := SelectedProfile{
+		Profile: ProfileConfig{
+			Key: request.Profile, Adapter: adapter.identity.Key, Network: NetworkNone,
+		},
+		Adapter: adapter.identity, Model: request.Model, adapter: adapter,
+	}
+	permission, err := NewSubmissionPermission(
+		request, selected, ContainmentReadWrite, ImplementerImplementation,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return Invocation{
+		Request:       request,
+		HostWorkspace: t.TempDir(),
+		Selected:      selected,
+		Permission:    permission,
+		RecoveryStepHook: func(context.Context, RecoveryStepKind, *SubmitRefusal) error {
+			return nil
+		},
+	}
+}
+
+// TestToolSubmitAdmitsConciseNonProbeSubmissionForAFlooredResponsibility
+// pins A3's headline claim end to end, over the live sworn_submit tool
+// boundary the removed content floor used to guard: a concise, non-empty,
+// non-probe summary and detail for a floored responsibility
+// (ImplementerImplementation) seals rather than being refused solely for
+// falling under the retired 120/200-byte bound.
+func TestToolSubmitAdmitsConciseNonProbeSubmissionForAFlooredResponsibility(t *testing.T) {
+	invocation := implementerImplementationSubmitInvocationFixture(t)
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+
+	checkBytes, err := NewCheckBytes([]byte{0x00, 0xff, '\n'})
+	if err != nil {
+		t.Fatal(err)
+	}
+	submission := Submission{
+		SchemaVersion:  SubmissionSchemaVersion,
+		InvocationID:   invocation.Request.InvocationID,
+		Responsibility: ImplementerImplementation,
+		Summary:        "Fixes the off-by-one in the retry counter.",
+		Detail:         "Moved the increment above the early return.\n",
+		Checks:         checkBytes,
+	}
+	result := executeToolJSON(
+		t, session, "concise-submit", "sworn_submit", map[string]any{"submission": submission},
+	)
+	if result.Failed {
+		t.Fatalf("concise non-probe submission refused: %s", result.Content)
+	}
+	submitted, submitErr := session.submitted()
+	if !submitted || submitErr != nil || session.handoff() == nil {
+		t.Fatalf(
+			"concise non-probe submission did not seal: submitted=%v err=%v handoff=%#v",
+			submitted, submitErr, session.handoff(),
+		)
 	}
 }
 

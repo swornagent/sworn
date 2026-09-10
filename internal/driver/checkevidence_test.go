@@ -110,7 +110,7 @@ func checkEvidenceInvocationFixture(t *testing.T, declaredChecks []string) Invoc
 		// is visible in this test instead of being masked by
 		// RECOVERY_STEP_REFUSED (reserveRecoveryStep refuses outright with a
 		// nil hook).
-		RecoveryStepHook: func(context.Context, RecoveryStepKind) error { return nil },
+		RecoveryStepHook: func(context.Context, RecoveryStepKind, *SubmitRefusal) error { return nil },
 	}
 }
 

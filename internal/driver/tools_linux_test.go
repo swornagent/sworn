@@ -102,6 +102,7 @@ func TestSubmissionCorrectionsAreBoundedAndYieldCannotPromoteAuthority(
 	invocation.RecoveryStepHook = func(
 		_ context.Context,
 		kind RecoveryStepKind,
+		_ *SubmitRefusal,
 	) error {
 		if kind != RecoveryStepSubmissionCorrection {
 			t.Fatalf("reservation kind = %s", kind)
@@ -160,6 +161,7 @@ func TestSubmissionCorrectionsAreBoundedAndYieldCannotPromoteAuthority(
 	invocation.RecoveryStepHook = func(
 		_ context.Context,
 		kind RecoveryStepKind,
+		_ *SubmitRefusal,
 	) error {
 		if kind != RecoveryStepSubmissionCorrection {
 			t.Fatalf("reservation kind = %s", kind)
@@ -280,6 +282,7 @@ func TestPlannerPlanOnFirstTerminalIsYieldFirstAndSessionStaysOpen(
 	invocation.RecoveryStepHook = func(
 		_ context.Context,
 		kind RecoveryStepKind,
+		_ *SubmitRefusal,
 	) error {
 		if kind != RecoveryStepSubmissionCorrection {
 			t.Fatalf("reservation kind = %s", kind)
@@ -691,7 +694,7 @@ func TestSwornSubmitAcceptsExactBytesByScratchPath(t *testing.T) {
 func TestSwornSubmitPathRefusesSymlinkEscapeFromScratch(t *testing.T) {
 	invocation, _, _ := memoryInvocationFixture(t)
 	invocation.RecoveryStepHook = func(
-		context.Context, RecoveryStepKind,
+		context.Context, RecoveryStepKind, *SubmitRefusal,
 	) error {
 		return nil
 	}

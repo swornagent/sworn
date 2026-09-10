@@ -69,6 +69,26 @@ func TestPresentSnapshotPrioritisesUnconfirmedFactsAndHumanAttention(
 	}
 }
 
+// A4: a parked run offering a "grant" action (an economy budget crossing)
+// presents "Stopped at a budget limit", distinct from the plain retry
+// failure copy, and directs the operator to the latest grant action rather
+// than a bare retry.
+func TestPresentSnapshotNamesBudgetLimitForGrantAction(t *testing.T) {
+	t.Parallel()
+
+	grant := Snapshot{
+		Run:     RunView{State: "parked"},
+		Actions: []Action{{Kind: "grant", Unit: runtimepkg.ParkCauseEconomyTurns}},
+	}
+	got := PresentSnapshot(grant)
+	if got.Status != "Stopped at a budget limit" {
+		t.Fatalf("grant presentation status = %#v", got)
+	}
+	if !strings.Contains(got.Next, "Grant") || !strings.Contains(got.NeedsYou, "grant capacity") {
+		t.Fatalf("grant presentation copy = %#v", got)
+	}
+}
+
 // A4: the board names a degradation park instead of the flat parked text.
 func TestPresentRunStateNamesDegradationPark(t *testing.T) {
 	t.Parallel()
@@ -219,5 +239,26 @@ func TestPresentRunStateWithRecoveryNamesAdmissibleVerb(t *testing.T) {
 	flat := PresentRunState("uncertain")
 	if strings.Contains(flat.Next, "Recover the run") {
 		t.Fatalf("flat uncertain text names the retired verb: %q", flat.Next)
+	}
+}
+
+func TestPresentSnapshotQuarantinedWork(t *testing.T) {
+	t.Parallel()
+
+	fenced := Snapshot{
+		Run: RunView{State: "parked"},
+		Checkpoint: &runtimepkg.CheckpointStatus{
+			Status:        "fenced",
+			AffectedSlice: "S1",
+			FailureReason: "CHECKPOINT_UNSUPPORTED_ENTRY",
+			FencedPath:    "tree-token",
+		},
+	}
+	presentation := PresentSnapshot(fenced)
+	if presentation.Status != "Quarantined unverified work" {
+		t.Fatalf("fenced presentation status = %q, want 'Quarantined unverified work'", presentation.Status)
+	}
+	if !strings.Contains(presentation.What, "S1") || !strings.Contains(presentation.What, "CHECKPOINT_UNSUPPORTED_ENTRY") {
+		t.Fatalf("fenced presentation what = %q", presentation.What)
 	}
 }

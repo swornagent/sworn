@@ -882,3 +882,58 @@ func TestSafeActionsOffersRecoveryVerbForUncertainState(t *testing.T) {
 		t.Fatal("uncertain resume recovery emitted no resume action")
 	}
 }
+
+// A4: an economy-caused pinned work offers a "grant" action naming its
+// crossing's own dispatch-work identity, unit, and current owner epoch -
+// never a bare "retry", which the control gate would refuse
+// ECONOMY_GRANT_REQUIRED - and a non-economy (identical-failure) pinned
+// work offers neither, matching economyGrantUnit's cause vocabulary.
+func TestSafeActionsOffersGrantActionForEconomyPinnedWorkOnly(t *testing.T) {
+	t.Parallel()
+
+	control := journal.ControlProjection{
+		Generation: 3, Desired: "running",
+		RetryEpochs: map[string]int64{"sha256:" + strings.Repeat("a", 64): 2},
+	}
+	owner := "sha256:" + strings.Repeat("a", 64)
+	dispatchWork := "sha256:" + strings.Repeat("b", 64)
+
+	economyStatus := runtimepkg.RunStatus{
+		State: "parked", ControlGeneration: 3,
+		PinnedWork: []runtimepkg.PinnedWork{{
+			WorkID: owner, Lane: "T1", Cause: runtimepkg.ParkCauseEconomyTurns,
+			Code: "ECONOMY_TURN_BUDGET_EXCEEDED", DispatchWorkID: dispatchWork,
+		}},
+	}
+	actions := safeActions(economyStatus, control)
+	if hasAction(actions, string(journal.Retry)) {
+		t.Fatalf("economy-caused pinned work offered a bare retry action: %#v", actions)
+	}
+	var grant *Action
+	for index := range actions {
+		if actions[index].Kind == string(journal.Grant) {
+			grant = &actions[index]
+		}
+	}
+	if grant == nil {
+		t.Fatalf("economy-caused pinned work offered no grant action: %#v", actions)
+	}
+	if grant.WorkID != dispatchWork || grant.Unit != runtimepkg.ParkCauseEconomyTurns ||
+		grant.ExpectedEpoch != 2 || grant.ExpectedGeneration != 3 {
+		t.Fatalf(
+			"grant action = %#v, want work=%s unit=%s epoch=2 generation=3",
+			grant, dispatchWork, runtimepkg.ParkCauseEconomyTurns,
+		)
+	}
+
+	identicalStatus := runtimepkg.RunStatus{
+		State: "parked", ControlGeneration: 3,
+		PinnedWork: []runtimepkg.PinnedWork{{
+			WorkID: owner, Lane: "T1", Cause: "identical_failure",
+		}},
+	}
+	identicalActions := safeActions(identicalStatus, control)
+	if hasAction(identicalActions, string(journal.Grant)) {
+		t.Fatalf("identical-failure pinned work offered a grant action: %#v", identicalActions)
+	}
+}

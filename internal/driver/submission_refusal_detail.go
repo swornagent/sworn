@@ -8,18 +8,6 @@ import (
 	"github.com/swornagent/sworn/internal/baton"
 )
 
-// MinSubmissionSummaryFloorBytes and MinSubmissionDetailFloorBytes are the
-// content floor A3 lands as product: below either bound, a submission from
-// one of the floored responsibilities is refused as SUBMISSION_BELOW_FLOOR
-// rather than sealed. It is explicitly the second line, not the first - A2's
-// self-declaration reading is what actually stops a probe, since the
-// native-lane-honesty evidence is that the next probe simply padded past a
-// floor alone.
-const (
-	MinSubmissionSummaryFloorBytes = 120
-	MinSubmissionDetailFloorBytes  = 200
-)
-
 // maxSubmissionScopeLintDetailBytes bounds the engine-derived package-path
 // list submit.plan_scope_lint may carry as Detail.Paths. It mirrors
 // sandboxStartCause's bound-at-the-raise-site discipline, but truncates
@@ -320,14 +308,6 @@ func submissionProbeError(field, bound string) error {
 	}
 }
 
-// submissionFloorError builds the SUBMISSION_BELOW_FLOOR refusal A3 raises.
-func submissionFloorError(field, bound string) error {
-	return &ContractError{
-		Code:   "SUBMISSION_BELOW_FLOOR",
-		Detail: submissionRefusalDetailBytes("submit.content_floor", field, bound, nil),
-	}
-}
-
 // asciiLower lowercases only ASCII letters, leaving every other byte (and
 // any multi-byte UTF-8 sequence) untouched - a deliberately narrower
 // normalization than strings.ToLower's Unicode case folding, since the
@@ -416,12 +396,12 @@ func submissionDeclaresProbe(field string) (bool, string) {
 	return false, ""
 }
 
-// submissionFloorResponsibility reports whether responsibility is one of the
-// five A3 floors (planner_proposal, implementer_design,
-// implementer_implementation, captain_review, work_verification).
-// captain_plan_review and assembly_verification are both exempt, per the
-// contract's own list.
-func submissionFloorResponsibility(responsibility Responsibility) bool {
+// detailRequiredResponsibility reports whether responsibility is one of the
+// five responsibilities (planner_proposal, implementer_design,
+// implementer_implementation, captain_review, work_verification) whose
+// Detail must be non-empty. captain_plan_review and assembly_verification
+// are both exempt, per the contract's own list.
+func detailRequiredResponsibility(responsibility Responsibility) bool {
 	switch responsibility {
 	case PlannerProposal, ImplementerDesign, ImplementerImplementation,
 		CaptainReview, WorkVerification:
@@ -429,20 +409,4 @@ func submissionFloorResponsibility(responsibility Responsibility) bool {
 	default:
 		return false
 	}
-}
-
-// submissionFloorCheck refuses a floored responsibility's summary or detail
-// under its respective byte floor (A3), naming the field and the bound it
-// fell under. Every other responsibility is exempt.
-func submissionFloorCheck(submission Submission) error {
-	if !submissionFloorResponsibility(submission.Responsibility) {
-		return nil
-	}
-	if len([]byte(submission.Summary)) < MinSubmissionSummaryFloorBytes {
-		return submissionFloorError("summary", "min_submission_summary_floor_bytes")
-	}
-	if len([]byte(submission.Detail)) < MinSubmissionDetailFloorBytes {
-		return submissionFloorError("detail", "min_submission_detail_floor_bytes")
-	}
-	return nil
 }

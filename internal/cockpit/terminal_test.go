@@ -6,6 +6,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 )
 
 func TestRenderTerminalPresentsTheTruthfulSnapshot(t *testing.T) {
@@ -278,5 +280,52 @@ func terminalFixture() Snapshot {
 			Code: "OUTBOX_TRUNCATED", Track: "T1", Work: "S1",
 		}},
 		ThroughOffset: 17,
+	}
+}
+
+func TestRenderTerminalRendersCheckpoints(t *testing.T) {
+	t.Parallel()
+
+	snapshot := terminalFixture()
+	snapshot.Checkpoints = []runtimepkg.CheckpointStatus{
+		{
+			Status:        "saved",
+			CheckpointID:  "refs/heads/checkpoints/rel/T1/S1-1-1",
+			TreeDigest:    "sha256:abcd",
+			AffectedSlice: "S1",
+		},
+		{
+			Status:        "restored",
+			CheckpointID:  "refs/heads/checkpoints/rel/T1/S1-1-2",
+			TreeDigest:    "sha256:ef01",
+			AffectedSlice: "S1",
+		},
+		{
+			Status:        "fenced",
+			AffectedSlice: "S1",
+			FailureReason: "CHECKPOINT_SCOPE_VIOLATION",
+			FencedPath:    "/path/to/quarantine",
+		},
+		{
+			Status:        "salvaged",
+			CheckpointID:  "refs/heads/checkpoints/rel/T1/S2-1-1",
+			TreeDigest:    "sha256:1234",
+			AffectedSlice: "S2",
+			StaleReason:   "stale_plan",
+		},
+	}
+	output := RenderTerminal(snapshot)
+	if !strings.Contains(output, "CHECKPOINTS count=4") {
+		t.Fatalf("expected CHECKPOINTS section in terminal output:\n%s", output)
+	}
+	if !strings.Contains(output, "status=\"saved\"") || !strings.Contains(output, "status=\"restored\"") ||
+		!strings.Contains(output, "status=\"fenced\"") || !strings.Contains(output, "status=\"salvaged\"") {
+		t.Fatalf("expected all 4 checkpoint statuses in terminal output:\n%s", output)
+	}
+	if !strings.Contains(output, "fenced=\"/path/to/quarantine\"") {
+		t.Fatalf("expected fenced path in terminal output:\n%s", output)
+	}
+	if !strings.Contains(output, "stale=\"stale_plan\"") {
+		t.Fatalf("expected stale reason in terminal output:\n%s", output)
 	}
 }

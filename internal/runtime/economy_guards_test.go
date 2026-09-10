@@ -1721,3 +1721,576 @@ func TestParseParkEventNewCausesAndLegacyByteStability(t *testing.T) {
 		}
 	}
 }
+
+// TestOwnerWorkForDispatchResolvesNestedGitSealWork pins the exact identity
+// contract S4-resumable-budget-stops V3's repair depends on: a nested
+// implementer dispatch work resolves to its enclosing git.seal work only
+// when a git.seal command actually names it as DispatchWork, and a direct
+// (non-nested) dispatch work with no such command falls back unchanged -
+// the same fallback captureEffectiveLimits and admitEconomyControl rely on
+// for planner/captain/verifier dispatches, which are never git.seal-wrapped.
+func TestOwnerWorkForDispatchResolvesNestedGitSealWork(t *testing.T) {
+	t.Parallel()
+	outerBefore := "outer-before-fingerprint"
+	outerWork := workIdentity(outerBefore, "git.seal")
+	dispatchWork := workIdentity(outerWork, "driver.dispatch")
+	payload, err := json.Marshal(struct {
+		Before       string `json:"before"`
+		DispatchWork string `json:"dispatch_work"`
+	}{Before: outerBefore, DispatchWork: dispatchWork})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := journal.Snapshot{
+		Commands: []journal.Command{{Kind: "git.seal", Payload: payload}},
+	}
+	if resolved := ownerWorkForDispatch(snapshot, dispatchWork); resolved != outerWork {
+		t.Fatalf("ownerWorkForDispatch(nested) = %s, want outer %s", resolved, outerWork)
+	}
+	direct := testWork()
+	if resolved := ownerWorkForDispatch(snapshot, direct); resolved != direct {
+		t.Fatalf("ownerWorkForDispatch(direct) = %s, want unchanged %s", resolved, direct)
+	}
+}
+
+// TestDispatchAttemptIsCurrentEpochOnPerAttemptIdentityConvention pins
+// S4-resumable-budget-stops V2's second finding: on the recovery-disabled
+// or scope-refusal-escaped nested dispatch-work convention
+// (workIdentity(effectID,"driver.dispatch")), the dispatch effect's own
+// parsed epoch is always 1 by construction (childEpoch/childTry are never
+// overridden on that branch) and carries no information about which outer
+// epoch actually built it. A prior revision of this mechanism compared
+// that always-1 value against a never-written RetryEpochs[work] entry
+// (also defaulting to 1), which always matched regardless of how far the
+// owner's own epoch had since advanced - permanently pinning a lane on a
+// superseded dispatch work after a Grant, because economyParkCrossings'
+// first-encountered ordering picked the stale crossing over a fresh one
+// that could otherwise unblock it. The fix recovers the true outer epoch a
+// per-attempt-identity dispatch work was built under from its owning
+// git.seal command's own ReplayKey, and compares that instead.
+func TestDispatchAttemptIsCurrentEpochOnPerAttemptIdentityConvention(t *testing.T) {
+	t.Parallel()
+	outerBefore := "outer-before-fingerprint"
+	workID := workIdentity(outerBefore, "git.seal")
+
+	sealCommand := func(t *testing.T, outerEpoch int64, dispatchWork string) journal.Command {
+		t.Helper()
+		effectID := journal.AttemptEffectID(workID, outerEpoch, 1)
+		payload, err := json.Marshal(struct {
+			Before       string `json:"before"`
+			DispatchWork string `json:"dispatch_work"`
+		}{Before: outerBefore, DispatchWork: dispatchWork})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return journal.Command{Kind: "git.seal", ReplayKey: effectID, Payload: payload}
+	}
+	dispatchEffect := func(dispatchWork string) journal.Effect {
+		return journal.Effect{
+			ID: journal.AttemptEffectID(dispatchWork, 1, 1), Kind: "driver.dispatch",
+			State: journal.OperationalFailed, ErrorCode: "ECONOMY_TURN_BUDGET_EXCEEDED",
+		}
+	}
+
+	// staleDispatchWork was built while the owner's epoch was still 1 (its
+	// own crossing attempt's own turn). freshDispatchWork was built after
+	// a Grant (or Retry) admitted against the owner advanced its epoch to
+	// 2, replacing the stale attempt with a brand-new dispatch-work
+	// identity, per this convention's own design.
+	staleDispatchWork := workIdentity(journal.AttemptEffectID(workID, 1, 1), "driver.dispatch")
+	freshDispatchWork := workIdentity(journal.AttemptEffectID(workID, 2, 1), "driver.dispatch")
+
+	snapshot := journal.Snapshot{
+		Commands: []journal.Command{
+			sealCommand(t, 1, staleDispatchWork),
+			sealCommand(t, 2, freshDispatchWork),
+		},
+		Effects: []journal.Effect{
+			dispatchEffect(staleDispatchWork),
+			dispatchEffect(freshDispatchWork),
+		},
+	}
+	control := journal.ControlProjection{RetryEpochs: map[string]int64{workID: 2}}
+
+	if dispatchAttemptIsCurrentEpoch(snapshot, control, staleDispatchWork, 1) {
+		t.Fatal("superseded per-attempt-identity dispatch work reported current after the owner's epoch advanced")
+	}
+	if !dispatchAttemptIsCurrentEpoch(snapshot, control, freshDispatchWork, 1) {
+		t.Fatal("fresh per-attempt-identity dispatch work built under the owner's current epoch reported stale")
+	}
+
+	crossings := economyParkCrossings(snapshot, control)
+	if len(crossings) != 1 || crossings[0].work != freshDispatchWork {
+		t.Fatalf(
+			"economyParkCrossings = %#v, want exactly one crossing naming the fresh dispatch work %s",
+			crossings, freshDispatchWork,
+		)
+	}
+	if ownerWorkForDispatch(snapshot, crossings[0].work) != workID {
+		t.Fatalf(
+			"ownerWorkForDispatch(fresh crossing) = %s, want owner %s",
+			ownerWorkForDispatch(snapshot, crossings[0].work), workID,
+		)
+	}
+}
+
+// TestDispatchAttemptIsCurrentEpochFailsClosedOnUnparseableReplayKey pins
+// V2's fail-open edge (a FAIL finding): a per-attempt-identity dispatch
+// work whose owning git.seal command carries a ReplayKey that does not
+// parse as AttemptEffectID(workID, epoch, try) - a malformed or foreign
+// journal entry - must still be reported current (fail closed, keeping the
+// crossing parked) rather than compared against a fabricated epoch 0,
+// which would silently drop a real crossing from economyParkCrossings and
+// let a bare Retry bypass the grant requirement.
+func TestDispatchAttemptIsCurrentEpochFailsClosedOnUnparseableReplayKey(t *testing.T) {
+	t.Parallel()
+	outerBefore := "outer-before-fingerprint"
+	dispatchWork := workIdentity("some-malformed-owner-key", "driver.dispatch")
+	payload, err := json.Marshal(struct {
+		Before       string `json:"before"`
+		DispatchWork string `json:"dispatch_work"`
+	}{Before: outerBefore, DispatchWork: dispatchWork})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := journal.Snapshot{
+		Commands: []journal.Command{
+			{Kind: "git.seal", ReplayKey: "not-a-valid-attempt-effect-id", Payload: payload},
+		},
+		Effects: []journal.Effect{
+			{
+				ID: journal.AttemptEffectID(dispatchWork, 1, 1), Kind: "driver.dispatch",
+				State: journal.OperationalFailed, ErrorCode: "ECONOMY_TURN_BUDGET_EXCEEDED",
+			},
+		},
+	}
+	owner := workIdentity(outerBefore, "git.seal")
+	control := journal.ControlProjection{RetryEpochs: map[string]int64{owner: 2}}
+
+	if !dispatchAttemptIsCurrentEpoch(snapshot, control, dispatchWork, 1) {
+		t.Fatal("dispatch work with an unparseable owning ReplayKey reported stale (fails open); want current (fails closed)")
+	}
+	crossings := economyParkCrossings(snapshot, control)
+	if len(crossings) != 1 || crossings[0].work != dispatchWork {
+		t.Fatalf(
+			"economyParkCrossings = %#v, want exactly one crossing naming %s (dropped by the fail-open bug otherwise)",
+			crossings, dispatchWork,
+		)
+	}
+}
+
+// TestEconomyParkFactsForCarriesCrossingWorkAndDispatchedBudget pins C6/V1:
+// the reported budget is the exact per-work ceiling the crossing's own
+// attempt was dispatched under - never a live, cumulative recomputation
+// from the current grant total, which a later grant can move out from under
+// a still-current crossing (V1's regression) - and the facts carry the
+// crossing's own dispatch-work identity - never the lane-level owner a
+// caller's own map may be keyed by - so a Grant built from it always names
+// the crossing it was computed from.
+func TestEconomyParkFactsForCarriesCrossingWorkAndDispatchedBudget(t *testing.T) {
+	t.Parallel()
+	crossing := economyGuardCrossing{
+		work: testWork(), code: "ECONOMY_TURN_BUDGET_EXCEEDED",
+	}
+	// A post-grant re-crossing: the driver was dispatched under a raised,
+	// already-headroom-adjusted ceiling (frozen EffectiveLimits), and it
+	// crossed again at exactly that many turns. Reporting that same figure
+	// back as budget makes spent >= budget hold, matching driver/provider.go's
+	// own turnCount >= turnBudget trigger.
+	granted := economyParkFactsFor(
+		crossing, driver.Limits{MaxTurnsPerWork: 499}, 499, 0, 0, "",
+	)
+	if granted.work != crossing.work {
+		t.Fatalf("facts.work = %s, want %s", granted.work, crossing.work)
+	}
+	if granted.cause != ParkCauseEconomyTurns || granted.spent != 499 {
+		t.Fatalf("facts = %#v", granted)
+	}
+	if granted.budget != 499 {
+		t.Fatalf("facts.budget = %d, want the dispatched ceiling 499", granted.budget)
+	}
+	// Before any grant, the crossing's own attempt was dispatched under the
+	// plain manifest ceiling, byte-identical to every pre-grant journal.
+	ungranted := economyParkFactsFor(
+		crossing, driver.Limits{}, 201, 0, 0, "",
+	)
+	if ungranted.budget != driver.DefaultMaxTurnsPerWork {
+		t.Fatalf("ungranted budget = %d, want %d", ungranted.budget, driver.DefaultMaxTurnsPerWork)
+	}
+}
+
+// TestEconomyCrossingDispatchedLimitsReadsFrozenEffectiveLimits pins V1's
+// read seam: economyCrossingDispatchedLimits recovers the exact ceiling a
+// crossing's own attempt was dispatched under from that attempt's own
+// journaled driver.dispatch command (its frozen
+// productionWorkContext.EffectiveLimits), by the crossing's effect ID -
+// never the live, current grant total, which a later grant can move for the
+// same work without touching an already-recorded attempt's own binding -
+// and falls back to the manifest's raw limits for an attempt dispatched
+// before any grant existed.
+func TestEconomyCrossingDispatchedLimitsReadsFrozenEffectiveLimits(t *testing.T) {
+	t.Parallel()
+	work := testWork()
+	crossing := economyGuardCrossing{
+		work: work, code: "ECONOMY_TURN_BUDGET_EXCEEDED",
+		effectID: journal.AttemptEffectID(work, 2, 1),
+	}
+	frozen := driver.Limits{MaxTurnsPerWork: 499}
+	payload := mustJSON(productionDispatchCommand{
+		Context: productionWorkContext{
+			Slice: "S4", Responsibility: driver.ImplementerImplementation,
+			Attempt: 1, EffectiveLimits: &frozen,
+		},
+	})
+	snapshot := journal.Snapshot{
+		Commands: []journal.Command{{
+			ReplayKey: crossing.effectID, Kind: "driver.dispatch", Payload: payload,
+		}},
+	}
+	manifestLimits := driver.Limits{}
+	resolved := economyCrossingDispatchedLimits(snapshot, manifestLimits, crossing)
+	if resolved.EffectiveMaxTurnsPerWork() != 499 {
+		t.Fatalf("resolved turns = %d, want 499", resolved.EffectiveMaxTurnsPerWork())
+	}
+	// No matching command (an attempt dispatched before any grant existed,
+	// so its own payload carries no EffectiveLimits, or no command found at
+	// all) falls back to the manifest's own raw limits, unchanged.
+	before := economyGuardCrossing{
+		work: work, code: "ECONOMY_TURN_BUDGET_EXCEEDED",
+		effectID: journal.AttemptEffectID(work, 1, 1),
+	}
+	fallback := economyCrossingDispatchedLimits(
+		journal.Snapshot{}, manifestLimits, before,
+	)
+	if fallback.EffectiveMaxTurnsPerWork() != driver.DefaultMaxTurnsPerWork {
+		t.Fatalf("fallback turns = %d, want manifest default %d",
+			fallback.EffectiveMaxTurnsPerWork(), driver.DefaultMaxTurnsPerWork)
+	}
+}
+
+// TestGrantAdmissionUnblocksCrossingAndReplaysOnce pins A2/A3 at the
+// Service.Control seam, for a direct (non-nested) dispatch where the
+// crossing's own work and its owner coincide: an admitted Grant advances
+// that work's retry epoch and clears its economy park, and an exact replay
+// of that same Grant command is admitted idempotently rather than refused
+// GRANT_WRONG_UNIT against the epoch its own first admission already
+// advanced.
+func TestGrantAdmissionUnblocksCrossingAndReplaysOnce(t *testing.T) {
+	t.Parallel()
+	fixture := newEconomyGuardFixture(t, driver.Limits{
+		TimeoutMillis: 30_000,
+		OutputBytes:   65_536,
+	})
+	work := fixture.readyWork(t)
+	fixture.failedDispatchAttempt(
+		t, work, 1, 1, "ECONOMY_TURN_BUDGET_EXCEEDED", "",
+		economyUsageReceipt(t, "sworn.openai", 10_000, 20_000, 201, 201),
+	)
+	before, err := fixture.service.Status(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.State != "parked" || before.Park == nil ||
+		before.Park.Cause != ParkCauseEconomyTurns {
+		t.Fatalf("status before grant = %#v", before)
+	}
+
+	command := journal.ControlCommand{
+		RunID: fixture.manifest.value.RunID, ID: "grant-turns-1", Kind: journal.Grant,
+		ExpectedGeneration: 0,
+		WorkID:             work, ExpectedEpoch: 1,
+		Unit: ParkCauseEconomyTurns, Amount: 500,
+	}
+	if _, err := fixture.service.Control(fixture.ctx, command); err != nil {
+		t.Fatalf("grant = %v", err)
+	}
+	projection, err := fixture.store.ControlProjection(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projection.RetryEpochs[work] != 2 {
+		t.Fatalf("retry epoch after grant = %d, want 2", projection.RetryEpochs[work])
+	}
+	if projection.GrantedAmount[work][ParkCauseEconomyTurns] != 500 {
+		t.Fatalf("granted amount = %#v, want 500", projection.GrantedAmount[work])
+	}
+	after, err := fixture.service.Status(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Park != nil {
+		t.Fatalf("status after grant still parks on economy = %#v", after.Park)
+	}
+
+	if _, err := fixture.service.Control(fixture.ctx, command); err != nil {
+		t.Fatalf("replayed grant = %v, want nil (idempotent replay)", err)
+	}
+	replayed, err := fixture.store.ControlProjection(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replayed.GrantedAmount[work][ParkCauseEconomyTurns] != 500 {
+		t.Fatalf("granted amount after replay = %#v, want unchanged 500",
+			replayed.GrantedAmount[work])
+	}
+	if replayed.RetryEpochs[work] != 2 {
+		t.Fatalf("retry epoch after replay = %d, want unchanged 2", replayed.RetryEpochs[work])
+	}
+
+	// A conflicting body reusing the same command ID is refused, not
+	// silently admitted: the replay short-circuit only ever covers an
+	// exact byte-identical resubmission.
+	conflict := command
+	conflict.Amount = 999
+	if _, err := fixture.service.Control(fixture.ctx, conflict); !IsCode(err, "CONTROL_REJECTED") {
+		t.Fatalf("conflicting grant = %v, want CONTROL_REJECTED (REPLAY_CONFLICT)", err)
+	}
+}
+
+// TestControlRetryRefusedWhenEconomyCrossingActive pins A2's "stale, ...
+// mismatched-authority ... requests are refused" refusal vocabulary at the
+// ECONOMY_GRANT_REQUIRED boundary: a bare Retry naming a work with an
+// active current-epoch economy crossing is refused before it ever reaches
+// journal.ApplyControl, so a bypass through the try-exhaustion admission
+// path Retry alone would otherwise take is closed uniformly, on whichever
+// try actually crossed.
+func TestControlRetryRefusedWhenEconomyCrossingActive(t *testing.T) {
+	t.Parallel()
+	fixture := newEconomyGuardFixture(t, driver.Limits{
+		TimeoutMillis: 30_000,
+		OutputBytes:   65_536,
+	})
+	work := fixture.readyWork(t)
+	fixture.failedDispatchAttempt(
+		t, work, 1, 1, "ECONOMY_TURN_BUDGET_EXCEEDED", "",
+		economyUsageReceipt(t, "sworn.openai", 10_000, 20_000, 201, 201),
+	)
+	_, err := fixture.service.Control(fixture.ctx, journal.ControlCommand{
+		RunID: fixture.manifest.value.RunID, ID: "bare-retry-1", Kind: journal.Retry,
+		ExpectedGeneration: 0, WorkID: work, ExpectedEpoch: 1,
+	})
+	if !IsCode(err, "ECONOMY_GRANT_REQUIRED") {
+		t.Fatalf("bare retry over an active economy crossing = %v, want ECONOMY_GRANT_REQUIRED", err)
+	}
+}
+
+// TestGrantRefusedForWrongUnitOrAbsentCrossing pins A2's "wrong-unit ...
+// requests are refused" vocabulary at GRANT_WRONG_UNIT: a Grant is refused
+// both when it names a unit other than the one the active crossing
+// actually crossed, and when it names a work with no active crossing at
+// all - the same code either way, since admission never distinguishes "the
+// wrong unit for this crossing" from "no crossing for this work".
+func TestGrantRefusedForWrongUnitOrAbsentCrossing(t *testing.T) {
+	t.Parallel()
+	fixture := newEconomyGuardFixture(t, driver.Limits{
+		TimeoutMillis: 30_000,
+		OutputBytes:   65_536,
+	})
+	work := fixture.readyWork(t)
+	fixture.failedDispatchAttempt(
+		t, work, 1, 1, "ECONOMY_TURN_BUDGET_EXCEEDED", "",
+		economyUsageReceipt(t, "sworn.openai", 10_000, 20_000, 201, 201),
+	)
+	_, err := fixture.service.Control(fixture.ctx, journal.ControlCommand{
+		RunID: fixture.manifest.value.RunID, ID: "wrong-unit-1", Kind: journal.Grant,
+		ExpectedGeneration: 0, WorkID: work, ExpectedEpoch: 1,
+		Unit: ParkCauseEconomyOutputTokens, Amount: 500,
+	})
+	if !IsCode(err, "GRANT_WRONG_UNIT") {
+		t.Fatalf("grant naming the wrong unit = %v, want GRANT_WRONG_UNIT", err)
+	}
+
+	_, err = fixture.service.Control(fixture.ctx, journal.ControlCommand{
+		RunID: fixture.manifest.value.RunID, ID: "no-crossing-1", Kind: journal.Grant,
+		ExpectedGeneration: 0, WorkID: testWork(), ExpectedEpoch: 1,
+		Unit: ParkCauseEconomyTurns, Amount: 500,
+	})
+	if !IsCode(err, "GRANT_WRONG_UNIT") {
+		t.Fatalf("grant naming a work with no active crossing = %v, want GRANT_WRONG_UNIT", err)
+	}
+}
+
+// TestGrantRefusedAboveHardCeiling pins A2's "above-hard-ceiling ...
+// requests are refused" vocabulary: a Grant whose saturating sum of the
+// manifest's own effective ceiling, this work's already-admitted grants
+// and this command's own amount would exceed the unit's absolute hard
+// ceiling is refused GRANT_ABOVE_HARD_CEILING - grants preserve the
+// existing hard per-invocation safety ceiling rather than lifting it (A4).
+func TestGrantRefusedAboveHardCeiling(t *testing.T) {
+	t.Parallel()
+	fixture := newEconomyGuardFixture(t, driver.Limits{
+		TimeoutMillis: 30_000,
+		OutputBytes:   65_536,
+	})
+	work := fixture.readyWork(t)
+	fixture.failedDispatchAttempt(
+		t, work, 1, 1, "ECONOMY_TURN_BUDGET_EXCEEDED", "",
+		economyUsageReceipt(t, "sworn.openai", 10_000, 20_000, 201, 201),
+	)
+	_, err := fixture.service.Control(fixture.ctx, journal.ControlCommand{
+		RunID: fixture.manifest.value.RunID, ID: "above-ceiling-1", Kind: journal.Grant,
+		ExpectedGeneration: 0, WorkID: work, ExpectedEpoch: 1,
+		Unit: ParkCauseEconomyTurns, Amount: economyHardCeiling(ParkCauseEconomyTurns),
+	})
+	if !IsCode(err, "GRANT_ABOVE_HARD_CEILING") {
+		t.Fatalf("grant above the hard ceiling = %v, want GRANT_ABOVE_HARD_CEILING", err)
+	}
+}
+
+// TestGrantRefusedOnUnknownUsageAndAcknowledgedBypass pins A3's "incomplete
+// or unavailable usage after a crash is explicitly unknown ... and prevents
+// automatic resumption until reconciled or an explicit operator decision
+// records how the accounting uncertainty is handled" at the
+// ECONOMY_USAGE_UNKNOWN boundary: a work whose history carries an earlier
+// terminal driver.dispatch attempt with no durable observation (a crash
+// before the usage receipt was recorded) refuses an unacknowledged Grant
+// even though the crossing attempt itself has a perfectly good receipt,
+// because economyWorkSpent folds every terminal attempt of the work, not
+// only the one that crossed - and admits the identical command once the
+// operator sets AcknowledgeUnknownUsage, which durably records that
+// decision (A3).
+func TestGrantRefusedOnUnknownUsageAndAcknowledgedBypass(t *testing.T) {
+	t.Parallel()
+	fixture := newEconomyGuardFixture(t, driver.Limits{
+		TimeoutMillis: 30_000,
+		OutputBytes:   65_536,
+	})
+	work := fixture.readyWork(t)
+	// try 1: a terminal failure with no durable observation - the
+	// crash-before-receipt accounting gap.
+	fixture.contextualFailedDispatchAttempt(
+		t, work, 1, 1, "SANDBOX_START_FAILED",
+		"S1-durable-unverified-checkpoints", driver.ImplementerImplementation, 1,
+	)
+	// try 2: the actual, fully-observed economy crossing.
+	fixture.failedDispatchAttempt(
+		t, work, 1, 2, "ECONOMY_TURN_BUDGET_EXCEEDED", "",
+		economyUsageReceipt(t, "sworn.openai", 10_000, 20_000, 201, 201),
+	)
+	command := journal.ControlCommand{
+		RunID: fixture.manifest.value.RunID, ID: "unknown-usage-1", Kind: journal.Grant,
+		ExpectedGeneration: 0, WorkID: work, ExpectedEpoch: 1,
+		Unit: ParkCauseEconomyTurns, Amount: 500,
+	}
+	if _, err := fixture.service.Control(fixture.ctx, command); !IsCode(err, "ECONOMY_USAGE_UNKNOWN") {
+		t.Fatalf("unacknowledged grant over an unknown-usage gap = %v, want ECONOMY_USAGE_UNKNOWN", err)
+	}
+
+	acknowledged := command
+	acknowledged.ID = "unknown-usage-2"
+	acknowledged.AcknowledgeUnknownUsage = true
+	if _, err := fixture.service.Control(fixture.ctx, acknowledged); err != nil {
+		t.Fatalf("acknowledged grant over the same gap = %v, want nil", err)
+	}
+	projection, err := fixture.store.ControlProjection(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !projection.AcknowledgedUnknownUsage[work] {
+		t.Fatalf("AcknowledgedUnknownUsage[%s] = false, want true after the acknowledged grant", work)
+	}
+}
+
+// TestCaptureEffectiveLimitsAppliesOriginalPlusGrantedMinusSpent pins A3's
+// exact arithmetic at its one seam: "effective remaining allowance equals
+// original allowance plus admitted grants minus recorded spending". After
+// an admitted 500-turn Grant against a work whose only recorded attempt
+// spent 201 turns crossing the default 200-turn manifest ceiling,
+// captureEffectiveLimits must freeze EffectiveMaxTurnsPerWork at exactly
+// 200+500-201 = 499 - never the plain granted amount, never the manifest
+// ceiling alone, and never a live re-derivation that could drift from this
+// one dispatch-build-time snapshot.
+func TestCaptureEffectiveLimitsAppliesOriginalPlusGrantedMinusSpent(t *testing.T) {
+	t.Parallel()
+	fixture := newEconomyGuardFixture(t, driver.Limits{
+		TimeoutMillis: 30_000,
+		OutputBytes:   65_536,
+	})
+	work := fixture.readyWork(t)
+	fixture.failedDispatchAttempt(
+		t, work, 1, 1, "ECONOMY_TURN_BUDGET_EXCEEDED", "",
+		economyUsageReceipt(t, "sworn.openai", 10_000, 20_000, 201, 201),
+	)
+	if _, err := fixture.service.Control(fixture.ctx, journal.ControlCommand{
+		RunID: fixture.manifest.value.RunID, ID: "arith-grant-1", Kind: journal.Grant,
+		ExpectedGeneration: 0, WorkID: work, ExpectedEpoch: 1,
+		Unit: ParkCauseEconomyTurns, Amount: 500,
+	}); err != nil {
+		t.Fatalf("grant = %v", err)
+	}
+
+	var workContext productionWorkContext
+	if err := captureEffectiveLimits(
+		fixture.ctx, fixture.engine,
+		dispatchCoordinates{DispatchWork: work}, &workContext,
+	); err != nil {
+		t.Fatalf("captureEffectiveLimits = %v", err)
+	}
+	if workContext.EffectiveLimits == nil {
+		t.Fatal("EffectiveLimits = nil, want a frozen override after an admitted grant")
+	}
+	const original, granted, spent = driver.DefaultMaxTurnsPerWork, 500, 201
+	if got, want := workContext.EffectiveLimits.EffectiveMaxTurnsPerWork(), int64(original+granted-spent); got != want {
+		t.Fatalf("EffectiveMaxTurnsPerWork = %d, want original(%d)+granted(%d)-spent(%d) = %d",
+			got, original, granted, spent, want)
+	}
+}
+
+// TestCaptureEffectiveLimitsFailsClosedWhenGrantIsIneffective pins the C3
+// fail-closed guard: an admitted Grant whose resulting headroom is
+// non-positive against this work's already-recorded spend never falls back
+// to the full manifest allowance - it refuses ECONOMY_GRANT_INEFFECTIVE, a
+// named limitation with the work's preserved data intact, exactly as an
+// under-sized grant amount must be diagnosable rather than silently
+// swallowed into unlimited-looking execution.
+func TestCaptureEffectiveLimitsFailsClosedWhenGrantIsIneffective(t *testing.T) {
+	t.Parallel()
+	fixture := newEconomyGuardFixture(t, driver.Limits{
+		TimeoutMillis: 30_000,
+		OutputBytes:   65_536,
+	})
+	work := fixture.readyWork(t)
+	fixture.failedDispatchAttempt(
+		t, work, 1, 1, "ECONOMY_TURN_BUDGET_EXCEEDED", "",
+		economyUsageReceipt(t, "sworn.openai", 10_000, 20_000, 201, 201),
+	)
+	// original(200) + granted(1) - spent(201) = 0, at or below the floor of
+	// 1: an admitted grant, but an ineffective one.
+	if _, err := fixture.service.Control(fixture.ctx, journal.ControlCommand{
+		RunID: fixture.manifest.value.RunID, ID: "ineffective-grant-1", Kind: journal.Grant,
+		ExpectedGeneration: 0, WorkID: work, ExpectedEpoch: 1,
+		Unit: ParkCauseEconomyTurns, Amount: 1,
+	}); err != nil {
+		t.Fatalf("grant = %v", err)
+	}
+
+	var workContext productionWorkContext
+	err := captureEffectiveLimits(
+		fixture.ctx, fixture.engine,
+		dispatchCoordinates{DispatchWork: work}, &workContext,
+	)
+	if !IsCode(err, "ECONOMY_GRANT_INEFFECTIVE") {
+		t.Fatalf("captureEffectiveLimits over a non-positive headroom = %v, want ECONOMY_GRANT_INEFFECTIVE", err)
+	}
+}
+
+// TestProductionWorkContextV1RefusesAnEffectiveGrantDowngrade pins C4: a v1
+// downgrade of a work context carrying a frozen EffectiveLimits override
+// (an admitted, effective grant) must refuse rather than silently strip the
+// grant into an ineffective one - the v1 wire shape carries no field for
+// it, so a downgrade that dropped it would quietly revert the request to
+// the raw manifest limits without ever naming the loss.
+func TestProductionWorkContextV1RefusesAnEffectiveGrantDowngrade(t *testing.T) {
+	t.Parallel()
+	limits := driver.Limits{MaxTurnsPerWork: 499}
+	_, err := productionWorkContextV1(
+		admittedManifest{},
+		productionWorkContext{
+			SchemaVersion:   productionWorkContextVersion,
+			EffectiveLimits: &limits,
+		},
+	)
+	if !IsCode(err, "ECONOMY_GRANT_INCOMPATIBLE_V1") {
+		t.Fatalf("v1 downgrade of an effective-grant work context = %v, want ECONOMY_GRANT_INCOMPATIBLE_V1", err)
+	}
+}

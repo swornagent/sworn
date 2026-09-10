@@ -782,6 +782,26 @@ func (s *Service) reserveTurnRecoveryStepAccounting(
 	return receipt, nil
 }
 
+func (s *Service) reserveTurnRecoveryStepRefusal(
+	ctx context.Context,
+	owner journal.OwnerLease,
+	cycle *turnRecoveryCycle,
+	kind journal.RecoveryStepKind,
+	refusal *journal.RecoveryStepRefusal,
+) (journal.RecoveryStepReceipt, error) {
+	step, err := s.nextTurnRecoveryStep(ctx, owner, cycle, kind)
+	if err != nil {
+		return journal.RecoveryStepReceipt{}, err
+	}
+	step.Refusal = refusal
+	return s.journal.ReserveRecoveryStep(
+		context.WithoutCancel(ctx),
+		owner,
+		step,
+		s.now().UTC(),
+	)
+}
+
 func (s *Service) reserveAnsweredResume(
 	ctx context.Context,
 	owner journal.OwnerLease,
@@ -822,11 +842,23 @@ func (s *Service) reserveAnsweredResume(
 	return receipt, nil
 }
 
+// turnRecoveryStepHook builds the driver-facing hook that durably reserves
+// one bounded automatic action. epoch/try are the current dispatch's own
+// coordinates; a refusal is stamped onto the durable step only for an
+// actual submission-correction refusal raised under a known (epoch>=1,
+// try>=1) production dispatch - the fake/automation construction sites pass
+// 0, 0, and the step there simply carries no Refusal rather than failing
+// journal validation on zeroed SourceEpoch/SourceTry.
 func (s *Service) turnRecoveryStepHook(
 	owner journal.OwnerLease,
 	cycle *turnRecoveryCycle,
+	epoch, try int64,
 ) driver.RecoveryStepHook {
-	return func(ctx context.Context, kind driver.RecoveryStepKind) error {
+	return func(
+		ctx context.Context,
+		kind driver.RecoveryStepKind,
+		refusal *driver.SubmitRefusal,
+	) error {
 		var durable journal.RecoveryStepKind
 		switch kind {
 		case driver.RecoveryStepSubmissionCorrection:
@@ -838,7 +870,20 @@ func (s *Service) turnRecoveryStepHook(
 		default:
 			return runtimeFail("INVALID_TURN_RECOVERY", nil)
 		}
-		_, err := s.reserveTurnRecoveryStep(ctx, owner, cycle, durable)
+		var stepRefusal *journal.RecoveryStepRefusal
+		if refusal != nil &&
+			kind == driver.RecoveryStepSubmissionCorrection &&
+			epoch >= 1 && try >= 1 {
+			stepRefusal = &journal.RecoveryStepRefusal{
+				Code:        refusal.Code,
+				Detail:      refusal.Detail,
+				SourceEpoch: epoch,
+				SourceTry:   try,
+			}
+		}
+		_, err := s.reserveTurnRecoveryStepRefusal(
+			ctx, owner, cycle, durable, stepRefusal,
+		)
 		return err
 	}
 }
@@ -1092,6 +1137,14 @@ func (s *Service) invokeRecoverableWorker(
 				// resumed replan dispatch look stale against its own
 				// request.
 				InvocationScope: prepared.productionContext.InvocationScope,
+				// cycle.binding.ProgressID is this turn's own dispatch-work
+				// identity (the same value status.go's recovery validation
+				// compares attemptCoordinates(effect.ID) against): without
+				// it, a mid-turn resume on a granted work reconstructs a
+				// nil EffectiveLimits against the already-frozen non-nil
+				// value and spuriously reports STALE_DISPATCH
+				// (S4-resumable-budget-stops V3).
+				DispatchWork: cycle.binding.ProgressID,
 			},
 			before,
 			prepared,
@@ -1177,8 +1230,13 @@ func (s *Service) invokeRecoverableWorker(
 		permission,
 		engine.repository.ReservedNames(),
 	)
+	stepEpoch, stepTry := int64(0), int64(0)
+	if prepared.productionContext != nil {
+		stepEpoch = prepared.productionContext.Epoch
+		stepTry = prepared.productionContext.Try
+	}
 	invocation.RecoveryStepHook =
-		s.turnRecoveryStepHook(owner, cycle)
+		s.turnRecoveryStepHook(owner, cycle, stepEpoch, stepTry)
 	var targetBinding *driver.ContinuationBinding
 	if entry != nil && promotableTerminal {
 		target := entry.binding

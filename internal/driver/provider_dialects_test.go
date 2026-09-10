@@ -1594,7 +1594,7 @@ func providerDialectCertificationInvocation(
 			Input: input,
 			Bytes: instruction,
 		}},
-		RecoveryStepHook: func(context.Context, RecoveryStepKind) error {
+		RecoveryStepHook: func(context.Context, RecoveryStepKind, *SubmitRefusal) error {
 			return nil
 		},
 	}

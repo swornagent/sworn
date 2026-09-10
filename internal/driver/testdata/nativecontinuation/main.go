@@ -111,6 +111,10 @@ func main() {
 	); status != http.StatusOK {
 		os.Exit(27)
 	}
+	if strings.Contains(prompt.InvocationID, "native-stream-budget-pad") {
+		emitStreamBudgetPad()
+		select {}
+	}
 	if mode := credentialFixtureMode(family); mode != "" {
 		switch mode {
 		case "unreachable":
@@ -231,6 +235,21 @@ func main() {
 		os.Exit(28)
 	}
 	select {}
+}
+
+// emitStreamBudgetPad follows the real identity event emitInit already wrote
+// with one further event line sized to cross a 1_048_576-byte
+// (MaxProviderResponseBytes) cumulative native-stream budget once combined
+// with that identity event, while staying safely under the per-line scanner
+// buffer ceiling itself (the driver cannot be imported from this standalone
+// fixture module, so the 1_048_576/10-byte figures mirror, rather than
+// reference, MaxProviderResponseBytes).
+func emitStreamBudgetPad() {
+	const padLineBytes = 1_048_566
+	prefix := `{"type":"result","subtype":"success","result":"`
+	suffix := `"}`
+	pad := strings.Repeat("x", padLineBytes-len(prefix)-len(suffix))
+	fmt.Println(prefix + pad + suffix)
 }
 
 func emitProse(family string) {

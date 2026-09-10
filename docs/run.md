@@ -221,6 +221,36 @@ sworn retry \
   --config /absolute/path/drivers.json
 ```
 
+A work item that stopped because it reached its configured API-turn,
+API-output-token, or native-output-byte budget parks with its code retained
+and no accepted candidate; `retry` alone is refused for it
+(`ECONOMY_GRANT_REQUIRED`). `grant` admits an explicit, finite, bounded
+capacity increase for exactly the named unit and work item, then the same
+run continues from the preserved work:
+
+```sh
+sworn grant \
+  --run RUN_ID \
+  --journal /absolute/path/run.sqlite \
+  --command UNIQUE_COMMAND_ID \
+  --generation CURRENT_GENERATION \
+  --work SHA256_FROM_LATEST_ACTION \
+  --epoch EPOCH_FROM_LATEST_ACTION \
+  --unit economy_turns \
+  --amount 50 \
+  --config /absolute/path/drivers.json
+```
+
+`--unit` is one of `economy_turns`, `economy_output_tokens`, or
+`economy_output_bytes`, matching the board's named exhausted unit. A grant is
+refused above the hard per-invocation ceiling (`GRANT_ABOVE_HARD_CEILING`),
+for the wrong unit (`GRANT_WRONG_UNIT`), or when this work's recorded spend
+carries a crash-before-usage-receipt gap that has not been acknowledged
+(`ECONOMY_USAGE_UNKNOWN`) — add `--acknowledge-unknown-usage` only once you
+have reviewed that gap and accept resuming within this work's own
+already-declared ceiling. A grant unblocks only its named work and unit; it
+never changes the driver, model, or any other limit.
+
 Sworn's orchestrator handles a worker turn that ends with a question, reports a
 block, or does not return a usable handoff. It can resume the same worker with
 an answer grounded in saved facts, ask the Captain for advice, retry an
@@ -258,6 +288,101 @@ sworn answer \
 
 `uncertain` means Sworn cannot confirm whether the last external action
 finished. It will not repeat that action until recovery can do so safely.
+
+## Checkpoints and work preservation
+
+When an implementation dispatch terminates without a successful handoff (such as
+from an error, bounded budget pause, or graceful cancellation), Sworn captures an
+unverified product checkpoint before disposable workspace cleanup. On an
+authorized retry with unchanged authority and prepared base, Sworn restores
+these product additions, edits, deletions, and executable permissions before the
+worker begins.
+
+Saved checkpoints are unverified product recovery data, never candidate
+admissions, verification verdicts, or merge permissions. Checkpoint trees are
+anchored by Git references under `refs/heads/checkpoints/...` so they survive
+Git garbage collection (`git gc --prune=now`).
+
+### Storage bounds and defaults
+
+Checkpoint storage has reviewed finite bounds:
+
+- **Max bytes per checkpoint**: 64 MiB (`MaxCheckpointBytes`).
+- **Max files per checkpoint**: 2,048 files (`MaxCheckpointFiles`).
+- **Retained generations**: 3 generations per work item (`MaxCheckpointGenerations`).
+- **Aggregate capacity**: 256 MiB per repository/run (`MaxAggregateCheckpointBytes`),
+  measured by staged bytes at capture time.
+
+Superseded generations are pruned in crash-safe order: older refs are removed
+only after a durable replacement ref and journal event are committed. Automatic
+cleanup never evicts the last recoverable copy of unfinished work. When
+aggregate capacity is reached and no superseded copies remain to prune, Sworn
+pauses capture and new dispatch with the named remedy
+`CHECKPOINT_CAPACITY_EXCEEDED`.
+
+### Quarantined workspaces and operator reclamation
+
+If checkpoint capture encounters a fault condition (such as `ENOSPC`,
+`CHECKPOINT_OVERSIZE`, `CHECKPOINT_TOO_MANY_FILES`,
+`CHECKPOINT_UNSUPPORTED_ENTRY`, `CHECKPOINT_SCOPE_VIOLATION`, or
+`CHECKPOINT_CAPACITY_EXCEEDED`), Sworn does not delete the workspace. Instead,
+it quarantines the worktree under a `.fence` record.
+
+Startup and shutdown cleanup skips fenced workspaces, and new writers are
+refused with `WORKSPACE_FENCED` to prevent overwriting uncheckpointed progress.
+The board and `sworn status --json` distinguish unverified saved work
+(`saved`), restored work (`restored`), interrupted-process recovery data
+(`salvaged`, or `restored_salvaged` once restored), and capture failure with a
+fenced workspace (`fenced`), reporting the affected slice and failure reason.
+See "Interrupted-process reconciliation" below for `salvaged`.
+
+To reclaim or resolve a quarantined workspace:
+
+1. Check the fenced workspace path reported by `sworn status --json` or `sworn board`.
+2. Inspect or salvage the worktree files under that path if needed.
+3. Remove the quarantined worktree and lease:
+   ```sh
+   git worktree remove --force <path-to-fenced-worktree>
+   ```
+   Or remove the `.fence` marker file inside the workspace root so normal
+   abandoned-workspace cleanup can reclaim it.
+
+### Interrupted-process reconciliation
+
+If the driving process is killed (host crash, `SIGKILL`, power loss) after a
+production implementation worker has opened its workspace and written scoped
+code, but before it hands off or checkpoints, that worktree is not silently
+deleted by the replacement owner's ordinary abandoned-workspace cleanup.
+Sworn durably attributes an implementation workspace to its run before any
+driver dispatch begins; a replacement owner's first owned cycle scans for
+attributed abandoned workspaces, admits the sole writer for that track (a
+live prior worker or an already-quarantined workspace is left alone), and
+either finds nothing changed since its prepared base or captures the
+interrupted bytes as an explicitly **unverified salvaged checkpoint** before
+the worktree is reclaimed.
+
+A salvaged checkpoint is not the same durability claim as an ordinary saved
+checkpoint:
+
+- **`saved`**: a completed capture, staged and measured by the same worker
+  that wrote it, with the tree digest recorded before the workspace closed.
+- **`salvaged`**: recovered from a workspace whose owning process never
+  reached its own checkpoint or handoff. It may be a complete write, or it
+  may reflect a filesystem write that had not finished when the process
+  died; sudden power loss during an unacknowledged write is never reported
+  as zero-loss recovery. `sworn status --json` and the board report
+  `salvaged` (or `restored_salvaged` once a later attempt restores it)
+  distinctly from `saved`/`restored`, alongside the same affected slice,
+  tree digest, and file/byte counts.
+
+A changed plan, contract, or track base between the interrupted attempt and
+the replacement owner's authority blocks automatic restoration into the new
+authority: the checkpoint stays exactly where it is, under its Git ref and
+journal row, inspectable with a specific `stale_base`, `stale_plan`, or
+`stale_contract` reason, rather than silently rebasing or discarding it.
+Ownership mismatch, a foreign run or repository attribution, or a corrupt
+recovery binding fences the workspace the same way a capture fault does,
+rather than restoring it or clearing the way by deleting it.
 
 ## Configure one AI connection
 
@@ -321,3 +446,38 @@ Linux production execution requires root-owned `bwrap` discoverable on PATH
 `driver certify` and production runs can
 consume provider usage; the ordinary Go test suite does not make live provider
 requests.
+## Host-check repair input
+
+When an implementation's host check fails, Sworn retains the exact failed
+check (command, candidate, output, exit status and digest) and the submitted
+handoff as `host_repair` in the failed dispatch. This is **unverified repair
+input**, not a candidate receipt or a verifier PASS. A same-authority retry
+restores its matching checkpoint and receives that context so it can repair
+the existing work. Fresh host checks and independent verification still gate
+delivery. Missing legacy context or mismatched checkpoint, plan, candidate or
+check bindings refuse model dispatch instead of starting a blind rebuild.
+
+Repeated failures publish the existing typed park event at the between-tries
+gate, with a retained-candidate diagnostic, so configured notification
+consumers can observe the stop without waiting for another scheduler tick.
+This does not invent a human approval question or authorize an automatic
+budget increase.
+
+## Submission-refusal repair input
+
+When a submitted handoff is refused for a field-level reason (an
+implementer's malformed or incomplete `sworn_submit` call), that refusal is
+durably reserved before it is ever returned to the worker, alongside the
+dispatch try that raised it. If correction exhausts its budget or the
+process stops before a valid handoff, the next same-authority continuation
+receives that exact refusal and matching checkpoint provenance as
+`submission_repair` in its work context - again **unverified repair
+input**, never a candidate receipt or a verifier PASS - so it can complete
+the handoff on the retained code instead of an empty commit or a blind
+regeneration. A refusal already corrected by an accepted submission in the
+same or a later try is not replayed as outstanding.
+
+For worktree-hosted operation, pass the intended `--operator-config` explicitly
+to `sworn serve`. Default discovery searches the current checkout; a config
+in another linked checkout is not automatically inherited. Check telemetry
+health and actual collector receipt before assuming a run is observable.

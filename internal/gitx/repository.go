@@ -237,6 +237,14 @@ func Open(repository, gitExecutable string) (*Repository, error) {
 	return repo, nil
 }
 
+// CommonDir returns the Git common directory for this repository.
+func (r *Repository) CommonDir() string {
+	if r == nil {
+		return ""
+	}
+	return r.commonDir
+}
+
 // ProjectConfig returns the resolved project configuration for this
 // repository (documented defaults when the committed project file is absent).
 func (r *Repository) ProjectConfig() ProjectConfig {
@@ -893,6 +901,18 @@ func (r *Repository) CommitTimestamp(commit OID) (int64, error) {
 		return 0, fail("INVALID_GIT_OUTPUT", "read commit timestamp", err)
 	}
 	return value, nil
+}
+
+// CommitSubject returns the subject line of a commit.
+func (r *Repository) CommitSubject(commit OID) (string, error) {
+	if err := r.validateOID(commit); err != nil {
+		return "", err
+	}
+	raw, err := r.run(nil, nil, "show", "-s", "--format=%s", commit.String())
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(raw)), nil
 }
 
 // CommitIdentity returns the one validated author/committer identity on an
