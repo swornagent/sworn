@@ -100,8 +100,12 @@ type ContractError struct {
 	// bounded provider/native-stderr text, and beside NATIVE_SURFACE_INVALID
 	// and PROCESS_START_FAILED as their own structured envelopes, in every
 	// case only after normalizeAdapterError re-validates it at the
-	// dispatcher boundary. A Detail that never reaches normalizeAdapterError
-	// - CONTINUATION_INVALID, the submission-refusal family, and
+	// dispatcher boundary. CONTINUATION_INVALID joined them: its Detail is
+	// engine vocabulary (a site label, or the correlate envelope), and
+	// revalidateContinuationDetail re-validates it at that same boundary so
+	// a continuation death names its mechanism in the dispatch record. A
+	// Detail that never reaches normalizeAdapterError - the
+	// submission-refusal family and
 	// INVALID_RECOVERY_DECISION/INVALID_ADVISORY_RESULT's automation Detail
 	// among them - is same-process loop-correction or refusal text instead:
 	// constructed and consumed within this package, so it needs no funnel

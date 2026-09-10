@@ -225,7 +225,13 @@ func detailPreservingCode(code string) bool {
 		"PROVIDER_ERROR",
 		"PROVIDER_TRANSPORT_FAILED",
 		"NATIVE_SURFACE_INVALID",
-		"PROCESS_START_FAILED":
+		"PROCESS_START_FAILED",
+		// CONTINUATION_INVALID carries engine vocabulary only: a site label
+		// or the correlate envelope, both structurally re-validated by
+		// revalidateContinuationDetail at the funnel. It is here so a
+		// continuation death names its mechanism in the dispatch record
+		// rather than arriving as a bare code (#291).
+		"CONTINUATION_INVALID":
 		return true
 	default:
 		return false
@@ -238,7 +244,8 @@ func detailPreservingCode(code string) bool {
 // envelopes).
 func plainDetailCode(code string) bool {
 	return detailPreservingCode(code) &&
-		code != "NATIVE_SURFACE_INVALID" && code != "PROCESS_START_FAILED"
+		code != "NATIVE_SURFACE_INVALID" && code != "PROCESS_START_FAILED" &&
+		code != "CONTINUATION_INVALID"
 }
 
 // hardLimited reports whether an error classifies as hard provider

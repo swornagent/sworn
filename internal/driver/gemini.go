@@ -359,6 +359,11 @@ func (conversation *geminiConversation) accept(body []byte) (providerTurn, error
 	var calls []providerToolCall
 	var pending []geminiPending
 	var opaque []opaqueField
+	// turnIDs holds the ids this turn itself offered to the ledger, so a
+	// duplicate can name which side of the turn boundary it clashed with -
+	// the fact the ledger alone cannot report, because it holds every
+	// admitted id of the whole conversation in one set.
+	turnIDs := make(map[string]struct{}, len(rawParts))
 	for index, rawPart := range rawParts {
 		part, partErr := closedObject(
 			rawPart,
@@ -421,12 +426,41 @@ func (conversation *geminiConversation) accept(body []byte) (providerTurn, error
 			}
 			providerID, _ := function["id"].(string)
 			internalID := providerID
+			idSource := correlateIDProvider
 			if internalID == "" {
+				idSource = correlateIDSynthesised
 				internalID = "gemini-" + itoa(conversation.step+1) + "-" + itoa(index+1)
 			}
-			if conversation.ledger.correlate(internalID) != nil {
-				return providerTurn{}, failContinuation("continuation.gemini.accept_function_correlate_failed")
+			offeredID := internalID
+			if correlateErr := conversation.ledger.correlate(
+				internalID,
+			); correlateErr != nil {
+				admitted, retried := conversation.disambiguateCallID(
+					internalID,
+					idSource,
+					correlateErr,
+					index,
+				)
+				if admitted == "" {
+					return providerTurn{}, failCorrelate(
+						geminiCorrelateDetail(
+							internalID,
+							idSource,
+							correlateErr,
+							conversation.step+1,
+							index+1,
+							turnIDs,
+							retried,
+						),
+					)
+				}
+				internalID = admitted
 			}
+			// Both the id this part offered and the id actually admitted
+			// belong to this turn: a later part repeating either one clashes
+			// same_turn, not against an earlier turn.
+			turnIDs[offeredID] = struct{}{}
+			turnIDs[internalID] = struct{}{}
 			call := providerToolCall{
 				ID: internalID, Name: name,
 				Arguments: append([]byte(nil), arguments...),
@@ -484,6 +518,81 @@ func (conversation *geminiConversation) accept(body []byte) (providerTurn, error
 		turn.Usage = parsed
 	}
 	return turn, nil
+}
+
+// geminiInternalIDSuffix is the engine's deterministic disambiguation suffix.
+// It is appended to a repeated provider id to form the internal correlation
+// id and never travels: the replayed functionCall part carries the provider's
+// own id verbatim (accept sets geminiFunctionCall.ID from providerID, not
+// from the internal id), and a Gemini functionResponse part carries no id at
+// all, so the model sees exactly the bytes it sent.
+func geminiInternalIDSuffix(step, part int) string {
+	return "#gemini-" + itoa(step) + "-" + itoa(part)
+}
+
+// disambiguateCallID answers one known provider quirk and nothing else: the
+// same function-call id returned on two separate function-call parts. Such a
+// turn is well-formed on the wire but unrepresentable in a correlation ledger
+// that requires distinct ids, and refusing it kills the whole dispatch - the
+// defect #291 records, which cost a 47-minute implementation. The engine's
+// own suffix makes the internal id distinct while the provider's id rides
+// replay unchanged.
+//
+// It refuses to paper over anything else. A synthesised id that collides is
+// an engine invariant breaking, and an id the ledger called invalid is not a
+// duplicate at all; both fail loudly with the recorded detail instead. The
+// returned admitted id is empty when no disambiguation was applied, and
+// retried reports whether one was attempted and itself refused - a fact the
+// record carries, so a suffix that cannot help (an id already at the
+// correlation bound, say) is visible rather than silent.
+func (conversation *geminiConversation) disambiguateCallID(
+	id string,
+	idSource string,
+	correlateErr error,
+	index int,
+) (admitted string, retried bool) {
+	if conversation == nil || idSource != correlateIDProvider ||
+		correlateFailureCause(correlateErr) != correlateCauseDuplicate {
+		return "", false
+	}
+	candidate := id + geminiInternalIDSuffix(conversation.step+1, index+1)
+	if conversation.ledger.correlate(candidate) != nil {
+		return "", true
+	}
+	return candidate, true
+}
+
+// geminiCorrelateDetail renders the failure record for a correlation the
+// ledger refused: which id, whose id, where in the conversation, and - for a
+// duplicate - which side of the turn boundary it clashed with. Before this,
+// the dispatch record kept the bare code and an operator could not tell a
+// provider that repeated an id from an engine that synthesised a colliding
+// one (#291).
+func geminiCorrelateDetail(
+	id string,
+	idSource string,
+	correlateErr error,
+	step, part int,
+	turnIDs map[string]struct{},
+	retried bool,
+) correlateFailureDetail {
+	detail := correlateFailureDetail{
+		Site:                    "continuation.gemini.accept_function_correlate_failed",
+		Cause:                   correlateFailureCause(correlateErr),
+		IDSource:                idSource,
+		ID:                      recordedCorrelateID(id),
+		IDBytes:                 len(id),
+		Step:                    step,
+		Part:                    part,
+		DisambiguationAttempted: retried,
+	}
+	if detail.Cause == correlateCauseDuplicate {
+		detail.DuplicateScope = correlateDuplicateEarlierTurn
+		if _, sameTurn := turnIDs[id]; sameTurn {
+			detail.DuplicateScope = correlateDuplicateSameTurn
+		}
+	}
+	return detail
 }
 
 // geminiUsage parses usageMetadata, surfacing cached-content tokens as cache
