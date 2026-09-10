@@ -628,9 +628,40 @@ func installHostedDrivePlan(t *testing.T, root string, plan baton.Plan) {
 	}
 }
 
+// requireNestedBubblewrapTrust skips the calling test when this process
+// cannot mount a nested bubblewrap sandbox. The scripted WorkVerification
+// turn this file drives issues a real Bash tool call, and runToolBash
+// (internal/driver/tools_linux.go) always contains that call in its own
+// bwrap invocation, regardless of adapter - there is no test-only bypass for
+// it (the SWORN_TEST_UNCONTAINED_DISPATCH escape hatch only covers the fake
+// driver's dispatch path, not this tool). driver.ProbeNestedContainment runs
+// the exact production trust check (trustedBubblewrap): the bwrap binary
+// must resolve to a regular, executable, non-group/world-writable file owned
+// by uid 0. Inside an already-sandboxed worker that is never true: the outer
+// sandbox's user namespace maps only the worker's own uid, so a genuinely
+// uid-0-owned bwrap on the host reads back as the unmapped overflow uid
+// (65534) from inside it. AGENTS.md documents exactly this boundary for
+// nested containment ("every nested dispatch returns ISOLATION_UNAVAILABLE");
+// an already-contained worker running this test hits the identical wall,
+// just reached through a WorkVerification Bash call instead of the e2e
+// suite. Left unskipped, every retry of that Bash call is refused, the run
+// burns its whole turn budget on automatic submission corrections it can
+// never satisfy, and this test spends its full 30-second completion poll
+// finding that out.
+func requireNestedBubblewrapTrust(t *testing.T) {
+	t.Helper()
+	if err := driver.ProbeNestedContainment(); err != nil {
+		t.Skipf(
+			"nested bubblewrap containment is unavailable (%v): this process is itself running inside a sandboxed worker, which cannot nest containment (AGENTS.md)",
+			err,
+		)
+	}
+}
+
 // A1: Board actions no longer create and destroy the drive host per action:
 // the command service lives across actions and the drive an answer starts survives the action's return.
 func TestTUIActionDriveSurvivesActionReturn(t *testing.T) {
+	requireNestedBubblewrapTrust(t)
 	t.Setenv("SWORN_TUI_ANSWER_KEY", tuiAnswerTestSecret)
 
 	provider := &tuiAnswerProvider{
@@ -784,6 +815,7 @@ func TestTUIActionDriveSurvivesActionReturn(t *testing.T) {
 
 // A2: An accepted answer is followed by observable drive progress in the same TUI session without restarting the TUI.
 func TestTUIAnswerObservesSubsequentDriveProgress(t *testing.T) {
+	requireNestedBubblewrapTrust(t)
 	provider := &tuiAnswerProvider{
 		t:        t,
 		question: tuiAnswerTestQuestion,
