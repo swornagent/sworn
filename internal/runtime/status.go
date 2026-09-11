@@ -88,8 +88,8 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		return RunStatus{}, err
 	}
 	active, uncertain := false, false
-	exhausted := make(map[string]struct{})
-	exhaustionRefusals := make(map[string]exhaustionRefusalFacts)
+	var exhausted map[string]struct{}
+	var exhaustionRefusals map[string]exhaustionRefusalFacts
 	attentionParked := false
 	// Recovery guidance derives from the same snapshot, clock read, and
 	// journal.RetryAdmissibleEffect predicate the control verbs evaluate.
@@ -165,41 +165,10 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 				}
 			}
 		}
-		if effect.State == journal.OperationalFailed && strings.HasSuffix(effect.ID, "/t3") && !isDerived {
-			if len(parts) == 4 {
-				epoch, _ := strconv.ParseInt(strings.TrimPrefix(parts[2], "e"), 10, 64)
-				current := control.RetryEpochs[work]
-				if current == 0 {
-					current = 1
-				}
-				if epoch == current {
-					exhausted[work] = struct{}{}
-					// The persisted effect's ErrorCode is the stable
-					// runtime-wrapper code (e.g. CANDIDATE_SCOPE_FAILED);
-					// the more specific refusal code (SLICE_OUTSIDE_SCOPE,
-					// RESERVED_RECORD_ROOT_CHANGED) rides the effect's
-					// journaled productionRefusalBinding result alongside
-					// the named paths.
-					if effect.ErrorCode == "CANDIDATE_SCOPE_FAILED" {
-						if detail := scopeExhaustionDetail(effect.Result); detail != "" {
-							exhaustionRefusals[work] = exhaustionRefusalFacts{
-								code: effect.ErrorCode, detail: detail,
-							}
-						}
-					} else if effect.ErrorCode == "EMPTY_CANDIDATE" {
-						// EMPTY_CANDIDATE is raised via a plain fail(...)
-						// with no structured Result to render (unlike
-						// CANDIDATE_SCOPE_FAILED's named paths), so the
-						// code alone already fully explains the cause.
-						exhaustionRefusals[work] = exhaustionRefusalFacts{
-							code:   effect.ErrorCode,
-							detail: "EMPTY_CANDIDATE: implementation produced no change to seal",
-						}
-					}
-				}
-			}
-		}
 	}
+	// Exhaustion is journal-derived, in the one place the drive loop reads it
+	// from too, so both surfaces name the same spent try budgets.
+	exhausted, exhaustionRefusals = exhaustedWorks(snapshot, control, recoveryClaims)
 	degradationCount := int64(len(degradationFallbacks(snapshot)))
 	degradationBudgetExceeded := degradationCount > manifest.value.EffectiveDegradationBudget()
 	// Economy and identical-failure guards (A1/A2) are evaluated over the
@@ -493,12 +462,27 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 			identicalByOwner[owner] = crossing
 		}
 	}
+	// A standing exhaustion park is matched by the slice lineage the journal
+	// attributes it to, not by the exact work identity: every candidate work
+	// identity binds the target head, so a commit on the target branch moves
+	// the identity of work nobody has touched, and a park matched by identity
+	// alone would silently vanish with it (sworn#293).
+	exhaustionParks := exhaustionParkCrossings(
+		manifest, snapshot, exhausted, exhaustionRefusals,
+	)
 	pinnedWork, laneParks, allLanesPinned := resolveLanePins(
 		lanes, exhausted, exhaustionRefusals, economyByOwner, identicalByOwner,
+		exhaustionParksByLane(state, exhaustionParks),
 	)
+	// Zero candidate lanes is not progress: short of a merged release, Baton
+	// state offers no work at all, so a standing exhaustion is the run's
+	// whole current condition and fails closed as a park rather than reading
+	// as running.
+	drained := len(lanes) == 0 && len(exhaustionParks) != 0 &&
+		state.Assembly.Outcome != "merged"
 	parked = humanAuthorityRequired || attentionParked ||
 		degradationBudgetExceeded || bootstrapAuthorityParked ||
-		(len(lanes) != 0 && allLanesPinned)
+		(len(lanes) != 0 && allLanesPinned) || drained
 	if control.Desired == "running" && !uncertain && !parked {
 		switch {
 		case proposalFound && !proposalActivated:
@@ -534,6 +518,15 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		case len(laneParks) != 0:
 			result.Park = parkStatusFor(manifest, laneParks[0].facts)
 			result.Park.Work = laneParks[0].work
+		case len(exhaustionParks) != 0:
+			// The zero-lane park: no candidate lane carries the exhaustion,
+			// so the standing park names itself.
+			result.Park = parkStatusFor(manifest, parkFacts{
+				exhaustionApplies: true,
+				exhaustionCode:    exhaustionParks[0].code,
+				exhaustionDetail:  exhaustionParks[0].detail,
+			})
+			result.Park.Work = exhaustionParks[0].work
 		}
 	} else {
 		result.Park = nil
@@ -1046,12 +1039,19 @@ type lanePinFacts struct {
 // the stamped PinnedWork facts for every pinned lane (A2), the same facts
 // in parkStatusFor's richer shape for the single-cause Park fallback (B3),
 // and whether every candidate lane is pinned.
+//
+// exhaustionByLane carries the standing exhaustion parks keyed by the lane
+// each one's slice lineage belongs to. It pins a lane whose current
+// candidate works no longer name the exhausted work at all, which is how a
+// park outlives a target-head move that re-identified every candidate work
+// (sworn#293).
 func resolveLanePins(
 	lanes []laneCandidates,
 	exhausted map[string]struct{},
 	exhaustionRefusals map[string]exhaustionRefusalFacts,
 	economyByOwner map[string]economyParkFacts,
 	identicalByOwner map[string]identicalFailureFacts,
+	exhaustionByLane map[string]exhaustionParkFacts,
 ) ([]PinnedWork, []lanePinFacts, bool) {
 	var pinnedWork []PinnedWork
 	var laneParks []lanePinFacts
@@ -1093,17 +1093,27 @@ func resolveLanePins(
 			}
 		}
 		if !pinned {
-			if work, ok := intersectingWork(exhausted, lane.works); ok {
+			work, ok := intersectingWork(exhausted, lane.works)
+			facts := exhaustionParkFacts{work: work}
+			if ok {
 				refusal := exhaustionRefusals[work]
+				facts.code, facts.detail = refusal.code, refusal.detail
+			} else {
+				// The lane's own candidate works no longer name the
+				// exhausted work: the standing park's slice lineage does
+				// (sworn#293).
+				facts, ok = exhaustionByLane[lane.lane]
+			}
+			if ok {
 				pinnedWork = append(pinnedWork, PinnedWork{
-					WorkID: work, Lane: lane.lane, Cause: ParkCauseExhaustion,
-					Code: refusal.code, Detail: refusal.detail,
+					WorkID: facts.work, Lane: lane.lane, Cause: ParkCauseExhaustion,
+					Code: facts.code, Detail: facts.detail,
 				})
 				laneParks = append(laneParks, lanePinFacts{
-					work: work, facts: parkFacts{
+					work: facts.work, facts: parkFacts{
 						exhaustionApplies: true,
-						exhaustionCode:    refusal.code,
-						exhaustionDetail:  refusal.detail,
+						exhaustionCode:    facts.code,
+						exhaustionDetail:  facts.detail,
 					},
 				})
 				pinned = true

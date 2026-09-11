@@ -235,6 +235,25 @@ func canonicalDegradationParkEvent(event DegradationParkEvent) ([]byte, error) {
 			return nil, runtimeFail("INVALID_PARK_EVENT", nil)
 		}
 	case event.SchemaVersion == ParkEventVersion &&
+		event.Cause == ParkCauseExhaustion:
+		// An exhaustion park names the work whose current-epoch try budget
+		// is spent. FailureCode and FailureDetail carry the durable refusal
+		// facts when the exhausting effect had them (a scope refusal, an
+		// empty candidate) and are honestly empty otherwise. There is no
+		// unblock knob: a retry or cancel control clears this park, not a
+		// manifest value.
+		if event.UnblockKnob != "" ||
+			!runtimeDigestPattern.MatchString(event.Work) ||
+			(event.FailureCode != "" &&
+				!runtimeIdentityPattern.MatchString(event.FailureCode)) ||
+			!validParkDetail(event.FailureDetail) ||
+			event.Count != 0 || event.Budget != 0 ||
+			len(event.Fallbacks) != 0 || event.Spent != 0 ||
+			event.Consecutive != 0 || event.Threshold != 0 ||
+			event.Reason != "" {
+			return nil, runtimeFail("INVALID_PARK_EVENT", nil)
+		}
+	case event.SchemaVersion == ParkEventVersion &&
 		event.Cause == ParkCauseBootstrapAuthority:
 		if event.UnblockKnob != "" ||
 			event.Count != 0 || event.Budget != 0 ||

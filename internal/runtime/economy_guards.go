@@ -8,8 +8,11 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"sort"
+	"strconv"
 	"strings"
 
+	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/journal"
 )
@@ -871,4 +874,238 @@ func hasParkEventForCause(
 		}
 	}
 	return false
+}
+
+// exhaustedWorks returns every work whose current-epoch try budget is spent
+// (a third try that failed operationally), with the durable refusal facts
+// the exhausting effect carried. Both the status projection and the drive
+// loop read exhaustion from here: the fact is journal-derived, so it is the
+// same fact on both surfaces and it moves only when the journal moves.
+//
+// skipEffects names effects a deliberate recovery claim already owns; they
+// are excluded exactly as the status effect walk excludes them, so an
+// answered recovery turn is never also read as an exhaustion.
+func exhaustedWorks(
+	snapshot journal.Snapshot,
+	control journal.ControlProjection,
+	skipEffects map[string]journal.AttentionState,
+) (map[string]struct{}, map[string]exhaustionRefusalFacts) {
+	exhausted := make(map[string]struct{})
+	refusals := make(map[string]exhaustionRefusalFacts)
+	derived := derivedWorks(snapshot)
+	for _, effect := range snapshot.Effects {
+		if effect.ID == "runtime.owner" || effect.Kind == "runtime.control" {
+			continue
+		}
+		if _, deliberate := skipEffects[effect.ID]; deliberate {
+			continue
+		}
+		if effect.State != journal.OperationalFailed ||
+			!strings.HasSuffix(effect.ID, "/t3") {
+			continue
+		}
+		parts := strings.Split(effect.ID, "/")
+		if len(parts) != 4 {
+			continue
+		}
+		work := "sha256:" + parts[1]
+		if _, isDerived := derived[work]; isDerived {
+			continue
+		}
+		epoch, _ := strconv.ParseInt(strings.TrimPrefix(parts[2], "e"), 10, 64)
+		// One epoch authority for every park gate: the same predicate the
+		// economy crossings use, so a Retry or a Grant advancing the work's
+		// epoch spends this park too, and a nested dispatch identity is
+		// judged by the outer epoch that built it rather than by a
+		// structurally constant one (S4-resumable-budget-stops V2).
+		if !dispatchAttemptIsCurrentEpoch(snapshot, control, work, epoch) {
+			continue
+		}
+		exhausted[work] = struct{}{}
+		// The persisted effect's ErrorCode is the stable runtime-wrapper
+		// code (e.g. CANDIDATE_SCOPE_FAILED); the more specific refusal
+		// code (SLICE_OUTSIDE_SCOPE, RESERVED_RECORD_ROOT_CHANGED) rides
+		// the effect's journaled productionRefusalBinding result alongside
+		// the named paths.
+		if effect.ErrorCode == "CANDIDATE_SCOPE_FAILED" {
+			if detail := scopeExhaustionDetail(effect.Result); detail != "" {
+				refusals[work] = exhaustionRefusalFacts{
+					code: effect.ErrorCode, detail: detail,
+				}
+			}
+		} else if effect.ErrorCode == "EMPTY_CANDIDATE" {
+			// EMPTY_CANDIDATE is raised via a plain fail(...) with no
+			// structured Result to render (unlike CANDIDATE_SCOPE_FAILED's
+			// named paths), so the code alone already fully explains the
+			// cause.
+			refusals[work] = exhaustionRefusalFacts{
+				code:   effect.ErrorCode,
+				detail: "EMPTY_CANDIDATE: implementation produced no change to seal",
+			}
+		}
+	}
+	return exhausted, refusals
+}
+
+// exhaustionParkFacts names one standing exhaustion park: the exhausted work,
+// the slice lineage the journal attributes it to (empty when no dispatch
+// context names one), and the durable refusal code and detail.
+type exhaustionParkFacts struct {
+	work string
+	// slice is the slice the work's dispatch context names; it is empty for
+	// a release-lane work (a planner proposal, an assembly dispatch), which
+	// attributed distinguishes from a work the journal attributes to no
+	// dispatch context at all.
+	slice      string
+	attributed bool
+	code       string
+	detail     string
+}
+
+// exhaustionParkCrossings turns the currently-exhausted works into standing
+// park facts, in stable work order. Each work is attributed to the slice its
+// own dispatch context names - through ownerWorkForDispatch, so an enclosing
+// git.seal work inherits the slice of the implementer dispatch nested inside
+// it - and a work whose slice lineage already carries a later success is
+// dropped: new journaled work for that slice spends the park, exactly as it
+// spends an identical-failure streak (A3).
+//
+// The slice is what makes this park survivable. Every candidate work
+// identity binds state.Refs.Target.Head, so a commit on the target branch
+// moves the identity of work nobody has touched; the slice lineage does not
+// move with it, and a park matched by lineage cannot be erased by a
+// repository read (sworn#293).
+func exhaustionParkCrossings(
+	manifest admittedManifest,
+	snapshot journal.Snapshot,
+	exhausted map[string]struct{},
+	refusals map[string]exhaustionRefusalFacts,
+) []exhaustionParkFacts {
+	if len(exhausted) == 0 {
+		return nil
+	}
+	works := make([]string, 0, len(exhausted))
+	for work := range exhausted {
+		works = append(works, work)
+	}
+	sort.Strings(works)
+	commands := make(map[string]journal.Command, len(snapshot.Commands))
+	for _, command := range snapshot.Commands {
+		commands[command.ReplayKey] = command
+	}
+	var result []exhaustionParkFacts
+	for _, work := range works {
+		context, hasContext := exhaustionDispatchContext(
+			snapshot, commands, work,
+		)
+		if hasContext && lineageHasLaterSuccess(
+			manifest, snapshot, commands,
+			dispatchLineageKey(manifest, context), work, context.Attempt,
+		) {
+			continue
+		}
+		facts := exhaustionParkFacts{work: work}
+		if hasContext {
+			facts.slice, facts.attributed = context.Slice, true
+		}
+		if refusal, ok := refusals[work]; ok {
+			facts.code, facts.detail = refusal.code, refusal.detail
+		}
+		result = append(result, facts)
+	}
+	return result
+}
+
+// exhaustionDispatchContext returns the dispatch context of the highest-try
+// dispatch the exhausted work owns: the work's own dispatch when it is one,
+// or the nested implementer dispatch when the work is its enclosing git.seal.
+// Absent context is honest absence - a work with no journaled dispatch
+// context names no slice.
+func exhaustionDispatchContext(
+	snapshot journal.Snapshot,
+	commands map[string]journal.Command,
+	work string,
+) (productionWorkContext, bool) {
+	var (
+		found productionWorkContext
+		best  int64
+		ok    bool
+	)
+	for _, effect := range snapshot.Effects {
+		if effect.Kind != "driver.dispatch" {
+			continue
+		}
+		dispatchWork, _, try, coordErr := attemptCoordinates(effect.ID)
+		if coordErr != nil ||
+			ownerWorkForDispatch(snapshot, dispatchWork) != work {
+			continue
+		}
+		context, hasContext := dispatchContext(commands, effect.ReplayKey)
+		if !hasContext || try < best {
+			continue
+		}
+		found, best, ok = context, try, true
+	}
+	return found, ok
+}
+
+// exhaustionParkLane names the candidate lane a standing exhaustion park
+// pins: the track owning its slice, or the release pseudo-lane for a work
+// with no slice of its own (a planner proposal, an assembly dispatch). A
+// park the journal attributes to no dispatch context names no lane, and
+// neither does a slice the current Baton state no longer carries: an
+// unattributed park is not silently charged to the release lane.
+func exhaustionParkLane(
+	state baton.State,
+	park exhaustionParkFacts,
+) (string, bool) {
+	if !park.attributed {
+		return "", false
+	}
+	if park.slice == "" {
+		return "release", true
+	}
+	owning, ok := state.Slice(park.slice)
+	if !ok {
+		return "", false
+	}
+	return owning.Location.Track.ID, true
+}
+
+// exhaustionParksByLane keys the standing exhaustion parks by the candidate
+// lane each one pins, keeping the first park per lane so one lane is never
+// pinned twice.
+func exhaustionParksByLane(
+	state baton.State,
+	parks []exhaustionParkFacts,
+) map[string]exhaustionParkFacts {
+	byLane := make(map[string]exhaustionParkFacts, len(parks))
+	for _, park := range parks {
+		lane, ok := exhaustionParkLane(state, park)
+		if !ok {
+			continue
+		}
+		if _, exists := byLane[lane]; exists {
+			continue
+		}
+		byLane[lane] = park
+	}
+	return byLane
+}
+
+// exhaustionParkEventBody renders the typed park event body for one standing
+// exhaustion park, so exhaustion records its park in the journal exactly as
+// the economy and identical-failure causes already do.
+func exhaustionParkEventBody(
+	runID string,
+	park exhaustionParkFacts,
+) ([]byte, error) {
+	return canonicalDegradationParkEvent(DegradationParkEvent{
+		SchemaVersion: ParkEventVersion,
+		RunID:         runID,
+		Cause:         ParkCauseExhaustion,
+		FailureCode:   park.code,
+		FailureDetail: park.detail,
+		Work:          park.work,
+	})
 }
