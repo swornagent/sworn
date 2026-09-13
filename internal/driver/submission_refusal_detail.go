@@ -3,6 +3,7 @@ package driver
 import (
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 
 	"github.com/swornagent/sworn/internal/baton"
@@ -33,6 +34,10 @@ type submissionRefusalDetail struct {
 	Paths        []string `json:"paths,omitempty"`
 	SandboxCheck string   `json:"sandbox_check,omitempty"`
 	SandboxCause string   `json:"sandbox_cause,omitempty"`
+	// Expected names the wire shape an INVALID_FIELD submit.decode refusal
+	// wanted for Field ("string", "integer", "object"): a fixed engine
+	// vocabulary, never the worker's own value (#306).
+	Expected string `json:"expected,omitempty"`
 }
 
 // submissionRefusalDetailBytes encodes one submission-refusal envelope as
@@ -218,8 +223,11 @@ func submitCheckEvidenceEncodeError(err error) error {
 // (submit.decode): on MISSING_FIELD it re-derives Field by scanning value's
 // own decoded map for the first absent key in required's own order - an
 // engine-known field name from the wire schema, safe to name. On
-// UNKNOWN_FIELD or INVALID_FIELD, Field names only containingObject, never
-// the worker-chosen key that triggered UNKNOWN_FIELD.
+// UNKNOWN_FIELD, Field names only containingObject, never the worker-chosen
+// key that triggered it. On INVALID_FIELD (closedObject raises it only when
+// value itself is not a JSON object) Field names containingObject and
+// Expected says "object", so a worker that sent the member as a string or
+// an array learns which member and which shape in one step (#306).
 func decodeSubmissionObject(
 	value any,
 	required, optional []string,
@@ -244,10 +252,103 @@ func decodeSubmissionObject(
 			}
 		}
 	}
+	if contractErr.Code == "INVALID_FIELD" {
+		return nil, submitDecodeTypeError(field, "object")
+	}
 	return nil, &ContractError{
 		Code:   contractErr.Code,
 		Detail: submissionRefusalDetailBytes("submit.decode", field, "", nil),
 	}
+}
+
+// submitDecodeTypeError builds the INVALID_FIELD submit.decode refusal for
+// an engine-known key carrying the wrong JSON type (#306): field is the
+// schema key (or "<member>.<key>" for a nested blob or decision member) and
+// expected the shape the wire schema wants for it. Both are fixed engine
+// vocabulary; the offending value itself never reaches the envelope. A
+// marshal failure (unreachable for this closed shape) yields "" rather than
+// a partial envelope, matching submissionRefusalDetailBytes.
+func submitDecodeTypeError(field, expected string) error {
+	envelope := submissionRefusalDetail{
+		Check:    "submit.decode",
+		Field:    field,
+		Expected: expected,
+	}
+	body, err := json.Marshal(envelope)
+	if err != nil {
+		return &ContractError{Code: "INVALID_FIELD"}
+	}
+	return &ContractError{Code: "INVALID_FIELD", Detail: string(body)}
+}
+
+// submissionValueHasShape reports whether a decoded JSON value has the wire
+// shape named by expected. It goes by reflect kind rather than concrete
+// type so that scripted fixtures handing decodeToolSubmission Go-native
+// values (a Responsibility constant, an int byte_count) are judged the same
+// way as the live path's decodeStrict output (string, json.Number).
+func submissionValueHasShape(value any, expected string) bool {
+	switch expected {
+	case "string":
+		// json.Number is a named string type under reflect, but on the wire
+		// it was a number: it is never a string here.
+		if _, number := value.(json.Number); number {
+			return false
+		}
+		return reflect.ValueOf(value).Kind() == reflect.String
+	case "integer":
+		if _, ok := value.(json.Number); ok {
+			return true
+		}
+		switch reflect.ValueOf(value).Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+			reflect.Float32, reflect.Float64:
+			return true
+		}
+		return false
+	case "object":
+		_, ok := value.(map[string]any)
+		return ok
+	default:
+		return true
+	}
+}
+
+// submissionStringKeys are the wire schema's five top-level string members;
+// submissionBlobKeys the three members of an exact-bytes blob after
+// materializeExactBytesPaths has replaced any path with bytes. Both feed
+// requireSubmissionMemberTypes, which is the only place that names them.
+var (
+	submissionStringKeys = []string{
+		"schema_version", "invocation_id", "responsibility", "summary", "detail",
+	}
+	submissionBlobKeys = map[string]string{
+		"byte_count": "integer",
+		"digest":     "string",
+		"bytes":      "string",
+	}
+)
+
+// requireSubmissionMemberTypes refuses the first engine-known key in object
+// whose JSON type disagrees with the wire schema, naming the key and the
+// expected shape (#306). Before this check a wrong-typed known key - the
+// observed detail sent as {path: ...} - fell through closedObject (which
+// only checks presence) to json.Unmarshal and refused INVALID_SUBMISSION
+// with no field at all. prefix is "" for the root submission and
+// "<member>." for a nested blob or decision member. Keys absent from
+// object are not this check's business (closedObject already enforced
+// presence for required ones).
+func requireSubmissionMemberTypes(object map[string]any, prefix string, expected map[string]string, order []string) error {
+	for _, key := range order {
+		value, present := object[key]
+		if !present || value == nil {
+			continue
+		}
+		if !submissionValueHasShape(value, expected[key]) {
+			return submitDecodeTypeError(prefix+key, expected[key])
+		}
+	}
+	return nil
 }
 
 // submitDecodeError builds a submit.decode refusal for the two sites inside
@@ -330,11 +431,14 @@ func normalizeSubmissionField(field string) string {
 	return strings.TrimSpace(asciiLower(field))
 }
 
-// submissionProbeKnownExact is the one observed real-world probe payload
-// that is a single bare word: matched only by whole-field equality, never as
-// a prefix, since honest work routinely opens with "Test coverage ..." and
-// anchoring "test" as a prefix would re-open the over-match finding A2 fixed.
-const submissionProbeKnownExact = "test"
+// submissionProbeKnownExacts are the two observed real-world probe payloads
+// that are a single bare word: matched only by whole-field equality, never
+// as a prefix, since honest work routinely opens with "Test coverage ..."
+// or "Probe ordering ..." and anchoring either as a prefix would re-open the
+// over-match finding A2 fixed. "probe" is the 2026-09-12 Captain receipt
+// (run 2026-09-11-phased-evidence-r7, S2 design t1) whose whole detail body
+// was that one word, accepted as an authority decision (#300 escalation).
+var submissionProbeKnownExacts = []string{"test", "probe"}
 
 // submissionProbeKnownPrefixes are the two observed sentence-length probe
 // declarations, matched as the field's whole normalized content or its
@@ -375,8 +479,10 @@ func submissionDeclaresProbe(field string) (bool, string) {
 	if normalized == "" {
 		return false, ""
 	}
-	if normalized == submissionProbeKnownExact {
-		return true, "known_probe_declaration"
+	for _, exact := range submissionProbeKnownExacts {
+		if normalized == exact {
+			return true, "known_probe_declaration"
+		}
 	}
 	for _, prefix := range submissionProbeKnownPrefixes {
 		if strings.HasPrefix(normalized, prefix) {
@@ -394,6 +500,62 @@ func submissionDeclaresProbe(field string) (bool, string) {
 		}
 	}
 	return false, ""
+}
+
+// submissionPointerPrefixes are the leading phrases an observed "see the
+// file I wrote" detail body opens with (#307): run 2026-09-11-phased-evidence
+// -r3 S1 design attempts 4 and 7 submitted "See detail file: ..." and "See
+// attached detail: ..." as the whole design, and both were accepted and then
+// judged "contains no design" by the Captain. Matched on normalized leading
+// content only, like submissionDeclaresProbe.
+var submissionPointerPrefixes = []string{
+	"see attached",
+	"see the attached",
+	"see detail file",
+	"see the detail file",
+	"see file",
+	"see the file",
+	"attached:",
+	"attached file",
+	"full detail in",
+	"full design in",
+}
+
+// submissionPointerMaxBytes bounds the unattached-pointer refusal: a body
+// past this size is a document in its own right even if it opens with "see
+// attached" (the observed real designs were 20 KB and more; the observed
+// pointers were under 2 KB), so only a short body refuses.
+const submissionPointerMaxBytes = 4096
+
+// submissionIsUnattachedPointer reports whether detail is a short body whose
+// own leading content points the reader at a file the submission does not
+// carry (#307). The submit surface has no path form for detail - it is
+// inline text only - so such a body can never be resolved by the engine and
+// is refused with a typed correction instead of being sealed as the work.
+func submissionIsUnattachedPointer(detail string) (bool, string) {
+	if len(detail) > submissionPointerMaxBytes {
+		return false, ""
+	}
+	normalized := normalizeSubmissionField(detail)
+	if normalized == "" {
+		return false, ""
+	}
+	for _, prefix := range submissionPointerPrefixes {
+		if strings.HasPrefix(normalized, prefix) {
+			return true, "unattached_file_pointer"
+		}
+	}
+	return false, ""
+}
+
+// submissionPointerError builds the SUBMISSION_UNATTACHED_POINTER refusal
+// submissionIsUnattachedPointer raises: Field names the member (detail),
+// Bound the trigger class - never the body's own text.
+func submissionPointerError(field, bound string) error {
+	return &ContractError{
+		Code:   "SUBMISSION_UNATTACHED_POINTER",
+		Detail: submissionRefusalDetailBytes("submit.detail_pointer", field, bound, nil),
+	}
 }
 
 // detailRequiredResponsibility reports whether responsibility is one of the

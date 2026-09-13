@@ -70,6 +70,8 @@ func TestSubmissionDeclaresProbeMatchesObservedPayloadsAndAdmitsHonestWork(t *te
 		bound   string
 	}{
 		{"bare test exact", "test", true, "known_probe_declaration"},
+		{"bare probe exact (the 2026-09-12 Captain receipt body)", "probe", true, "known_probe_declaration"},
+		{"honest probe-ordering prefix does not match bare probe", "Probe ordering is documented in the design's section three, well past the floor.", false, ""},
 		{"bare test mixed case and padding trims", "  TEST  ", true, "known_probe_declaration"},
 		{"known probe sentence verbatim", "probe: minimal submission to isolate field validation", true, "known_probe_declaration"},
 		{
@@ -400,5 +402,180 @@ func TestNamedSubmissionRefusalCostsOneCorrectionNoTryAndCorrectedFollowUpSuccee
 	}
 	if reservations != 1 {
 		t.Fatalf("reservations after success = %d, want 1", reservations)
+	}
+}
+
+// requireSubmissionRefusalExpected asserts an INVALID_FIELD submit.decode
+// refusal names both the engine-known key and the expected wire shape
+// (#306).
+func requireSubmissionRefusalExpected(t *testing.T, content []byte, wantField, wantExpected string) {
+	t.Helper()
+	requireSubmissionRefusalDetail(t, content, "INVALID_FIELD", "submit.decode", wantField, "")
+	prefix := "error:INVALID_FIELD detail="
+	var detail submissionRefusalDetail
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(string(content), prefix)), &detail); err != nil {
+		t.Fatal(err)
+	}
+	if detail.Expected != wantExpected {
+		t.Fatalf("content = %q, expected = %q, want %q", content, detail.Expected, wantExpected)
+	}
+}
+
+// TestToolSubmitNamesWrongTypedKnownFieldAndExpectedShape pins #306: a
+// known key carrying the wrong JSON type refuses INVALID_FIELD naming that
+// key and the shape the schema wants, at every nesting level, instead of
+// naming only the containing object (root not-an-object) or nothing at all
+// (the pre-fix fieldless INVALID_SUBMISSION for a detail sent as {path}).
+func TestToolSubmitNamesWrongTypedKnownFieldAndExpectedShape(t *testing.T) {
+	invocation, _, _ := memoryInvocationFixture(t)
+	invocation.RecoveryStepHook = func(context.Context, RecoveryStepKind, *SubmitRefusal) error { return nil }
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+
+	fullShape := func() map[string]any {
+		return map[string]any{
+			"schema_version": SubmissionSchemaVersion,
+			"invocation_id":  invocation.Request.InvocationID,
+			"responsibility": string(PlannerProposal),
+			"summary":        floorSummaryFixture,
+			"detail":         floorDetailFixture,
+		}
+	}
+
+	// The observed r3 refusal: the submission member itself was not an
+	// object (a stringified document).
+	res := executeToolJSON(t, session, "root-string", "sworn_submit", map[string]any{
+		"submission": "{\"schema_version\":\"sworn.submission/v1\"}",
+	})
+	requireSubmissionRefusalExpected(t, res.Content, "submission", "object")
+
+	// The #307 shape: detail written to a file and sent as a path object.
+	detailObject := fullShape()
+	detailObject["detail"] = map[string]any{"path": "/tmp/design.md"}
+	res = executeToolJSON(t, session, "detail-object", "sworn_submit", map[string]any{"submission": detailObject})
+	requireSubmissionRefusalExpected(t, res.Content, "detail", "string")
+
+	summaryArray := fullShape()
+	summaryArray["summary"] = []any{"a", "b"}
+	res = executeToolJSON(t, session, "summary-array", "sworn_submit", map[string]any{"submission": summaryArray})
+	requireSubmissionRefusalExpected(t, res.Content, "summary", "string")
+
+	planString := fullShape()
+	planString["plan"] = "/tmp/plan.json"
+	res = executeToolJSON(t, session, "plan-string", "sworn_submit", map[string]any{"submission": planString})
+	requireSubmissionRefusalExpected(t, res.Content, "plan", "object")
+
+	planByteCount := fullShape()
+	planByteCount["plan"] = map[string]any{
+		"byte_count": "1",
+		"digest":     Digest([]byte("x")),
+		"bytes":      base64.StdEncoding.EncodeToString([]byte("x")),
+	}
+	res = executeToolJSON(t, session, "plan-byte-count", "sworn_submit", map[string]any{"submission": planByteCount})
+	requireSubmissionRefusalExpected(t, res.Content, "plan.byte_count", "integer")
+
+	contractsArray := fullShape()
+	contractsArray["contracts"] = []any{}
+	res = executeToolJSON(t, session, "contracts-array", "sworn_submit", map[string]any{"submission": contractsArray})
+	requireSubmissionRefusalExpected(t, res.Content, "contracts", "object")
+
+	contractsEntryDigest := fullShape()
+	contractsEntryDigest["contracts"] = map[string]any{
+		"docs/x.md": map[string]any{
+			"byte_count": 1,
+			"digest":     7,
+			"bytes":      base64.StdEncoding.EncodeToString([]byte("x")),
+		},
+	}
+	res = executeToolJSON(t, session, "contracts-entry-digest", "sworn_submit", map[string]any{"submission": contractsEntryDigest})
+	requireSubmissionRefusalExpected(t, res.Content, "contracts entry.digest", "string")
+
+	decisionOutcome := fullShape()
+	decisionOutcome["responsibility"] = string(CaptainReview)
+	decisionOutcome["decision"] = map[string]any{"outcome": 1}
+	res = executeToolJSON(t, session, "decision-outcome", "sworn_submit", map[string]any{"submission": decisionOutcome})
+	requireSubmissionRefusalExpected(t, res.Content, "decision.outcome", "string")
+
+	// An unknown key still names only the containing object, never the
+	// worker-authored key, and carries no expected shape.
+	unknown := fullShape()
+	unknown["bogus_field"] = "x"
+	res = executeToolJSON(t, session, "decode-unknown", "sworn_submit", map[string]any{"submission": unknown})
+	requireSubmissionRefusalDetail(t, res.Content, "UNKNOWN_FIELD", "submit.decode", "submission", "")
+	if strings.Contains(string(res.Content), "expected") {
+		t.Fatalf("UNKNOWN_FIELD carried an expected shape: %s", res.Content)
+	}
+
+	terminated, terminalErr := session.terminated()
+	if terminated || terminalErr != nil {
+		t.Fatalf("session terminated after named refusals alone: terminated=%v err=%v", terminated, terminalErr)
+	}
+}
+
+// TestSubmissionIsUnattachedPointerMatchesObservedBodiesAndAdmitsDocuments
+// pins #307's predicate: the two observed "see the file" design bodies
+// refuse, a real document that merely opens with the phrase does not once
+// it is past the size bound, and honest prose that mentions attachments
+// mid-body is never matched.
+func TestSubmissionIsUnattachedPointerMatchesObservedBodiesAndAdmitsDocuments(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		detail  string
+		wantHit bool
+	}{
+		{"observed attempt 4", "See detail file: full TL;DR mapping A1-A6 to the sections of /tmp/design.md written this turn.", true},
+		{"observed attempt 7", "See attached detail: full design TL;DR mapping every acceptance identifier to its section.", true},
+		{"mixed case and leading whitespace", "  SEE THE ATTACHED file /home/sworn/design.md for the full design.", true},
+		{"attached colon", "Attached: /tmp/design.md", true},
+		{"past the size bound is a document", "See attached section headings below.\n" + strings.Repeat("A real design paragraph with substance. ", 120), false},
+		{"mid-body mention never matches", "The design keeps the existing seal path. See attached notes for the migration order, which are reproduced in full in section four below.", false},
+		{"empty never matches", "", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			hit, bound := submissionIsUnattachedPointer(tc.detail)
+			if hit != tc.wantHit {
+				t.Fatalf("submissionIsUnattachedPointer(%q) = (%v, %q), want hit=%v", tc.detail, hit, bound, tc.wantHit)
+			}
+			if hit && bound != "unattached_file_pointer" {
+				t.Fatalf("bound = %q", bound)
+			}
+		})
+	}
+	if len(strings.Repeat("A real design paragraph with substance. ", 120)) <= submissionPointerMaxBytes {
+		t.Fatal("fixture does not exceed submissionPointerMaxBytes")
+	}
+}
+
+// TestToolSubmitRefusesUnattachedPointerDetailThroughTheLivePath pins #307
+// end to end: a pointer body refuses SUBMISSION_UNATTACHED_POINTER through
+// the live submit path and never seals.
+func TestToolSubmitRefusesUnattachedPointerDetailThroughTheLivePath(t *testing.T) {
+	invocation, _, _ := memoryInvocationFixture(t)
+	invocation.RecoveryStepHook = func(context.Context, RecoveryStepKind, *SubmitRefusal) error { return nil }
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+
+	pointer := map[string]any{
+		"schema_version": SubmissionSchemaVersion,
+		"invocation_id":  invocation.Request.InvocationID,
+		"responsibility": string(ImplementerDesign),
+		"summary":        floorSummaryFixture,
+		"detail":         "See attached detail: full design TL;DR mapping every acceptance identifier A1-A6 to /tmp/design.md.",
+	}
+	res := executeToolJSON(t, session, "pointer", "sworn_submit", map[string]any{"submission": pointer})
+	requireSubmissionRefusalDetail(t, res.Content, "SUBMISSION_UNATTACHED_POINTER", "submit.detail_pointer", "detail", "unattached_file_pointer")
+
+	submitted, _ := session.submitted()
+	if submitted || session.handoff() != nil {
+		t.Fatalf("pointer payload sealed: submitted=%v handoff=%#v", submitted, session.handoff())
 	}
 }
