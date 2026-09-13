@@ -150,7 +150,7 @@ func TestNativeSpontaneousExitFailureCarriesStderrTailThroughFunnel(t *testing.T
 	waitErr := &exec.ExitError{}
 	t.Run("stale credential outranks everything", func(t *testing.T) {
 		t.Parallel()
-		err := nativeSpontaneousExitFailure(true, ProfileClaude, waitErr, []byte("tail"))
+		err := nativeSpontaneousExitFailure(true, ProfileClaude, waitErr, []byte("tail"), nativeResultError{})
 		if !IsCode(err, "CREDENTIAL_STALE") {
 			t.Fatalf("error = %v", err)
 		}
@@ -158,7 +158,7 @@ func TestNativeSpontaneousExitFailureCarriesStderrTailThroughFunnel(t *testing.T
 	t.Run("transport carries the stderr tail through the funnel", func(t *testing.T) {
 		t.Parallel()
 		tail := []byte("the CLI's own words about what went wrong")
-		err := nativeSpontaneousExitFailure(false, ProfileClaude, waitErr, tail)
+		err := nativeSpontaneousExitFailure(false, ProfileClaude, waitErr, tail, nativeResultError{})
 		if !IsCode(err, "PROVIDER_TRANSPORT_FAILED") {
 			t.Fatalf("error = %v", err)
 		}
@@ -173,7 +173,7 @@ func TestNativeSpontaneousExitFailureCarriesStderrTailThroughFunnel(t *testing.T
 	})
 	t.Run("empty tail carries no detail through the funnel", func(t *testing.T) {
 		t.Parallel()
-		err := nativeSpontaneousExitFailure(false, ProfileClaude, waitErr, nil)
+		err := nativeSpontaneousExitFailure(false, ProfileClaude, waitErr, nil, nativeResultError{})
 		normalized := normalizeAdapterError(err)
 		var contractErr *ContractError
 		if !errors.As(normalized, &contractErr) ||
@@ -182,4 +182,106 @@ func TestNativeSpontaneousExitFailureCarriesStderrTailThroughFunnel(t *testing.T
 			t.Fatalf("normalized = %#v", normalized)
 		}
 	})
+}
+
+// #310: the CLI's own error result becomes the recorded cause of a
+// spontaneous exit. A limit-naming result is PROVIDER_LIMITED as a hard
+// wall; any other error result rides PROVIDER_TRANSPORT_FAILED's Detail
+// with the exit status when stderr said nothing; a stderr tail keeps its
+// place for non-limit exits.
+func TestNativeSpontaneousExitFailureRecordsTheCLIResultErrorAsCause(t *testing.T) {
+	t.Parallel()
+	exited := exec.Command("sh", "-c", "exit 1").Run()
+	var exitErr *exec.ExitError
+	if !errors.As(exited, &exitErr) || exitErr.ExitCode() != 1 {
+		t.Fatalf("fixture exit = %v", exited)
+	}
+	limit := nativeResultError{
+		errored: true,
+		detail:  "error_during_execution: You've hit your usage limit. Your limit resets at 3pm.",
+	}
+	t.Run("usage limit result is a hard PROVIDER_LIMITED", func(t *testing.T) {
+		t.Parallel()
+		err := nativeSpontaneousExitFailure(false, ProfileClaude, exited, nil, limit)
+		normalized := normalizeAdapterError(err)
+		var contractErr *ContractError
+		if !errors.As(normalized, &contractErr) ||
+			contractErr.Code != "PROVIDER_LIMITED" ||
+			contractErr.Detail != limit.detail ||
+			contractErr.Kind != KindHardExhaustion {
+			t.Fatalf("normalized = %#v", normalized)
+		}
+	})
+	t.Run("limit result outranks a stderr tail", func(t *testing.T) {
+		t.Parallel()
+		err := nativeSpontaneousExitFailure(false, ProfileClaude, exited, []byte("noise"), limit)
+		if !IsCode(err, "PROVIDER_LIMITED") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+	t.Run("other error result rides transport detail with the exit status", func(t *testing.T) {
+		t.Parallel()
+		err := nativeSpontaneousExitFailure(false, ProfileClaude, exited, nil, nativeResultError{
+			errored: true, detail: "error_max_turns: reached the turn cap",
+		})
+		var contractErr *ContractError
+		if !errors.As(normalizeAdapterError(err), &contractErr) ||
+			contractErr.Code != "PROVIDER_TRANSPORT_FAILED" ||
+			contractErr.Detail != "exit status 1: error_max_turns: reached the turn cap" {
+			t.Fatalf("normalized = %#v", contractErr)
+		}
+	})
+	t.Run("stderr tail still wins over a non-limit result", func(t *testing.T) {
+		t.Parallel()
+		err := nativeSpontaneousExitFailure(false, ProfileClaude, exited, []byte("the tail"), nativeResultError{
+			errored: true, detail: "error_max_turns",
+		})
+		var contractErr *ContractError
+		if !errors.As(err, &contractErr) || contractErr.Detail != "the tail" {
+			t.Fatalf("error = %#v", contractErr)
+		}
+	})
+	t.Run("the CLI turn cap is never a provider limit", func(t *testing.T) {
+		t.Parallel()
+		err := nativeSpontaneousExitFailure(false, ProfileClaude, exited, nil, nativeResultError{
+			errored: true, subtype: "error_max_turns", detail: "error_max_turns: turn limit reached",
+		})
+		if !IsCode(err, "PROVIDER_TRANSPORT_FAILED") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+	t.Run("stale credential still outranks a limit result", func(t *testing.T) {
+		t.Parallel()
+		if err := nativeSpontaneousExitFailure(true, ProfileClaude, exited, nil, limit); !IsCode(err, "CREDENTIAL_STALE") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+}
+
+// #310: the event state retains an error result's subtype and text,
+// normalized, and ignores a success result.
+func TestNativeEventStateRetainsErrorResult(t *testing.T) {
+	t.Parallel()
+	state := &nativeEventState{family: ProfileClaude}
+	if err := state.accept([]byte(
+		`{"type":"result","subtype":"success","is_error":false,"result":"done","usage":{"input_tokens":1,"output_tokens":1}}`,
+	)); err != nil {
+		t.Fatal(err)
+	}
+	if got := state.resultError(); got.errored || got.detail != "" {
+		t.Fatalf("success result retained as error: %#v", got)
+	}
+	if err := state.accept([]byte(
+		`{"type":"result","subtype":"error_during_execution","is_error":true,"result":"You've hit your usage limit\n  resets at 3pm","usage":{"input_tokens":1,"output_tokens":1}}`,
+	)); err != nil {
+		t.Fatal(err)
+	}
+	got := state.resultError()
+	if !got.errored || got.subtype != "error_during_execution" ||
+		got.detail != "error_during_execution: You've hit your usage limit resets at 3pm" {
+		t.Fatalf("error result = %#v", got)
+	}
+	if !nativeLimitReached(got.detail) || nativeLimitReached("error_max_turns: reached the turn cap") {
+		t.Fatal("limit classification")
+	}
 }
