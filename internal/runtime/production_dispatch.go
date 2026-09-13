@@ -1053,10 +1053,9 @@ func readJournaledHostResults(
 	results := make([]hostCheckResult, 0, len(hostChecks))
 	for _, check := range hostChecks {
 		work := hostCheckWork(sliceID, candidate, contractDigest, check)
-		effectID := hostCheckEffectID(work)
-		effect, err := engine.journal.Effect(ctx, engine.manifest.value.RunID, effectID)
+		effect, effectID, err := latestJournaledHostCheck(ctx, engine, work)
 		if err != nil {
-			return nil, runtimeFail("JOURNAL_READ_FAILED", err)
+			return nil, err
 		}
 		if effect.Kind != "check.host" || effect.State != journal.Succeeded {
 			return nil, runtimeFail("HOST_CHECK_EVIDENCE_MISSING", nil)
