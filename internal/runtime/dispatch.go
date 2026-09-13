@@ -540,7 +540,30 @@ func currentPreparedProductionBody(
 		current.Authority.ReleaseHead =
 			prepared.productionContext.Authority.ReleaseHead
 	}
+	pinDispatchHistory(&current, *prepared.productionContext)
 	return mustJSON(current), nil
+}
+
+// pinDispatchHistory carries the prepared dispatch's four history bindings
+// into a recomputed context so that only authority-bearing state decides
+// whether the dispatch is stale (#304). Refusal, PriorSubmission, HostRepair
+// and SubmissionRepair are all derived from the journal of earlier tries:
+// they are what the worker was handed as repair context, not what it is
+// authorised against (plan, contract, prepared base, target and release
+// heads, consumed inputs). Within one dispatch the only writer of that
+// journal history is the dispatch itself - a turn-recovery correction step
+// records its refusal against the current try, which moves the recovery
+// budget's latest refusal off the prior try and flips
+// captureSubmissionRepair's answer - so recomputing them after the
+// submission returns compares the dispatch against its own footprint and
+// rejected an accepted submission as stale_authority (run
+// 2026-09-11-phased-evidence, three tries across r1 and r7). The v1
+// downgrade already strips all four; this makes the current schema agree.
+func pinDispatchHistory(current *productionWorkContext, prepared productionWorkContext) {
+	current.Refusal = prepared.Refusal
+	current.PriorSubmission = prepared.PriorSubmission
+	current.HostRepair = prepared.HostRepair
+	current.SubmissionRepair = prepared.SubmissionRepair
 }
 
 func revalidatePreparedProductionDispatch(
