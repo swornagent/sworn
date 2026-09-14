@@ -247,7 +247,7 @@ func toolDefinitions(access WorkspaceAccess) []providerToolDefinition {
 		},
 		providerToolDefinition{
 			Name:        "sworn_submit",
-			Description: "Include only the prompt's result_fields. For plan/checks/contracts declare decoded byte_count and sha256:<64 lowercase hex> digest, then either inline base64 bytes or (preferred for large content) a path to a file holding the exact bytes — write it under /tmp or /home/sworn first; detail may be empty only for captain_plan_review and assembly_verification.",
+			Description: "Include only the prompt's result_fields. summary and detail are inline text strings only: never a path, an object, or a pointer to a file (a \"see attached\" body is refused). For plan/checks/contracts declare decoded byte_count and sha256:<64 lowercase hex> digest, then either inline base64 bytes or (preferred for large content) a path to a file holding the exact bytes — write it under /tmp or /home/sworn first; detail may be empty only for captain_plan_review and assembly_verification.",
 			InputSchema: json.RawMessage(swornSubmitInputSchema),
 		},
 	)
@@ -928,41 +928,71 @@ func decodeToolSubmission(value any) (Submission, error) {
 	if err != nil {
 		return Submission{}, err
 	}
+	// #306: name a wrong-typed known key and its expected shape here, before
+	// the canonicalJSON/json.Unmarshal round trip below would collapse it
+	// into a fieldless INVALID_SUBMISSION.
+	stringExpected := map[string]string{
+		"schema_version": "string", "invocation_id": "string",
+		"responsibility": "string", "summary": "string", "detail": "string",
+		"plan": "object", "checks": "object", "contracts": "object",
+		"decision": "object",
+	}
+	if err := requireSubmissionMemberTypes(
+		root, "", stringExpected,
+		append(append([]string(nil), submissionStringKeys...), "plan", "checks", "contracts", "decision"),
+	); err != nil {
+		return Submission{}, err
+	}
+	blobOrder := []string{"byte_count", "digest", "bytes"}
 	for _, name := range []string{"plan", "checks"} {
 		if root[name] == nil {
 			continue
 		}
-		if _, err := decodeSubmissionObject(
+		member, err := decodeSubmissionObject(
 			root[name],
 			[]string{"byte_count", "digest", "bytes"},
 			nil,
 			name,
-		); err != nil {
+		)
+		if err != nil {
+			return Submission{}, err
+		}
+		if err := requireSubmissionMemberTypes(member, name+".", submissionBlobKeys, blobOrder); err != nil {
 			return Submission{}, err
 		}
 	}
 	if root["contracts"] != nil {
 		contracts, ok := root["contracts"].(map[string]any)
 		if !ok {
-			return Submission{}, submitDecodeError("INVALID_FIELD", "contracts")
+			return Submission{}, submitDecodeTypeError("contracts", "object")
 		}
 		for _, member := range contracts {
-			if _, err := decodeSubmissionObject(
+			entry, err := decodeSubmissionObject(
 				member,
 				[]string{"byte_count", "digest", "bytes"},
 				nil,
 				"contracts entry",
-			); err != nil {
+			)
+			if err != nil {
+				return Submission{}, err
+			}
+			if err := requireSubmissionMemberTypes(entry, "contracts entry.", submissionBlobKeys, blobOrder); err != nil {
 				return Submission{}, err
 			}
 		}
 	}
 	if root["decision"] != nil {
-		if _, err := decodeSubmissionObject(
+		decision, err := decodeSubmissionObject(
 			root["decision"],
 			[]string{"outcome"},
 			nil,
 			"decision",
+		)
+		if err != nil {
+			return Submission{}, err
+		}
+		if err := requireSubmissionMemberTypes(
+			decision, "decision.", map[string]string{"outcome": "string"}, []string{"outcome"},
 		); err != nil {
 			return Submission{}, err
 		}
@@ -999,6 +1029,11 @@ func decodeToolSubmission(value any) (Submission, error) {
 	}
 	if declared, bound := submissionDeclaresProbe(submission.Detail); declared {
 		return Submission{}, submissionProbeError("detail", bound)
+	}
+	// #307: detail has no path form, so a short body that only points at a
+	// file the submission does not carry can never be the work.
+	if pointer, bound := submissionIsUnattachedPointer(submission.Detail); pointer {
+		return Submission{}, submissionPointerError("detail", bound)
 	}
 	// Enforced only at this author-side boundary, not inside
 	// ValidateSubmission: that function also re-admits historical and
