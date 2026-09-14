@@ -208,6 +208,11 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	if len(identicalCrossings) != 0 {
 		identicalPark = &identicalCrossings[0]
 	}
+	providerCrossings := providerUnavailableParkCrossings(snapshot, control)
+	var providerPark *providerUnavailableFacts
+	if len(providerCrossings) != 0 {
+		providerPark = &providerCrossings[0]
+	}
 	// Raw exhaustion is fail-closed until Baton state can tell us whether the
 	// exhausted work is still applicable. Recovery attention is independent.
 	// The diagnostic code/detail stay empty here: they name a specific
@@ -216,7 +221,8 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	exhaustionApplies := len(exhausted) != 0
 	var exhaustionCode, exhaustionDetail string
 	parked := attentionParked || degradationBudgetExceeded ||
-		economyPark != nil || identicalPark != nil || exhaustionApplies
+		economyPark != nil || providerPark != nil || identicalPark != nil ||
+		exhaustionApplies
 	if len(snapshot.Events) != 0 {
 		result.EventOffset = snapshot.Events[len(snapshot.Events)-1].Offset
 	}
@@ -389,6 +395,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 			bootstrapAuthority:        bootstrapAuthorityParked,
 			bootstrapReason:           bootstrapParkReason,
 			economy:                   economyPark,
+			providerUnavailable:       providerPark,
 			identicalFailure:          identicalPark,
 			exhaustionApplies:         exhaustionApplies,
 			exhaustionCode:            exhaustionCode,
@@ -462,6 +469,13 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 			identicalByOwner[owner] = crossing
 		}
 	}
+	providerByOwner := make(map[string]providerUnavailableFacts, len(providerCrossings))
+	for _, crossing := range providerCrossings {
+		owner := ownerWorkForDispatch(snapshot, crossing.work)
+		if _, exists := providerByOwner[owner]; !exists {
+			providerByOwner[owner] = crossing
+		}
+	}
 	// A standing exhaustion park is matched by the slice lineage the journal
 	// attributes it to, not by the exact work identity: every candidate work
 	// identity binds the target head, so a commit on the target branch moves
@@ -471,8 +485,8 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		manifest, snapshot, exhausted, exhaustionRefusals,
 	)
 	pinnedWork, laneParks, allLanesPinned := resolveLanePins(
-		lanes, exhausted, exhaustionRefusals, economyByOwner, identicalByOwner,
-		exhaustionParksByLane(state, exhaustionParks),
+		lanes, exhausted, exhaustionRefusals, economyByOwner, providerByOwner,
+		identicalByOwner, exhaustionParksByLane(state, exhaustionParks),
 	)
 	// Zero candidate lanes is not progress: short of a merged release, Baton
 	// state offers no work at all, so a standing exhaustion is the run's
@@ -1050,6 +1064,7 @@ func resolveLanePins(
 	exhausted map[string]struct{},
 	exhaustionRefusals map[string]exhaustionRefusalFacts,
 	economyByOwner map[string]economyParkFacts,
+	providerByOwner map[string]providerUnavailableFacts,
 	identicalByOwner map[string]identicalFailureFacts,
 	exhaustionByLane map[string]exhaustionParkFacts,
 ) ([]PinnedWork, []lanePinFacts, bool) {
@@ -1087,6 +1102,23 @@ func resolveLanePins(
 				})
 				laneParks = append(laneParks, lanePinFacts{
 					work: work, facts: parkFacts{identicalFailure: &facts},
+				})
+				pinned = true
+				break
+			}
+		}
+		if !pinned {
+			for work := range lane.works {
+				facts, ok := providerByOwner[work]
+				if !ok {
+					continue
+				}
+				pinnedWork = append(pinnedWork, PinnedWork{
+					WorkID: work, Lane: lane.lane, Cause: ParkCauseProviderUnavailable,
+					Code: facts.code, Detail: facts.detail,
+				})
+				laneParks = append(laneParks, lanePinFacts{
+					work: work, facts: parkFacts{providerUnavailable: &facts},
 				})
 				pinned = true
 				break
@@ -1205,6 +1237,7 @@ type parkFacts struct {
 	bootstrapAuthority        bool
 	bootstrapReason           string
 	economy                   *economyParkFacts
+	providerUnavailable       *providerUnavailableFacts
 	identicalFailure          *identicalFailureFacts
 	exhaustionApplies         bool
 	exhaustionCode            string
@@ -1213,7 +1246,8 @@ type parkFacts struct {
 
 // parkStatusFor names the park cause with the same precedence the final park
 // computation uses: human authority, attention, degradation, bootstrap
-// authority, economy, identical failure, exhaustion. A degradation park
+// authority, economy, identical failure, provider unavailable, exhaustion.
+// A degradation park
 // carries the gated fallback count, the effective budget, and the manifest
 // knob that unblocks it; a bootstrap-authority park carries its Reason; an
 // economy park carries spent-versus-budget and its knob; an
@@ -1252,6 +1286,10 @@ func parkStatusFor(
 		status.FailureCode = facts.identicalFailure.code
 		status.FailureDetail = facts.identicalFailure.detail
 		status.UnblockKnob = IdenticalFailureUnblockKnob
+	case facts.providerUnavailable != nil:
+		status.Cause = ParkCauseProviderUnavailable
+		status.FailureCode = facts.providerUnavailable.code
+		status.FailureDetail = facts.providerUnavailable.detail
 	case facts.exhaustionApplies:
 		status.Cause = ParkCauseExhaustion
 		status.FailureCode = facts.exhaustionCode

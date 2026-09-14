@@ -68,6 +68,13 @@ const (
 	// ParkCauseIdenticalFailure is the park cause for a work with N
 	// consecutive identical operational failures.
 	ParkCauseIdenticalFailure = "identical_failure"
+	// ParkCauseProviderUnavailable is the park cause for a work whose latest
+	// current-epoch try never reached the model: the provider refused it as
+	// limited or unavailable (#310). A dispatch the provider would not take
+	// is not an attempt at the work, so the run parks on the first one
+	// instead of spending the remaining tries. No knob clears it; a retry
+	// control does, once the provider is available again.
+	ParkCauseProviderUnavailable = "provider_unavailable"
 	// ParkCauseBootstrapAuthority is the park cause for a run stopped because
 	// its authority is a bootstrap-approved plan digest and a planner revision
 	// is needed.
@@ -231,6 +238,22 @@ func canonicalDegradationParkEvent(event DegradationParkEvent) ([]byte, error) {
 			!validParkDetail(event.FailureDetail) ||
 			event.Count != 0 || event.Budget != 0 ||
 			len(event.Fallbacks) != 0 || event.Spent != 0 ||
+			event.Reason != "" {
+			return nil, runtimeFail("INVALID_PARK_EVENT", nil)
+		}
+	case event.SchemaVersion == ParkEventVersion &&
+		event.Cause == ParkCauseProviderUnavailable:
+		// A provider-unavailable park names the work and the provider code
+		// its latest try died on; FailureDetail carries the provider's own
+		// bounded message when the adapter recorded one. No unblock knob.
+		if event.UnblockKnob != "" ||
+			!runtimeDigestPattern.MatchString(event.Work) ||
+			event.FailureCode == "" ||
+			!runtimeIdentityPattern.MatchString(event.FailureCode) ||
+			!validParkDetail(event.FailureDetail) ||
+			event.Count != 0 || event.Budget != 0 ||
+			len(event.Fallbacks) != 0 || event.Spent != 0 ||
+			event.Consecutive != 0 || event.Threshold != 0 ||
 			event.Reason != "" {
 			return nil, runtimeFail("INVALID_PARK_EVENT", nil)
 		}
