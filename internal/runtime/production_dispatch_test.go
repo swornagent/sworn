@@ -3837,3 +3837,90 @@ func TestCandidateValidationFailsClosedOnCommitSubjectError(t *testing.T) {
 		t.Fatalf("expected INVALID_CANDIDATE_RECEIPT for commit subject error, got: %v", err)
 	}
 }
+
+// TestPreparedDispatchRevalidationTreatsItsOwnHistoryAsHistoryNotAuthority
+// pins #304: the history bindings a dispatch was prepared with (the prior
+// try's refusal, prior submission, host repair and submission repair) may
+// stop being reproducible from the journal while the dispatch runs -
+// its own turn-recovery correction step records a refusal against the
+// current try - and that must never read as an authority change. An actual
+// authority move (a commit on the target) must still.
+func TestPreparedDispatchRevalidationTreatsItsOwnHistoryAsHistoryNotAuthority(
+	t *testing.T,
+) {
+	fixture := newProductionImplementationRecoveryFixture(t, nil)
+	prepared, err := fixture.service.prepareDriverDispatch(
+		fixture.ctx,
+		fixture.engine,
+		fixture.workspace,
+		driver.RoleImplementer,
+		fixture.coordinates,
+		fixture.cycle.Before,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prepared.productionContext == nil ||
+		prepared.productionContext.SchemaVersion == productionWorkContextVersionV1 {
+		t.Fatalf("fixture prepared a non-current production context: %#v", prepared.productionContext)
+	}
+	revalidate := func() error {
+		return revalidatePreparedProductionDispatch(
+			fixture.ctx,
+			fixture.engine,
+			fixture.coordinates,
+			fixture.cycle.Before,
+			prepared,
+		)
+	}
+	if err := revalidate(); err != nil {
+		t.Fatalf("exact prepared dispatch revalidation = %v", err)
+	}
+
+	// The prepared context carried repair history the journal no longer
+	// reproduces (the #304 shape: an in-dispatch TOOL_PATH_INVALID
+	// correction moved the latest refusal off the prior try).
+	drifted := *prepared.productionContext
+	drifted.Refusal = &productionRefusalBinding{
+		Code:  "TOOL_PATH_INVALID",
+		Paths: []string{"checks"}, TotalPaths: 1,
+	}
+	drifted.PriorSubmission = &productionPriorSubmissionBinding{
+		Summary: "prior try summary", Detail: "prior try detail", Provenance: "test",
+	}
+	drifted.SubmissionRepair = &productionSubmissionRepair{
+		SchemaVersion: submissionRepairVersion,
+		Before:        fixture.cycle.Before,
+		Plan:          "plan-oid",
+		PreparedBase:  drifted.Authority.TrackHead,
+		SourceEpoch:   1,
+		SourceTry:     2,
+		RefusalCode:   "TOOL_PATH_INVALID",
+		RefusalDetail: `{"check":"submit.exact_bytes_path","field":"checks"}`,
+	}
+	prepared.productionContext = &drifted
+	prepared.inputBody = mustJSON(drifted)
+	if err := revalidate(); err != nil {
+		t.Fatalf("history drift read as authority drift: %v", err)
+	}
+
+	// Authority itself still decides: a commit on the target is stale.
+	if err := os.WriteFile(
+		filepath.Join(fixture.repository, "README.md"),
+		[]byte("superseded production fixture\n"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	runRuntimeGit(t, fixture.repository, "add", "--", "README.md")
+	runRuntimeGit(
+		t,
+		fixture.repository,
+		"-c", "user.name=Production Fixture",
+		"-c", "user.email=production@example.invalid",
+		"commit", "--quiet", "-m", "supersede production authority",
+	)
+	if err := revalidate(); !IsCode(err, "STALE_DISPATCH") {
+		t.Fatalf("moved authority revalidation = %v, want STALE_DISPATCH", err)
+	}
+}
