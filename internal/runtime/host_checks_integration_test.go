@@ -3,6 +3,8 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -397,4 +399,168 @@ func TestHostCheckRecoveryCompletesClaimedEffect(t *testing.T) {
 		!strings.Contains(recorded.Output, "recovered") {
 		t.Fatalf("recovered result = %#v", recorded)
 	}
+}
+
+// countingHostCheck returns a shell check that records how many times it has
+// executed in counter and exits 0 only from the passAfter-th execution on
+// (never, when passAfter is 0). The counter lives outside the candidate
+// snapshot, so every execution of the same candidate sees it.
+func countingHostCheck(counter string, passAfter int, prelude string) string {
+	return fmt.Sprintf(
+		"n=$(cat %s 2>/dev/null || echo 0); n=$((n+1)); echo $n > %s; %s [ %d -gt 0 ] && [ $n -ge %d ]",
+		counter, counter, prelude, passAfter, passAfter,
+	)
+}
+
+func hostCheckExecutions(t *testing.T, counter string) int {
+	t.Helper()
+	body, err := os.ReadFile(counter)
+	if err != nil {
+		return 0
+	}
+	var value int
+	if _, err := fmt.Sscanf(strings.TrimSpace(string(body)), "%d", &value); err != nil {
+		t.Fatal(err)
+	}
+	return value
+}
+
+// #296: an unchanged candidate whose recorded host-check failure carries no
+// deterministic signature is re-executed exactly once; the re-execution is
+// journaled under its own identity naming the record it replaced, and every
+// reader of host evidence sees the re-execution's outcome.
+func TestHostCheckPlainFailureIsReExecutedOnceForTheSameCandidate(t *testing.T) {
+	counter := filepath.Join(t.TempDir(), "runs")
+	check := countingHostCheck(counter, 2, "")
+	fixture := newHostCheckFixture(t, []string{check})
+	run := func() ([]hostCheckResult, error) {
+		return fixture.service.runHostChecks(
+			fixture.ctx, fixture.engine, fixture.owner, fixture.plan,
+			"S1", fixture.candidate, fixture.targetHead, fixture.releaseHead)
+	}
+	if _, err := run(); !IsCode(err, "HOST_CHECK_FAILED") {
+		t.Fatalf("first execution = %v, want HOST_CHECK_FAILED", err)
+	}
+	if got := hostCheckExecutions(t, counter); got != 1 {
+		t.Fatalf("executions after the first seal = %d", got)
+	}
+	work := hostCheckWork("S1", fixture.candidate, fixture.contractDgst, check)
+
+	results, err := run()
+	if err != nil || len(results) != 1 {
+		t.Fatalf("re-execution = %#v, %v", results, err)
+	}
+	rerun := results[0]
+	if rerun.Outcome != baton.CheckOutcomePass ||
+		rerun.EffectID != hostCheckRerunEffectID(work) ||
+		rerun.RerunOf != hostCheckEffectID(work) {
+		t.Fatalf("re-execution result = %#v", rerun)
+	}
+	if got := hostCheckExecutions(t, counter); got != 2 {
+		t.Fatalf("executions after the re-execution = %d", got)
+	}
+	effect, err := fixture.store.Effect(fixture.ctx, fixture.manifest.value.RunID, hostCheckRerunEffectID(work))
+	if err != nil || effect.State != journal.Succeeded || effect.BeforeDigest != hostCheckRerunWork(work) {
+		t.Fatalf("re-execution effect = %#v, %v", effect, err)
+	}
+	var command hostCheckCommand
+	if err := json.Unmarshal(fixture.commandPayload(t, hostCheckRerunEffectID(work)), &command); err != nil ||
+		command.RerunOf != hostCheckEffectID(work) {
+		t.Fatalf("re-execution command = %#v, %v", command, err)
+	}
+	first, err := fixture.store.Effect(fixture.ctx, fixture.manifest.value.RunID, hostCheckEffectID(work))
+	if err != nil || first.State != journal.Succeeded {
+		t.Fatalf("first record must stay intact: %#v, %v", first, err)
+	}
+
+	// A further identical resubmission replays the re-execution; nothing
+	// runs a third time.
+	again, err := run()
+	if err != nil || len(again) != 1 || again[0].EffectID != rerun.EffectID {
+		t.Fatalf("replay = %#v, %v", again, err)
+	}
+	if got := hostCheckExecutions(t, counter); got != 2 {
+		t.Fatalf("executions after the replay = %d", got)
+	}
+
+	// The verifier's evidence reader and the receipt manifest both speak
+	// for the re-execution.
+	journaled, err := readJournaledHostResults(
+		fixture.ctx, fixture.engine, "S1", fixture.candidate, fixture.contractDgst, []string{check})
+	if err != nil || len(journaled) != 1 || journaled[0].EffectID != rerun.EffectID ||
+		journaled[0].Outcome != baton.CheckOutcomePass {
+		t.Fatalf("journaled host results = %#v, %v", journaled, err)
+	}
+}
+
+// #296: a deterministic failure is re-executed once and then stands; a
+// third identical resubmission replays the re-execution's failure without
+// running the check.
+func TestHostCheckDeterministicFailureStandsAfterOneReExecution(t *testing.T) {
+	counter := filepath.Join(t.TempDir(), "runs")
+	check := countingHostCheck(counter, 0, "")
+	fixture := newHostCheckFixture(t, []string{check})
+	run := func() error {
+		_, err := fixture.service.runHostChecks(
+			fixture.ctx, fixture.engine, fixture.owner, fixture.plan,
+			"S1", fixture.candidate, fixture.targetHead, fixture.releaseHead)
+		return err
+	}
+	for i, want := range []int{1, 2, 2} {
+		if err := run(); !IsCode(err, "HOST_CHECK_FAILED") {
+			t.Fatalf("seal %d = %v, want HOST_CHECK_FAILED", i+1, err)
+		}
+		if got := hostCheckExecutions(t, counter); got != want {
+			t.Fatalf("executions after seal %d = %d, want %d", i+1, got, want)
+		}
+	}
+}
+
+// #296: a recorded failure carrying a deterministic signature (a data
+// race, a build failure) is never re-executed, and neither is a timeout or
+// an overflow.
+func TestHostCheckSignedFailureIsNeverReExecuted(t *testing.T) {
+	counter := filepath.Join(t.TempDir(), "runs")
+	check := countingHostCheck(counter, 2, "echo 'WARNING: DATA RACE';")
+	fixture := newHostCheckFixture(t, []string{check})
+	for i := 0; i < 2; i++ {
+		_, err := fixture.service.runHostChecks(
+			fixture.ctx, fixture.engine, fixture.owner, fixture.plan,
+			"S1", fixture.candidate, fixture.targetHead, fixture.releaseHead)
+		if !IsCode(err, "HOST_CHECK_FAILED") {
+			t.Fatalf("seal %d = %v, want HOST_CHECK_FAILED", i+1, err)
+		}
+	}
+	if got := hostCheckExecutions(t, counter); got != 1 {
+		t.Fatalf("a race-signed failure was re-executed: %d executions", got)
+	}
+	for _, outcome := range []string{baton.CheckOutcomeTimeout, baton.CheckOutcomeOverflow} {
+		if hostCheckRerunEligible(hostCheckResult{Outcome: outcome}) {
+			t.Fatalf("%s is re-execution eligible", outcome)
+		}
+	}
+	if hostCheckRerunEligible(hostCheckResult{Outcome: baton.CheckOutcomeFail, Output: "FAIL\tpkg [build failed]"}) {
+		t.Fatal("a build failure is re-execution eligible")
+	}
+	if hostCheckRerunEligible(hostCheckResult{Outcome: baton.CheckOutcomeFail, RerunOf: "x"}) {
+		t.Fatal("a re-execution is itself re-execution eligible")
+	}
+	if !hostCheckRerunEligible(hostCheckResult{Outcome: baton.CheckOutcomeFail, Output: "--- FAIL: TestFlaky (0.01s)"}) {
+		t.Fatal("a plain failure is not re-execution eligible")
+	}
+}
+
+func (fixture *hostCheckFixture) commandPayload(t *testing.T, effectID string) []byte {
+	t.Helper()
+	snapshot, err := fixture.store.Snapshot(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range snapshot.Commands {
+		if command.ReplayKey == effectID && command.Kind == "check.host" {
+			return command.Payload
+		}
+	}
+	t.Fatalf("no check.host command journaled for %s", effectID)
+	return nil
 }

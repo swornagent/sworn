@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 	"time"
 
@@ -40,6 +41,10 @@ type hostCheckCommand struct {
 	Check          string `json:"check"`
 	OutputBytes    int64  `json:"output_bytes"`
 	TimeoutMillis  int64  `json:"timeout_millis"`
+	// RerunOf names the check.host effect whose recorded plain failure this
+	// command re-executes once for the same candidate (#296); empty for a
+	// first execution.
+	RerunOf string `json:"rerun_of,omitempty"`
 }
 
 // hostCheckResult is the journaled effect result for one host check. The
@@ -58,6 +63,10 @@ type hostCheckResult struct {
 	Truncated      bool   `json:"truncated"`
 	Diagnostic     string `json:"diagnostic,omitempty"`
 	EffectID       string `json:"effect_id"`
+	// RerunOf names the earlier check.host effect whose plain failure this
+	// result re-executed (#296), so the record says this outcome replaced a
+	// recorded one rather than being the candidate's first evidence.
+	RerunOf string `json:"rerun_of,omitempty"`
 }
 
 type hostCheckRefusal struct {
@@ -79,6 +88,89 @@ func hostCheckRefusalWork(sliceID, candidate, check, reason string) string {
 
 func hostCheckEffectID(work string) string {
 	return journal.AttemptEffectID(work, 1, 1)
+}
+
+// hostCheckRerunWork is the work identity of the one bounded re-execution a
+// check.host work may have (#296). It is derived from the first execution's
+// identity, so the candidate, the contract and the check bind it exactly as
+// they bind the first execution; it is a separate work because the journal
+// admits no further attempt on a work that already succeeded.
+func hostCheckRerunWork(work string) string {
+	return workIdentity(work, "rerun")
+}
+
+func hostCheckRerunEffectID(work string) string {
+	return hostCheckEffectID(hostCheckRerunWork(work))
+}
+
+// hostCheckBoundWork returns the work identity effectID must be bound to
+// (its effect's before digest) when it is one of the two effect identities
+// a check.host work may carry: the first execution or its one re-execution.
+func hostCheckBoundWork(effectID, work string) (string, bool) {
+	switch effectID {
+	case hostCheckEffectID(work):
+		return work, true
+	case hostCheckRerunEffectID(work):
+		return hostCheckRerunWork(work), true
+	default:
+		return "", false
+	}
+}
+
+func isHostCheckEffectID(effectID, work string) bool {
+	_, ok := hostCheckBoundWork(effectID, work)
+	return ok
+}
+
+// hostCheckDeterministicSignatures are output markers of a failure that a
+// re-execution cannot honestly change: a detected data race and a build or
+// setup failure are defects in the candidate, not flakes, so a recorded
+// failure carrying one of them is never re-run (#296).
+var hostCheckDeterministicSignatures = []string{
+	"WARNING: DATA RACE",
+	"[build failed]",
+	"[setup failed]",
+}
+
+// hostCheckRerunEligible reports whether a recorded host-check failure may
+// be re-executed once when the same candidate is checked again (#296): only
+// a plain fail (never a timeout or an overflow, which are bounds the
+// contract sets) whose bounded output carries no deterministic signature.
+func hostCheckRerunEligible(result hostCheckResult) bool {
+	if result.Outcome != baton.CheckOutcomeFail || result.RerunOf != "" {
+		return false
+	}
+	for _, signature := range hostCheckDeterministicSignatures {
+		if strings.Contains(result.Output, signature) {
+			return false
+		}
+	}
+	return true
+}
+
+// latestJournaledHostCheck returns the check.host effect that currently
+// speaks for work: its one re-execution when that has succeeded, otherwise
+// its first execution. Readers of host evidence go through this so a
+// re-executed check's outcome is the one the seal actually consumed.
+func latestJournaledHostCheck(
+	ctx context.Context,
+	engine *engine,
+	work string,
+) (journal.Effect, string, error) {
+	rerunID := hostCheckRerunEffectID(work)
+	rerun, err := engine.journal.Effect(ctx, engine.manifest.value.RunID, rerunID)
+	if err == nil && rerun.Kind == "check.host" && rerun.State == journal.Succeeded {
+		return rerun, rerunID, nil
+	}
+	if err != nil && !journal.IsCode(err, "EFFECT_NOT_FOUND") {
+		return journal.Effect{}, "", runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	effectID := hostCheckEffectID(work)
+	effect, err := engine.journal.Effect(ctx, engine.manifest.value.RunID, effectID)
+	if err != nil {
+		return journal.Effect{}, "", runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	return effect, effectID, nil
 }
 
 // resolveSliceHostChecks resolves the human-approved contract for sliceID at
@@ -323,6 +415,14 @@ func (s *Service) journalHostCheckRefusal(
 // relies on the effect lease expiring: the run happens between claim and
 // completion while the owner watch goroutine renews the owner lease, so a
 // long-running host check cannot be stranded by a five-minute effect lease.
+//
+// One bounded exception to exactly-once (#296): when the recorded result is
+// a plain failure with no deterministic signature and the same candidate is
+// checked again - an implementer resubmitted an identical product tree
+// because it judged the failure a flake - the check is executed once more
+// under the work's re-execution identity, journaled as a re-execution that
+// names the record it replaces. A second identical resubmission replays the
+// re-execution's result; nothing runs a third time.
 func (s *Service) executeHostCheck(
 	ctx context.Context,
 	engine *engine,
@@ -330,7 +430,6 @@ func (s *Service) executeHostCheck(
 	sliceID, candidate, contractDigest, check string,
 ) (hostCheckResult, error) {
 	work := hostCheckWork(sliceID, candidate, contractDigest, check)
-	effectID := hostCheckEffectID(work)
 	timeout := hostCheckTimeout(engine)
 	command := hostCheckCommand{
 		SchemaVersion: hostCheckSchemaVersion, Slice: sliceID,
@@ -338,38 +437,28 @@ func (s *Service) executeHostCheck(
 		Check: check, OutputBytes: hostCheckOutputBytes,
 		TimeoutMillis: int64(timeout / time.Millisecond),
 	}
-	payload := mustJSON(command)
-	now := s.now().UTC()
-	if err := s.journal.EnsureAttempt(ctx,
-		journal.Command{RunID: engine.manifest.value.RunID, ReplayKey: effectID,
-			Kind: "check.host", Payload: payload, CreatedAt: now},
-		journal.Effect{RunID: engine.manifest.value.RunID, ID: effectID,
-			ReplayKey: effectID, Kind: "check.host", BeforeDigest: work,
-			ExpectedDigest: sha256Digest(payload), UpdatedAt: now},
-		journal.EffectAttempt{WorkID: work, Epoch: 1, Try: 1}); err != nil {
-		return hostCheckResult{}, runtimeFail("JOURNAL_WRITE_FAILED", err)
-	}
-	effect, err := s.journal.Effect(ctx, engine.manifest.value.RunID, effectID)
+	effectID, boundWork := hostCheckEffectID(work), work
+	effect, recorded, err := s.admitHostCheckEffect(ctx, engine, owner, boundWork, effectID, command)
 	if err != nil {
-		return hostCheckResult{}, runtimeFail("JOURNAL_READ_FAILED", err)
+		return hostCheckResult{}, err
 	}
-	switch effect.State {
-	case journal.Succeeded:
-		return parseHostCheckResult(sliceID, candidate, contractDigest, check, effectID, effect.Result)
-	case journal.OperationalFailed:
-		return hostCheckResult{}, runtimeFail("HOST_CHECK_FAILED", nil)
-	case journal.Pending:
-		claim, err := s.journal.ClaimOwned(
-			ctx, owner, effectID, s.now().UTC(), effectLease)
+	if recorded != nil {
+		result, err := parseHostCheckResult(sliceID, candidate, contractDigest, check, effectID, recorded)
 		if err != nil {
-			return hostCheckResult{}, runtimeFail("EFFECT_CLAIM_FAILED", err)
+			return hostCheckResult{}, err
 		}
-		effect.State, effect.CurrentClaim = journal.Claimed, claim.Token
-	case journal.Claimed:
-		// A claimed effect left by a crashed prior attempt is re-run and
-		// completed by this owner; see recoverHostCheckClaims.
-	default:
-		return hostCheckResult{}, runtimeFail("RECOVERY_UNCERTAIN", nil)
+		if !hostCheckRerunEligible(result) {
+			return result, nil
+		}
+		command.RerunOf = effectID
+		effectID, boundWork = hostCheckRerunEffectID(work), hostCheckRerunWork(work)
+		effect, recorded, err = s.admitHostCheckEffect(ctx, engine, owner, boundWork, effectID, command)
+		if err != nil {
+			return hostCheckResult{}, err
+		}
+		if recorded != nil {
+			return parseHostCheckResult(sliceID, candidate, contractDigest, check, effectID, recorded)
+		}
 	}
 	oid, err := gitx.ParseOID(engine.repository.ObjectFormat(), candidate)
 	if err != nil {
@@ -386,15 +475,16 @@ func (s *Service) executeHostCheck(
 	}
 	result.Slice, result.Candidate, result.ContractDigest = sliceID, candidate, contractDigest
 	result.EffectID = effectID
+	result.RerunOf = command.RerunOf
 	body := mustJSON(result)
 	if err := s.journal.CompleteOwned(context.WithoutCancel(ctx), owner, journal.Completion{
 		RunID: engine.manifest.value.RunID, EffectID: effectID,
 		Token: effect.CurrentClaim, State: journal.Succeeded, Result: body,
 		Receipts:  []journal.Receipt{{Kind: "host_check_result", Body: body}},
-		EventKind: "host_check_completed",
+		EventKind: hostCheckCompletedEvent(command.RerunOf),
 		EventBody: MarshalAssociation(EventAssociation{
 			EffectID: effectID,
-			WorkID:   work,
+			WorkID:   boundWork,
 			Slice:    sliceID,
 		}),
 		At: s.now().UTC(),
@@ -402,6 +492,64 @@ func (s *Service) executeHostCheck(
 		return hostCheckResult{}, runtimeFail("JOURNAL_WRITE_FAILED", err)
 	}
 	return result, nil
+}
+
+// hostCheckCompletedEvent names the completion event for a check.host
+// effect: a re-execution (#296) is journaled under its own kind so the
+// board and the operator can tell a replaced record from first evidence.
+func hostCheckCompletedEvent(rerunOf string) string {
+	if rerunOf != "" {
+		return "host_check_rerun_completed"
+	}
+	return "host_check_completed"
+}
+
+// admitHostCheckEffect ensures the single attempt of one check.host effect
+// bound to work and returns it claimed by this owner when it still has to
+// run, or its recorded result when it already succeeded. A recorded
+// operational failure of the effect itself refuses HOST_CHECK_FAILED, and
+// any other state is left to recovery.
+func (s *Service) admitHostCheckEffect(
+	ctx context.Context,
+	engine *engine,
+	owner journal.OwnerLease,
+	work, effectID string,
+	command hostCheckCommand,
+) (journal.Effect, []byte, error) {
+	payload := mustJSON(command)
+	now := s.now().UTC()
+	if err := s.journal.EnsureAttempt(ctx,
+		journal.Command{RunID: engine.manifest.value.RunID, ReplayKey: effectID,
+			Kind: "check.host", Payload: payload, CreatedAt: now},
+		journal.Effect{RunID: engine.manifest.value.RunID, ID: effectID,
+			ReplayKey: effectID, Kind: "check.host", BeforeDigest: work,
+			ExpectedDigest: sha256Digest(payload), UpdatedAt: now},
+		journal.EffectAttempt{WorkID: work, Epoch: 1, Try: 1}); err != nil {
+		return journal.Effect{}, nil, runtimeFail("JOURNAL_WRITE_FAILED", err)
+	}
+	effect, err := s.journal.Effect(ctx, engine.manifest.value.RunID, effectID)
+	if err != nil {
+		return journal.Effect{}, nil, runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	switch effect.State {
+	case journal.Succeeded:
+		return effect, effect.Result, nil
+	case journal.OperationalFailed:
+		return journal.Effect{}, nil, runtimeFail("HOST_CHECK_FAILED", nil)
+	case journal.Pending:
+		claim, err := s.journal.ClaimOwned(
+			ctx, owner, effectID, s.now().UTC(), effectLease)
+		if err != nil {
+			return journal.Effect{}, nil, runtimeFail("EFFECT_CLAIM_FAILED", err)
+		}
+		effect.State, effect.CurrentClaim = journal.Claimed, claim.Token
+	case journal.Claimed:
+		// A claimed effect left by a crashed prior attempt is re-run and
+		// completed by this owner; see recoverHostCheckClaims.
+	default:
+		return journal.Effect{}, nil, runtimeFail("RECOVERY_UNCERTAIN", nil)
+	}
+	return effect, nil, nil
 }
 
 func parseHostCheckResult(
@@ -526,13 +674,13 @@ func validateHostCheckEvidenceProof(
 		}
 		work := hostCheckWork(
 			cycle.Slice, record.Candidate, manifest.ContractDigest, entry.Check)
-		effectID := hostCheckEffectID(work)
+		effectID := entry.HostEffect
+		boundWork, bound := hostCheckBoundWork(effectID, work)
 		effect, found := effects[effectID]
-		if !found ||
-			entry.HostEffect != effectID ||
+		if !found || !bound ||
 			effect.Kind != "check.host" ||
 			effect.State != journal.Succeeded ||
-			effect.BeforeDigest != work ||
+			effect.BeforeDigest != boundWork ||
 			effect.ResultDigest != sha256Digest(effect.Result) {
 			return runtimeFail("CORRUPT_JOURNAL", nil)
 		}
@@ -665,10 +813,19 @@ func (s *Service) recoverHostCheckClaims(
 			var commandValue hostCheckCommand
 			if json.Unmarshal(command.Payload, &commandValue) != nil ||
 				!bytesEqualCanonicalJSON(command.Payload, commandValue) ||
-				commandValue.SchemaVersion != hostCheckSchemaVersion ||
-				effect.BeforeDigest != hostCheckWork(
-					commandValue.Slice, commandValue.Candidate,
-					commandValue.ContractDigest, commandValue.Check) {
+				commandValue.SchemaVersion != hostCheckSchemaVersion {
+				return true, runtimeFail("CORRUPT_JOURNAL", nil)
+			}
+			boundWork := hostCheckWork(
+				commandValue.Slice, commandValue.Candidate,
+				commandValue.ContractDigest, commandValue.Check)
+			if commandValue.RerunOf != "" {
+				if commandValue.RerunOf != hostCheckEffectID(boundWork) {
+					return true, runtimeFail("CORRUPT_JOURNAL", nil)
+				}
+				boundWork = hostCheckRerunWork(boundWork)
+			}
+			if effect.BeforeDigest != boundWork {
 				return true, runtimeFail("CORRUPT_JOURNAL", nil)
 			}
 			result, runErr := s.executeHostCheckFromRecovery(
@@ -715,18 +872,17 @@ func (s *Service) executeHostCheckFromRecovery(
 	result.Slice, result.Candidate, result.ContractDigest =
 		command.Slice, command.Candidate, command.ContractDigest
 	result.EffectID = effect.ID
+	result.RerunOf = command.RerunOf
 	body := mustJSON(result)
 	if err := s.journal.CompleteOwned(context.WithoutCancel(ctx), owner, journal.Completion{
 		RunID: owner.RunID, EffectID: effect.ID,
 		Token: effect.CurrentClaim, State: journal.Succeeded, Result: body,
 		Receipts:  []journal.Receipt{{Kind: "host_check_result", Body: body}},
-		EventKind: "host_check_completed",
+		EventKind: hostCheckCompletedEvent(command.RerunOf),
 		EventBody: MarshalAssociation(EventAssociation{
 			EffectID: effect.ID,
-			WorkID: hostCheckWork(
-				command.Slice, command.Candidate,
-				command.ContractDigest, command.Check),
-			Slice: command.Slice,
+			WorkID:   effect.BeforeDigest,
+			Slice:    command.Slice,
 		}),
 		At: s.now().UTC(),
 	}); err != nil {
