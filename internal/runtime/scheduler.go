@@ -6132,21 +6132,6 @@ func (s *Service) pinCrossingLanes(
 			pinned[lane] = struct{}{}
 		}
 	}
-	for _, crossing := range providerUnavailableParkCrossings(snapshot, control) {
-		owner := ownerWorkForDispatch(snapshot, crossing.work)
-		body, err := providerUnavailableParkEventBody(runID, owner, crossing)
-		if err != nil {
-			return nil, err
-		}
-		if err := s.appendParkEventOnce(
-			ctx, runID, ParkCauseProviderUnavailable, body,
-		); err != nil {
-			return nil, err
-		}
-		if lane, ok := laneFor(owner); ok {
-			pinned[lane] = struct{}{}
-		}
-	}
 	exhausted, refusals := exhaustedWorks(snapshot, control, nil)
 	exhaustionParks := exhaustionParkCrossings(
 		engine.manifest, snapshot, exhausted, refusals,

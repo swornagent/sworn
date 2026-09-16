@@ -90,17 +90,6 @@ func (s *Service) economyGuardsParked(
 			return true, s.appendParkEventOnce(ctx, runID, ParkCauseIdenticalFailure, body)
 		}
 	}
-	// #310: a single provider refusal parks the work; ranked after the
-	// identical-failure streak so an existing streak keeps its reading.
-	for _, crossing := range providerUnavailableParkCrossings(snapshot, control) {
-		if ownerWorkForDispatch(snapshot, crossing.work) == work {
-			body, err := providerUnavailableParkEventBody(runID, work, crossing)
-			if err != nil {
-				return false, err
-			}
-			return true, s.appendParkEventOnce(ctx, runID, ParkCauseProviderUnavailable, body)
-		}
-	}
 	return false, nil
 }
 
@@ -698,92 +687,6 @@ func identicalFailureParkCrossings(
 		})
 	}
 	return result
-}
-
-// providerUnavailableFacts carries one provider-unavailable crossing
-// (#310): the dispatch work whose latest current-epoch try the provider
-// refused, the provider code, and the adapter's bounded message.
-type providerUnavailableFacts struct {
-	work   string
-	code   string
-	detail string
-}
-
-// providerUnavailableCode reports whether a dispatch failure code says the
-// provider would not take the request at all: a limit the driver could not
-// pace through (PROVIDER_LIMITED escapes the dispatch only as a hard wall
-// or an exhausted pacing budget) or an unavailable endpoint. A transport
-// fault stays an ordinary try: it may be transient and says nothing about
-// the account.
-func providerUnavailableCode(code string) bool {
-	switch code {
-	case "PROVIDER_LIMITED", "PROVIDER_UNAVAILABLE":
-		return true
-	default:
-		return false
-	}
-}
-
-// providerUnavailableParkCrossings scans the journal for every work whose
-// LATEST current-epoch dispatch try ended in a provider-unavailable
-// failure. One occurrence is enough (#310): a dispatch the provider refused
-// is not an attempt at the work, so nothing is learned by spending the
-// next try on it, and the identical-failure guard would otherwise charge
-// the whole budget to the provider's weather. An operator retry opens a
-// fresh epoch, which retires the crossing.
-func providerUnavailableParkCrossings(
-	snapshot journal.Snapshot,
-	control journal.ControlProjection,
-) []providerUnavailableFacts {
-	latest := make(map[string]journal.Effect)
-	latestTry := make(map[string]int64)
-	var order []string
-	for _, effect := range snapshot.Effects {
-		if effect.Kind != "driver.dispatch" {
-			continue
-		}
-		work, epoch, try, coordErr := attemptCoordinates(effect.ID)
-		if coordErr != nil {
-			continue
-		}
-		if !dispatchAttemptIsCurrentEpoch(snapshot, control, work, epoch) {
-			continue
-		}
-		if seen, ok := latestTry[work]; !ok {
-			order = append(order, work)
-			latest[work], latestTry[work] = effect, try
-		} else if try > seen {
-			latest[work], latestTry[work] = effect, try
-		}
-	}
-	var result []providerUnavailableFacts
-	for _, work := range order {
-		effect := latest[work]
-		if effect.State != journal.OperationalFailed ||
-			!providerUnavailableCode(effect.ErrorCode) {
-			continue
-		}
-		result = append(result, providerUnavailableFacts{
-			work:   work,
-			code:   effect.ErrorCode,
-			detail: refusalDetail(effect.Result, effect.ErrorCode),
-		})
-	}
-	return result
-}
-
-func providerUnavailableParkEventBody(
-	runID, work string,
-	facts providerUnavailableFacts,
-) ([]byte, error) {
-	return canonicalDegradationParkEvent(DegradationParkEvent{
-		SchemaVersion: ParkEventVersion,
-		RunID:         runID,
-		Cause:         ParkCauseProviderUnavailable,
-		FailureCode:   facts.code,
-		FailureDetail: facts.detail,
-		Work:          work,
-	})
 }
 
 // dispatchContext reads back the persisted work context of a driver.dispatch
