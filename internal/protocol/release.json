@@ -2,9 +2,9 @@
   "schema": "sworn.role-assets/v1",
   "snapshot": {
     "manifest_schema": "sworn.protocol-assets/v1",
-    "manifest_sha256": "sha256:a19f8c381689acd6d498b6b94d38b08f4be0b57182f5609845a0643172e82430",
+    "manifest_sha256": "sha256:bb76e049e98d5382473e835e328165d69b4d9a6953345edc0e7821aa085a1a98",
     "asset_count": 25,
-    "total_bytes": 391691
+    "total_bytes": 391680
   },
   "operations": [
     {
@@ -62,7 +62,7 @@
       "kind": "receipt",
       "source": "schemas/receipt-v1.json",
       "version": "receipt-v1",
-      "sha256": "sha256:496b862556cd60a191458106fc8ac589c39348893a2dfd023f9e76184216010c"
+      "sha256": "sha256:30be30a9411a2ffc582d8448f12c64a555dc081f8671743ce6f9388a12af65da"
     }
   ]
 }

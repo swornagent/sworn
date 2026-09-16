@@ -119,8 +119,8 @@
     },
     {
       "path": "schemas/receipt-v1.json",
-      "size": 2186,
-      "sha256": "sha256:496b862556cd60a191458106fc8ac589c39348893a2dfd023f9e76184216010c"
+      "size": 2175,
+      "sha256": "sha256:30be30a9411a2ffc582d8448f12c64a555dc081f8671743ce6f9388a12af65da"
     },
     {
       "path": "templates/plan.md",

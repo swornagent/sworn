@@ -40,11 +40,11 @@ const (
 	// gate against an external product.
 	LegacyProtocolVersion = "1.0.0-rc.14"
 	LegacyProtocolCommit  = "3dc5f2f0164ff379a3000fe25d2a323b4fe2e8ef"
-	ManifestSHA256        = "sha256:a19f8c381689acd6d498b6b94d38b08f4be0b57182f5609845a0643172e82430"
+	ManifestSHA256        = "sha256:bb76e049e98d5382473e835e328165d69b4d9a6953345edc0e7821aa085a1a98"
 	AssetCount            = 25
-	AssetBytes            = int64(391691)
+	AssetBytes            = int64(391680)
 
-	releaseDocumentSHA256 = "sha256:f864d6086b6b1b212531e3cf7af1563af1c089df7818a9cf7877a81b84a9c455"
+	releaseDocumentSHA256 = "sha256:60450805432eff22399edbb0763490091427a58f87855c708e8fa4d68fbae507"
 	manifestSchema        = "sworn.protocol-assets/v1"
 	operationVersion      = "protocol.operation/v2"
 )
@@ -327,7 +327,7 @@ func validateReleaseBindings(source fs.FS, release releaseFile, digests map[stri
 	expectedContracts := []releaseContract{
 		{"engine_adapter", "conformance/engine-adapter.md", "protocol.engine-conformance/v1", "sha256:7e42f65eb88783cbfc356416b5ac4c04ccdad21c06a2a30fc338fadfb240a42b"},
 		{"conformance_manifest", "conformance/manifest.json", "protocol.conformance-manifest/v2", "sha256:21aacbd7cf7ad95f535dc54473b7f36cd4f2afa882d0c30a38d69f4e7adda916"},
-		{"receipt", "schemas/receipt-v1.json", "receipt-v1", "sha256:496b862556cd60a191458106fc8ac589c39348893a2dfd023f9e76184216010c"},
+		{"receipt", "schemas/receipt-v1.json", "receipt-v1", "sha256:30be30a9411a2ffc582d8448f12c64a555dc081f8671743ce6f9388a12af65da"},
 	}
 	if !slices.Equal(release.Operations, expectedOperations) {
 		return errors.New("release operation bindings are not exact")

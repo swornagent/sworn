@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://protocol.sawy3r.net/schemas/receipt-v1.json",
+  "$id": "https://sworn.sh/schemas/receipt-v1.json",
   "title": "Protocol receipt v1",
   "type": "object",
   "additionalProperties": false,
