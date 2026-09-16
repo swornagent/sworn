@@ -37,7 +37,7 @@ whichever model is driving. Sworn already has all of those working.
 2. **Running fully unattended is a non-goal.** Parks and attention turns
    are the engine's escalation interface, not defects to engineer away.
    Anything that decides on the engine's behalf is suspect by default.
-3. **The first seat is a Claude Code skill over the cockpit MCP surface**
+3. **The first seat (the Manager) is a Claude Code skill over the cockpit MCP surface**
    (`sworn_status`, `sworn_control` retry/cancel/pause/resume/grant/takeover,
    `sworn_attentions` and `sworn_answer_attention`, `sworn_approve`,
    `sworn_start`). It formalises the operator work that delivered every
@@ -92,6 +92,29 @@ bypasses human authority.
    itself acts on, and only as gates for structural facts and priors for
    stochastic ones.
 
+## Vocabulary
+
+Ratified 2026-09-16, with the principle that names are descriptive and
+instantly recognisable; generic is fine. Baton, the former public protocol
+repo, is retired and decommissioned, so this is a Sworn-internal rename.
+
+| Seat | Was | Does |
+|---|---|---|
+| Principal | Coach | The accountable human: approves plans, answers Type-1 escalations, ratifies policy. |
+| Director | (new) | Portfolio seat over several releases: priorities, budgets, results, escalations. Delegated authority only. |
+| Manager | (new) | Release seat: runs one release, sets the roster, routine calls within policy, keeps the decision journal. Delegated authority only. |
+| Lead | Captain | Per-slice design authority in the run: reviews designs, adjudicates scope, unblocks. `captain_review` becomes `lead_review`, `captain_plan_review` becomes `lead_plan_review`. |
+| Planner, Implementer, Verifier | same | Unchanged. |
+| Scout | (later) | Learning advisor over outcomes: recommends rosters and priors, never selects. |
+
+"Orchestrator" describes the Manager and Director tier; it is not a role.
+The package `internal/baton` becomes `internal/authority` (plans, contracts,
+receipts, state and record actions), and action names follow
+(`baton.merge` becomes `authority.merge`). ADRs 0001 to 0010 stay as
+written and read through this table. Journals recorded under the old
+vocabulary are not migrated. The rename is one focused pass ahead of
+Track A, done by hand.
+
 ## Consequences and queue
 
 Demoted: sworn#292 session continuity (a cost optimisation, not a
@@ -100,6 +123,7 @@ further autopilot guard.
 
 Promoted, in order:
 
+- **Track 0, vocabulary.** The rename above.
 - **Track A, seat.** A `/sworn-orchestrate` skill: tick loop over
   `sworn_status`, decision policy loaded from the catalogue file, typed
   actions through `sworn_control` and attention answers, decision journal
