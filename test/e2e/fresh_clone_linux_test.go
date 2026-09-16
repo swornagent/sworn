@@ -10,10 +10,10 @@ import (
 )
 
 // Release-completion gate: a fresh clone of this repository carries the
-// exact post-migration shape and no legacy .baton surface.
+// exact post-migration shape and no legacy .protocol surface.
 //
 // This test is DECLARED, NOT EXECUTED by a role (ADR 0010). It asserts that
-// the reserved records root lives at .sworn/records and no legacy .baton
+// the reserved records root lives at .sworn/records and no legacy .protocol
 // surface is tracked; it is the host-boundary release-completion assertion.
 func TestFreshCloneCarriesMigratedRecordsAndNoLegacySurface(t *testing.T) {
 	t.Parallel()
@@ -44,10 +44,10 @@ func TestFreshCloneCarriesMigratedRecordsAndNoLegacySurface(t *testing.T) {
 		t.Fatalf("fresh clone is not clean:\n%s", status)
 	}
 
-	// No .baton path anywhere in the tracked tree.
+	// No .protocol path anywhere in the tracked tree.
 	tracked := run("ls-files")
-	if strings.Contains(tracked, ".baton") {
-		t.Fatalf("fresh clone tracks a .baton path:\n%s", tracked)
+	if strings.Contains(tracked, ".protocol") {
+		t.Fatalf("fresh clone tracks a .protocol path:\n%s", tracked)
 	}
 
 	// Every release recorded at HEAD lives under .sworn/records and its

@@ -57,7 +57,7 @@ type HumanTurnBinding struct {
 	Role                  string `json:"role"`
 	Responsibility        string `json:"responsibility"`
 	InvocationID          string `json:"invocation_id"`
-	BatonAttempt          int64  `json:"baton_attempt"`
+	ProtocolAttempt       int64  `json:"protocol_attempt"`
 	PlanAuthorityDigest   string `json:"plan_authority_digest"`
 	TargetAuthorityDigest string `json:"target_authority_digest"`
 	WorkIdentity          string `json:"work_identity"`
@@ -85,12 +85,12 @@ func validHumanTurnBinding(
 		return nil
 	}
 	validRole := value.Role == "planner" || value.Role == "implementer" ||
-		value.Role == "captain" || value.Role == "verifier"
+		value.Role == "lead" || value.Role == "verifier"
 	validResponsibility := value.Responsibility == "planner_proposal" ||
 		value.Responsibility == "implementer_design" ||
 		value.Responsibility == "implementer_implementation" ||
-		value.Responsibility == "captain_review" ||
-		value.Responsibility == "captain_plan_review" ||
+		value.Responsibility == "lead_review" ||
+		value.Responsibility == "lead_plan_review" ||
 		value.Responsibility == "work_verification" ||
 		value.Responsibility == "assembly_verification"
 	if value.SchemaVersion != HumanTurnBindingVersion ||
@@ -101,7 +101,7 @@ func validHumanTurnBinding(
 		!validRole || !validResponsibility ||
 		strings.TrimSpace(value.InvocationID) == "" ||
 		strings.ContainsRune(value.InvocationID, 0) ||
-		value.BatonAttempt < 1 ||
+		value.ProtocolAttempt < 1 ||
 		validateDigest(value.PlanAuthorityDigest) != nil ||
 		validateDigest(value.TargetAuthorityDigest) != nil ||
 		validateDigest(value.WorkIdentity) != nil ||

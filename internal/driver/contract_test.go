@@ -48,7 +48,7 @@ func TestCanonicalOperationsBindSwornOwnedRoleAssetsAndExcludeMerge(t *testing.T
 	}
 	if identity != (PackageIdentity{
 		Version:        "sworn.role-assets/v1",
-		ManifestSHA256: "sha256:0bc00c8507fc27b59dda4bbc91e8800dcac66207adbea208141460e292a6d42b",
+		ManifestSHA256: "sha256:bb76e049e98d5382473e835e328165d69b4d9a6953345edc0e7821aa085a1a98",
 	}) {
 		t.Fatalf("package identity = %#v", identity)
 	}
@@ -57,20 +57,20 @@ func TestCanonicalOperationsBindSwornOwnedRoleAssetsAndExcludeMerge(t *testing.T
 		digest string
 	}{
 		RolePlanner: {
-			"baton-plan",
-			"sha256:30a21cd1b660553aa71c2e85bdbaa24db577467f403fd3a49519610d7fa9a355",
+			"protocol-plan",
+			"sha256:9ca77fd2f390544416dbe9f2556d6cd7dcaf3a65bfe7cecb2bc514d05f09d32d",
 		},
 		RoleImplementer: {
-			"baton-implement",
-			"sha256:1c63e5ef0f026626f89c5cd0fe389793b03c0857fbf99c95f67c484c87265342",
+			"protocol-implement",
+			"sha256:47a158b82bb97f886e73f30bfe5bc88e9b596c131ccee32107c7b859ef792b30",
 		},
-		RoleCaptain: {
-			"baton-design-review",
-			"sha256:8835efe68fffbd0266717f37b334486d2b674d3c2d014902d7d5b31c3339141f",
+		RoleLead: {
+			"protocol-design-review",
+			"sha256:e3d5ad816e113ff0b5bc9f94d365419d0842cbe9cb641b91c783cd03c589765b",
 		},
 		RoleVerifier: {
-			"baton-verify",
-			"sha256:82ec2129c56371d327122aeb4fd13d49523a1b0bacff3d2e591722e2c98e023d",
+			"protocol-verify",
+			"sha256:35027e7d633042a001ed7a24e72cd149a58d0964b83011d79881ae86dd5af826",
 		},
 	}
 	for role, want := range expected {
@@ -82,7 +82,7 @@ func TestCanonicalOperationsBindSwornOwnedRoleAssetsAndExcludeMerge(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
-			if operation.ID != want.id || operation.Version != "baton.operation/v2" ||
+			if operation.ID != want.id || operation.Version != "protocol.operation/v2" ||
 				operation.Digest != want.digest ||
 				Digest([]byte(operation.Instructions)) != want.digest {
 				t.Fatalf("operation = %#v", operation)
@@ -101,7 +101,7 @@ func TestCanonicalOperationsBindSwornOwnedRoleAssetsAndExcludeMerge(t *testing.T
 func TestRoleAssetAddendumStatesCanonicalDigestInvocationStateAndSealEpochFactsAndIsAbsentForPlanner(t *testing.T) {
 	t.Parallel()
 	const pinnedDigest = "sha256:d3388b7cb08e5e4790581204a7df07719746e9e34902f97435d9fd18a41cffa2"
-	for _, role := range []Role{RoleImplementer, RoleCaptain, RoleVerifier} {
+	for _, role := range []Role{RoleImplementer, RoleLead, RoleVerifier} {
 		role := role
 		t.Run(string(role), func(t *testing.T) {
 			t.Parallel()
@@ -140,7 +140,7 @@ func TestDriverInfoCodecIsSwornOwnedExactStrictAndBound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"contract_version":"sworn.driver/v1","adapter_id":"baton.fake","adapter_version":"1.0.0"}` + "\n"
+	want := `{"contract_version":"sworn.driver/v1","adapter_id":"protocol.fake","adapter_version":"1.0.0"}` + "\n"
 	if string(body) != want {
 		t.Fatalf("info = %q", body)
 	}
@@ -160,8 +160,8 @@ func TestDriverInfoCodecIsSwornOwnedExactStrictAndBound(t *testing.T) {
 		t.Fatalf("unknown error = %v", err)
 	}
 	duplicate := bytes.Replace(body,
-		[]byte(`"adapter_id":"baton.fake"`),
-		[]byte(`"adapter_id":"baton.fake","adapter_id":"baton.fake"`),
+		[]byte(`"adapter_id":"protocol.fake"`),
+		[]byte(`"adapter_id":"protocol.fake","adapter_id":"protocol.fake"`),
 		1,
 	)
 	if _, err := DecodeDriverInfo(duplicate, DriverInfoBinding{}); !IsCode(err, "DUPLICATE_NAME") {
@@ -273,7 +273,7 @@ func TestRequestRejectsMergeDefaultsDriftAndUnsafeInputs(t *testing.T) {
 		t.Fatalf("stale error = %v", err)
 	}
 	wrongRole := request
-	wrongRole.Role = RoleCaptain
+	wrongRole.Role = RoleLead
 	if err := ValidateRequest(wrongRole); !IsCode(err, "OPERATION_ROLE_MISMATCH") {
 		t.Fatalf("role error = %v", err)
 	}
@@ -292,11 +292,11 @@ func TestRequestRejectsMergeDefaultsDriftAndUnsafeInputs(t *testing.T) {
 	}
 	merge := request
 	merge.Role = Role("merge")
-	merge.Operation.ID = "baton-merge"
+	merge.Operation.ID = "protocol-merge"
 	if err := ValidateRequest(merge); !IsCode(err, "INVALID_ROLE") {
 		t.Fatalf("Merge wire role error = %v", err)
 	}
-	for _, reserved := range []string{".git/config", ".baton/plan.md", ".sworn/journal"} {
+	for _, reserved := range []string{".git/config", ".protocol/plan.md", ".sworn/journal"} {
 		value := request
 		value.Inputs = append([]Input(nil), request.Inputs...)
 		value.Inputs[0].Path = reserved
@@ -324,7 +324,7 @@ func TestRepositoryPathAdmissionThreadsEngineReservedNames(t *testing.T) {
 	}
 	// ...but invocation admission threads the engine-computed reserved set
 	// derived from the configured project roots, so the same path is refused
-	// once the engine knows the relocated records root (Captain correction:
+	// once the engine knows the relocated records root (Lead correction:
 	// the once-derived reserved set reaches every enumerating site).
 	for _, reserved := range [][]string{
 		{".git", ".records", ".journals"},
@@ -336,7 +336,7 @@ func TestRepositoryPathAdmissionThreadsEngineReservedNames(t *testing.T) {
 	}
 	// The fixed defaults still refuse the default reserved names at every
 	// admission level.
-	request.Inputs[0].Path = ".baton/plan.md"
+	request.Inputs[0].Path = ".protocol/plan.md"
 	if err := ValidateRequest(request); !IsCode(err, "INVALID_PATH") {
 		t.Fatalf("default reserved input error = %v, want INVALID_PATH", err)
 	}
@@ -523,7 +523,7 @@ func TestResultRejectsUnsafeNumbersCostAndBindings(t *testing.T) {
 
 func TestFakeIsRoleNeutralAndTransportOnly(t *testing.T) {
 	t.Parallel()
-	for _, role := range []Role{RolePlanner, RoleImplementer, RoleCaptain, RoleVerifier} {
+	for _, role := range []Role{RolePlanner, RoleImplementer, RoleLead, RoleVerifier} {
 		role := role
 		t.Run(string(role), func(t *testing.T) {
 			t.Parallel()

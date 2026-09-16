@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
@@ -50,7 +50,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	}
 	result.Project = manifest.value.Authority.Project
 	result.ExternalAuthorizer = manifest.value.Authority.ExternalAuthorizer
-	delegation, delegationErr := currentCaptainDelegation(snapshot)
+	delegation, delegationErr := currentLeadDelegation(snapshot)
 	if delegationErr != nil {
 		return RunStatus{}, delegationErr
 	}
@@ -59,7 +59,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		if delegation.Active {
 			state = "active"
 		}
-		result.CaptainDelegation = &CaptainDelegationView{Digest: delegation.Digest, Epoch: delegation.Epoch, State: state, Decisions: delegation.Decisions, ReplanSpent: delegation.ReplanSpent, ReplanBudget: delegation.Envelope.Limits.ReplanBudget}
+		result.LeadDelegation = &LeadDelegationView{Digest: delegation.Digest, Epoch: delegation.Epoch, State: state, Decisions: delegation.Decisions, ReplanSpent: delegation.ReplanSpent, ReplanBudget: delegation.Envelope.Limits.ReplanBudget}
 	}
 	authorityDigest, authorityErr := effectivePlanAuthority(manifest, snapshot)
 	if authorityErr != nil {
@@ -208,7 +208,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	if len(identicalCrossings) != 0 {
 		identicalPark = &identicalCrossings[0]
 	}
-	// Raw exhaustion is fail-closed until Baton state can tell us whether the
+	// Raw exhaustion is fail-closed until Protocol state can tell us whether the
 	// exhausted work is still applicable. Recovery attention is independent.
 	// The diagnostic code/detail stay empty here: they name a specific
 	// scope-refused work, which is only known once exhaustion is matched
@@ -228,11 +228,11 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		return gitx.RecordRootDecision{Kind: request.Kind, Repository: request.Repository,
 			RecordRoot: request.RecordRoot, Commit: request.Commit, Decision: "inert"}, nil
 	}
-	state, stateErr := baton.ReadState(baton.UseGitRepository(repository),
+	state, stateErr := protocol.ReadState(protocol.UseGitRepository(repository),
 		manifest.value.Release, inertness)
 	statusEngine := &engine{
 		manifest: manifest, repository: repository,
-		git: baton.UseGitRepository(repository), inertness: inertness,
+		git: protocol.UseGitRepository(repository), inertness: inertness,
 	}
 	proposal, proposalFound, proposalInstalled, selectErr := selectPlanProposal(
 		statusEngine, snapshot, proposals, state, stateErr)
@@ -258,7 +258,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	}
 	humanAuthorityRequired := false
 	if proposalFound && delegation.Epoch > 0 {
-		humanAuthorityRequired, err = captainHumanAuthorityRequired(snapshot, proposal, delegation)
+		humanAuthorityRequired, err = leadHumanAuthorityRequired(snapshot, proposal, delegation)
 		if err != nil {
 			return RunStatus{}, err
 		}
@@ -294,7 +294,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	)
 	result.AuthorityState = "awaiting_approval"
 	for _, effect := range snapshot.Effects {
-		if effect.Kind != "baton.install" {
+		if effect.Kind != "protocol.install" {
 			continue
 		}
 		switch effect.State {
@@ -375,11 +375,11 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		}
 	}
 	if result.State == "parked" {
-		// This early site runs before a later baton.ReadState is confirmed
+		// This early site runs before a later protocol.ReadState is confirmed
 		// to have succeeded, so it can never compute lane-scoped
 		// PinnedWork; it only ever produces the legacy run-scoped shape
 		// (B3). The final site below recomputes both Park and PinnedWork
-		// from confirmed Baton state and is authoritative whenever it is
+		// from confirmed Protocol state and is authoritative whenever it is
 		// reached.
 		result.Park = parkStatusFor(manifest, parkFacts{
 			humanAuthorityRequired:    humanAuthorityRequired,
@@ -474,7 +474,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		lanes, exhausted, exhaustionRefusals, economyByOwner, identicalByOwner,
 		exhaustionParksByLane(state, exhaustionParks),
 	)
-	// Zero candidate lanes is not progress: short of a merged release, Baton
+	// Zero candidate lanes is not progress: short of a merged release, Protocol
 	// state offers no work at all, so a standing exhaustion is the run's
 	// whole current condition and fails closed as a park rather than reading
 	// as running.
@@ -764,12 +764,12 @@ func validateAttentionDispatchBinding(
 		}
 		prepared.productionContext = &context
 		coordinates = dispatchCoordinates{
-			Slice:          context.Slice,
-			Responsibility: context.Responsibility,
-			BatonAttempt:   context.Attempt,
-			Epoch:          context.Epoch,
-			Try:            context.Try,
-			DispatchWork:   work,
+			Slice:           context.Slice,
+			Responsibility:  context.Responsibility,
+			ProtocolAttempt: context.Attempt,
+			Epoch:           context.Epoch,
+			Try:             context.Try,
+			DispatchWork:    work,
 		}
 		before = context.Before
 	} else {
@@ -836,11 +836,11 @@ func validateAttentionDispatchBinding(
 		before = implementation.Before
 		prepared.fake = true
 		coordinates = dispatchCoordinates{
-			Slice:          matched.Slice,
-			Responsibility: matched.Responsibility,
-			BatonAttempt:   matched.BatonAttempt,
-			Epoch:          epoch,
-			Try:            try,
+			Slice:           matched.Slice,
+			Responsibility:  matched.Responsibility,
+			ProtocolAttempt: matched.ProtocolAttempt,
+			Epoch:           epoch,
+			Try:             try,
 		}
 	}
 	cycle, err := turnRecoveryCycleForDispatch(
@@ -876,7 +876,7 @@ type laneCandidates struct {
 // release-lane candidate exactly as before (a pending plan proposal
 // supersedes every track's current work, so nothing else is a candidate
 // lane while it awaits install), and the ready-track branch now keeps each
-// track's candidate works, including its folded baton.append_receipt scan
+// track's candidate works, including its folded protocol.append_receipt scan
 // (F4), in that track's own lane instead of one shared set. The release
 // pseudo-lane carries the planner-proposal work whenever plannerNeeded,
 // independent of whether any track lane is ready (driveLoop dispatches the
@@ -887,7 +887,7 @@ func readyLaneCandidates(
 	manifest admittedManifest,
 	proposal *admittedPlanProposal,
 	proposalInstalled bool,
-	state baton.State,
+	state protocol.State,
 	snapshot journal.Snapshot,
 ) []laneCandidates {
 	if proposal != nil && !proposalInstalled {
@@ -922,9 +922,9 @@ func readyLaneCandidates(
 				))
 				add(driverWorkIdentity(manifest.digest, slice.Location.Slice.ID,
 					driver.ImplementerDesign, slice.Attempt, before))
-			case slice.NextRole == "captain":
+			case slice.NextRole == "lead":
 				add(driverWorkIdentity(manifest.digest, slice.Location.Slice.ID,
-					driver.CaptainReview, slice.Attempt, before))
+					driver.LeadReview, slice.Attempt, before))
 			case slice.NextRole == "implementer" && slice.Stage == "implement":
 				add(workIdentity(
 					trackBaseBefore(state, slice),
@@ -942,14 +942,14 @@ func readyLaneCandidates(
 		}
 		anyTrackReady = true
 		for _, command := range snapshot.Commands {
-			if command.Kind != "baton.append_receipt" {
+			if command.Kind != "protocol.append_receipt" {
 				continue
 			}
 			persisted, err := parseActionCommand(command.Payload)
 			if err != nil {
 				continue
 			}
-			var input baton.AppendReceiptInput
+			var input protocol.AppendReceiptInput
 			if parseCanonicalActionInput(
 				persisted.Input, &input) != nil || input.Slice == "" {
 				continue

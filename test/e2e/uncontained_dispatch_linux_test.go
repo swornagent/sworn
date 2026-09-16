@@ -201,7 +201,7 @@ func assertUncontainedRerunReplacesStaleProposal(
 		}
 	}
 	for _, effect := range snapshot.Effects {
-		if effect.Kind == "baton.install" && effect.State == journal.Succeeded {
+		if effect.Kind == "protocol.install" && effect.State == journal.Succeeded {
 			installs++
 		}
 		if effect.Kind != "driver.dispatch" ||
@@ -341,7 +341,7 @@ func TestUncontainedOrchestrationSubsetRunsInsideWorkerSandbox(t *testing.T) {
 			t.Fatalf("resume stdout = %q, stderr = %q", stdout, stderr)
 		}
 		assertDispatchOrder(t, journalPath, runID)
-		state := readBatonState(t, repository, release)
+		state := readProtocolState(t, repository, release)
 		if state.Assembly.Outcome != "merged" ||
 			state.Assembly.Candidate == nil ||
 			state.Assembly.Pass == nil ||
@@ -389,7 +389,7 @@ func TestUncontainedOrchestrationSubsetRunsInsideWorkerSandbox(t *testing.T) {
 		authorizePlan(t, journalPath, runID, plan)
 		installAndPassComponent(t, repository, release, planBytes)
 		crashEnvironment := map[string]string{
-			"SWORN_TEST_CRASH_AFTER_EFFECT": "baton.merge",
+			"SWORN_TEST_CRASH_AFTER_EFFECT": "protocol.merge",
 			"SWORN_TEST_OWNER_LEASE_MILLIS": testLeaseMillis,
 		}
 		runSwornInWorkerSandbox(
@@ -405,7 +405,7 @@ func TestUncontainedOrchestrationSubsetRunsInsideWorkerSandbox(t *testing.T) {
 			"resume", "--run", runID, "--journal", journalPath,
 			"--command", "resume-1", "--generation", "0",
 		)
-		stateAfterCrash := readBatonState(t, repository, release)
+		stateAfterCrash := readProtocolState(t, repository, release)
 		if stateAfterCrash.Assembly.Outcome != "merged" ||
 			runGit(t, repository, "rev-parse", "main") !=
 				stateAfterCrash.Assembly.ResultCommit {
@@ -418,7 +418,7 @@ func TestUncontainedOrchestrationSubsetRunsInsideWorkerSandbox(t *testing.T) {
 		snapshot, snapshotErr := store.Snapshot(context.Background(), runID)
 		var mergeEffect journal.Effect
 		for _, effect := range snapshot.Effects {
-			if effect.Kind == "baton.merge" {
+			if effect.Kind == "protocol.merge" {
 				mergeEffect = effect
 			}
 		}
@@ -455,7 +455,7 @@ func TestUncontainedOrchestrationSubsetRunsInsideWorkerSandbox(t *testing.T) {
 		if !strings.Contains(stdout, "  state: complete") {
 			t.Fatalf("recovered resume = %q", stdout)
 		}
-		state := readBatonState(t, repository, release)
+		state := readProtocolState(t, repository, release)
 		if state.Assembly.Outcome != "merged" || state.Assembly.ResultCommit == "" {
 			t.Fatalf("recovered assembly = %#v", state.Assembly)
 		}
@@ -526,10 +526,10 @@ func TestProductionBinaryRefusesUncontainedDispatch(t *testing.T) {
 	if refused == 0 {
 		t.Fatal("no journaled UNCONTAINED_DISPATCH_REFUSED operational failure")
 	}
-	// A run refused at its first dispatch parks before any baton authority
+	// A run refused at its first dispatch parks before any protocol authority
 	// effect, so it must leave no authority refs behind. Assert that directly
 	// with git (mirroring the A2 planner-pause pattern) rather than reading
-	// baton state, which REF_NOT_FOUNDs because the release-wt ref was never
+	// protocol state, which REF_NOT_FOUNDs because the release-wt ref was never
 	// created.
 	for _, ref := range []string{
 		"refs/heads/release-wt/" + release,

@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 type economyGuardFixture struct {
@@ -52,7 +52,7 @@ func newEconomyGuardFixtureTwoTrack(
 func newEconomyGuardFixtureWithPlanFunc(
 	t *testing.T,
 	limits driver.Limits,
-	planFunc func(t *testing.T, release, repository, target, marker string) ([]byte, baton.Plan),
+	planFunc func(t *testing.T, release, repository, target, marker string) ([]byte, protocol.Plan),
 ) *economyGuardFixture {
 	t.Helper()
 	ctx := context.Background()
@@ -114,7 +114,7 @@ func newEconomyGuardFixtureWithPlanFunc(
 	}
 	t.Cleanup(func() { _ = engine.Close() })
 	planBytes, _ := planFunc(t, manifest.value.Release, manifest.value.Authority.Project, manifest.value.TargetRef, "approval-release-1-v1")
-	if _, err := engine.actions.RecordPlanRevision(baton.RecordPlanRevisionInput{
+	if _, err := engine.actions.RecordPlanRevision(protocol.RecordPlanRevisionInput{
 		PlanBytes: planBytes,
 		Summary:   "Install exact plan",
 		Detail:    []byte("detail"),
@@ -137,7 +137,7 @@ func testWork() string {
 // exactly as a real dispatch's work would.
 func (f *economyGuardFixture) readyWork(t *testing.T) string {
 	t.Helper()
-	state, err := baton.ReadState(f.engine.git, f.manifest.value.Release, f.engine.inertness)
+	state, err := protocol.ReadState(f.engine.git, f.manifest.value.Release, f.engine.inertness)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func (f *economyGuardFixture) readyWork(t *testing.T) string {
 // needed.
 func (f *economyGuardFixture) readyWorkForLane(t *testing.T, laneID string) string {
 	t.Helper()
-	state, err := baton.ReadState(f.engine.git, f.manifest.value.Release, f.engine.inertness)
+	state, err := protocol.ReadState(f.engine.git, f.manifest.value.Release, f.engine.inertness)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1003,7 +1003,7 @@ func TestIdenticalFailureLineageSuccessBreaksStaleStreak(t *testing.T) {
 
 	t.Run("later lineage success at the same attempt suppresses the stale streak", func(t *testing.T) {
 		t.Parallel()
-		// "Not lower than the streak's attempt" (the captain's correction):
+		// "Not lower than the streak's attempt" (the lead's correction):
 		// an equal attempt still counts, because a moved target/track head
 		// mints a fresh work id for the same slice, responsibility, and
 		// attempt.
@@ -1033,7 +1033,7 @@ func TestIdenticalFailureLineageSuccessBreaksStaleStreak(t *testing.T) {
 		// Different responsibility: a different lineage entirely, so its
 		// success must never suppress S1's design streak.
 		fixture.contextualSucceededDispatchAttempt(
-			t, work2, 1, 1, "S1", driver.CaptainReview, 5)
+			t, work2, 1, 1, "S1", driver.LeadReview, 5)
 		snapshot, err := fixture.store.Snapshot(fixture.ctx, fixture.manifest.value.RunID)
 		if err != nil {
 			t.Fatal(err)
@@ -1342,7 +1342,7 @@ func TestManifestEconomyKnobAdmissionAndRoundTrip(t *testing.T) {
 		Roles: driver.RoleSelections{
 			Planner:     driver.RoleSelection{Profile: "default", Model: "model-p"},
 			Implementer: driver.RoleSelection{Profile: "default", Model: "model-i"},
-			Captain:     driver.RoleSelection{Profile: "default", Model: "model-c"},
+			Lead:        driver.RoleSelection{Profile: "default", Model: "model-c"},
 			Verifier:    driver.RoleSelection{Profile: "default", Model: "model-v"},
 		},
 		Automation: &AutomationSelections{
@@ -1728,7 +1728,7 @@ func TestParseParkEventNewCausesAndLegacyByteStability(t *testing.T) {
 // when a git.seal command actually names it as DispatchWork, and a direct
 // (non-nested) dispatch work with no such command falls back unchanged -
 // the same fallback captureEffectiveLimits and admitEconomyControl rely on
-// for planner/captain/verifier dispatches, which are never git.seal-wrapped.
+// for planner/lead/verifier dispatches, which are never git.seal-wrapped.
 func TestOwnerWorkForDispatchResolvesNestedGitSealWork(t *testing.T) {
 	t.Parallel()
 	outerBefore := "outer-before-fingerprint"

@@ -14,26 +14,26 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
+	"github.com/swornagent/sworn/internal/protocol"
 	swornruntime "github.com/swornagent/sworn/internal/runtime"
 )
 
-// A3. A repository whose delivery history was written in the Baton era must
-// keep working under Sworn's own owners: no Baton product installed, no
+// A3. A repository whose delivery history was written in the Protocol era must
+// keep working under Sworn's own owners: no Protocol product installed, no
 // history rewritten, and a new release whose authority and provenance are
 // Sworn's.
 //
 // The legacy history here is real, not a fixture of convenience: a completed
-// baton.plan/v2 release with its inline slice bodies and its four
-// Baton-Receipt commits, written through the same production action API that
+// protocol.plan/v2 release with its inline slice bodies and its four
+// Protocol-Receipt commits, written through the same production action API that
 // produced such history originally. The new run then happens over that exact
 // repository with a home directory that contains nothing and a PATH that
-// contains only Git, so no Baton executable can participate even if one
+// contains only Git, so no Protocol executable can participate even if one
 // existed on this machine.
 
 const (
-	legacyRelease     = "legacy-baton-era-release"
+	legacyRelease     = "legacy-protocol-era-release"
 	legacySwornRunID  = "e2e-legacy-resume"
 	legacySwornRelase = "e2e-legacy-resume-release"
 )
@@ -42,19 +42,19 @@ func legacySlicePaths() map[string]string {
 	return map[string]string{"L1": "legacy/after.txt"}
 }
 
-// seedLegacyBatonEraRelease installs a completed baton.plan/v2 release and
+// seedLegacyProtocolEraRelease installs a completed protocol.plan/v2 release and
 // returns its plan digest plus the OID of every object reachable when it was
 // finished.
-func seedLegacyBatonEraRelease(t *testing.T, repository string) (baton.Plan, []string) {
+func seedLegacyProtocolEraRelease(t *testing.T, repository string) (protocol.Plan, []string) {
 	t.Helper()
 	planBytes, plan := e2ePlan(t, legacyRelease, repository)
-	if plan.Metadata().SchemaVersion != baton.PlanVersion {
-		t.Fatalf("legacy plan schema = %q, want the Baton-era fence %q",
-			plan.Metadata().SchemaVersion, baton.PlanVersion)
+	if plan.Metadata().SchemaVersion != protocol.PlanVersion {
+		t.Fatalf("legacy plan schema = %q, want the Protocol-era fence %q",
+			plan.Metadata().SchemaVersion, protocol.PlanVersion)
 	}
 	// installApprovedPlan + installAndPassComponent write exactly the record
-	// shape the Baton era produced: an inline baton.plan/v2 plan revision and
-	// Baton-Receipt commits for design, proceed, candidate and pass.
+	// shape the Protocol era produced: an inline protocol.plan/v2 plan revision and
+	// Protocol-Receipt commits for design, proceed, candidate and pass.
 	installAndPassComponent(t, repository, legacyRelease, planBytes)
 	return plan, reachableCommits(t, repository)
 }
@@ -78,7 +78,7 @@ func reachableCommits(t *testing.T, repository string) []string {
 func legacyResumePlanBytes(t *testing.T, digest string) []byte {
 	t.Helper()
 	value := map[string]any{
-		"schema_version": baton.ManifestVersion,
+		"schema_version": protocol.ManifestVersion,
 		"release":        legacySwornRelase,
 		"revision":       int64(1),
 		"previous_plan":  nil,
@@ -99,22 +99,22 @@ func legacyResumePlanBytes(t *testing.T, digest string) []byte {
 	}
 	return []byte(
 		"```sworn-release-manifest-v1\n" + string(body) +
-			"\n```\n\nSworn-native continuation over Baton-era history.\n" +
+			"\n```\n\nSworn-native continuation over Protocol-era history.\n" +
 			"Owned surface read from the repository: " +
 			journeyRepositoryCanary + ".\n",
 	)
 }
 
-// TestRealBinaryLegacyBatonHistoryResumesUnderSwornAuthority is A3.
-func TestRealBinaryLegacyBatonHistoryResumesUnderSwornAuthority(t *testing.T) {
+// TestRealBinaryLegacyProtocolHistoryResumesUnderSwornAuthority is A3.
+func TestRealBinaryLegacyProtocolHistoryResumesUnderSwornAuthority(t *testing.T) {
 	t.Parallel()
 	repository := newProductRepository(t)
-	legacyPlan, before := seedLegacyBatonEraRelease(t, repository)
+	legacyPlan, before := seedLegacyProtocolEraRelease(t, repository)
 
 	// The legacy release is real and complete before Sworn's new run begins.
-	legacyBefore := readBatonState(t, repository, legacyRelease)
+	legacyBefore := readProtocolState(t, repository, legacyRelease)
 	if legacyBefore.Plan.Digest != legacyPlan.Digest() ||
-		legacyBefore.Plan.Metadata.SchemaVersion != baton.PlanVersion {
+		legacyBefore.Plan.Metadata.SchemaVersion != protocol.PlanVersion {
 		t.Fatalf("seeded legacy authority = %#v", legacyBefore.Plan)
 	}
 	legacySlice, ok := legacyBefore.Slice("S2")
@@ -128,7 +128,7 @@ func TestRealBinaryLegacyBatonHistoryResumesUnderSwornAuthority(t *testing.T) {
 	contractRaw := manifestTouchpointContractRaw(
 		t, "L1", []string{legacySlicePaths()["L1"]},
 	)
-	_, contractDigest, err := baton.ParseSliceContract(contractRaw, "L1", "T1")
+	_, contractDigest, err := protocol.ParseSliceContract(contractRaw, "L1", "T1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestRealBinaryLegacyBatonHistoryResumesUnderSwornAuthority(t *testing.T) {
 	runGit(t, repository, "commit", "--quiet", "-m", "commit continuation contract")
 
 	planBytes := legacyResumePlanBytes(t, contractDigest)
-	plan, err := baton.ParsePlan(planBytes)
+	plan, err := protocol.ParsePlan(planBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func TestRealBinaryLegacyBatonHistoryResumesUnderSwornAuthority(t *testing.T) {
 		Repository:    repository,
 		Release:       legacySwornRelase,
 		TargetRef:     "refs/heads/main",
-		Intent:        "Continue this project under Sworn without touching its Baton-era history.",
+		Intent:        "Continue this project under Sworn without touching its Protocol-era history.",
 
 		MaxParallelTracks: 1,
 		Authority: swornruntime.ProjectAuthority{
@@ -183,7 +183,7 @@ func TestRealBinaryLegacyBatonHistoryResumesUnderSwornAuthority(t *testing.T) {
 		Roles: driver.RoleSelections{
 			Planner:     driver.RoleSelection{Profile: "openai", Model: "journey-planner"},
 			Implementer: driver.RoleSelection{Profile: "gemini", Model: "journey-implementer"},
-			Captain:     driver.RoleSelection{Profile: "openai", Model: "journey-captain"},
+			Lead:        driver.RoleSelection{Profile: "openai", Model: "journey-lead"},
 			Verifier:    driver.RoleSelection{Profile: "gemini", Model: "journey-verifier"},
 		},
 		Automation: &swornruntime.AutomationSelections{
@@ -201,7 +201,7 @@ func TestRealBinaryLegacyBatonHistoryResumesUnderSwornAuthority(t *testing.T) {
 	binary := filepath.Join(root, "sworn")
 	buildBinary(t, binary, "./cmd/sworn", "")
 
-	// Offline and Baton-free: an empty home, and a PATH holding only Git.
+	// Offline and Protocol-free: an empty home, and a PATH holding only Git.
 	pathDir := filepath.Join(root, "path")
 	if err := os.MkdirAll(pathDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -213,7 +213,7 @@ func TestRealBinaryLegacyBatonHistoryResumesUnderSwornAuthority(t *testing.T) {
 	if err := os.MkdirAll(emptyHome, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// The Baton-free PATH deliberately carries only git, which leaves
+	// The Protocol-free PATH deliberately carries only git, which leaves
 	// bubblewrap undiscoverable and every Bash tool call refused with
 	// ISOLATION_UNAVAILABLE - and S5-A3's evidence gate then blocks every
 	// verification pass. The engine's own SWORN_BWRAP override names the
@@ -236,7 +236,7 @@ func TestRealBinaryLegacyBatonHistoryResumesUnderSwornAuthority(t *testing.T) {
 	}
 	entries, err := os.ReadDir(pathDir)
 	if err != nil || len(entries) != 1 || entries[0].Name() != "git" {
-		t.Fatalf("the run's PATH is not Baton-free: %v (%v)", entries, err)
+		t.Fatalf("the run's PATH is not Protocol-free: %v (%v)", entries, err)
 	}
 
 	targetBefore := runGit(t, repository, "rev-parse", "main")
@@ -304,11 +304,11 @@ func TestRealBinaryLegacyBatonHistoryResumesUnderSwornAuthority(t *testing.T) {
 		t.Fatalf("the run added no history: before=%d after=%d", len(before), len(after))
 	}
 
-	// 2. The Baton-era records still read, with their original identities,
+	// 2. The Protocol-era records still read, with their original identities,
 	//    through the same reader -- no migration, no rewrite.
-	legacyAfter := readBatonState(t, repository, legacyRelease)
+	legacyAfter := readProtocolState(t, repository, legacyRelease)
 	if legacyAfter.Plan.Digest != legacyPlan.Digest() ||
-		legacyAfter.Plan.Metadata.SchemaVersion != baton.PlanVersion ||
+		legacyAfter.Plan.Metadata.SchemaVersion != protocol.PlanVersion ||
 		legacyAfter.Plan.Metadata.Release != legacyRelease {
 		t.Fatalf("legacy authority changed: %#v", legacyAfter.Plan)
 	}
@@ -321,9 +321,9 @@ func TestRealBinaryLegacyBatonHistoryResumesUnderSwornAuthority(t *testing.T) {
 	}
 
 	// 3. The new authority is Sworn's own, native, and separately contracted.
-	state := readBatonState(t, repository, legacySwornRelase)
+	state := readProtocolState(t, repository, legacySwornRelase)
 	if state.Plan.Digest != plan.Digest() ||
-		state.Plan.Metadata.SchemaVersion != baton.ManifestVersion ||
+		state.Plan.Metadata.SchemaVersion != protocol.ManifestVersion ||
 		state.Plan.Metadata.ApprovalRef != "operator://"+legacySwornRelase+"/1" ||
 		state.Plan.Approval.Receipt.Role != "planner" ||
 		state.Plan.Approval.Receipt.Result != "approved" {
@@ -355,7 +355,7 @@ func TestRealBinaryLegacyBatonHistoryResumesUnderSwornAuthority(t *testing.T) {
 		)
 	}
 
-	// 5. No operator surface tells the person to install or restore Baton.
+	// 5. No operator surface tells the person to install or restore Protocol.
 	board, boardErr := runBinaryWithEnvironment(
 		t, binary, 0, environment,
 		"board", "--run", legacySwornRunID, "--journal", journalPath,
@@ -370,11 +370,11 @@ func TestRealBinaryLegacyBatonHistoryResumesUnderSwornAuthority(t *testing.T) {
 	for _, surface := range []string{board, status} {
 		lowered := strings.ToLower(surface)
 		for _, forbidden := range []string{
-			"install baton", "restore baton", "baton install",
-			"reinstall baton", "npm i -g baton",
+			"install protocol", "restore protocol", "protocol install",
+			"reinstall protocol", "npm i -g protocol",
 		} {
 			if strings.Contains(lowered, forbidden) {
-				t.Fatalf("an operator surface asks for Baton: %q in %q", forbidden, surface)
+				t.Fatalf("an operator surface asks for Protocol: %q in %q", forbidden, surface)
 			}
 		}
 	}

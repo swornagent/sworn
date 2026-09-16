@@ -51,7 +51,7 @@ func TestRecoverableTurnInputFactValidation(t *testing.T) {
 				Kind:          RecoverableInputAnswer,
 				Answer:        "Use the exact approved value.",
 				Fact: &AutomationFact{
-					Name:  FactCaptainAdvice,
+					Name:  FactLeadAdvice,
 					Value: "Use the exact approved value.",
 				},
 			},

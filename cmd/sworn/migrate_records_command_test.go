@@ -35,9 +35,9 @@ func migrateTestProject(t *testing.T) string {
 		}
 	}
 	write("product.txt", []byte("base\n"))
-	write(".baton/releases/legacy-rel/plan.md", []byte("legacy plan\n"))
+	write(".protocol/releases/legacy-rel/plan.md", []byte("legacy plan\n"))
 	for _, args := range [][]string{
-		{"-C", root, "add", "--", "product.txt", filepath.FromSlash(".baton/releases/legacy-rel/plan.md")},
+		{"-C", root, "add", "--", "product.txt", filepath.FromSlash(".protocol/releases/legacy-rel/plan.md")},
 		{"-C", root, "commit", "--quiet", "-m", "legacy records"},
 		{"-C", root, "update-ref", "refs/heads/release-wt/legacy-rel", "HEAD"},
 	} {

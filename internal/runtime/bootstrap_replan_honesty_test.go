@@ -11,30 +11,30 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
-func runtimePlanSingleSlice(t *testing.T, release, repository, target, marker string) ([]byte, baton.Plan) {
+func runtimePlanSingleSlice(t *testing.T, release, repository, target, marker string) ([]byte, protocol.Plan) {
 	t.Helper()
-	slice := baton.Slice{
+	slice := protocol.Slice{
 		ID: "S1", Outcome: "Deliver S1.",
-		Scope:      baton.Scope{Include: []string{"one.txt"}, Exclude: []string{}},
-		Acceptance: []baton.Criterion{{ID: "A-S1", Text: "S1 is exact."}},
+		Scope:      protocol.Scope{Include: []string{"one.txt"}, Exclude: []string{}},
+		Acceptance: []protocol.Criterion{{ID: "A-S1", Text: "S1 is exact."}},
 		Checks:     []string{"check S1"}, Constraints: []string{"deterministic"},
 		DependsOn: []string{}, Consumes: []string{},
 	}
-	metadata := baton.Metadata{
-		SchemaVersion: baton.PlanVersion,
+	metadata := protocol.Metadata{
+		SchemaVersion: protocol.PlanVersion,
 		Release:       release,
 		Revision:      1,
 		PreviousPlan:  nil,
 		Repository:    repository,
 		TargetRef:     target,
 		ApprovalRef:   "operator://" + release + "/1",
-		Tracks: []baton.Track{
-			{ID: "T1", DependsOn: []string{}, Slices: []baton.Slice{slice}},
+		Tracks: []protocol.Track{
+			{ID: "T1", DependsOn: []string{}, Slices: []protocol.Slice{slice}},
 		},
 	}
 	metadataBody, err := json.MarshalIndent(metadata, "", "  ")
@@ -42,10 +42,10 @@ func runtimePlanSingleSlice(t *testing.T, release, repository, target, marker st
 		t.Fatal(err)
 	}
 	body := []byte(
-		"```baton-plan-v2\n" + string(metadataBody) +
+		"```protocol-plan-v2\n" + string(metadataBody) +
 			"\n```\n\nFixture plan.\n",
 	)
-	plan, err := baton.ParsePlan(body)
+	plan, err := protocol.ParsePlan(body)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func newFixtureSingleSlice(t *testing.T, bootstrapAuthority bool) *degradationSt
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = engine.Close() })
-	if _, err := engine.actions.RecordPlanRevision(baton.RecordPlanRevisionInput{
+	if _, err := engine.actions.RecordPlanRevision(protocol.RecordPlanRevisionInput{
 		PlanBytes: planBytes,
 		Summary:   "Install exact plan",
 		Detail:    []byte("detail"),
@@ -139,11 +139,11 @@ func newBootstrapFixtureSingleSlice(t *testing.T) *degradationStatusFixture {
 	return newFixtureSingleSlice(t, true)
 }
 
-// escalateSlice advances a slice in design stage to captain/escalate.
+// escalateSlice advances a slice in design stage to lead/escalate.
 func escalateSlice(t *testing.T, fixture *degradationStatusFixture, sliceID, summary string) {
 	t.Helper()
 	release := fixture.manifest.value.Release
-	_, err := fixture.engine.actions.AppendReceipt(baton.AppendReceiptInput{
+	_, err := fixture.engine.actions.AppendReceipt(protocol.AppendReceiptInput{
 		Release: release,
 		Slice:   sliceID,
 		Role:    "implementer",
@@ -154,10 +154,10 @@ func escalateSlice(t *testing.T, fixture *degradationStatusFixture, sliceID, sum
 	if err != nil {
 		t.Fatalf("AppendReceipt designed failed: %v", err)
 	}
-	_, err = fixture.engine.actions.AppendReceipt(baton.AppendReceiptInput{
+	_, err = fixture.engine.actions.AppendReceipt(protocol.AppendReceiptInput{
 		Release: release,
 		Slice:   sliceID,
-		Role:    "captain",
+		Role:    "lead",
 		Result:  "escalate",
 		Summary: summary,
 		Detail:  []byte("escalate detail"),
@@ -171,7 +171,7 @@ func escalateSlice(t *testing.T, fixture *degradationStatusFixture, sliceID, sum
 func passSlice(t *testing.T, fixture *degradationStatusFixture, trackID, sliceID string) {
 	t.Helper()
 	release := fixture.manifest.value.Release
-	_, err := fixture.engine.actions.AppendReceipt(baton.AppendReceiptInput{
+	_, err := fixture.engine.actions.AppendReceipt(protocol.AppendReceiptInput{
 		Release: release,
 		Slice:   sliceID,
 		Role:    "implementer",
@@ -182,10 +182,10 @@ func passSlice(t *testing.T, fixture *degradationStatusFixture, trackID, sliceID
 	if err != nil {
 		t.Fatalf("AppendReceipt designed failed: %v", err)
 	}
-	_, err = fixture.engine.actions.AppendReceipt(baton.AppendReceiptInput{
+	_, err = fixture.engine.actions.AppendReceipt(protocol.AppendReceiptInput{
 		Release: release,
 		Slice:   sliceID,
-		Role:    "captain",
+		Role:    "lead",
 		Result:  "proceed",
 		Summary: "Proceed " + sliceID + ".",
 		Detail:  []byte("proceed detail"),
@@ -221,7 +221,7 @@ func passSlice(t *testing.T, fixture *degradationStatusFixture, trackID, sliceID
 		t.Fatalf("update-ref failed: %v", err)
 	}
 
-	_, err = fixture.engine.actions.AppendReceipt(baton.AppendReceiptInput{
+	_, err = fixture.engine.actions.AppendReceipt(protocol.AppendReceiptInput{
 		Release:      release,
 		Slice:        sliceID,
 		Role:         "implementer",
@@ -235,7 +235,7 @@ func passSlice(t *testing.T, fixture *degradationStatusFixture, trackID, sliceID
 		t.Fatalf("AppendReceipt candidate failed: %v", err)
 	}
 
-	_, err = fixture.engine.actions.AppendReceipt(baton.AppendReceiptInput{
+	_, err = fixture.engine.actions.AppendReceipt(protocol.AppendReceiptInput{
 		Release:      release,
 		Slice:        sliceID,
 		Role:         "verifier",
@@ -256,7 +256,7 @@ func passAllSlicesAndBlockAssembly(t *testing.T, fixture *degradationStatusFixtu
 	passSlice(t, fixture, "T1", "S1")
 	passSlice(t, fixture, "T2", "S2")
 
-	state, err := baton.ReadState(fixture.engine.git, fixture.manifest.value.Release, fixture.engine.inertness)
+	state, err := protocol.ReadState(fixture.engine.git, fixture.manifest.value.Release, fixture.engine.inertness)
 	if err != nil {
 		t.Fatalf("ReadState failed: %v", err)
 	}
@@ -264,7 +264,7 @@ func passAllSlicesAndBlockAssembly(t *testing.T, fixture *degradationStatusFixtu
 		t.Fatalf("prepareAssembly failed: %v", err)
 	}
 
-	state, err = baton.ReadState(fixture.engine.git, fixture.manifest.value.Release, fixture.engine.inertness)
+	state, err = protocol.ReadState(fixture.engine.git, fixture.manifest.value.Release, fixture.engine.inertness)
 	if err != nil {
 		t.Fatalf("ReadState failed: %v", err)
 	}
@@ -272,7 +272,7 @@ func passAllSlicesAndBlockAssembly(t *testing.T, fixture *degradationStatusFixtu
 		t.Fatalf("Assembly.NextRole = %q, want verifier", state.Assembly.NextRole)
 	}
 
-	_, err = fixture.engine.actions.AppendReceipt(baton.AppendReceiptInput{
+	_, err = fixture.engine.actions.AppendReceipt(protocol.AppendReceiptInput{
 		Release:      fixture.manifest.value.Release,
 		Role:         "verifier",
 		Result:       "blocked",
@@ -286,8 +286,8 @@ func passAllSlicesAndBlockAssembly(t *testing.T, fixture *degradationStatusFixtu
 	}
 }
 
-// A1(1): Captain/escalate slice under pure bootstrap authority stops driveLoop with zero RolePlanner invocations.
-func TestDriveLoopStopsPlannerDispatchUnderBootstrapAuthority_CaptainEscalate(t *testing.T) {
+// A1(1): Lead/escalate slice under pure bootstrap authority stops driveLoop with zero RolePlanner invocations.
+func TestDriveLoopStopsPlannerDispatchUnderBootstrapAuthority_LeadEscalate(t *testing.T) {
 	t.Parallel()
 	fixture := newBootstrapFixtureSingleSlice(t)
 
@@ -303,7 +303,7 @@ func TestDriveLoopStopsPlannerDispatchUnderBootstrapAuthority_CaptainEscalate(t 
 		}, nil
 	})
 
-	escalateSlice(t, fixture, "S1", "Captain escalated S1 due to scope conflict.")
+	escalateSlice(t, fixture, "S1", "Lead escalated S1 due to scope conflict.")
 
 	if err := fixture.service.driveLoop(fixture.ctx, fixture.engine, fixture.owner, false); err != nil {
 		t.Fatalf("driveLoop returned error: %v", err)
@@ -379,7 +379,7 @@ func TestDriveLoopStopsPlannerDispatchUnderBootstrapAuthority_AssemblyVerifierBl
 	}
 }
 
-// A1(3): Ready slice whose advanceSlice returns EFFECT_PARKED concurrently with captain/escalate slice
+// A1(3): Ready slice whose advanceSlice returns EFFECT_PARKED concurrently with lead/escalate slice
 // asserts driveLoop reaches :5690-5695 branch and records zero driver.RolePlanner invocations.
 func TestDriveLoopStopsPlannerDispatchUnderBootstrapAuthority_ConcurrentReadyWorkEffectParked(t *testing.T) {
 	t.Parallel()
@@ -411,7 +411,7 @@ func TestDriveLoopStopsPlannerDispatchUnderBootstrapAuthority_ConcurrentReadyWor
 		}, nil
 	})
 
-	escalateSlice(t, fixture, "S1", "Captain escalated S1.")
+	escalateSlice(t, fixture, "S1", "Lead escalated S1.")
 
 	// Run driveLoop: S2 is ready, its advanceSlice returns EFFECT_PARKED (because of Yield).
 	// Then driveLoop reaches the :5690-5695 branch (ready existed but no progress, plannerNeeded=true).
@@ -503,10 +503,10 @@ func TestBootstrapParkStatusReportsStateParkedAndReason(t *testing.T) {
 	t.Parallel()
 	fixture := newBootstrapFixtureSingleSlice(t)
 
-	summary := "Captain escalated slice S1."
+	summary := "Lead escalated slice S1."
 	escalateSlice(t, fixture, "S1", summary)
 
-	// Before driveLoop runs, Status() should already report parked from Baton state and authority
+	// Before driveLoop runs, Status() should already report parked from Protocol state and authority
 	status, err := fixture.service.Status(fixture.ctx, fixture.manifest.value.RunID)
 	if err != nil {
 		t.Fatalf("Status failed: %v", err)
@@ -543,8 +543,8 @@ func TestBootstrapParkStatusReportsStateParkedAndReason(t *testing.T) {
 	}
 }
 
-// A3(1): Journaled plan_authority command preserves normal planner dispatch with captain/escalate slice.
-func TestDriveLoopDispatchesPlannerWithJournaledPlanAuthority_CaptainEscalate(t *testing.T) {
+// A3(1): Journaled plan_authority command preserves normal planner dispatch with lead/escalate slice.
+func TestDriveLoopDispatchesPlannerWithJournaledPlanAuthority_LeadEscalate(t *testing.T) {
 	t.Parallel()
 	fixture := newBootstrapFixtureSingleSlice(t)
 
@@ -579,7 +579,7 @@ func TestDriveLoopDispatchesPlannerWithJournaledPlanAuthority_CaptainEscalate(t 
 		}, nil
 	})
 
-	escalateSlice(t, fixture, "S1", "Captain escalated S1.")
+	escalateSlice(t, fixture, "S1", "Lead escalated S1.")
 
 	// Record plan_authority command
 	planDigest := *fixture.manifest.value.Authority.BootstrapApprovedPlanDigest
@@ -671,7 +671,7 @@ func TestOrdinaryExternalAuthorityDispatchesPlannerAndNeverBootstrapParks(t *tes
 	t.Parallel()
 	fixture := newFixtureSingleSlice(t, false)
 
-	escalateSlice(t, fixture, "S1", "Captain escalated S1.")
+	escalateSlice(t, fixture, "S1", "Lead escalated S1.")
 
 	// Check status: must NOT be ParkCauseBootstrapAuthority
 	status, err := fixture.service.Status(fixture.ctx, fixture.manifest.value.RunID)
@@ -720,7 +720,7 @@ func TestOrdinaryExternalAuthorityDispatchesPlannerAndNeverBootstrapParks(t *tes
 	}
 }
 
-// Captain Correction 2: A bootstrap-only run with no planner-needed slice reads "running" with Park == nil.
+// Lead Correction 2: A bootstrap-only run with no planner-needed slice reads "running" with Park == nil.
 func TestStatusBootstrapAuthorityNotParkedWhenNoPlannerNeeded(t *testing.T) {
 	t.Parallel()
 	fixture := newBootstrapFixtureSingleSlice(t)
@@ -739,7 +739,7 @@ func TestStatusBootstrapAuthorityNotParkedWhenNoPlannerNeeded(t *testing.T) {
 	}
 }
 
-// Captain Correction 3: canonicalDegradationParkEvent validation and field bounds.
+// Lead Correction 3: canonicalDegradationParkEvent validation and field bounds.
 func TestCanonicalDegradationParkEventBootstrapAuthority(t *testing.T) {
 	t.Parallel()
 
@@ -837,12 +837,12 @@ func TestCanonicalDegradationParkEventBootstrapAuthority(t *testing.T) {
 	}
 }
 
-// Captain Correction 4: Nil pointer and empty Summary safety in triggering receipt selection.
+// Lead Correction 4: Nil pointer and empty Summary safety in triggering receipt selection.
 func TestTriggeringPlannerReceiptNilAndEmptySummarySafety(t *testing.T) {
 	t.Parallel()
 
 	// Empty state: no slices, no assembly
-	emptyState := baton.State{}
+	emptyState := protocol.State{}
 	reason := bootstrapParkReasonForState(emptyState)
 	wantDefault := "Planner revision required.\n\n" + bootstrapParkUnblockDirective
 	if reason != wantDefault {
@@ -850,8 +850,8 @@ func TestTriggeringPlannerReceiptNilAndEmptySummarySafety(t *testing.T) {
 	}
 
 	// Slice with nil CurrentReceipt
-	sliceNilReceipt := baton.State{
-		Slices: []*baton.SliceState{
+	sliceNilReceipt := protocol.State{
+		Slices: []*protocol.SliceState{
 			{NextRole: "planner", CurrentReceipt: nil},
 		},
 	}
@@ -861,10 +861,10 @@ func TestTriggeringPlannerReceiptNilAndEmptySummarySafety(t *testing.T) {
 	}
 
 	// Slice with empty Summary
-	sliceEmptySummary := baton.State{
-		Slices: []*baton.SliceState{
-			{NextRole: "planner", CurrentReceipt: &baton.ReceiptEntry{
-				Receipt: baton.Receipt{Summary: ""},
+	sliceEmptySummary := protocol.State{
+		Slices: []*protocol.SliceState{
+			{NextRole: "planner", CurrentReceipt: &protocol.ReceiptEntry{
+				Receipt: protocol.Receipt{Summary: ""},
 			}},
 		},
 	}
@@ -874,8 +874,8 @@ func TestTriggeringPlannerReceiptNilAndEmptySummarySafety(t *testing.T) {
 	}
 
 	// Assembly with nil CurrentReceipt when no slice carries planner
-	assemblyNilReceipt := baton.State{
-		Assembly: baton.AssemblyState{NextRole: "planner", CurrentReceipt: nil},
+	assemblyNilReceipt := protocol.State{
+		Assembly: protocol.AssemblyState{NextRole: "planner", CurrentReceipt: nil},
 	}
 	reason = bootstrapParkReasonForState(assemblyNilReceipt)
 	if reason != wantDefault {

@@ -16,7 +16,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"github.com/swornagent/sworn/internal/baton"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 const (
@@ -43,7 +43,7 @@ const (
 // block reads this same constant so the two can never drift apart.
 const ToolSandboxPath = "/usr/bin:/bin"
 
-const swornSubmitInputSchema = `{"type":"object","properties":{"submission":{"type":"object","properties":{"schema_version":{"type":"string","enum":["sworn.submission/v1"]},"invocation_id":{"type":"string"},"responsibility":{"type":"string","enum":["planner_proposal","implementer_design","implementer_implementation","captain_review","captain_plan_review","work_verification","assembly_verification"]},"summary":{"type":"string"},"detail":{"type":"string"},"plan":{"type":"object","properties":{"byte_count":{"type":"integer"},"digest":{"type":"string"},"bytes":{"type":"string"},"path":{"type":"string"}},"required":["byte_count","digest"],"additionalProperties":false},"checks":{"type":"object","properties":{"byte_count":{"type":"integer"},"digest":{"type":"string"},"bytes":{"type":"string"},"path":{"type":"string"}},"required":["byte_count","digest"],"additionalProperties":false},"contracts":{"type":"object"},"decision":{"type":"object","properties":{"outcome":{"type":"string","enum":["proceed","revise","escalate","pass","fail","blocked"]}},"required":["outcome"],"additionalProperties":false}},"required":["schema_version","invocation_id","responsibility","summary","detail"],"additionalProperties":false}},"required":["submission"],"additionalProperties":false}`
+const swornSubmitInputSchema = `{"type":"object","properties":{"submission":{"type":"object","properties":{"schema_version":{"type":"string","enum":["sworn.submission/v1"]},"invocation_id":{"type":"string"},"responsibility":{"type":"string","enum":["planner_proposal","implementer_design","implementer_implementation","lead_review","lead_plan_review","work_verification","assembly_verification"]},"summary":{"type":"string"},"detail":{"type":"string"},"plan":{"type":"object","properties":{"byte_count":{"type":"integer"},"digest":{"type":"string"},"bytes":{"type":"string"},"path":{"type":"string"}},"required":["byte_count","digest"],"additionalProperties":false},"checks":{"type":"object","properties":{"byte_count":{"type":"integer"},"digest":{"type":"string"},"bytes":{"type":"string"},"path":{"type":"string"}},"required":["byte_count","digest"],"additionalProperties":false},"contracts":{"type":"object"},"decision":{"type":"object","properties":{"outcome":{"type":"string","enum":["proceed","revise","escalate","pass","fail","blocked"]}},"required":["outcome"],"additionalProperties":false}},"required":["schema_version","invocation_id","responsibility","summary","detail"],"additionalProperties":false}},"required":["submission"],"additionalProperties":false}`
 
 type toolPathEntry struct {
 	Relative  string
@@ -91,14 +91,14 @@ type toolSession struct {
 	// cleared with the session.
 	observer  *toolResultObserver
 	redaction [][]byte
-	// checkEvidence accumulates one baton.CheckResultEntry per Bash call
+	// checkEvidence accumulates one protocol.CheckResultEntry per Bash call
 	// this session runs (S5-A3), bounded by checkEvidenceEntryLimit entries
 	// and checkEvidenceByteBudget bytes with oldest-first eviction: the
 	// declared checks a verifier runs are conventionally its last calls, so
 	// eviction never drops the tail. It is consumed only for a
 	// WorkVerification submit; every other responsibility accumulates it
 	// harmlessly and never reads it.
-	checkEvidence      []baton.CheckResultEntry
+	checkEvidence      []protocol.CheckResultEntry
 	checkEvidenceBytes int
 }
 
@@ -242,12 +242,12 @@ func toolDefinitions(access WorkspaceAccess) []providerToolDefinition {
 	definitions = append(definitions,
 		providerToolDefinition{
 			Name:        "sworn_yield",
-			Description: "Stop without Baton authority. Use question when a bounded answer may unblock this turn; use blocked when work cannot continue.",
+			Description: "Stop without Protocol authority. Use question when a bounded answer may unblock this turn; use blocked when work cannot continue.",
 			InputSchema: json.RawMessage(swornYieldInputSchema),
 		},
 		providerToolDefinition{
 			Name:        "sworn_submit",
-			Description: "Include only the prompt's result_fields. summary and detail are inline text strings only: never a path, an object, or a pointer to a file (a \"see attached\" body is refused). For plan/checks/contracts declare decoded byte_count and sha256:<64 lowercase hex> digest, then either inline base64 bytes or (preferred for large content) a path to a file holding the exact bytes — write it under /tmp or /home/sworn first; detail may be empty only for captain_plan_review and assembly_verification.",
+			Description: "Include only the prompt's result_fields. summary and detail are inline text strings only: never a path, an object, or a pointer to a file (a \"see attached\" body is refused). For plan/checks/contracts declare decoded byte_count and sha256:<64 lowercase hex> digest, then either inline base64 bytes or (preferred for large content) a path to a file holding the exact bytes — write it under /tmp or /home/sworn first; detail may be empty only for lead_plan_review and assembly_verification.",
 			InputSchema: json.RawMessage(swornSubmitInputSchema),
 		},
 	)
@@ -679,9 +679,9 @@ func (session *toolSession) submit(
 	}
 	if submission.Responsibility == PlannerProposal && submission.Plan != nil {
 		planBody, _ := base64.StdEncoding.Strict().DecodeString(submission.Plan.Bytes)
-		if plan, parseErr := baton.ParsePlan(planBody); parseErr == nil {
-			if lintErr := baton.ValidatePlanScopeLintFS(os.DirFS(session.invocation.HostWorkspace), plan); lintErr != nil {
-				code := baton.ErrorCode(lintErr)
+		if plan, parseErr := protocol.ParsePlan(planBody); parseErr == nil {
+			if lintErr := protocol.ValidatePlanScopeLintFS(os.DirFS(session.invocation.HostWorkspace), plan); lintErr != nil {
+				code := protocol.ErrorCode(lintErr)
 				if code == "" {
 					code = "UNDER_DERIVED_SCOPE"
 				}
@@ -1017,7 +1017,7 @@ func decodeToolSubmission(value any) (Submission, error) {
 	case ImplementerImplementation:
 		submission.Plan, submission.Decision = nil, nil
 		submission.Contracts = nil
-	case CaptainReview, CaptainPlanReview:
+	case LeadReview, LeadPlanReview:
 		submission.Plan, submission.Checks = nil, nil
 		submission.Contracts = nil
 	case WorkVerification, AssemblyVerification:

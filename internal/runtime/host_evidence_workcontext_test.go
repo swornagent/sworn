@@ -35,7 +35,7 @@ func hostEvidenceWorkContext(
 		Track:           "T1",
 		Slice:           coordinates.Slice,
 		Responsibility:  coordinates.Responsibility,
-		Attempt:         coordinates.BatonAttempt,
+		Attempt:         coordinates.ProtocolAttempt,
 		Epoch:           coordinates.Epoch,
 		Try:             coordinates.Try,
 		Before:          "sha256:" + strings.Repeat("1", 64),
@@ -94,11 +94,11 @@ func TestHostEvidenceWorkContextValidatesProjectsAndDowngrades(t *testing.T) {
 	config := productionConfig(t)
 	manifest := productionManifest(t, repository, config)
 	coordinates := dispatchCoordinates{
-		Slice:          "S1",
-		Responsibility: driver.WorkVerification,
-		BatonAttempt:   2,
-		Epoch:          3,
-		Try:            1,
+		Slice:           "S1",
+		Responsibility:  driver.WorkVerification,
+		ProtocolAttempt: 2,
+		Epoch:           3,
+		Try:             1,
 	}
 	hostBody := []byte(`{"schema_version":"sworn.host-evidence/v1","slice":"S1"}` + "\n")
 	evidence := &productionHostEvidence{
@@ -198,10 +198,10 @@ func TestHostEvidenceWorkContextValidatesProjectsAndDowngrades(t *testing.T) {
 
 	// Host evidence is only valid for WorkVerification with a candidate.
 	nonVerifier := coordinates
-	nonVerifier.Responsibility = driver.CaptainReview
+	nonVerifier.Responsibility = driver.LeadReview
 	nonVerifierValue := hostEvidenceWorkContext(
 		t, manifest, nonVerifier, evidence)
-	nonVerifierValue.Role = driver.RoleCaptain
+	nonVerifierValue.Role = driver.RoleLead
 	nonVerifierValue.Candidate = nil
 	nonVerifierValue.InvocationID = dispatchInvocationID(
 		manifest.value.RunID, nonVerifier)

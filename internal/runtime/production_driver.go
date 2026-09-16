@@ -51,7 +51,7 @@ func manifestProfiles(manifest Manifest) []string {
 	profiles := []string{
 		manifest.Roles.Planner.Profile,
 		manifest.Roles.Implementer.Profile,
-		manifest.Roles.Captain.Profile,
+		manifest.Roles.Lead.Profile,
 		manifest.Roles.Verifier.Profile,
 	}
 	if recovery, enabled := manifest.recoverySelection(); enabled {

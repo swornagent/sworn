@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 // hostCheckFixture builds a production fixture whose slice contract declares
@@ -26,8 +26,8 @@ type hostCheckFixture struct {
 	owner        journal.OwnerLease
 	service      *Service
 	engine       *engine
-	state        baton.State
-	plan         baton.Plan
+	state        protocol.State
+	plan         protocol.Plan
 	targetHead   string
 	releaseHead  string
 	candidate    string
@@ -77,7 +77,7 @@ func newHostCheckFixture(t *testing.T, hostChecks []string, manifestPlan ...bool
 	planBytes := hostChecksPlanBytes(t, manifest, hostChecks)
 	var overlay map[string][]byte
 	if len(manifestPlan) > 0 && manifestPlan[0] {
-		inline, err := baton.ParsePlan(planBytes)
+		inline, err := protocol.ParsePlan(planBytes)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -88,7 +88,7 @@ func newHostCheckFixture(t *testing.T, hostChecks []string, manifestPlan ...bool
 			"checks": slice.Checks, "host_checks": slice.HostChecks, "constraints": slice.Constraints,
 			"depends_on": slice.DependsOn, "consumes": slice.Consumes,
 		})
-		_, digest, err := baton.ParseSliceContract(contract, "S1", "T1")
+		_, digest, err := protocol.ParseSliceContract(contract, "S1", "T1")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -103,11 +103,11 @@ func newHostCheckFixture(t *testing.T, hostChecks []string, manifestPlan ...bool
 		})
 		planBytes = []byte("```sworn-release-manifest-v1\n" + string(body) + "```\n\nHost-check fixture.\n")
 	}
-	plan, err := baton.ParsePlan(planBytes)
+	plan, err := protocol.ParsePlan(planBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := engine.actions.RecordPlanRevision(baton.RecordPlanRevisionInput{
+	if _, err := engine.actions.RecordPlanRevision(protocol.RecordPlanRevisionInput{
 		PlanBytes:       planBytes,
 		ContractOverlay: overlay,
 		Summary:         "Install the host-checks fixture plan.",
@@ -115,7 +115,7 @@ func newHostCheckFixture(t *testing.T, hostChecks []string, manifestPlan ...bool
 	}); err != nil {
 		t.Fatal(err)
 	}
-	for _, receipt := range []baton.AppendReceiptInput{
+	for _, receipt := range []protocol.AppendReceiptInput{
 		{
 			Release: manifest.value.Release, Slice: "S1",
 			Role: "implementer", Result: "designed",
@@ -124,7 +124,7 @@ func newHostCheckFixture(t *testing.T, hostChecks []string, manifestPlan ...bool
 		},
 		{
 			Release: manifest.value.Release, Slice: "S1",
-			Role: "captain", Result: "proceed",
+			Role: "lead", Result: "proceed",
 			Summary: "Proceed with the host-checks fixture.",
 			Detail:  []byte("Exact review."),
 		},
@@ -133,7 +133,7 @@ func newHostCheckFixture(t *testing.T, hostChecks []string, manifestPlan ...bool
 			t.Fatal(err)
 		}
 	}
-	state, err := baton.ReadState(engine.git, manifest.value.Release, engine.inertness)
+	state, err := protocol.ReadState(engine.git, manifest.value.Release, engine.inertness)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,20 +165,20 @@ func hostChecksPlanBytes(t *testing.T, manifest admittedManifest, hostChecks []s
 	// The contract's checks list must contain every declared host check plus
 	// one worker-runnable check, so the fixture exercises the mixed case.
 	checks := append(append([]string(nil), hostChecks...), "worker check")
-	metadata := baton.Metadata{
-		SchemaVersion: baton.PlanVersion,
+	metadata := protocol.Metadata{
+		SchemaVersion: protocol.PlanVersion,
 		Release:       manifest.value.Release,
 		Revision:      1,
 		PreviousPlan:  nil,
 		Repository:    manifest.value.Authority.Project,
 		TargetRef:     manifest.value.TargetRef,
 		ApprovalRef:   "operator://" + manifest.value.Release + "/1",
-		Tracks: []baton.Track{{
+		Tracks: []protocol.Track{{
 			ID: "T1", DependsOn: []string{},
-			Slices: []baton.Slice{{
+			Slices: []protocol.Slice{{
 				ID: "S1", Outcome: "Deliver host-checked S1.",
-				Scope:       baton.Scope{Include: []string{"one.txt"}, Exclude: []string{}},
-				Acceptance:  []baton.Criterion{{ID: "A1", Text: "S1 is exact."}},
+				Scope:       protocol.Scope{Include: []string{"one.txt"}, Exclude: []string{}},
+				Acceptance:  []protocol.Criterion{{ID: "A1", Text: "S1 is exact."}},
 				Checks:      checks,
 				HostChecks:  hostChecks,
 				Constraints: []string{"deterministic"},
@@ -190,7 +190,7 @@ func hostChecksPlanBytes(t *testing.T, manifest admittedManifest, hostChecks []s
 	if err != nil {
 		t.Fatal(err)
 	}
-	return []byte("```baton-plan-v2\n" + string(body) + "\n```\n\nHost-checks fixture plan.\n")
+	return []byte("```protocol-plan-v2\n" + string(body) + "\n```\n\nHost-checks fixture plan.\n")
 }
 
 // A1: the engine executes a declared host check against the exact candidate,
@@ -209,7 +209,7 @@ func TestHostCheckExecutionJournalsAndBindsExactlyOnce(t *testing.T) {
 		t.Fatalf("results = %d, want 1", len(results))
 	}
 	result := results[0]
-	if result.Outcome != baton.CheckOutcomePass || result.ExitCode != 0 {
+	if result.Outcome != protocol.CheckOutcomePass || result.ExitCode != 0 {
 		t.Fatalf("result = %#v", result)
 	}
 	if !strings.Contains(result.Output, "host ok") {
@@ -266,11 +266,11 @@ func TestHostCheckManifestProvenanceCannotBeSubstituted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	parsed, err := baton.ParseCheckResults(manifest)
+	parsed, err := protocol.ParseCheckResults(manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if parsed.Entries[0].Provenance != baton.CheckProvenanceHost {
+	if parsed.Entries[0].Provenance != protocol.CheckProvenanceHost {
 		t.Fatalf("host entry provenance = %q", parsed.Entries[0].Provenance)
 	}
 	// A host entry relabelled as role evidence must fail closed.
@@ -280,7 +280,7 @@ func TestHostCheckManifestProvenanceCannotBeSubstituted(t *testing.T) {
 		`"provenance":"role"`,
 		1,
 	)
-	if _, err := baton.ParseCheckResults([]byte(substituted)); err == nil {
+	if _, err := protocol.ParseCheckResults([]byte(substituted)); err == nil {
 		t.Fatal("relabelled host evidence was accepted")
 	}
 }
@@ -336,8 +336,8 @@ func TestHostCheckRunnerRecordsOverflowAsFailure(t *testing.T) {
 	if err := json.Unmarshal(effect.Result, &recorded); err != nil {
 		t.Fatal(err)
 	}
-	if recorded.Outcome != baton.CheckOutcomeOverflow ||
-		!strings.Contains(recorded.Output, baton.HostCheckTruncationPrefix) {
+	if recorded.Outcome != protocol.CheckOutcomeOverflow ||
+		!strings.Contains(recorded.Output, protocol.HostCheckTruncationPrefix) {
 		t.Fatalf("recorded = %#v", recorded)
 	}
 }
@@ -395,7 +395,7 @@ func TestHostCheckRecoveryCompletesClaimedEffect(t *testing.T) {
 	if err := json.Unmarshal(after.Result, &recorded); err != nil {
 		t.Fatal(err)
 	}
-	if recorded.Outcome != baton.CheckOutcomePass ||
+	if recorded.Outcome != protocol.CheckOutcomePass ||
 		!strings.Contains(recorded.Output, "recovered") {
 		t.Fatalf("recovered result = %#v", recorded)
 	}
@@ -451,7 +451,7 @@ func TestHostCheckPlainFailureIsReExecutedOnceForTheSameCandidate(t *testing.T) 
 		t.Fatalf("re-execution = %#v, %v", results, err)
 	}
 	rerun := results[0]
-	if rerun.Outcome != baton.CheckOutcomePass ||
+	if rerun.Outcome != protocol.CheckOutcomePass ||
 		rerun.EffectID != hostCheckRerunEffectID(work) ||
 		rerun.RerunOf != hostCheckEffectID(work) {
 		t.Fatalf("re-execution result = %#v", rerun)
@@ -488,7 +488,7 @@ func TestHostCheckPlainFailureIsReExecutedOnceForTheSameCandidate(t *testing.T) 
 	journaled, err := readJournaledHostResults(
 		fixture.ctx, fixture.engine, "S1", fixture.candidate, fixture.contractDgst, []string{check})
 	if err != nil || len(journaled) != 1 || journaled[0].EffectID != rerun.EffectID ||
-		journaled[0].Outcome != baton.CheckOutcomePass {
+		journaled[0].Outcome != protocol.CheckOutcomePass {
 		t.Fatalf("journaled host results = %#v, %v", journaled, err)
 	}
 }
@@ -534,18 +534,18 @@ func TestHostCheckSignedFailureIsNeverReExecuted(t *testing.T) {
 	if got := hostCheckExecutions(t, counter); got != 1 {
 		t.Fatalf("a race-signed failure was re-executed: %d executions", got)
 	}
-	for _, outcome := range []string{baton.CheckOutcomeTimeout, baton.CheckOutcomeOverflow} {
+	for _, outcome := range []string{protocol.CheckOutcomeTimeout, protocol.CheckOutcomeOverflow} {
 		if hostCheckRerunEligible(hostCheckResult{Outcome: outcome}) {
 			t.Fatalf("%s is re-execution eligible", outcome)
 		}
 	}
-	if hostCheckRerunEligible(hostCheckResult{Outcome: baton.CheckOutcomeFail, Output: "FAIL\tpkg [build failed]"}) {
+	if hostCheckRerunEligible(hostCheckResult{Outcome: protocol.CheckOutcomeFail, Output: "FAIL\tpkg [build failed]"}) {
 		t.Fatal("a build failure is re-execution eligible")
 	}
-	if hostCheckRerunEligible(hostCheckResult{Outcome: baton.CheckOutcomeFail, RerunOf: "x"}) {
+	if hostCheckRerunEligible(hostCheckResult{Outcome: protocol.CheckOutcomeFail, RerunOf: "x"}) {
 		t.Fatal("a re-execution is itself re-execution eligible")
 	}
-	if !hostCheckRerunEligible(hostCheckResult{Outcome: baton.CheckOutcomeFail, Output: "--- FAIL: TestFlaky (0.01s)"}) {
+	if !hostCheckRerunEligible(hostCheckResult{Outcome: protocol.CheckOutcomeFail, Output: "--- FAIL: TestFlaky (0.01s)"}) {
 		t.Fatal("a plain failure is not re-execution eligible")
 	}
 }

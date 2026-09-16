@@ -12,17 +12,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
-func claimedDispatchState(t *testing.T, plan baton.Plan) baton.State {
+func claimedDispatchState(t *testing.T, plan protocol.Plan) protocol.State {
 	t.Helper()
 	metadata := plan.Metadata()
 	sliceDefinition := metadata.Tracks[0].Slices[0]
-	slice := &baton.SliceState{
-		Location: baton.SliceLocation{
+	slice := &protocol.SliceState{
+		Location: protocol.SliceLocation{
 			Track: metadata.Tracks[0],
 			Slice: sliceDefinition,
 		},
@@ -31,34 +31,34 @@ func claimedDispatchState(t *testing.T, plan baton.Plan) baton.State {
 		Status:    "ready",
 		NextRole:  "implementer",
 		Attempt:   1,
-		CurrentReceipt: &baton.ReceiptEntry{
+		CurrentReceipt: &protocol.ReceiptEntry{
 			OID: "receipt-design-authority",
 		},
 	}
-	return baton.State{
+	return protocol.State{
 		Release: metadata.Release,
-		Plan: baton.PlanState{
+		Plan: protocol.PlanState{
 			OID:      "plan-v1",
 			Digest:   plan.Digest(),
 			Metadata: metadata,
 		},
-		Refs: baton.StateRefs{
-			Release: baton.CapturedRef{
+		Refs: protocol.StateRefs{
+			Release: protocol.CapturedRef{
 				Ref:  "refs/heads/release-wt/" + metadata.Release,
 				Head: "release-head-v1",
 			},
-			Target: baton.CapturedRef{
+			Target: protocol.CapturedRef{
 				Ref:  metadata.TargetRef,
 				Head: "target-head-v1",
 			},
 		},
-		Tracks: []baton.TrackState{{
+		Tracks: []protocol.TrackState{{
 			ID:     metadata.Tracks[0].ID,
 			Ref:    "refs/heads/track/" + metadata.Release + "/T1",
 			Head:   "track-head-v1",
-			Slices: []*baton.SliceState{slice},
+			Slices: []*protocol.SliceState{slice},
 		}},
-		Slices: []*baton.SliceState{slice},
+		Slices: []*protocol.SliceState{slice},
 	}
 }
 
@@ -130,7 +130,7 @@ func implementationDispatchProofFixture(
 		Tree:      strings.Repeat("8", 40),
 		ProductTree: "sha256:" +
 			strings.Repeat("9", 64),
-		Receipt: baton.AppendReceiptInput{
+		Receipt: protocol.AppendReceiptInput{
 			Release:      cycle.Release,
 			Slice:        cycle.Slice,
 			Role:         "implementer",
@@ -292,8 +292,8 @@ func hostCheckEvidenceFixture(
 	result := hostCheckResult{
 		Slice: cycle.Slice, Candidate: record.Candidate,
 		ContractDigest: contractDigest, Check: check,
-		Outcome: baton.CheckOutcomePass, ExitCode: 0,
-		Output: "ok\n", OutputDigest: baton.DigestBytes([]byte("ok\n")),
+		Outcome: protocol.CheckOutcomePass, ExitCode: 0,
+		Output: "ok\n", OutputDigest: protocol.DigestBytes([]byte("ok\n")),
 		EffectID: effectID,
 	}
 	body := mustJSON(result)
@@ -323,7 +323,7 @@ func TestPreparedImplementationProvesHostCheckEvidenceFromJournal(
 ) {
 	exactEngine, snapshot, cycle, record :=
 		implementationDispatchProofFixture(t)
-	roleDigest := baton.DigestBytes(record.Receipt.CheckResults)
+	roleDigest := protocol.DigestBytes(record.Receipt.CheckResults)
 	hostCheckEvidenceFixture(t, &snapshot, cycle, &record, roleDigest)
 	if err := validateImplementationDispatchProof(
 		exactEngine,
@@ -352,7 +352,7 @@ func TestPreparedImplementationProvesHostCheckEvidenceFromJournal(
 			if err := json.Unmarshal(snapshot.Effects[1].Result, &result); err != nil {
 				t.Fatal(err)
 			}
-			result.Outcome = baton.CheckOutcomeFail
+			result.Outcome = protocol.CheckOutcomeFail
 			result.Diagnostic = "exit status 1"
 			body := mustJSON(result)
 			snapshot.Effects[1].Result = body
@@ -366,7 +366,7 @@ func TestPreparedImplementationProvesHostCheckEvidenceFromJournal(
 				t.Fatal(err)
 			}
 			result.Output, result.OutputDigest = "ok (cached)\n",
-				baton.DigestBytes([]byte("ok (cached)\n"))
+				protocol.DigestBytes([]byte("ok (cached)\n"))
 			manifest, err := buildHostCheckResultsManifest(
 				record.Receipt.Release, cycle.Slice, 1, record.Candidate,
 				result.ContractDigest, []hostCheckResult{result}, roleDigest)
@@ -385,7 +385,7 @@ func TestPreparedImplementationProvesHostCheckEvidenceFromJournal(
 			manifest, err := buildHostCheckResultsManifest(
 				record.Receipt.Release, cycle.Slice, 1, record.Candidate,
 				result.ContractDigest, []hostCheckResult{result},
-				baton.DigestBytes([]byte("substituted role checks")))
+				protocol.DigestBytes([]byte("substituted role checks")))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -409,14 +409,14 @@ func TestPreparedImplementationProvesHostCheckEvidenceFromJournal(
 		"manifest with no host entries": func(
 			_ *journal.Snapshot, record *sealedRecord, roleDigest string,
 		) {
-			manifest, err := baton.EncodeCheckResults(baton.CheckResults{
-				SchemaVersion: baton.CheckResultsVersion,
+			manifest, err := protocol.EncodeCheckResults(protocol.CheckResults{
+				SchemaVersion: protocol.CheckResultsVersion,
 				Release:       record.Receipt.Release, Slice: cycle.Slice,
 				Attempt: 1, Candidate: record.Candidate,
 				ContractDigest: "sha256:" + strings.Repeat("a", 64),
-				Entries: []baton.CheckResultEntry{{
-					Check: "role checks", Provenance: baton.CheckProvenanceRole,
-					Outcome: baton.CheckOutcomePass, RoleDigest: roleDigest,
+				Entries: []protocol.CheckResultEntry{{
+					Check: "role checks", Provenance: protocol.CheckProvenanceRole,
+					Outcome: protocol.CheckOutcomePass, RoleDigest: roleDigest,
 				}},
 			})
 			if err != nil {
@@ -429,7 +429,7 @@ func TestPreparedImplementationProvesHostCheckEvidenceFromJournal(
 		t.Run(name, func(t *testing.T) {
 			engine, snapshot, cycle, record :=
 				implementationDispatchProofFixture(t)
-			roleDigest := baton.DigestBytes(record.Receipt.CheckResults)
+			roleDigest := protocol.DigestBytes(record.Receipt.CheckResults)
 			hostCheckEvidenceFixture(t, &snapshot, cycle, &record, roleDigest)
 			mutate(&snapshot, &record, roleDigest)
 			if err := validateImplementationDispatchProof(
@@ -454,9 +454,9 @@ func TestImplementationCycleAuthorityDerivesSliceTrackFromPlan(
 	slice.NextRole = "implementer"
 	state.Plan.Metadata.Tracks = append(
 		state.Plan.Metadata.Tracks,
-		baton.Track{ID: "T2"},
+		protocol.Track{ID: "T2"},
 	)
-	state.Tracks = append(state.Tracks, baton.TrackState{
+	state.Tracks = append(state.Tracks, protocol.TrackState{
 		ID:   "T2",
 		Ref:  "refs/heads/track/" + state.Release + "/T2",
 		Head: "track-head-v2",
@@ -500,23 +500,23 @@ func TestImplementationCycleAuthorityDerivesSliceTrackFromPlan(
 	}
 }
 
-func TestAllOldBatonAppendRequiresExactCurrentAuthorityBeforeCallback(
+func TestAllOldProtocolAppendRequiresExactCurrentAuthorityBeforeCallback(
 	t *testing.T,
 ) {
 	_, _, plan := fixtureManifest(t)
-	exact := func() (baton.State, batonActionCommand) {
+	exact := func() (protocol.State, protocolActionCommand) {
 		state := claimedDispatchState(t, plan)
 		slice, _ := state.Slice("S1")
 		slice.Stage = "implement"
 		slice.NextRole = "implementer"
 		state.Tracks[0].Head = strings.Repeat("9", 40)
-		command := batonActionCommand{
-			Authority: batonActionAuthority{
+		command := protocolActionCommand{
+			Authority: protocolActionAuthority{
 				Before:  sliceFingerprint(state, "S1"),
 				Binds:   slice.CurrentReceipt.OID,
 				Attempt: slice.Attempt,
 			},
-			Input: mustJSON(baton.AppendReceiptInput{
+			Input: mustJSON(protocol.AppendReceiptInput{
 				Release:   state.Release,
 				Slice:     "S1",
 				Role:      "implementer",
@@ -532,38 +532,38 @@ func TestAllOldBatonAppendRequiresExactCurrentAuthorityBeforeCallback(
 		return state, command
 	}
 	state, command := exact()
-	if err := validateBatonAllOldStateAuthority(
+	if err := validateProtocolAllOldStateAuthority(
 		state,
-		"baton.append_receipt",
+		"protocol.append_receipt",
 		command,
 	); err != nil {
 		t.Fatalf("exact append authority rejected: %v", err)
 	}
-	tests := map[string]func(*baton.State, *batonActionCommand){
+	tests := map[string]func(*protocol.State, *protocolActionCommand){
 		"binds": func(
-			_ *baton.State,
-			command *batonActionCommand,
+			_ *protocol.State,
+			command *protocolActionCommand,
 		) {
 			command.Authority.Binds = strings.Repeat("a", 40)
 		},
 		"attempt": func(
-			_ *baton.State,
-			command *batonActionCommand,
+			_ *protocol.State,
+			command *protocolActionCommand,
 		) {
 			command.Authority.Attempt++
 		},
 		"stage": func(
-			state *baton.State,
-			_ *batonActionCommand,
+			state *protocol.State,
+			_ *protocolActionCommand,
 		) {
 			slice, _ := state.Slice("S1")
 			slice.Stage = "verify"
 		},
 		"candidate": func(
-			_ *baton.State,
-			command *batonActionCommand,
+			_ *protocol.State,
+			command *protocolActionCommand,
 		) {
-			var input baton.AppendReceiptInput
+			var input protocol.AppendReceiptInput
 			if err := json.Unmarshal(command.Input, &input); err != nil {
 				t.Fatal(err)
 			}
@@ -575,9 +575,9 @@ func TestAllOldBatonAppendRequiresExactCurrentAuthorityBeforeCallback(
 		t.Run(name, func(t *testing.T) {
 			state, command := exact()
 			mutate(&state, &command)
-			if err := validateBatonAllOldStateAuthority(
+			if err := validateProtocolAllOldStateAuthority(
 				state,
-				"baton.append_receipt",
+				"protocol.append_receipt",
 				command,
 			); !IsCode(err, "CORRUPT_JOURNAL") {
 				t.Fatalf("stale authority error = %v", err)
@@ -609,7 +609,7 @@ func TestImplementationReceiptAppliedUsesRetiredFullEvidence(
 		Candidate:   candidateOID,
 		Tree:        tree,
 		ProductTree: productTree,
-		Receipt: baton.AppendReceiptInput{
+		Receipt: protocol.AppendReceiptInput{
 			Release: release, Slice: sliceID,
 			Role: "implementer", Result: "candidate",
 			Summary: "Exact retired candidate.",
@@ -621,48 +621,48 @@ func TestImplementationReceiptAppliedUsesRetiredFullEvidence(
 		Release: release, Slice: sliceID,
 		Binds: binds, Plan: planOID,
 	}
-	bound := baton.ReceiptEntry{
+	bound := protocol.ReceiptEntry{
 		OID: binds,
-		Receipt: baton.Receipt{
-			Version: baton.ReceiptVersion,
+		Receipt: protocol.Receipt{
+			Version: protocol.ReceiptVersion,
 			Release: release, Slice: &sliceID,
-			Role: "captain", Result: "proceed",
+			Role: "lead", Result: "proceed",
 			Attempt: &attempt, Plan: planOID,
 			Contract: &contract,
 		},
 	}
-	candidate := baton.ReceiptEntry{
+	candidate := protocol.ReceiptEntry{
 		OID:    strings.Repeat("6", 40),
 		Detail: append([]byte(nil), detail...),
-		Receipt: baton.Receipt{
-			Version: baton.ReceiptVersion,
+		Receipt: protocol.Receipt{
+			Version: protocol.ReceiptVersion,
 			Release: release, Slice: &sliceID,
 			Role: "implementer", Result: "candidate",
 			Attempt: &attempt, Plan: planOID,
 			Contract: &contract, Binds: binds,
-			Detail:    baton.DigestBytes(detail),
+			Detail:    protocol.DigestBytes(detail),
 			Summary:   record.Receipt.Summary,
 			Candidate: &candidateOID, ProductTree: &productTree,
 			Inputs: map[string]string{},
 			Checks: func() *string {
-				value := baton.DigestBytes(checks)
+				value := protocol.DigestBytes(checks)
 				return &value
 			}(),
 		},
 	}
-	exact := func() baton.State {
-		return baton.State{
+	exact := func() protocol.State {
+		return protocol.State{
 			Release: release,
-			Plan: baton.PlanState{
+			Plan: protocol.PlanState{
 				OID: planOID, Metadata: metadata,
 			},
-			SliceHistories: []baton.SliceHistoryState{{
+			SliceHistories: []protocol.SliceHistoryState{{
 				Slice: sliceID,
 				Track: "T1",
 				Ref: "refs/heads/track/" +
 					release + "/T1",
-				History: baton.SliceHistory{
-					Entries: []baton.ReceiptEntry{
+				History: protocol.SliceHistory{
+					Entries: []protocol.ReceiptEntry{
 						bound.Clone(),
 						candidate.Clone(),
 					},
@@ -700,22 +700,22 @@ func TestImplementationReceiptAppliedUsesRetiredFullEvidence(
 			)
 		}
 	})
-	for name, mutate := range map[string]func(*baton.State){
-		"detail": func(state *baton.State) {
+	for name, mutate := range map[string]func(*protocol.State){
+		"detail": func(state *protocol.State) {
 			state.SliceHistories[0].History.Entries[1].Detail =
 				[]byte("other detail")
 		},
-		"checks": func(state *baton.State) {
-			value := baton.DigestBytes([]byte("other checks"))
+		"checks": func(state *protocol.State) {
+			value := protocol.DigestBytes([]byte("other checks"))
 			state.SliceHistories[0].History.Entries[1].
 				Receipt.Checks = &value
 		},
-		"attempt": func(state *baton.State) {
+		"attempt": func(state *protocol.State) {
 			value := attempt + 1
 			state.SliceHistories[0].History.Entries[1].
 				Receipt.Attempt = &value
 		},
-		"product tree": func(state *baton.State) {
+		"product tree": func(state *protocol.State) {
 			value := "sha256:" + strings.Repeat("7", 64)
 			state.SliceHistories[0].History.Entries[1].
 				Receipt.ProductTree = &value
@@ -887,7 +887,7 @@ func TestPendingDriverRecoveryFencesOnlyUnresolvedDispatches(t *testing.T) {
 		t.Run(string(state), func(t *testing.T) {
 			snapshot := journal.Snapshot{Effects: []journal.Effect{
 				{Kind: "driver.dispatch", State: journal.Succeeded},
-				{Kind: "baton.append_receipt", State: state},
+				{Kind: "protocol.append_receipt", State: state},
 				{Kind: "driver.dispatch", State: state},
 			}}
 			if !snapshotHasPendingDriverRecovery(snapshot) {
@@ -1054,7 +1054,7 @@ func TestClaimedDirectDispatchStaleAuthorityStillTerminalizes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The identical historical claim becomes obsolete when its Baton plan
+	// The identical historical claim becomes obsolete when its Protocol plan
 	// authority advances. Recovery must clear it atomically instead of allowing
 	// status to remain poisoned by an expired claim forever.
 	state.Plan.OID = "plan-v2"
@@ -1091,8 +1091,8 @@ func TestUncertainPlannerDispatchRemainsCurrentWithReadyTrack(t *testing.T) {
 	}
 	state := claimedDispatchState(t, plan)
 	metadata := plan.Metadata()
-	plannerSlice := &baton.SliceState{
-		Location: baton.SliceLocation{
+	plannerSlice := &protocol.SliceState{
+		Location: protocol.SliceLocation{
 			Track: metadata.Tracks[1],
 			Slice: metadata.Tracks[1].Slices[0],
 		},
@@ -1102,15 +1102,15 @@ func TestUncertainPlannerDispatchRemainsCurrentWithReadyTrack(t *testing.T) {
 		NextRole:  "planner",
 		Outcome:   "blocked",
 		Attempt:   1,
-		CurrentReceipt: &baton.ReceiptEntry{
+		CurrentReceipt: &protocol.ReceiptEntry{
 			OID: "receipt-planner-authority",
 		},
 	}
-	state.Tracks = append(state.Tracks, baton.TrackState{
+	state.Tracks = append(state.Tracks, protocol.TrackState{
 		ID:     metadata.Tracks[1].ID,
 		Ref:    "refs/heads/track/" + metadata.Release + "/T2",
 		Head:   "track-head-v1",
-		Slices: []*baton.SliceState{plannerSlice},
+		Slices: []*protocol.SliceState{plannerSlice},
 	})
 	state.Slices = append(state.Slices, plannerSlice)
 	authority := planProposalAuthority{
@@ -1584,7 +1584,7 @@ func TestClaimedDispatchRecoveryRejectsSubstitutedCommandBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot.Commands[0].Kind = "baton.merge"
+	snapshot.Commands[0].Kind = "protocol.merge"
 	_, err = service.recoverStaleClaimedDispatchesFromSnapshot(
 		context.Background(),
 		&engine{manifest: manifest},
@@ -1759,10 +1759,10 @@ func buildClaimedWedgeFixture(t *testing.T) *claimedWedgeFixture {
 		t.Fatal(err)
 	}
 	planBytes := []byte(
-		"```baton-plan-v2\n" + string(metadataBody) +
+		"```protocol-plan-v2\n" + string(metadataBody) +
 			"\n```\n\nFixture plan.\n",
 	)
-	plan, err = baton.ParsePlan(planBytes)
+	plan, err = protocol.ParsePlan(planBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1885,7 +1885,7 @@ func buildClaimedWedgeFixture(t *testing.T) *claimedWedgeFixture {
 	if _, err := engine.installer.install(admission, targetHead); err != nil {
 		t.Fatal(err)
 	}
-	state, err := baton.ReadState(
+	state, err := protocol.ReadState(
 		engine.git,
 		manifest.value.Release,
 		engine.inertness,

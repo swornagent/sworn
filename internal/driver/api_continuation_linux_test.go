@@ -93,7 +93,7 @@ func TestAPIContinuationAppendsAcceptedResultEnvelopeAndFreshTools(t *testing.T)
 		if json.Unmarshal([]byte(prompt), &modelEnvelope) != nil ||
 			modelEnvelope.InvocationID != implementationID ||
 			len(modelEnvelope.Inputs) != 1 ||
-			modelEnvelope.Inputs[0].Name != "captain-receipt" {
+			modelEnvelope.Inputs[0].Name != "lead-receipt" {
 			t.Errorf("implementation envelope = %s", prompt)
 		}
 		writeJSONResponse(t, writer, openAIToolCallResponse(
@@ -153,8 +153,8 @@ func TestAPIContinuationAppendsAcceptedResultEnvelopeAndFreshTools(t *testing.T)
 
 	receipt := []byte(`{"decision":"proceed"}`)
 	input := Input{
-		Name:   "captain-receipt",
-		Path:   "captain/review.json",
+		Name:   "lead-receipt",
+		Path:   "lead/review.json",
 		Digest: Digest(receipt),
 	}
 	implementation := apiContinuationInvocation(
@@ -597,8 +597,8 @@ func TestAPIContinuationResumesAfterMultiCallTurn(t *testing.T) {
 
 	receipt := []byte(`{"decision":"proceed"}`)
 	input := Input{
-		Name:   "captain-receipt",
-		Path:   "captain/review.json",
+		Name:   "lead-receipt",
+		Path:   "lead/review.json",
 		Digest: Digest(receipt),
 	}
 	implementation := apiContinuationInvocation(

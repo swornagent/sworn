@@ -1,6 +1,7 @@
 # Sworn v0.3 engineering rules
 
-Sworn is a small deterministic delivery engine for Baton. Native coding-agent
+Sworn is a small deterministic delivery engine with an embedded, attested
+delivery protocol. Native coding-agent
 CLIs and provider adapters own model interaction. Sworn owns authority,
 isolation, exact Git candidates, durable transitions, recovery and the
 truthful board.
@@ -8,7 +9,7 @@ truthful board.
 The v0.3 source tree has six production ownership areas:
 
 - `cmd/sworn`: CLI and process lifetime;
-- `internal/baton`: the exact embedded Baton package and action authority;
+- `internal/protocol`: the exact embedded protocol package and action authority;
 - `internal/runtime`: command service, scheduling and recovery;
 - `internal/journal`: durable commands, effects, receipts and events;
 - `internal/gitx`: sanitized Git facts and compare-and-set mutations; and
@@ -20,9 +21,9 @@ dependency only with the behavior that consumes it and a clear removal cost.
 
 ## Non-negotiable boundaries
 
-- The embedded Baton snapshot is the protocol contract. Node and Baton's
-  JavaScript reference are development oracles only.
-- Planner, Implementer, Captain and Verifier may be model-backed. Merge is
+- The embedded protocol snapshot is the protocol contract. Node and the
+  JavaScript reference implementation are development oracles only.
+- Planner, Implementer, Lead and Verifier may be model-backed. Merge is
   deterministic, engine-owned and never dispatched to a model.
 - One command service and reducer own transitions. Effects are journaled,
   idempotent and reconciled after interruption.

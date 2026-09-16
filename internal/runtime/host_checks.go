@@ -11,9 +11,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 // hostCheckSchemaVersion identifies the engine-owned check.host command
@@ -137,7 +137,7 @@ var hostCheckDeterministicSignatures = []string{
 // a plain fail (never a timeout or an overflow, which are bounds the
 // contract sets) whose bounded output carries no deterministic signature.
 func hostCheckRerunEligible(result hostCheckResult) bool {
-	if result.Outcome != baton.CheckOutcomeFail || result.RerunOf != "" {
+	if result.Outcome != protocol.CheckOutcomeFail || result.RerunOf != "" {
 		return false
 	}
 	for _, signature := range hostCheckDeterministicSignatures {
@@ -181,7 +181,7 @@ func latestJournaledHostCheck(
 // the approved contract declared.
 func resolveSliceHostChecks(
 	engine *engine,
-	plan baton.Plan,
+	plan protocol.Plan,
 	sliceID, targetHead, releaseHead string,
 ) ([]string, string, error) {
 	if engine == nil {
@@ -227,7 +227,7 @@ func hostShell() (string, error) {
 func runHostCommand(dir, check string, outputBytes int64, timeout time.Duration) hostCheckResult {
 	result := hostCheckResult{
 		Check:      check,
-		Outcome:    baton.CheckOutcomeFail,
+		Outcome:    protocol.CheckOutcomeFail,
 		ExitCode:   -1,
 		Diagnostic: "command did not start",
 	}
@@ -257,19 +257,19 @@ func runHostCommand(dir, check string, outputBytes int64, timeout time.Duration)
 	case waitErr := <-done:
 		result.ExitCode = command.ProcessState.ExitCode()
 		if waitErr == nil {
-			result.Outcome = baton.CheckOutcomePass
+			result.Outcome = protocol.CheckOutcomePass
 			result.Diagnostic = ""
 		} else if result.ExitCode == -1 {
-			result.Outcome = baton.CheckOutcomeFail
+			result.Outcome = protocol.CheckOutcomeFail
 			result.Diagnostic = "host command terminated abnormally"
 		} else {
-			result.Outcome = baton.CheckOutcomeFail
+			result.Outcome = protocol.CheckOutcomeFail
 			result.Diagnostic = fmt.Sprintf("exit code %d", result.ExitCode)
 		}
 	case <-time.After(timeout):
 		_ = syscall.Kill(-group, syscall.SIGKILL)
 		<-done
-		result.Outcome = baton.CheckOutcomeTimeout
+		result.Outcome = protocol.CheckOutcomeTimeout
 		result.ExitCode = -1
 		result.Diagnostic = fmt.Sprintf("host check exceeded %s", timeout)
 	}
@@ -279,13 +279,13 @@ func runHostCommand(dir, check string, outputBytes int64, timeout time.Duration)
 	// A run bounded by the timeout is recorded as timeout even when it also
 	// produced more output than the cap; otherwise overflow of the bounded
 	// buffer is recorded as overflow with the truthful marker.
-	if result.Outcome != baton.CheckOutcomeTimeout && result.Truncated {
+	if result.Outcome != protocol.CheckOutcomeTimeout && result.Truncated {
 		marker := fmt.Sprintf("\n[sworn: output truncated at %d bytes]\n", output.limit)
 		result.Output += marker
-		result.Outcome = baton.CheckOutcomeOverflow
+		result.Outcome = protocol.CheckOutcomeOverflow
 		result.Diagnostic = fmt.Sprintf("output exceeded %d bytes", output.limit)
 	}
-	result.OutputDigest = baton.DigestBytes([]byte(result.Output))
+	result.OutputDigest = protocol.DigestBytes([]byte(result.Output))
 	return result
 }
 
@@ -323,7 +323,7 @@ func (s *Service) runOneHostCheck(
 	ctx context.Context,
 	engine *engine,
 	owner journal.OwnerLease,
-	plan baton.Plan,
+	plan protocol.Plan,
 	sliceID, candidate, targetHead, releaseHead, check string,
 ) (hostCheckResult, error) {
 	hostChecks, contractDigest, err := resolveSliceHostChecks(engine, plan, sliceID, targetHead, releaseHead)
@@ -564,7 +564,7 @@ func parseHostCheckResult(
 		result.EffectID != effectID || result.OutputDigest == "" {
 		return hostCheckResult{}, runtimeFail("CORRUPT_JOURNAL", nil)
 	}
-	if baton.DigestBytes([]byte(result.Output)) != result.OutputDigest {
+	if protocol.DigestBytes([]byte(result.Output)) != result.OutputDigest {
 		return hostCheckResult{}, runtimeFail("CORRUPT_JOURNAL", nil)
 	}
 	return result, nil
@@ -578,7 +578,7 @@ func (s *Service) runHostChecks(
 	ctx context.Context,
 	engine *engine,
 	owner journal.OwnerLease,
-	plan baton.Plan,
+	plan protocol.Plan,
 	sliceID, candidate, targetHead, releaseHead string,
 ) ([]hostCheckResult, error) {
 	hostChecks, _, err := resolveSliceHostChecks(engine, plan, sliceID, targetHead, releaseHead)
@@ -591,7 +591,7 @@ func (s *Service) runHostChecks(
 		if err != nil {
 			return nil, err
 		}
-		if result.Outcome != baton.CheckOutcomePass {
+		if result.Outcome != protocol.CheckOutcomePass {
 			return nil, &hostCheckFailure{result: result, err: runtimeFail(
 				"HOST_CHECK_FAILED",
 				fmt.Errorf("%s recorded %s: %s", check, result.Outcome, result.Diagnostic),
@@ -614,10 +614,10 @@ func buildHostCheckResultsManifest(
 	hostResults []hostCheckResult,
 	roleDigest string,
 ) ([]byte, error) {
-	entries := make([]baton.CheckResultEntry, 0, len(hostResults)+1)
+	entries := make([]protocol.CheckResultEntry, 0, len(hostResults)+1)
 	for _, result := range hostResults {
-		entry := baton.CheckResultEntry{
-			Check: result.Check, Provenance: baton.CheckProvenanceHost,
+		entry := protocol.CheckResultEntry{
+			Check: result.Check, Provenance: protocol.CheckProvenanceHost,
 			Outcome: result.Outcome, OutputDigest: result.OutputDigest,
 			Diagnostic: result.Diagnostic, HostEffect: result.EffectID,
 		}
@@ -627,16 +627,16 @@ func buildHostCheckResultsManifest(
 			result.Output, result.Truncated)
 		entries = append(entries, entry)
 	}
-	entries = append(entries, baton.CheckResultEntry{
-		Check: "role checks", Provenance: baton.CheckProvenanceRole,
-		Outcome: baton.CheckOutcomePass, RoleDigest: roleDigest,
+	entries = append(entries, protocol.CheckResultEntry{
+		Check: "role checks", Provenance: protocol.CheckProvenanceRole,
+		Outcome: protocol.CheckOutcomePass, RoleDigest: roleDigest,
 	})
-	manifest := baton.CheckResults{
-		SchemaVersion: baton.CheckResultsVersion, Release: release,
+	manifest := protocol.CheckResults{
+		SchemaVersion: protocol.CheckResultsVersion, Release: release,
 		Slice: sliceID, Attempt: attempt, Candidate: candidate,
 		ContractDigest: contractDigest, Entries: entries,
 	}
-	return baton.EncodeCheckResults(manifest)
+	return protocol.EncodeCheckResults(manifest)
 }
 
 // validateHostCheckEvidenceProof proves that a sealed record's checks evidence
@@ -656,7 +656,7 @@ func validateHostCheckEvidenceProof(
 	record sealedRecord,
 	roleChecks []byte,
 ) error {
-	manifest, err := baton.ParseCheckResults(record.Receipt.CheckResults)
+	manifest, err := protocol.ParseCheckResults(record.Receipt.CheckResults)
 	if err != nil ||
 		manifest.Release != record.Receipt.Release ||
 		manifest.Slice != cycle.Slice ||
@@ -669,7 +669,7 @@ func validateHostCheckEvidenceProof(
 	}
 	hostResults := make([]hostCheckResult, 0, len(manifest.Entries))
 	for _, entry := range manifest.Entries {
-		if entry.Provenance != baton.CheckProvenanceHost {
+		if entry.Provenance != protocol.CheckProvenanceHost {
 			continue
 		}
 		work := hostCheckWork(
@@ -690,7 +690,7 @@ func validateHostCheckEvidenceProof(
 		if parseErr != nil {
 			return parseErr
 		}
-		if result.Outcome != baton.CheckOutcomePass {
+		if result.Outcome != protocol.CheckOutcomePass {
 			return runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 		hostResults = append(hostResults, result)
@@ -701,7 +701,7 @@ func validateHostCheckEvidenceProof(
 	expected, buildErr := buildHostCheckResultsManifest(
 		record.Receipt.Release, cycle.Slice, manifest.Attempt,
 		record.Candidate, manifest.ContractDigest, hostResults,
-		baton.DigestBytes(roleChecks))
+		protocol.DigestBytes(roleChecks))
 	if buildErr != nil || !bytes.Equal(expected, record.Receipt.CheckResults) {
 		return runtimeFail("CORRUPT_JOURNAL", buildErr)
 	}
@@ -719,7 +719,7 @@ func hostOutputExcerpt(output string, outputTruncated bool) (string, bool) {
 	if output == "" {
 		return "", false
 	}
-	limit := baton.HostCheckOutputManifestBytes
+	limit := protocol.HostCheckOutputManifestBytes
 	if len(output) <= limit {
 		return output, outputTruncated
 	}

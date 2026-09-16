@@ -223,7 +223,7 @@ func (factory *ProductionDriverFactory) liveProbe(
 		selections := RoleSelections{
 			Planner:     RoleSelection{Profile: profile.Key, Model: model},
 			Implementer: RoleSelection{Profile: profile.Key, Model: model},
-			Captain:     RoleSelection{Profile: profile.Key, Model: model},
+			Lead:        RoleSelection{Profile: profile.Key, Model: model},
 			Verifier:    RoleSelection{Profile: profile.Key, Model: model},
 		}
 		selected, err := registry.Resolve(selections, RoleImplementer)

@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 type activeCycleTestFixture struct {
@@ -209,7 +209,7 @@ func activeImplementationCycleFixture(
 		if candidate.Slice == cycle.Slice &&
 			candidate.Responsibility ==
 				driver.ImplementerImplementation &&
-			candidate.BatonAttempt == 1 &&
+			candidate.ProtocolAttempt == 1 &&
 			candidate.Epoch == childEpoch &&
 			candidate.Try == childTry {
 			script = candidate
@@ -219,12 +219,12 @@ func activeImplementationCycleFixture(
 	}
 	if !found {
 		script = ScriptedAttempt{
-			Slice:          cycle.Slice,
-			Responsibility: driver.ImplementerImplementation,
-			BatonAttempt:   1,
-			Epoch:          childEpoch,
-			Try:            childTry,
-			Behavior:       "submit",
+			Slice:           cycle.Slice,
+			Responsibility:  driver.ImplementerImplementation,
+			ProtocolAttempt: 1,
+			Epoch:           childEpoch,
+			Try:             childTry,
+			Behavior:        "submit",
 		}
 		submission := driver.Submission{
 			SchemaVersion: driver.SubmissionSchemaVersion,
@@ -267,11 +267,11 @@ func activeImplementationCycleFixture(
 		*manifest,
 		preparedDriverDispatch{fake: true},
 		dispatchCoordinates{
-			Slice:          cycle.Slice,
-			Responsibility: driver.ImplementerImplementation,
-			BatonAttempt:   script.BatonAttempt,
-			Epoch:          childEpoch,
-			Try:            childTry,
+			Slice:           cycle.Slice,
+			Responsibility:  driver.ImplementerImplementation,
+			ProtocolAttempt: script.ProtocolAttempt,
+			Epoch:           childEpoch,
+			Try:             childTry,
 		},
 		cycle.DispatchWork,
 		cycle.Before,
@@ -790,7 +790,7 @@ func TestDirectClaimedRecoveryRejectsWrongAttentionCycleOrLane(
 			if err := fixture.production.workspace.Close(); err != nil {
 				t.Fatal(err)
 			}
-			state, err := baton.ReadState(
+			state, err := protocol.ReadState(
 				fixture.production.engine.git,
 				fixture.production.manifest.value.Release,
 				fixture.production.engine.inertness,
@@ -988,7 +988,7 @@ func TestRecoverImplementationClaimsConsumesAnsweredCachedChildSuccess(
 	if err != nil || !recovered {
 		t.Fatalf("cached-success recovery = %t, %v", recovered, err)
 	}
-	fresh, err := baton.ReadState(
+	fresh, err := protocol.ReadState(
 		fixture.engine.git,
 		fixture.manifest.value.Release,
 		fixture.engine.inertness,
@@ -1207,7 +1207,7 @@ func TestStaleSweepRetiresAnsweredTerminalDirectDispatch(t *testing.T) {
 	if err := fixture.workspace.Close(); err != nil {
 		t.Fatal(err)
 	}
-	staleState, err := baton.ReadState(
+	staleState, err := protocol.ReadState(
 		fixture.engine.git,
 		fixture.manifest.value.Release,
 		fixture.engine.inertness,

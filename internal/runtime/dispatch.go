@@ -8,10 +8,10 @@ import (
 	"errors"
 	"os"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 type fakeScript struct {
@@ -155,7 +155,7 @@ func continuationBindingForDispatch(
 		prepared.productionContext.Plan == nil ||
 		prepared.productionContext.Receipt == nil ||
 		coordinates.Slice == "" ||
-		coordinates.BatonAttempt < 1 {
+		coordinates.ProtocolAttempt < 1 {
 		return driver.ContinuationBinding{}, "",
 			runtimeFail("INVALID_CONTINUATION", nil)
 	}
@@ -220,7 +220,7 @@ func continuationBindingForDispatch(
 		RunID:                 workContext.RunID,
 		Release:               workContext.Release,
 		Slice:                 coordinates.Slice,
-		Attempt:               coordinates.BatonAttempt,
+		Attempt:               coordinates.ProtocolAttempt,
 		PlanAuthorityDigest:   planDigest,
 		TargetAuthorityDigest: targetDigest,
 		ToolContractDigest:    toolDigest,
@@ -257,7 +257,7 @@ func verifierRepairContinuationMatches(
 	freshBinding driver.ContinuationBinding,
 	selectionDigest string,
 	work *productionWorkContext,
-	history baton.SliceHistory,
+	history protocol.SliceHistory,
 ) bool {
 	if entry == nil || entry.handle == nil || entry.verifierFailReceipt == "" ||
 		work == nil || work.Receipt == nil || work.Candidate == nil ||
@@ -272,7 +272,7 @@ func verifierRepairContinuationMatches(
 		) {
 		return false
 	}
-	entries := make(map[string]*baton.ReceiptEntry, len(history.Entries))
+	entries := make(map[string]*protocol.ReceiptEntry, len(history.Entries))
 	for index := range history.Entries {
 		candidate := &history.Entries[index]
 		if candidate.OID == "" || entries[candidate.OID] != nil {
@@ -1111,9 +1111,9 @@ func (s *Service) invokePreparedDriver(
 			continuationVerifier,
 			coordinates.Slice,
 		)
-		var history baton.SliceHistory
+		var history protocol.SliceHistory
 		if entry != nil && entry.verifierFailReceipt != "" {
-			state, stateErr := baton.ReadState(
+			state, stateErr := protocol.ReadState(
 				engine.git,
 				engine.manifest.value.Release,
 				engine.inertness,
@@ -1129,7 +1129,7 @@ func (s *Service) invokePreparedDriver(
 				if stateErr == nil {
 					stateErr = runtimeFail("STALE_DISPATCH", nil)
 				} else {
-					stateErr = runtimeFail("BATON_UNAVAILABLE", stateErr)
+					stateErr = runtimeFail("PROTOCOL_UNAVAILABLE", stateErr)
 				}
 				return driver.Observation{}, nil, nil,
 					errors.Join(stateErr, restoreErr)
@@ -1310,7 +1310,7 @@ func (s *Service) prepareDriverDispatch(
 		script, found := engine.manifest.value.script(
 			coordinates.Slice,
 			coordinates.Responsibility,
-			coordinates.BatonAttempt,
+			coordinates.ProtocolAttempt,
 			coordinates.Epoch,
 			coordinates.Try,
 		)

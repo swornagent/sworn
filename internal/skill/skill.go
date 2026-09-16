@@ -15,26 +15,26 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/gitx"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 // Name is the one supported Sworn skill directory name.
 const Name = "sworn"
 
-// LegacyNames are the standalone Baton role skills this installer recognizes
+// LegacyNames are the standalone Protocol role skills this installer recognizes
 // for safe migration. Sworn never reads them.
 var LegacyNames = []string{
-	"baton-plan",
-	"baton-implement",
-	"baton-design-review",
-	"baton-verify",
-	"baton-merge",
+	"protocol-plan",
+	"protocol-implement",
+	"protocol-design-review",
+	"protocol-verify",
+	"protocol-merge",
 }
 
 const (
-	legacyMarkerBegin  = "<!-- baton-skill\n"
-	legacyGeneratorKey = "generator-version: baton.skill-generator/v1"
+	legacyMarkerBegin  = "<!-- protocol-skill\n"
+	legacyGeneratorKey = "generator-version: protocol.skill-generator/v1"
 	migratedMarkerLine = "<!-- sworn-migrated-skill\n"
 	markerEnd          = "-->\n"
 )
@@ -56,7 +56,7 @@ type CollisionError struct {
 
 func (e *CollisionError) Error() string {
 	return fmt.Sprintf(
-		"an existing skill at %s does not match a recognized generated Baton or Sworn skill; "+
+		"an existing skill at %s does not match a recognized generated Protocol or Sworn skill; "+
 			"resolve it manually before installing the sworn skill",
 		e.Path,
 	)
@@ -171,7 +171,7 @@ func scanLegacy(homeDir string) (recognized []legacyFinding, collision *legacyFi
 }
 
 // isRecognizedSkillBody reports whether body is either an exact generated
-// Baton role skill for name (any prior generator release) or this
+// Protocol role skill for name (any prior generator release) or this
 // installer's own migration stub for name. Both are safe to overwrite;
 // anything else is a hand-modified collision.
 func isRecognizedSkillBody(name string, body []byte) bool {
@@ -242,7 +242,7 @@ func migrationStub(name string) []byte {
 			"This skill has moved. It is no longer an actionable workflow and Sworn\n"+
 			"never reads it. Use the `sworn` skill together with the local Sworn CLI\n"+
 			"or MCP service instead.\n",
-		name, name, baton.RoleAssetsVersion,
+		name, name, protocol.RoleAssetsVersion,
 	))
 }
 
@@ -271,11 +271,11 @@ func swornSkillContent() []byte {
 			"   and whether a person is needed.\n"+
 			"4. Present the operator with the exact choices Sworn's own board or MCP\n"+
 			"   status reports (for example: answer a question, approve a plan, or\n"+
-			"   resume a run). Do not invent a Planner, Implementer, Captain, or\n"+
+			"   resume a run). Do not invent a Planner, Implementer, Lead, or\n"+
 			"   Verifier decision, a receipt, or a merge outcome; only Sworn's command\n"+
 			"   service may produce those.\n"+
 			"5. If Sworn reports that no action is currently possible (paused, blocked,\n"+
 			"   or waiting on another operator), report that state plainly and stop.\n",
-		baton.RoleAssetsVersion,
+		protocol.RoleAssetsVersion,
 	))
 }

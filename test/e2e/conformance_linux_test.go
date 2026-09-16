@@ -9,18 +9,18 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/swornagent/sworn/internal/baton"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 const (
-	rc14ConformanceManifestSHA256 = "cc1f60350ee7b2eb975d5ee79e6d7df7f39b22921020389324f4f63bc4e613c2"
+	rc14ConformanceManifestSHA256 = "21aacbd7cf7ad95f535dc54473b7f36cd4f2afa882d0c30a38d69f4e7adda916"
 	autonomousEngineProfile       = "autonomous_engine"
 )
 
 type conformanceManifest struct {
-	SchemaVersion string `json:"schema_version"`
-	BatonVersion  string `json:"baton_version"`
-	Profiles      map[string]struct {
+	SchemaVersion   string `json:"schema_version"`
+	ProtocolVersion string `json:"protocol_version"`
+	Profiles        map[string]struct {
 		Status string `json:"status"`
 		Cases  []struct {
 			ID     string `json:"id"`
@@ -36,13 +36,13 @@ type autonomousEngineResult struct {
 }
 
 // TestAutonomousEngineConformance is the single executable gate for the
-// autonomous-engine profile embedded in Baton RC14. Case identities are read
+// autonomous-engine profile embedded in Protocol RC14. Case identities are read
 // from the admitted package at test time; the mapping below can neither omit
 // nor add a case without failing this test.
 func TestAutonomousEngineConformance(t *testing.T) {
 	t.Parallel()
 
-	pkg, err := baton.Load()
+	pkg, err := protocol.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,14 +59,14 @@ func TestAutonomousEngineConformance(t *testing.T) {
 		t.Fatal(err)
 	}
 	profile, ok := manifest.Profiles[autonomousEngineProfile]
-	if manifest.SchemaVersion != "baton.conformance-manifest/v2" ||
-		manifest.BatonVersion != baton.LegacyBatonVersion ||
+	if manifest.SchemaVersion != "protocol.conformance-manifest/v2" ||
+		manifest.ProtocolVersion != protocol.LegacyProtocolVersion ||
 		!ok || profile.Status != "NOT RUN" ||
 		len(profile.Cases) != 12 {
 		t.Fatalf(
-			"embedded autonomous profile = schema %q Baton %q profile %#v",
+			"embedded autonomous profile = schema %q Protocol %q profile %#v",
 			manifest.SchemaVersion,
-			manifest.BatonVersion,
+			manifest.ProtocolVersion,
 			profile,
 		)
 	}
@@ -167,15 +167,15 @@ func TestAutonomousEngineConformance(t *testing.T) {
 		}
 	}
 	evidence, err := json.Marshal(struct {
-		SchemaVersion  string                   `json:"schema_version"`
-		BatonVersion   string                   `json:"baton_version"`
-		ManifestSHA256 string                   `json:"manifest_sha256"`
-		Results        []autonomousEngineResult `json:"results"`
+		SchemaVersion   string                   `json:"schema_version"`
+		ProtocolVersion string                   `json:"protocol_version"`
+		ManifestSHA256  string                   `json:"manifest_sha256"`
+		Results         []autonomousEngineResult `json:"results"`
 	}{
-		SchemaVersion:  "sworn.autonomous-conformance/v1",
-		BatonVersion:   manifest.BatonVersion,
-		ManifestSHA256: "sha256:" + rc14ConformanceManifestSHA256,
-		Results:        results,
+		SchemaVersion:   "sworn.autonomous-conformance/v1",
+		ProtocolVersion: manifest.ProtocolVersion,
+		ManifestSHA256:  "sha256:" + rc14ConformanceManifestSHA256,
+		Results:         results,
 	})
 	if err != nil {
 		t.Fatal(err)

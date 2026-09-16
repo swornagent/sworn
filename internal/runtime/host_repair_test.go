@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 func TestHostCheckFailureRetriesWithRetainedWorkAndExactFeedback(t *testing.T) {
@@ -56,7 +56,7 @@ func testHostRepairRoundTrip(t *testing.T, manifestPlan bool) {
 				t.Fatal("unverified repair became verified evidence")
 			}
 			priorInvocation := repair.Submission.InvocationID
-			manualCoordinates := dispatchCoordinates{Slice: "S1", Responsibility: driver.ImplementerImplementation, BatonAttempt: work.Attempt, Epoch: 2, Try: 1}
+			manualCoordinates := dispatchCoordinates{Slice: "S1", Responsibility: driver.ImplementerImplementation, ProtocolAttempt: work.Attempt, Epoch: 2, Try: 1}
 			manualContext := work
 			manualContext.Epoch, manualContext.Try = 2, 1
 			manualContext.InvocationID = dispatchInvocationID(work.RunID, manualCoordinates)
@@ -68,7 +68,7 @@ func testHostRepairRoundTrip(t *testing.T, manifestPlan bool) {
 				"candidate":  func(r *productionHostRepair) { r.FailedCheck.Candidate = strings.Repeat("f", 40) },
 				"slice":      func(r *productionHostRepair) { r.FailedCheck.Slice = "S2" },
 				"submission": func(r *productionHostRepair) { r.Submission.InvocationID = invocation.Request.InvocationID },
-				"pass":       func(r *productionHostRepair) { r.FailedCheck.Outcome = baton.CheckOutcomePass },
+				"pass":       func(r *productionHostRepair) { r.FailedCheck.Outcome = protocol.CheckOutcomePass },
 				"schema":     func(r *productionHostRepair) { r.SchemaVersion = "future" },
 			} {
 				changed := *repair
@@ -103,7 +103,7 @@ func testHostRepairRoundTrip(t *testing.T, manifestPlan bool) {
 	if calls != 2 {
 		t.Fatalf("dispatches = %d", calls)
 	}
-	state, err := baton.ReadState(f.engine.git, f.manifest.value.Release, f.engine.inertness)
+	state, err := protocol.ReadState(f.engine.git, f.manifest.value.Release, f.engine.inertness)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,13 +153,13 @@ func TestRepeatedHostFailuresPersistActionableParkExactlyOnce(t *testing.T) {
 	if int64(calls) != f.manifest.value.EffectiveIdenticalFailureParkAfter() {
 		t.Fatalf("dispatches = %d", calls)
 	}
-	state, err := baton.ReadState(f.engine.git, f.manifest.value.Release, f.engine.inertness)
+	state, err := protocol.ReadState(f.engine.git, f.manifest.value.Release, f.engine.inertness)
 	if err != nil {
 		t.Fatal(err)
 	}
 	work := workIdentity(sliceFingerprint(state, "S1"), "git.seal")
 	current, _ := state.Slice("S1")
-	manualCoordinates := dispatchCoordinates{Slice: "S1", Responsibility: driver.ImplementerImplementation, BatonAttempt: current.Attempt, Epoch: 2, Try: 1}
+	manualCoordinates := dispatchCoordinates{Slice: "S1", Responsibility: driver.ImplementerImplementation, ProtocolAttempt: current.Attempt, Epoch: 2, Try: 1}
 	manualContext, _, err := captureProductionWorkContext(f.ctx, f.engine, manualCoordinates, sliceFingerprint(state, "S1"), driver.ReadWrite)
 	if err != nil || manualContext.HostRepair == nil || manualContext.HostRepair.SourceEpoch != 1 || manualContext.HostRepair.SourceTry != int64(calls) {
 		t.Fatalf("manual retry forgot parked failure: %#v %v", manualContext.HostRepair, err)
@@ -212,7 +212,7 @@ func TestMissingLegacyHostRepairCannotFallThroughOnLaterRetry(t *testing.T) {
 		}
 	}
 	writeFailure(workIdentity(work, "driver.dispatch"), 1, "driver.dispatch", "HOST_CHECK_FAILED")
-	coordinates := dispatchCoordinates{Slice: "S1", Responsibility: driver.ImplementerImplementation, BatonAttempt: 1, Epoch: 1, Try: 2}
+	coordinates := dispatchCoordinates{Slice: "S1", Responsibility: driver.ImplementerImplementation, ProtocolAttempt: 1, Epoch: 1, Try: 2}
 	plan, err := currentPlanBinding(f.state)
 	if err != nil {
 		t.Fatal(err)

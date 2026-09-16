@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 func TestV4ProjectAuthorityIsOptionalExactAndClosed(t *testing.T) {
@@ -103,7 +103,7 @@ func TestEffectiveAuthorityRejectsEveryDistinctBootstrapJournalCombination(t *te
 	}
 }
 
-func TestSavedPlanAdoptionRequiresIndependentExactAuthorityAndBatonApproval(t *testing.T) {
+func TestSavedPlanAdoptionRequiresIndependentExactAuthorityAndProtocolApproval(t *testing.T) {
 	repoPath := productionRepository(t)
 	targetP := runRuntimeGit(t, repoPath, "rev-parse", "refs/heads/main")
 
@@ -157,36 +157,36 @@ func TestSavedPlanAdoptionRequiresIndependentExactAuthorityAndBatonApproval(t *t
 
 	target := targetP
 	planOID := strings.Repeat("2", 40)
-	receipt := baton.Receipt{
-		Version: baton.ReceiptVersion, Release: manifest.value.Release,
+	receipt := protocol.Receipt{
+		Version: protocol.ReceiptVersion, Release: manifest.value.Release,
 		Role: "planner", Result: "approved", Plan: planOID,
 		Summary: "saved approval", Target: &target,
 	}
-	state := baton.State{
+	state := protocol.State{
 		Release:    manifest.value.Release,
 		Repository: manifest.value.Authority.Project,
-		Plan: baton.PlanState{
+		Plan: protocol.PlanState{
 			OID: planOID, Digest: plan.Digest(), Metadata: plan.Metadata(),
-			Approval: baton.ReceiptEntry{OID: strings.Repeat("3", 40), Receipt: receipt},
-			History:  []baton.PlanHistory{{OID: planOID, Revision: 1, Plan: plan}},
+			Approval: protocol.ReceiptEntry{OID: strings.Repeat("3", 40), Receipt: receipt},
+			History:  []protocol.PlanHistory{{OID: planOID, Revision: 1, Plan: plan}},
 		},
-		Refs: baton.StateRefs{
-			Release: baton.CapturedRef{
+		Refs: protocol.StateRefs{
+			Release: protocol.CapturedRef{
 				Ref:  "refs/heads/release-wt/" + manifest.value.Release,
 				Head: strings.Repeat("4", 40),
 			},
-			Target: baton.CapturedRef{Ref: manifest.value.TargetRef, Head: targetD},
+			Target: protocol.CapturedRef{Ref: manifest.value.TargetRef, Head: targetD},
 		},
 	}
 	eng := &engine{
 		manifest:   manifest,
 		repository: repoView,
-		git:        baton.UseGitRepository(repoView),
+		git:        protocol.UseGitRepository(repoView),
 	}
 
-	// A1: Baton approval alone without authority digest fails.
+	// A1: Protocol approval alone without authority digest fails.
 	if adopted, err := validateSavedPlanAdoption(eng, state, ""); err != nil || adopted {
-		t.Fatalf("Baton approval alone adopted = %t, %v", adopted, err)
+		t.Fatalf("Protocol approval alone adopted = %t, %v", adopted, err)
 	}
 
 	// A1: Descendant target head (targetD) succeeds saved-plan adoption.
@@ -202,24 +202,24 @@ func TestSavedPlanAdoptionRequiresIndependentExactAuthorityAndBatonApproval(t *t
 	}
 
 	// A2: Refusals on divergence, stale lineage, or metadata substitution.
-	for name, mutate := range map[string]func(*baton.State){
-		"project":               func(value *baton.State) { value.Repository = "other" },
-		"release":               func(value *baton.State) { value.Release = "other" },
-		"divergent target head": func(value *baton.State) { value.Refs.Target.Head = divergentX },
-		"approval target": func(value *baton.State) {
+	for name, mutate := range map[string]func(*protocol.State){
+		"project":               func(value *protocol.State) { value.Repository = "other" },
+		"release":               func(value *protocol.State) { value.Release = "other" },
+		"divergent target head": func(value *protocol.State) { value.Refs.Target.Head = divergentX },
+		"approval target": func(value *protocol.State) {
 			other := divergentX
 			value.Plan.Approval.Receipt.Target = &other
 		},
-		"digest":               func(value *baton.State) { value.Plan.Digest = "sha256:" + strings.Repeat("7", 64) },
-		"bytes":                func(value *baton.State) { value.Plan.History = nil },
-		"stale lineage":        func(value *baton.State) { value.Plan.TargetStale = true },
-		"malformed target hex": func(value *baton.State) { value.Refs.Target.Head = "invalid-hex-oid" },
+		"digest":               func(value *protocol.State) { value.Plan.Digest = "sha256:" + strings.Repeat("7", 64) },
+		"bytes":                func(value *protocol.State) { value.Plan.History = nil },
+		"stale lineage":        func(value *protocol.State) { value.Plan.TargetStale = true },
+		"malformed target hex": func(value *protocol.State) { value.Refs.Target.Head = "invalid-hex-oid" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			value := state
 			value.Plan = state.Plan
 			value.Plan.Approval = state.Plan.Approval.Clone()
-			value.Plan.History = append([]baton.PlanHistory(nil), state.Plan.History...)
+			value.Plan.History = append([]protocol.PlanHistory(nil), state.Plan.History...)
 			mutate(&value)
 			adopted, err := validateSavedPlanAdoption(eng, value, plan.Digest())
 			if adopted || !IsCode(err, "INVALID_AUTHORITY") {
@@ -265,25 +265,25 @@ func TestSavedPlanAdoptionAncestryProbeFailureSurfacesGitError(t *testing.T) {
 
 	target := targetP
 	planOID := strings.Repeat("2", 40)
-	receipt := baton.Receipt{
-		Version: baton.ReceiptVersion, Release: manifest.value.Release,
+	receipt := protocol.Receipt{
+		Version: protocol.ReceiptVersion, Release: manifest.value.Release,
 		Role: "planner", Result: "approved", Plan: planOID,
 		Summary: "saved approval", Target: &target,
 	}
-	state := baton.State{
+	state := protocol.State{
 		Release:    manifest.value.Release,
 		Repository: manifest.value.Authority.Project,
-		Plan: baton.PlanState{
+		Plan: protocol.PlanState{
 			OID: planOID, Digest: plan.Digest(), Metadata: plan.Metadata(),
-			Approval: baton.ReceiptEntry{OID: strings.Repeat("3", 40), Receipt: receipt},
-			History:  []baton.PlanHistory{{OID: planOID, Revision: 1, Plan: plan}},
+			Approval: protocol.ReceiptEntry{OID: strings.Repeat("3", 40), Receipt: receipt},
+			History:  []protocol.PlanHistory{{OID: planOID, Revision: 1, Plan: plan}},
 		},
-		Refs: baton.StateRefs{
-			Release: baton.CapturedRef{
+		Refs: protocol.StateRefs{
+			Release: protocol.CapturedRef{
 				Ref:  "refs/heads/release-wt/" + manifest.value.Release,
 				Head: strings.Repeat("4", 40),
 			},
-			Target: baton.CapturedRef{Ref: manifest.value.TargetRef, Head: targetP},
+			Target: protocol.CapturedRef{Ref: manifest.value.TargetRef, Head: targetP},
 		},
 	}
 
@@ -295,7 +295,7 @@ func TestSavedPlanAdoptionAncestryProbeFailureSurfacesGitError(t *testing.T) {
 	engine := &engine{
 		manifest:   manifest,
 		repository: repoView,
-		git:        baton.UseGitRepository(repoView),
+		git:        protocol.UseGitRepository(repoView),
 	}
 
 	adopted, adoptErr := validateSavedPlanAdoption(engine, state, plan.Digest())
@@ -332,12 +332,12 @@ func TestStatusReportsApprovedWhenTargetIsDescendantOfApprovedReceipt(t *testing
 		t.Fatal(err)
 	}
 
-	// Install plan revision 1 in baton.
+	// Install plan revision 1 in protocol.
 	inertness := func(request gitx.RecordRootRequest) (gitx.RecordRootDecision, error) {
 		return gitx.RecordRootDecision{Kind: request.Kind, Repository: request.Repository,
 			RecordRoot: request.RecordRoot, Commit: request.Commit, Decision: "inert"}, nil
 	}
-	actions, err := baton.NewActions(baton.UseGitRepository(repoView), inertness, manifest.value.GitIdentity)
+	actions, err := protocol.NewActions(protocol.UseGitRepository(repoView), inertness, manifest.value.GitIdentity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -449,30 +449,30 @@ func TestSavedPlanAdoptionDrivesRunWithDescendantTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	planBytes := []byte(
-		"```baton-plan-v2\n" + string(metadataBody) +
+		"```protocol-plan-v2\n" + string(metadataBody) +
 			"\n```\n\nFixture plan.\n",
 	)
-	plan, err = baton.ParsePlan(planBytes)
+	plan, err = protocol.ParsePlan(planBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
 	digest := plan.Digest()
 	manifest.Authority.BootstrapApprovedPlanDigest = &digest
 	manifest.Scripts = []ScriptedAttempt{
-		{Responsibility: driver.AssemblyVerification, BatonAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
-		{Slice: "S1", Responsibility: driver.CaptainReview, BatonAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
-		{Slice: "S1", Responsibility: driver.ImplementerDesign, BatonAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
-		{Slice: "S1", Responsibility: driver.ImplementerImplementation, BatonAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
-		{Responsibility: driver.PlannerProposal, BatonAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
-		{Slice: "S1", Responsibility: driver.WorkVerification, BatonAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
+		{Responsibility: driver.AssemblyVerification, ProtocolAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
+		{Slice: "S1", Responsibility: driver.LeadReview, ProtocolAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
+		{Slice: "S1", Responsibility: driver.ImplementerDesign, ProtocolAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
+		{Slice: "S1", Responsibility: driver.ImplementerImplementation, ProtocolAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
+		{Responsibility: driver.PlannerProposal, ProtocolAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
+		{Slice: "S1", Responsibility: driver.WorkVerification, ProtocolAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
 	}
 	submission := func(
 		slice string,
 		responsibility driver.Responsibility,
-		batonAttempt int64,
+		protocolAttempt int64,
 	) driver.Submission {
 		script := ScriptedAttempt{Slice: slice, Responsibility: responsibility,
-			BatonAttempt: batonAttempt, Epoch: 1, Try: 1}
+			ProtocolAttempt: protocolAttempt, Epoch: 1, Try: 1}
 		return driver.Submission{
 			SchemaVersion:  driver.SubmissionSchemaVersion,
 			InvocationID:   invocationID(manifest.RunID, script),
@@ -484,8 +484,8 @@ func TestSavedPlanAdoptionDrivesRunWithDescendantTarget(t *testing.T) {
 	planner := submission("", driver.PlannerProposal, 1)
 	planner.Plan, _ = driver.NewPlanBytes(planBytes)
 	design := submission("S1", driver.ImplementerDesign, 1)
-	captain := submission("S1", driver.CaptainReview, 1)
-	captain.Decision, _ = driver.NewDecision(driver.DecisionProceed)
+	lead := submission("S1", driver.LeadReview, 1)
+	lead.Decision, _ = driver.NewDecision(driver.DecisionProceed)
 	implementation := submission("S1", driver.ImplementerImplementation, 1)
 	implementation.Checks, _ = driver.NewCheckBytes([]byte("implementation checks\n"))
 	work := submission("S1", driver.WorkVerification, 1)
@@ -495,7 +495,7 @@ func TestSavedPlanAdoptionDrivesRunWithDescendantTarget(t *testing.T) {
 	assembly.Checks, _ = driver.NewCheckBytes([]byte("assembly checks\n"))
 	assembly.Decision, _ = driver.NewDecision(driver.DecisionPass)
 	manifest.Scripts[0].Submission = encodeSubmission(t, assembly)
-	manifest.Scripts[1].Submission = encodeSubmission(t, captain)
+	manifest.Scripts[1].Submission = encodeSubmission(t, lead)
 	manifest.Scripts[2].Submission = encodeSubmission(t, design)
 	manifest.Scripts[3].Submission = encodeSubmission(t, implementation)
 	manifest.Scripts[4].Submission = encodeSubmission(t, planner)
@@ -516,7 +516,7 @@ func TestSavedPlanAdoptionDrivesRunWithDescendantTarget(t *testing.T) {
 		return gitx.RecordRootDecision{Kind: request.Kind, Repository: request.Repository,
 			RecordRoot: request.RecordRoot, Commit: request.Commit, Decision: "inert"}, nil
 	}
-	actions, err := baton.NewActions(baton.UseGitRepository(repoView), inertness, manifest.GitIdentity)
+	actions, err := protocol.NewActions(protocol.UseGitRepository(repoView), inertness, manifest.GitIdentity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -641,8 +641,8 @@ func TestProposalActivationRequiresExactAppliedPlanAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	newPlan, err := baton.ParsePlan([]byte(
-		"```baton-plan-v2\n" + string(metadataBody) +
+	newPlan, err := protocol.ParsePlan([]byte(
+		"```protocol-plan-v2\n" + string(metadataBody) +
 			"\n```\n\nNewer fixture revision.\n",
 	))
 	if err != nil {
@@ -655,9 +655,9 @@ func TestProposalActivationRequiresExactAppliedPlanAuthority(t *testing.T) {
 			TargetHead: target,
 		},
 	}
-	state := baton.State{Plan: baton.PlanState{
+	state := protocol.State{Plan: protocol.PlanState{
 		Digest: newPlan.Digest(), Metadata: newPlan.Metadata(),
-		Approval: baton.ReceiptEntry{Receipt: baton.Receipt{Target: &target}},
+		Approval: protocol.ReceiptEntry{Receipt: protocol.Receipt{Target: &target}},
 	}}
 	executed := journal.Snapshot{Effects: []journal.Effect{{
 		Kind: "git.prepare_track_base", State: journal.Succeeded,
@@ -669,7 +669,7 @@ func TestProposalActivationRequiresExactAppliedPlanAuthority(t *testing.T) {
 		installed bool
 		authority string
 		snapshot  journal.Snapshot
-		state     baton.State
+		state     protocol.State
 		want      bool
 	}{
 		{
@@ -703,9 +703,9 @@ func TestProposalActivationRequiresExactAppliedPlanAuthority(t *testing.T) {
 		{
 			name:  "different applied plan cannot activate",
 			found: true, authority: newPlan.Digest(), snapshot: executed,
-			state: baton.State{Plan: baton.PlanState{
+			state: protocol.State{Plan: protocol.PlanState{
 				Digest: oldPlan.Digest(), Metadata: oldPlan.Metadata(),
-				Approval: baton.ReceiptEntry{Receipt: baton.Receipt{Target: &target}},
+				Approval: protocol.ReceiptEntry{Receipt: protocol.Receipt{Target: &target}},
 			}},
 		},
 	} {

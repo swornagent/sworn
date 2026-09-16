@@ -635,7 +635,7 @@ func (r *Repository) ApplyRefTransaction(snapshot []RefHead, operations []RefOpe
 	return transactionError("REF_TRANSACTION_RECOVERY_REQUIRED", "exact ref transaction outcome is ambiguous", errors.Join(primary, captureErr))
 }
 
-// AtomicUpdateRefs is the low-level mechanical convenience, not Baton authority.
+// AtomicUpdateRefs is the low-level mechanical convenience, not Protocol authority.
 func (r *Repository) AtomicUpdateRefs(operations []RefOperation) error {
 	refs := make([]string, len(operations))
 	for index, operation := range operations {

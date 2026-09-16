@@ -1,0 +1,610 @@
+{
+  "flows": [
+    {
+      "object_format": "sha1",
+      "results": [
+        {
+          "kind": "protocol.action-result/v2",
+          "action": "recordPlanRevision",
+          "changed": true,
+          "release": "golden-sha1",
+          "revision": 1,
+          "plan": "386b51c7d1e51d870c0184a976f32467cb64e044",
+          "ref": "refs/heads/release-wt/golden-sha1",
+          "head": "11807d7dfb063f9576cb141c097642d758cefd75",
+          "target": "105475611ea4ed0b5ae1a867e4484bbd76fbeef9",
+          "receipt_commit": "11807d7dfb063f9576cb141c097642d758cefd75",
+          "receipt": {
+            "binds": "f9c7260c69600c54f1d2698e39cb763845501a04",
+            "detail": "sha256:fd0b3fe7e482d1c119df01c70d323041180149ee9138eb06f73a6bdbb675681e",
+            "plan": "386b51c7d1e51d870c0184a976f32467cb64e044",
+            "release": "golden-sha1",
+            "result": "approved",
+            "role": "planner",
+            "summary": "Approve the exact golden plan.",
+            "target": "105475611ea4ed0b5ae1a867e4484bbd76fbeef9",
+            "version": 1
+          },
+          "retirements": []
+        },
+        {
+          "kind": "protocol.action-result/v2",
+          "action": "appendReceipt",
+          "changed": true,
+          "release": "golden-sha1",
+          "ref": "refs/heads/track/golden-sha1/T1",
+          "slice": "S1",
+          "receipt_commit": "b83fb2ce6be1701eec662269f6798e3946949a62",
+          "receipt": {
+            "attempt": 1,
+            "binds": "11807d7dfb063f9576cb141c097642d758cefd75",
+            "contract": "sha256:c50b5dc6dfea31e83aabd89bb74f3c056b681f65a8477732cf1a58e93e234446",
+            "detail": "sha256:fefc1b49c3c2adb4e2ce8a9a15d9632bf38f6566b4843304864c8047bb2d25b4",
+            "plan": "386b51c7d1e51d870c0184a976f32467cb64e044",
+            "release": "golden-sha1",
+            "result": "designed",
+            "role": "implementer",
+            "slice": "S1",
+            "summary": "Design S1.",
+            "version": 1
+          }
+        },
+        {
+          "kind": "protocol.action-result/v2",
+          "action": "appendReceipt",
+          "changed": true,
+          "release": "golden-sha1",
+          "ref": "refs/heads/track/golden-sha1/T1",
+          "slice": "S1",
+          "receipt_commit": "ddc17d591eaa6d901b439d0eb5e870719ca13e9b",
+          "receipt": {
+            "attempt": 1,
+            "binds": "b83fb2ce6be1701eec662269f6798e3946949a62",
+            "contract": "sha256:c50b5dc6dfea31e83aabd89bb74f3c056b681f65a8477732cf1a58e93e234446",
+            "detail": "sha256:28ca6f0c3b0a05f1c7f1de045d8b12b4b1857d8bd9a971eabf407652743cc98d",
+            "plan": "386b51c7d1e51d870c0184a976f32467cb64e044",
+            "release": "golden-sha1",
+            "result": "proceed",
+            "role": "lead",
+            "slice": "S1",
+            "summary": "Proceed S1.",
+            "version": 1
+          }
+        },
+        {
+          "kind": "protocol.action-result/v2",
+          "action": "appendReceipt",
+          "changed": true,
+          "release": "golden-sha1",
+          "ref": "refs/heads/track/golden-sha1/T1",
+          "slice": "S1",
+          "receipt_commit": "3b8a92bd99d8a7a2a70049154f40c6433277ef7e",
+          "receipt": {
+            "attempt": 1,
+            "binds": "ddc17d591eaa6d901b439d0eb5e870719ca13e9b",
+            "candidate": "1df3409f5f7e34c93362192a1bbcb5495575e092",
+            "checks": "sha256:85e94dd60882b9c3d947488d9336d1952a5ec816a97ef392189cdea4822c6da3",
+            "contract": "sha256:c50b5dc6dfea31e83aabd89bb74f3c056b681f65a8477732cf1a58e93e234446",
+            "detail": "sha256:bad6426463eeb29a0cf35a92035f4c9601f18a831ee249731bf35a9471733f40",
+            "inputs": {},
+            "plan": "386b51c7d1e51d870c0184a976f32467cb64e044",
+            "product_tree": "sha256:430a4ab20c31c1f4d50cd2d686e1fe252005c7596d5faf7cb32d019ee96984e3",
+            "release": "golden-sha1",
+            "result": "candidate",
+            "role": "implementer",
+            "slice": "S1",
+            "summary": "Candidate S1.",
+            "version": 1
+          }
+        },
+        {
+          "kind": "protocol.action-result/v2",
+          "action": "appendReceipt",
+          "changed": true,
+          "release": "golden-sha1",
+          "ref": "refs/heads/track/golden-sha1/T1",
+          "slice": "S1",
+          "receipt_commit": "c3a746384a025fd28bded52a31a31ae6119c25a5",
+          "receipt": {
+            "attempt": 1,
+            "binds": "3b8a92bd99d8a7a2a70049154f40c6433277ef7e",
+            "candidate": "1df3409f5f7e34c93362192a1bbcb5495575e092",
+            "checks": "sha256:a8d03c8b9f59bd7c040c21e1c74a22e770e1be3e780065b6916951a984cd2c93",
+            "contract": "sha256:c50b5dc6dfea31e83aabd89bb74f3c056b681f65a8477732cf1a58e93e234446",
+            "detail": "sha256:d32b7ae8c08a819ca160dcabb9127c118cb68ce32a27da460615a3e303896dcb",
+            "inputs": {},
+            "plan": "386b51c7d1e51d870c0184a976f32467cb64e044",
+            "product_tree": "sha256:430a4ab20c31c1f4d50cd2d686e1fe252005c7596d5faf7cb32d019ee96984e3",
+            "release": "golden-sha1",
+            "result": "pass",
+            "role": "verifier",
+            "slice": "S1",
+            "summary": "Pass S1.",
+            "version": 1
+          }
+        },
+        {
+          "kind": "protocol.action-result/v2",
+          "action": "appendReceipt",
+          "changed": true,
+          "release": "golden-sha1",
+          "ref": "refs/heads/track/golden-sha1/T2",
+          "slice": "S2",
+          "receipt_commit": "c40a0afd5814adbd5fac82d65ede6f8364437596",
+          "receipt": {
+            "attempt": 1,
+            "binds": "11807d7dfb063f9576cb141c097642d758cefd75",
+            "contract": "sha256:b006c237742266bebd63bebd36c01e589ccd8fcab898e1bac501c6ea417a09b9",
+            "detail": "sha256:d67028d3df6f165b65231333adfb1de6ed69b369f2ee0990a2a9535b6f28e64e",
+            "plan": "386b51c7d1e51d870c0184a976f32467cb64e044",
+            "release": "golden-sha1",
+            "result": "designed",
+            "role": "implementer",
+            "slice": "S2",
+            "summary": "Design S2.",
+            "version": 1
+          }
+        },
+        {
+          "kind": "protocol.action-result/v2",
+          "action": "appendReceipt",
+          "changed": true,
+          "release": "golden-sha1",
+          "ref": "refs/heads/track/golden-sha1/T2",
+          "slice": "S2",
+          "receipt_commit": "b687d8466adfa7f4ca7da3cdc2c1831ae751b8c2",
+          "receipt": {
+            "attempt": 1,
+            "binds": "c40a0afd5814adbd5fac82d65ede6f8364437596",
+            "contract": "sha256:b006c237742266bebd63bebd36c01e589ccd8fcab898e1bac501c6ea417a09b9",
+            "detail": "sha256:910a641ad87f5e4d83e7fad65418bc917ab656ec0c34218a3a5892b567d05458",
+            "plan": "386b51c7d1e51d870c0184a976f32467cb64e044",
+            "release": "golden-sha1",
+            "result": "proceed",
+            "role": "lead",
+            "slice": "S2",
+            "summary": "Proceed S2.",
+            "version": 1
+          }
+        },
+        {
+          "kind": "protocol.action-result/v2",
+          "action": "appendReceipt",
+          "changed": true,
+          "release": "golden-sha1",
+          "ref": "refs/heads/track/golden-sha1/T2",
+          "slice": "S2",
+          "receipt_commit": "7a94f065bde80f51e33d3b768a435a585851f666",
+          "receipt": {
+            "attempt": 1,
+            "binds": "b687d8466adfa7f4ca7da3cdc2c1831ae751b8c2",
+            "candidate": "df95b2edc1b9f5c6186e695c3567b93350626df8",
+            "checks": "sha256:65426622561d5540cd9cd2754f9386d1feee9eedf96911a8f568c1d878e07c9d",
+            "contract": "sha256:b006c237742266bebd63bebd36c01e589ccd8fcab898e1bac501c6ea417a09b9",
+            "detail": "sha256:180f1881de60b22b872d631ee2d1bb86c0713eba3a55ba00d7330aa2797f8265",
+            "inputs": {},
+            "plan": "386b51c7d1e51d870c0184a976f32467cb64e044",
+            "product_tree": "sha256:3cf280faac117cfe6d98ddb31f64699b835b5a4c2b32345c9e78562115c95b6b",
+            "release": "golden-sha1",
+            "result": "candidate",
+            "role": "implementer",
+            "slice": "S2",
+            "summary": "Candidate S2.",
+            "version": 1
+          }
+        },
+        {
+          "kind": "protocol.action-result/v2",
+          "action": "appendReceipt",
+          "changed": true,
+          "release": "golden-sha1",
+          "ref": "refs/heads/track/golden-sha1/T2",
+          "slice": "S2",
+          "receipt_commit": "a661998801bd3c0f1d272e0031c00349baaaefaf",
+          "receipt": {
+            "attempt": 1,
+            "binds": "7a94f065bde80f51e33d3b768a435a585851f666",
+            "candidate": "df95b2edc1b9f5c6186e695c3567b93350626df8",
+            "checks": "sha256:88ac40e4cbd42b2bb707c85515ad1e116388009b7e789e394c77db1a93370d5f",
+            "contract": "sha256:b006c237742266bebd63bebd36c01e589ccd8fcab898e1bac501c6ea417a09b9",
+            "detail": "sha256:060d7881eb4d3bdd89eb027f4181594e51f084be67793d3d7e1b1743fc6123eb",
+            "inputs": {},
+            "plan": "386b51c7d1e51d870c0184a976f32467cb64e044",
+            "product_tree": "sha256:3cf280faac117cfe6d98ddb31f64699b835b5a4c2b32345c9e78562115c95b6b",
+            "release": "golden-sha1",
+            "result": "pass",
+            "role": "verifier",
+            "slice": "S2",
+            "summary": "Pass S2.",
+            "version": 1
+          }
+        },
+        {
+          "kind": "protocol.action-result/v2",
+          "action": "prepareAssembly",
+          "changed": true,
+          "release": "golden-sha1",
+          "direct": false,
+          "candidate": "650f038715ba2e16dbfbe9d42d498f1ffd1d63e8",
+          "receipt_commit": "9cd89a24342fcae7486f73fa7737da46fc44aef5",
+          "inputs": {
+            "T1": "sha256:430a4ab20c31c1f4d50cd2d686e1fe252005c7596d5faf7cb32d019ee96984e3",
+            "T2": "sha256:3cf280faac117cfe6d98ddb31f64699b835b5a4c2b32345c9e78562115c95b6b"
+          },
+          "receipt": {
+            "base": "105475611ea4ed0b5ae1a867e4484bbd76fbeef9",
+            "binds": "11807d7dfb063f9576cb141c097642d758cefd75",
+            "candidate": "650f038715ba2e16dbfbe9d42d498f1ffd1d63e8",
+            "checks": "sha256:1ddc1dfcdbff577da25707177e8cfe8355fe24a1e3ab292c01d133c2e35a9bca",
+            "detail": "sha256:b7a2fa8d27aba6e534f47d7f09d1c5fdc708a73451dbcffdd9ceeebc74a3d286",
+            "inputs": {
+              "T1": "sha256:430a4ab20c31c1f4d50cd2d686e1fe252005c7596d5faf7cb32d019ee96984e3",
+              "T2": "sha256:3cf280faac117cfe6d98ddb31f64699b835b5a4c2b32345c9e78562115c95b6b"
+            },
+            "plan": "386b51c7d1e51d870c0184a976f32467cb64e044",
+            "product_tree": "sha256:6c53c521bec0e3bf1e542fe8bcfb554f6ba42574dc22bb1f2ceb910cefc4285b",
+            "release": "golden-sha1",
+            "result": "candidate",
+            "role": "implementer",
+            "summary": "Prepare exact assembly.",
+            "target": "105475611ea4ed0b5ae1a867e4484bbd76fbeef9",
+            "version": 1
+          }
+        },
+        {
+          "kind": "protocol.action-result/v2",
+          "action": "appendReceipt",
+          "changed": true,
+          "release": "golden-sha1",
+          "ref": "refs/heads/release-wt/golden-sha1",
+          "slice": null,
+          "receipt_commit": "e03050e78b10c9fc1fd7447111d95d80892042ca",
+          "receipt": {
+            "binds": "9cd89a24342fcae7486f73fa7737da46fc44aef5",
+            "candidate": "650f038715ba2e16dbfbe9d42d498f1ffd1d63e8",
+            "checks": "sha256:65a38e9b18cb19d32a9e900dec78e88d516725bcc372bc69a75077a9ee79c900",
+            "detail": "sha256:39343e6f5a943fa196dae92a32a26e45bbdd784a91e3c0e558bb11b1cddf3b59",
+            "inputs": {
+              "T1": "sha256:430a4ab20c31c1f4d50cd2d686e1fe252005c7596d5faf7cb32d019ee96984e3",
+              "T2": "sha256:3cf280faac117cfe6d98ddb31f64699b835b5a4c2b32345c9e78562115c95b6b"
+            },
+            "plan": "386b51c7d1e51d870c0184a976f32467cb64e044",
+            "product_tree": "sha256:6c53c521bec0e3bf1e542fe8bcfb554f6ba42574dc22bb1f2ceb910cefc4285b",
+            "release": "golden-sha1",
+            "result": "pass",
+            "role": "verifier",
+            "summary": "Pass exact assembly.",
+            "version": 1
+          }
+        },
+        {
+          "kind": "protocol.action-result/v2",
+          "action": "mergePassedCandidate",
+          "changed": true,
+          "release": "golden-sha1",
+          "target": "refs/heads/main",
+          "candidate": "650f038715ba2e16dbfbe9d42d498f1ffd1d63e8",
+          "result_commit": "650f038715ba2e16dbfbe9d42d498f1ffd1d63e8",
+          "receipt_commit": "e514d538eb51edcac196105b3f213922ede59a88",
+          "receipt": {
+            "binds": "e03050e78b10c9fc1fd7447111d95d80892042ca",
+            "candidate": "650f038715ba2e16dbfbe9d42d498f1ffd1d63e8",
+            "detail": "sha256:1991abe33abc4f9ea0986565d4da8e4d40060a4f09faa7266cbbbe580ba6cc32",
+            "plan": "386b51c7d1e51d870c0184a976f32467cb64e044",
+            "product_tree": "sha256:6c53c521bec0e3bf1e542fe8bcfb554f6ba42574dc22bb1f2ceb910cefc4285b",
+            "release": "golden-sha1",
+            "result": "merged",
+            "result_commit": "650f038715ba2e16dbfbe9d42d498f1ffd1d63e8",
+            "role": "merge",
+            "summary": "Merge exact passed assembly.",
+            "target": "105475611ea4ed0b5ae1a867e4484bbd76fbeef9",
+            "version": 1
+          }
+        }
+      ]
+    },
+    {
+      "object_format": "sha256",
+      "results": [
+        {
+          "kind": "protocol.action-result/v2",
+          "action": "recordPlanRevision",
+          "changed": true,
+          "release": "golden-sha256",
+          "revision": 1,
+          "plan": "153355ea4b8b109b6e1671d3f0a081105279210b87e88d9444109debb776d171",
+          "ref": "refs/heads/release-wt/golden-sha256",
+          "head": "41b50ed4ec863fbfa540eb93367f985f25c616acf56e1fd5e3961b20d3d2f80c",
+          "target": "01002b633ffb54982ae82ae2f1d3d18611343736897913f05401a22c383c8d75",
+          "receipt_commit": "41b50ed4ec863fbfa540eb93367f985f25c616acf56e1fd5e3961b20d3d2f80c",
+          "receipt": {
+            "binds": "a9489007308c924d7a1a3ee561baa1c68ea53aeb10fdc99ef86f78debd3e9b69",
+            "detail": "sha256:fd0b3fe7e482d1c119df01c70d323041180149ee9138eb06f73a6bdbb675681e",
+            "plan": "153355ea4b8b109b6e1671d3f0a081105279210b87e88d9444109debb776d171",
+            "release": "golden-sha256",
+            "result": "approved",
+            "role": "planner",
+            "summary": "Approve the exact golden plan.",
+            "target": "01002b633ffb54982ae82ae2f1d3d18611343736897913f05401a22c383c8d75",
+            "version": 1
+          },
+          "retirements": []
+        },
+        {
+          "kind": "protocol.action-result/v2",
+          "action": "appendReceipt",
+          "changed": true,
+          "release": "golden-sha256",
+          "ref": "refs/heads/track/golden-sha256/T1",
+          "slice": "S1",
+          "receipt_commit": "02b9fd497e20886fd6efd825f0b4f3ba11a3b18d7dbe1221ae5fb6deacd1a90b",
+          "receipt": {
+            "attempt": 1,
+            "binds": "41b50ed4ec863fbfa540eb93367f985f25c616acf56e1fd5e3961b20d3d2f80c",
+            "contract": "sha256:c50b5dc6dfea31e83aabd89bb74f3c056b681f65a8477732cf1a58e93e234446",
+            "detail": "sha256:fefc1b49c3c2adb4e2ce8a9a15d9632bf38f6566b4843304864c8047bb2d25b4",
+            "plan": "153355ea4b8b109b6e1671d3f0a081105279210b87e88d9444109debb776d171",
+            "release": "golden-sha256",
+            "result": "designed",
+            "role": "implementer",
+            "slice": "S1",
+            "summary": "Design S1.",
+            "version": 1
+          }
+        },
+        {
+          "kind": "protocol.action-result/v2",
+          "action": "appendReceipt",
+          "changed": true,
+          "release": "golden-sha256",
+          "ref": "refs/heads/track/golden-sha256/T1",
+          "slice": "S1",
+          "receipt_commit": "c7aba4fe453e153d3331060c92a6641a674ff94eec739ac37d453fef41c7c6f0",
+          "receipt": {
+            "attempt": 1,
+            "binds": "02b9fd497e20886fd6efd825f0b4f3ba11a3b18d7dbe1221ae5fb6deacd1a90b",
+            "contract": "sha256:c50b5dc6dfea31e83aabd89bb74f3c056b681f65a8477732cf1a58e93e234446",
+            "detail": "sha256:28ca6f0c3b0a05f1c7f1de045d8b12b4b1857d8bd9a971eabf407652743cc98d",
+            "plan": "153355ea4b8b109b6e1671d3f0a081105279210b87e88d9444109debb776d171",
+            "release": "golden-sha256",
+            "result": "proceed",
+            "role": "lead",
+            "slice": "S1",
+            "summary": "Proceed S1.",
+            "version": 1
+          }
+        },
+        {
+          "kind": "protocol.action-result/v2",
+          "action": "appendReceipt",
+          "changed": true,
+          "release": "golden-sha256",
+          "ref": "refs/heads/track/golden-sha256/T1",
+          "slice": "S1",
+          "receipt_commit": "8cfc16d63710d88d900ed723b0ae1d6df71d008a943ee4dfa3e83021c23bd071",
+          "receipt": {
+            "attempt": 1,
+            "binds": "c7aba4fe453e153d3331060c92a6641a674ff94eec739ac37d453fef41c7c6f0",
+            "candidate": "5bd07ea95869486d4f3ed0f2a25f56d48c8acf023507cba33e0cf240ac278bbd",
+            "checks": "sha256:85e94dd60882b9c3d947488d9336d1952a5ec816a97ef392189cdea4822c6da3",
+            "contract": "sha256:c50b5dc6dfea31e83aabd89bb74f3c056b681f65a8477732cf1a58e93e234446",
+            "detail": "sha256:bad6426463eeb29a0cf35a92035f4c9601f18a831ee249731bf35a9471733f40",
+            "inputs": {},
+            "plan": "153355ea4b8b109b6e1671d3f0a081105279210b87e88d9444109debb776d171",
+            "product_tree": "sha256:4711beb324a9c30f153b633d3cbec32dd52dedb7ce15bf6c632ea558b946e11b",
+            "release": "golden-sha256",
+            "result": "candidate",
+            "role": "implementer",
+            "slice": "S1",
+            "summary": "Candidate S1.",
+            "version": 1
+          }
+        },
+        {
+          "kind": "protocol.action-result/v2",
+          "action": "appendReceipt",
+          "changed": true,
+          "release": "golden-sha256",
+          "ref": "refs/heads/track/golden-sha256/T1",
+          "slice": "S1",
+          "receipt_commit": "a85a032e6a7cf508371c314cb57a332ccb3c0c172b30f3ea4de44338701bb723",
+          "receipt": {
+            "attempt": 1,
+            "binds": "8cfc16d63710d88d900ed723b0ae1d6df71d008a943ee4dfa3e83021c23bd071",
+            "candidate": "5bd07ea95869486d4f3ed0f2a25f56d48c8acf023507cba33e0cf240ac278bbd",
+            "checks": "sha256:a8d03c8b9f59bd7c040c21e1c74a22e770e1be3e780065b6916951a984cd2c93",
+            "contract": "sha256:c50b5dc6dfea31e83aabd89bb74f3c056b681f65a8477732cf1a58e93e234446",
+            "detail": "sha256:d32b7ae8c08a819ca160dcabb9127c118cb68ce32a27da460615a3e303896dcb",
+            "inputs": {},
+            "plan": "153355ea4b8b109b6e1671d3f0a081105279210b87e88d9444109debb776d171",
+            "product_tree": "sha256:4711beb324a9c30f153b633d3cbec32dd52dedb7ce15bf6c632ea558b946e11b",
+            "release": "golden-sha256",
+            "result": "pass",
+            "role": "verifier",
+            "slice": "S1",
+            "summary": "Pass S1.",
+            "version": 1
+          }
+        },
+        {
+          "kind": "protocol.action-result/v2",
+          "action": "appendReceipt",
+          "changed": true,
+          "release": "golden-sha256",
+          "ref": "refs/heads/track/golden-sha256/T2",
+          "slice": "S2",
+          "receipt_commit": "cf1b2bf278176a30f6ef442228096fedea50ebdc11a435d04cf16cc3c4d60098",
+          "receipt": {
+            "attempt": 1,
+            "binds": "41b50ed4ec863fbfa540eb93367f985f25c616acf56e1fd5e3961b20d3d2f80c",
+            "contract": "sha256:b006c237742266bebd63bebd36c01e589ccd8fcab898e1bac501c6ea417a09b9",
+            "detail": "sha256:d67028d3df6f165b65231333adfb1de6ed69b369f2ee0990a2a9535b6f28e64e",
+            "plan": "153355ea4b8b109b6e1671d3f0a081105279210b87e88d9444109debb776d171",
+            "release": "golden-sha256",
+            "result": "designed",
+            "role": "implementer",
+            "slice": "S2",
+            "summary": "Design S2.",
+            "version": 1
+          }
+        },
+        {
+          "kind": "protocol.action-result/v2",
+          "action": "appendReceipt",
+          "changed": true,
+          "release": "golden-sha256",
+          "ref": "refs/heads/track/golden-sha256/T2",
+          "slice": "S2",
+          "receipt_commit": "c79ee55d75d9c068e4bf04d82f6fa7a85d618401765fcfdb6ab20812bfe48fc5",
+          "receipt": {
+            "attempt": 1,
+            "binds": "cf1b2bf278176a30f6ef442228096fedea50ebdc11a435d04cf16cc3c4d60098",
+            "contract": "sha256:b006c237742266bebd63bebd36c01e589ccd8fcab898e1bac501c6ea417a09b9",
+            "detail": "sha256:910a641ad87f5e4d83e7fad65418bc917ab656ec0c34218a3a5892b567d05458",
+            "plan": "153355ea4b8b109b6e1671d3f0a081105279210b87e88d9444109debb776d171",
+            "release": "golden-sha256",
+            "result": "proceed",
+            "role": "lead",
+            "slice": "S2",
+            "summary": "Proceed S2.",
+            "version": 1
+          }
+        },
+        {
+          "kind": "protocol.action-result/v2",
+          "action": "appendReceipt",
+          "changed": true,
+          "release": "golden-sha256",
+          "ref": "refs/heads/track/golden-sha256/T2",
+          "slice": "S2",
+          "receipt_commit": "573dcbed878d6ea19c5754db538cf43966d3e7d815e98403cdcd8a191b814831",
+          "receipt": {
+            "attempt": 1,
+            "binds": "c79ee55d75d9c068e4bf04d82f6fa7a85d618401765fcfdb6ab20812bfe48fc5",
+            "candidate": "534957a3f2033d67878a715247af888f78431e084de95be91af8f51a484ea752",
+            "checks": "sha256:65426622561d5540cd9cd2754f9386d1feee9eedf96911a8f568c1d878e07c9d",
+            "contract": "sha256:b006c237742266bebd63bebd36c01e589ccd8fcab898e1bac501c6ea417a09b9",
+            "detail": "sha256:180f1881de60b22b872d631ee2d1bb86c0713eba3a55ba00d7330aa2797f8265",
+            "inputs": {},
+            "plan": "153355ea4b8b109b6e1671d3f0a081105279210b87e88d9444109debb776d171",
+            "product_tree": "sha256:a0854630379a38116b99052032a174529c23a995821b5419595cee9a2b8d7e10",
+            "release": "golden-sha256",
+            "result": "candidate",
+            "role": "implementer",
+            "slice": "S2",
+            "summary": "Candidate S2.",
+            "version": 1
+          }
+        },
+        {
+          "kind": "protocol.action-result/v2",
+          "action": "appendReceipt",
+          "changed": true,
+          "release": "golden-sha256",
+          "ref": "refs/heads/track/golden-sha256/T2",
+          "slice": "S2",
+          "receipt_commit": "2efed9ad7ff2b5f9fab8fa3b50d4693d6d9d52328ca98e75978708a7c73df2eb",
+          "receipt": {
+            "attempt": 1,
+            "binds": "573dcbed878d6ea19c5754db538cf43966d3e7d815e98403cdcd8a191b814831",
+            "candidate": "534957a3f2033d67878a715247af888f78431e084de95be91af8f51a484ea752",
+            "checks": "sha256:88ac40e4cbd42b2bb707c85515ad1e116388009b7e789e394c77db1a93370d5f",
+            "contract": "sha256:b006c237742266bebd63bebd36c01e589ccd8fcab898e1bac501c6ea417a09b9",
+            "detail": "sha256:060d7881eb4d3bdd89eb027f4181594e51f084be67793d3d7e1b1743fc6123eb",
+            "inputs": {},
+            "plan": "153355ea4b8b109b6e1671d3f0a081105279210b87e88d9444109debb776d171",
+            "product_tree": "sha256:a0854630379a38116b99052032a174529c23a995821b5419595cee9a2b8d7e10",
+            "release": "golden-sha256",
+            "result": "pass",
+            "role": "verifier",
+            "slice": "S2",
+            "summary": "Pass S2.",
+            "version": 1
+          }
+        },
+        {
+          "kind": "protocol.action-result/v2",
+          "action": "prepareAssembly",
+          "changed": true,
+          "release": "golden-sha256",
+          "direct": false,
+          "candidate": "7c6205351963e1d4bf613387838ba1e92683ef0f04ccefdd5cf01fdf45f2360f",
+          "receipt_commit": "4732bc3589f6b17e0a8560e4b96a88496d03b3d9c341bab4662a0be245815dcd",
+          "inputs": {
+            "T1": "sha256:4711beb324a9c30f153b633d3cbec32dd52dedb7ce15bf6c632ea558b946e11b",
+            "T2": "sha256:a0854630379a38116b99052032a174529c23a995821b5419595cee9a2b8d7e10"
+          },
+          "receipt": {
+            "base": "01002b633ffb54982ae82ae2f1d3d18611343736897913f05401a22c383c8d75",
+            "binds": "41b50ed4ec863fbfa540eb93367f985f25c616acf56e1fd5e3961b20d3d2f80c",
+            "candidate": "7c6205351963e1d4bf613387838ba1e92683ef0f04ccefdd5cf01fdf45f2360f",
+            "checks": "sha256:755a78c8de68a7db771221af0177f46c554cac44771f20e8ed5a19661a1aa69b",
+            "detail": "sha256:b7a2fa8d27aba6e534f47d7f09d1c5fdc708a73451dbcffdd9ceeebc74a3d286",
+            "inputs": {
+              "T1": "sha256:4711beb324a9c30f153b633d3cbec32dd52dedb7ce15bf6c632ea558b946e11b",
+              "T2": "sha256:a0854630379a38116b99052032a174529c23a995821b5419595cee9a2b8d7e10"
+            },
+            "plan": "153355ea4b8b109b6e1671d3f0a081105279210b87e88d9444109debb776d171",
+            "product_tree": "sha256:2aa273600024fbeef06e9c9cd68a848d7146b14e20615e3fe85c1f7574430eb5",
+            "release": "golden-sha256",
+            "result": "candidate",
+            "role": "implementer",
+            "summary": "Prepare exact assembly.",
+            "target": "01002b633ffb54982ae82ae2f1d3d18611343736897913f05401a22c383c8d75",
+            "version": 1
+          }
+        },
+        {
+          "kind": "protocol.action-result/v2",
+          "action": "appendReceipt",
+          "changed": true,
+          "release": "golden-sha256",
+          "ref": "refs/heads/release-wt/golden-sha256",
+          "slice": null,
+          "receipt_commit": "a4eb4530e6eff4351629486f5463a242bcaf04e98b2476f8172c47277fb71d66",
+          "receipt": {
+            "binds": "4732bc3589f6b17e0a8560e4b96a88496d03b3d9c341bab4662a0be245815dcd",
+            "candidate": "7c6205351963e1d4bf613387838ba1e92683ef0f04ccefdd5cf01fdf45f2360f",
+            "checks": "sha256:65a38e9b18cb19d32a9e900dec78e88d516725bcc372bc69a75077a9ee79c900",
+            "detail": "sha256:39343e6f5a943fa196dae92a32a26e45bbdd784a91e3c0e558bb11b1cddf3b59",
+            "inputs": {
+              "T1": "sha256:4711beb324a9c30f153b633d3cbec32dd52dedb7ce15bf6c632ea558b946e11b",
+              "T2": "sha256:a0854630379a38116b99052032a174529c23a995821b5419595cee9a2b8d7e10"
+            },
+            "plan": "153355ea4b8b109b6e1671d3f0a081105279210b87e88d9444109debb776d171",
+            "product_tree": "sha256:2aa273600024fbeef06e9c9cd68a848d7146b14e20615e3fe85c1f7574430eb5",
+            "release": "golden-sha256",
+            "result": "pass",
+            "role": "verifier",
+            "summary": "Pass exact assembly.",
+            "version": 1
+          }
+        },
+        {
+          "kind": "protocol.action-result/v2",
+          "action": "mergePassedCandidate",
+          "changed": true,
+          "release": "golden-sha256",
+          "target": "refs/heads/main",
+          "candidate": "7c6205351963e1d4bf613387838ba1e92683ef0f04ccefdd5cf01fdf45f2360f",
+          "result_commit": "7c6205351963e1d4bf613387838ba1e92683ef0f04ccefdd5cf01fdf45f2360f",
+          "receipt_commit": "c226e41f3d2aaec9783cd6438b59cfda6b98822456144d27b5b2769ab366627f",
+          "receipt": {
+            "binds": "a4eb4530e6eff4351629486f5463a242bcaf04e98b2476f8172c47277fb71d66",
+            "candidate": "7c6205351963e1d4bf613387838ba1e92683ef0f04ccefdd5cf01fdf45f2360f",
+            "detail": "sha256:1991abe33abc4f9ea0986565d4da8e4d40060a4f09faa7266cbbbe580ba6cc32",
+            "plan": "153355ea4b8b109b6e1671d3f0a081105279210b87e88d9444109debb776d171",
+            "product_tree": "sha256:2aa273600024fbeef06e9c9cd68a848d7146b14e20615e3fe85c1f7574430eb5",
+            "release": "golden-sha256",
+            "result": "merged",
+            "result_commit": "7c6205351963e1d4bf613387838ba1e92683ef0f04ccefdd5cf01fdf45f2360f",
+            "role": "merge",
+            "summary": "Merge exact passed assembly.",
+            "target": "01002b633ffb54982ae82ae2f1d3d18611343736897913f05401a22c383c8d75",
+            "version": 1
+          }
+        }
+      ]
+    }
+  ]
+}

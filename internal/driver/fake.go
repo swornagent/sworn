@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	FakeDriverID      = "baton.fake"
+	FakeDriverID      = "protocol.fake"
 	FakeDriverVersion = "1.0.0"
 )
 

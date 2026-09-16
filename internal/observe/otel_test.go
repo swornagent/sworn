@@ -449,7 +449,7 @@ func maximumClosedMetricPoints() []telemetryMetricPoint {
 		{role: "planner", responsibility: "planner_proposal"},
 		{role: "implementer", responsibility: "implementer_design"},
 		{role: "implementer", responsibility: "implementer_implementation"},
-		{role: "captain", responsibility: "captain_review"},
+		{role: "lead", responsibility: "lead_review"},
 		{role: "verifier", responsibility: "work_verification"},
 		{role: "verifier", responsibility: "assembly_verification"},
 		{role: "other", responsibility: "other"},
@@ -884,7 +884,7 @@ func assertDispatchTraceWirePayload(t *testing.T, body []byte) {
 			"wire-lacked-usage" {
 		t.Fatalf("loud attributes = %#v", loudAttributes)
 	}
-	legacy := byResponsibility["captain_review"]
+	legacy := byResponsibility["lead_review"]
 	if legacy == nil {
 		t.Fatalf("legacy dispatch span missing")
 	}

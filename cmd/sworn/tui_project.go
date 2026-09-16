@@ -8,9 +8,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 )
 
@@ -81,8 +81,8 @@ func discoverProject(
 		return projectCatalog{}, err
 	}
 
-	releaseRefs, err := baton.ListReleaseRefs(
-		baton.UseGitRepository(repository),
+	releaseRefs, err := protocol.ListReleaseRefs(
+		protocol.UseGitRepository(repository),
 	)
 	if err != nil {
 		return projectCatalog{}, errors.New("Sworn release catalog is unavailable")
@@ -102,7 +102,7 @@ func discoverProject(
 		if entry == nil {
 			entry = &projectRelease{
 				name:       release,
-				diagnostic: "BATON_UNAVAILABLE",
+				diagnostic: "PROTOCOL_UNAVAILABLE",
 			}
 			byRelease[release] = entry
 		}
@@ -131,7 +131,7 @@ func discoverProject(
 		if entry == nil {
 			entry = &projectRelease{
 				name:       run.Release,
-				diagnostic: "BATON_UNAVAILABLE",
+				diagnostic: "PROTOCOL_UNAVAILABLE",
 			}
 			byRelease[run.Release] = entry
 		}

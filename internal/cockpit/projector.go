@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 )
 
@@ -57,14 +57,14 @@ type RuntimeReader interface {
 }
 
 type StateReader interface {
-	Read(context.Context, journal.Run) (baton.State, error)
+	Read(context.Context, journal.Run) (protocol.State, error)
 }
 
 type Projector struct {
-	journal JournalReader
-	runtime RuntimeReader
-	baton   StateReader
-	now     func() time.Time
+	journal  JournalReader
+	runtime  RuntimeReader
+	protocol StateReader
+	now      func() time.Time
 }
 
 func NewProjector(
@@ -76,10 +76,10 @@ func NewProjector(
 		return nil, fail("INVALID_PROJECTOR")
 	}
 	return &Projector{
-		journal: journalReader,
-		runtime: runtimeReader,
-		baton:   stateReader,
-		now:     time.Now,
+		journal:  journalReader,
+		runtime:  runtimeReader,
+		protocol: stateReader,
+		now:      time.Now,
 	}, nil
 }
 
@@ -125,7 +125,7 @@ func (p *Projector) Snapshot(
 		return Snapshot{}, fail("JOURNAL_UNAVAILABLE")
 	}
 	for attempt := 0; attempt < maxProjectionAttempts; attempt++ {
-		firstState, firstStateErr := p.baton.Read(ctx, binding)
+		firstState, firstStateErr := p.protocol.Read(ctx, binding)
 		firstRuntime, err := p.runtime.Status(ctx, runID)
 		if err != nil {
 			return Snapshot{}, fail("RUNTIME_UNAVAILABLE")
@@ -143,7 +143,7 @@ func (p *Projector) Snapshot(
 		if err != nil {
 			return Snapshot{}, fail("RUNTIME_UNAVAILABLE")
 		}
-		secondState, secondStateErr := p.baton.Read(ctx, binding)
+		secondState, secondStateErr := p.protocol.Read(ctx, binding)
 		if stableObservation(
 			binding,
 			observation,
@@ -236,9 +236,9 @@ func stableObservation(
 	binding journal.Run,
 	observation journal.Observation,
 	firstRuntime, secondRuntime runtimepkg.RunStatus,
-	firstState baton.State,
+	firstState protocol.State,
 	firstStateErr error,
-	secondState baton.State,
+	secondState protocol.State,
 	secondStateErr error,
 ) bool {
 	if !reflect.DeepEqual(firstRuntime, secondRuntime) ||
@@ -264,14 +264,14 @@ func stableObservation(
 		secondRuntime.ReleaseHead == firstState.Refs.Release.Head
 }
 
-func equalRefVectors(left, right baton.StateRefs) bool {
+func equalRefVectors(left, right protocol.StateRefs) bool {
 	return reflect.DeepEqual(left, right)
 }
 
 func buildSnapshot(
 	observation journal.Observation,
 	status runtimepkg.RunStatus,
-	state baton.State,
+	state protocol.State,
 	stateAvailable bool,
 	now time.Time,
 ) (Snapshot, error) {
@@ -311,12 +311,12 @@ func buildSnapshot(
 			NotificationsTruncated: observation.NotificationsTruncated,
 			AttentionsTruncated:    observation.AttentionsTruncated,
 		},
-		Evidence:          make([]Evidence, 0, len(observation.Events)),
-		Actions:           []Action{},
-		Diagnostics:       []Diagnostic{},
-		ThroughOffset:     observation.EventOffset,
-		ApprovalOffer:     status.ApprovalOffer,
-		CaptainDelegation: status.CaptainDelegation,
+		Evidence:       make([]Evidence, 0, len(observation.Events)),
+		Actions:        []Action{},
+		Diagnostics:    []Diagnostic{},
+		ThroughOffset:  observation.EventOffset,
+		ApprovalOffer:  status.ApprovalOffer,
+		LeadDelegation: status.LeadDelegation,
 	}
 	redeliveryActions := make([]Action, 0)
 	attentionActions := make([]Action, 0)
@@ -353,7 +353,7 @@ func buildSnapshot(
 				Role:                  human.Role,
 				Responsibility:        human.Responsibility,
 				InvocationID:          human.InvocationID,
-				BatonAttempt:          human.BatonAttempt,
+				ProtocolAttempt:       human.ProtocolAttempt,
 				PlanAuthorityDigest:   human.PlanAuthorityDigest,
 				TargetAuthorityDigest: human.TargetAuthorityDigest,
 				WorkIdentity:          human.WorkIdentity,
@@ -448,7 +448,7 @@ func buildSnapshot(
 		}
 		result.Diagnostics = append(
 			result.Diagnostics,
-			Diagnostic{Code: "BATON_UNAVAILABLE"},
+			Diagnostic{Code: "PROTOCOL_UNAVAILABLE"},
 		)
 		return result, nil
 	}
@@ -511,7 +511,7 @@ func safeNotificationError(value string) string {
 // material, so any discovery error (an absent directory, a malformed or
 // tampered bundle) degrades to no evidence rather than surfacing an error or
 // diagnostic that could suppress this snapshot's controls.
-func discoveredEvidence(state baton.State, sliceID string) []BoundEvidenceItem {
+func discoveredEvidence(state protocol.State, sliceID string) []BoundEvidenceItem {
 	items, err := DiscoverBoundEvidence(".", state, sliceID)
 	if err != nil {
 		return nil
@@ -526,7 +526,7 @@ func projectHandoff(graph Graph) Handoff {
 	}
 	seen := make(map[string]struct{})
 	for _, node := range graph.Nodes {
-		if !node.HasBaton || node.NextResponsibility == "" ||
+		if !node.HasProtocol || node.NextResponsibility == "" ||
 			node.NextResponsibility == "none" {
 			continue
 		}
@@ -578,7 +578,7 @@ func strictUsage(body []byte, value *driver.UsageReceipt) error {
 }
 
 func projectGraph(
-	state baton.State,
+	state protocol.State,
 	runState string,
 	attentions []journal.AttentionProjection,
 ) Graph {
@@ -637,11 +637,11 @@ func projectGraph(
 		previous := ""
 		for _, slice := range track.Slices {
 			sliceID := "slice:" + slice.Location.Slice.ID
-			hasBaton := slice.Status == "ready" &&
+			hasProtocol := slice.Status == "ready" &&
 				slice.NextRole != "none"
 			runtimeState := ""
 			if _, parked := parkedLanes[track.ID]; parked &&
-				hasBaton {
+				hasProtocol {
 				runtimeState = "parked"
 			}
 			result.Nodes = append(result.Nodes, Node{
@@ -655,7 +655,7 @@ func projectGraph(
 				Outcome:            slice.Outcome,
 				NextResponsibility: slice.NextRole,
 				Attempt:            slice.Attempt,
-				HasBaton:           hasBaton,
+				HasProtocol:        hasProtocol,
 				ContractPath:       slice.Location.Slice.ContractPath,
 				ContractDigest:     state.Plan.Metadata.Contracts[slice.Location.Slice.ID],
 				BoundEvidence:      discoveredEvidence(state, slice.Location.Slice.ID),
@@ -677,11 +677,11 @@ func projectGraph(
 		}
 	}
 	assemblyID := "assembly:" + state.Release
-	assemblyHasBaton := state.Assembly.Status == "ready" &&
+	assemblyHasProtocol := state.Assembly.Status == "ready" &&
 		state.Assembly.NextRole != "none"
 	assemblyRuntimeState := ""
 	if _, parked := parkedLanes["release"]; parked &&
-		assemblyHasBaton {
+		assemblyHasProtocol {
 		assemblyRuntimeState = "parked"
 	}
 	result.Nodes = append(result.Nodes, Node{
@@ -693,7 +693,7 @@ func projectGraph(
 		Stage:              state.Assembly.Stage,
 		Outcome:            state.Assembly.Outcome,
 		NextResponsibility: state.Assembly.NextRole,
-		HasBaton:           assemblyHasBaton,
+		HasProtocol:        assemblyHasProtocol,
 	})
 	addEdge("contains", "release:"+state.Release, assemblyID)
 	for _, track := range state.Tracks {
@@ -809,11 +809,11 @@ func safeActions(
 			Unit:               unit,
 		})
 	}
-	if delegation := status.CaptainDelegation; delegation != nil &&
+	if delegation := status.LeadDelegation; delegation != nil &&
 		delegation.State == "active" {
-		binding := CaptainDelegationAction{
+		binding := LeadDelegationAction{
 			RunID: status.RunID, ManifestDigest: status.ManifestDigest,
-			ActorClass:     runtimepkg.CaptainDelegationActorClass,
+			ActorClass:     runtimepkg.LeadDelegationActorClass,
 			ActorAuthority: status.ExternalAuthorizer,
 			CurrentEpoch:   delegation.Epoch, CurrentDigest: delegation.Digest,
 		}
@@ -822,8 +822,8 @@ func safeActions(
 		replace := binding
 		replace.Action = "replace"
 		result = append(result,
-			Action{Kind: "captain_delegation_revoke", CaptainDelegation: &revoke},
-			Action{Kind: "captain_delegation_replace", CaptainDelegation: &replace},
+			Action{Kind: "lead_delegation_revoke", LeadDelegation: &revoke},
+			Action{Kind: "lead_delegation_replace", LeadDelegation: &replace},
 		)
 	}
 	return result

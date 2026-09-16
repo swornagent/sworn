@@ -209,10 +209,10 @@ func TestInputProjectionRejectsOrderDigestPathAndReservedConflicts(t *testing.T)
 			return os.Symlink("../outside", filepath.Join(workspace, "escape"))
 		},
 		"reserved alias": func(workspace string) error {
-			if err := os.MkdirAll(filepath.Join(workspace, ".baton", "releases"), 0o700); err != nil {
+			if err := os.MkdirAll(filepath.Join(workspace, ".protocol", "releases"), 0o700); err != nil {
 				return err
 			}
-			return os.Symlink(".baton/releases", filepath.Join(workspace, "records"))
+			return os.Symlink(".protocol/releases", filepath.Join(workspace, "records"))
 		},
 	} {
 		setup := setup

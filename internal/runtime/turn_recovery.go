@@ -321,7 +321,7 @@ type recoveryCycleIdentity struct {
 	LaneID                string                `json:"lane_id"`
 	Slice                 string                `json:"slice"`
 	Responsibility        driver.Responsibility `json:"responsibility"`
-	BatonAttempt          int64                 `json:"baton_attempt"`
+	ProtocolAttempt       int64                 `json:"protocol_attempt"`
 	WorkIdentity          string                `json:"work_identity"`
 	PlanAuthorityDigest   string                `json:"plan_authority_digest"`
 	TargetAuthorityDigest string                `json:"target_authority_digest"`
@@ -404,7 +404,7 @@ func humanTurnBindingForContext(
 		cycle.automation.RunID != work.RunID ||
 		cycle.automation.TrackID != track ||
 		cycle.automation.Slice != slice ||
-		cycle.automation.BatonAttempt != work.Attempt ||
+		cycle.automation.ProtocolAttempt != work.Attempt ||
 		cycle.automation.PlanAuthorityDigest != planDigest ||
 		cycle.automation.TargetAuthorityDigest != targetDigest ||
 		cycle.binding.CycleID == "" || cycle.binding.TurnID == "" ||
@@ -421,7 +421,7 @@ func humanTurnBindingForContext(
 		Role:                  string(work.Role),
 		Responsibility:        string(work.Responsibility),
 		InvocationID:          work.InvocationID,
-		BatonAttempt:          work.Attempt,
+		ProtocolAttempt:       work.Attempt,
 		PlanAuthorityDigest:   planDigest,
 		TargetAuthorityDigest: targetDigest,
 		WorkIdentity:          cycle.automation.WorkIdentity,
@@ -539,7 +539,7 @@ func validateHumanTurnAnswerAdmission(
 		) || work.InvocationID != human.InvocationID ||
 			string(work.Role) != human.Role ||
 			string(work.Responsibility) != human.Responsibility ||
-			work.Attempt != human.BatonAttempt {
+			work.Attempt != human.ProtocolAttempt {
 			continue
 		}
 		track, slice := humanTurnLane(work)
@@ -552,7 +552,7 @@ func validateHumanTurnAnswerAdmission(
 				RunID:                 work.RunID,
 				TrackID:               track,
 				Slice:                 slice,
-				BatonAttempt:          work.Attempt,
+				ProtocolAttempt:       work.Attempt,
 				PlanAuthorityDigest:   human.PlanAuthorityDigest,
 				TargetAuthorityDigest: human.TargetAuthorityDigest,
 				WorkIdentity:          human.WorkIdentity,
@@ -623,7 +623,7 @@ func turnRecoveryCycleForDispatch(
 		LaneID:                lane,
 		Slice:                 slice,
 		Responsibility:        coordinates.Responsibility,
-		BatonAttempt:          coordinates.BatonAttempt,
+		ProtocolAttempt:       coordinates.ProtocolAttempt,
 		WorkIdentity:          workIdentity,
 		PlanAuthorityDigest:   planDigest,
 		TargetAuthorityDigest: targetDigest,
@@ -639,7 +639,7 @@ func turnRecoveryCycleForDispatch(
 			RunID:                 manifest.value.RunID,
 			TrackID:               lane,
 			Slice:                 slice,
-			BatonAttempt:          coordinates.BatonAttempt,
+			ProtocolAttempt:       coordinates.ProtocolAttempt,
 			PlanAuthorityDigest:   planDigest,
 			TargetAuthorityDigest: targetDigest,
 			WorkIdentity:          workIdentity,
@@ -684,7 +684,7 @@ func recoverableContinuationBinding(
 		RunID:                 cycle.automation.RunID,
 		Release:               release,
 		Slice:                 cycle.automation.Slice,
-		Attempt:               cycle.automation.BatonAttempt,
+		Attempt:               cycle.automation.ProtocolAttempt,
 		PlanAuthorityDigest:   cycle.automation.PlanAuthorityDigest,
 		TargetAuthorityDigest: cycle.automation.TargetAuthorityDigest,
 		ToolContractDigest:    driver.Digest(mustJSON(descriptor)),
@@ -1008,13 +1008,13 @@ func (s *Service) invokeRecoveryAutomation(
 	return observation, nil
 }
 
-func (s *Service) invokeCaptainAdvisory(
+func (s *Service) invokeLeadAdvisory(
 	ctx context.Context,
 	engine *engine,
 	cycle turnRecoveryCycle,
 	yield driver.Yield,
 ) (driver.AutomationObservation, error) {
-	selection := driver.ModelSelection(engine.manifest.value.Roles.Captain)
+	selection := driver.ModelSelection(engine.manifest.value.Roles.Lead)
 	selected, err := s.selectedAutomationProfile(ctx, engine, selection)
 	if err != nil {
 		return driver.AutomationObservation{}, err
@@ -1126,11 +1126,11 @@ func (s *Service) invokeRecoverableWorker(
 			ctx,
 			engine,
 			dispatchCoordinates{
-				Slice:          prepared.productionContext.Slice,
-				Responsibility: prepared.productionContext.Responsibility,
-				BatonAttempt:   prepared.productionContext.Attempt,
-				Epoch:          prepared.productionContext.Epoch,
-				Try:            prepared.productionContext.Try,
+				Slice:           prepared.productionContext.Slice,
+				Responsibility:  prepared.productionContext.Responsibility,
+				ProtocolAttempt: prepared.productionContext.Attempt,
+				Epoch:           prepared.productionContext.Epoch,
+				Try:             prepared.productionContext.Try,
 				// A replanned Planner attempt carries an invocation scope,
 				// and the scope is part of the invocation identity inside
 				// the persisted work context. Dropping it here made every
@@ -1187,7 +1187,7 @@ func (s *Service) invokeRecoverableWorker(
 					Slice: prepared.productionContext.Slice,
 					Responsibility: prepared.productionContext.
 						Responsibility,
-					BatonAttempt: prepared.productionContext.Attempt,
+					ProtocolAttempt: prepared.productionContext.Attempt,
 				},
 			)
 		if err != nil {
@@ -1639,12 +1639,12 @@ func (s *Service) continueYieldedWorkerReplacing(
 				return driver.Observation{}, nil, recovered, fact,
 					errors.Join(parkErr, err)
 			}
-		case driver.RecoveryAskCaptain:
+		case driver.RecoveryAskLead:
 			if _, err := s.reserveTurnRecoveryStepAccounting(
 				ctx,
 				owner,
 				cycle,
-				journal.RecoveryAskCaptain,
+				journal.RecoveryAskLead,
 				totals.accounting(),
 			); err != nil {
 				parkErr := s.parkTurnRecoveryReplacing(
@@ -1660,7 +1660,7 @@ func (s *Service) continueYieldedWorkerReplacing(
 				return driver.Observation{}, nil, recovered, fact,
 					errors.Join(parkErr, err)
 			}
-			advisory, advisoryErr := s.invokeCaptainAdvisory(
+			advisory, advisoryErr := s.invokeLeadAdvisory(
 				ctx,
 				engine,
 				*cycle,

@@ -25,7 +25,7 @@ environment runtime-manifest digest to match the request. It does not repeat Git
 materialization or runtime measurement.
 
 Each claimed check receives a deterministic attempt-bound executor invocation
-identity distinct from its stable Baton receipt run ID. After interruption,
+identity distinct from its stable protocol receipt run ID. After interruption,
 `ReconcileContentBound` proves that exact systemd unit inactive, removes its
 runtime residue, and returns an opaque cleanup proof. The check worker also
 removes the matching private candidate materialization before Store may

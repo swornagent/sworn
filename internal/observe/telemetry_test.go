@@ -224,7 +224,7 @@ func testTelemetryRecord(sentinel string) Record {
 			Recovered:        1,
 			HumanEscalations: 1,
 			Actions: []TurnRecoveryCount{
-				{Action: turnRecoveryAskCaptain, Count: 1},
+				{Action: turnRecoveryAskLead, Count: 1},
 				{Action: turnRecoveryPauseForHuman, Count: 1},
 				{Action: turnRecoveryResumeWorker, Count: 1},
 			},
@@ -364,7 +364,7 @@ func testTelemetryDispatchRecord(t *testing.T) Record {
 			t,
 			dispatchEffectKind,
 			"succeeded",
-			"captain_review",
+			"lead_review",
 			1,
 			"completed",
 			started.Add(2*time.Second),
@@ -394,7 +394,7 @@ func testTelemetryDispatchRecord(t *testing.T) Record {
 			{
 				EffectID:       "attempt/work-c/e4/t2/human-park",
 				Number:         1,
-				Responsibility: "captain_review",
+				Responsibility: "lead_review",
 				Transport:      "completed",
 				CreatedAt:      started.Add(3 * time.Second),
 			},
@@ -470,7 +470,7 @@ func TestTelemetryDispatchSpansCarryPinnedGenAIVocabulary(t *testing.T) {
 	}
 	reported := byResponsibility["implementer_implementation"]
 	loud := byResponsibility["work_verification"]
-	legacy := byResponsibility["captain_review"]
+	legacy := byResponsibility["lead_review"]
 
 	assertExactKeys(t, attributeMap(reported.attributes), stringSet(
 		"sworn.run",
@@ -573,8 +573,8 @@ func TestTelemetryDispatchSpansCarryPinnedGenAIVocabulary(t *testing.T) {
 	))
 	legacyAttributes := attributeMap(legacy.attributes)
 	for key, want := range map[string]any{
-		"sworn.role":                     "captain",
-		"sworn.responsibility":           "captain_review",
+		"sworn.role":                     "lead",
+		"sworn.responsibility":           "lead_review",
 		"sworn.attempt":                  int64(1),
 		"sworn.epoch":                    int64(4),
 		"sworn.try":                      int64(2),

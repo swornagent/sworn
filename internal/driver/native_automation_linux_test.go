@@ -119,7 +119,7 @@ func TestNativeAutomationCertificateIsDisjointAndFailClosed(t *testing.T) {
 		pair.Recovery,
 		config,
 	); !IsCode(err, "NATIVE_NOT_CERTIFIED") {
-		t.Fatalf("Baton tool certificate error = %v", err)
+		t.Fatalf("Protocol tool certificate error = %v", err)
 	}
 	mutated = certificate
 	mutated.Recovery.AuthorityDigest = ""
@@ -209,7 +209,7 @@ func TestNativeAutomationSessionFeedbackNamesTheViolatedRule(t *testing.T) {
 		"decision": RecoveryDecision{
 			SchemaVersion: RecoveryDecisionSchemaVersion,
 			InvocationID:  invocation.Recovery.InvocationID,
-			Action:        RecoveryAskCaptain,
+			Action:        RecoveryAskLead,
 			Answer:        &violatingAnswer,
 		},
 	})

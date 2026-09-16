@@ -16,7 +16,7 @@ const (
 	MaxStderrRetain        = 1_024
 )
 
-// Dispatcher performs one adapter attempt without lifecycle, Git, or Baton
+// Dispatcher performs one adapter attempt without lifecycle, Git, or Protocol
 // receipt authority.
 type Dispatcher struct{}
 

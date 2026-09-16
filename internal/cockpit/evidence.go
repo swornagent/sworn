@@ -5,13 +5,13 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/swornagent/sworn/internal/baton"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 const (
 	// evidenceRoot mirrors the existing project-local, non-Git convention
 	// .sworn/runs and .sworn/sworn.db already use: ordinary local filesystem
-	// state, never a Git tree, candidate, or Baton record.
+	// state, never a Git tree, candidate, or Protocol record.
 	evidenceRoot               = ".sworn/evidence"
 	maxEvidenceBundlesPerSlice = 64
 )
@@ -42,7 +42,7 @@ func evidenceDir(root, release, sliceID string) string {
 // advisory, human-reviewable material, and its absence or rejection never
 // fails discovery. Item content is read only to prove its digest against
 // the bundle's declaration; it is never returned, logged, or sent anywhere.
-func DiscoverBoundEvidence(root string, state baton.State, sliceID string) ([]BoundEvidenceItem, error) {
+func DiscoverBoundEvidence(root string, state protocol.State, sliceID string) ([]BoundEvidenceItem, error) {
 	if root == "" || sliceID == "" {
 		return nil, nil
 	}
@@ -81,19 +81,19 @@ func DiscoverBoundEvidence(root string, state baton.State, sliceID string) ([]Bo
 // which silently excludes a bundle that fails to resolve, this fails closed
 // with the real error so a caller naming one exact bundle learns why it was
 // rejected. It never mutates any lifecycle record.
-func ReadBoundEvidence(root string, state baton.State, sliceID, bundle string) ([]BoundEvidenceItem, error) {
+func ReadBoundEvidence(root string, state protocol.State, sliceID, bundle string) ([]BoundEvidenceItem, error) {
 	if root == "" || sliceID == "" || bundle == "" {
 		return nil, fail("INVALID_REQUEST")
 	}
 	return resolveEvidenceBundleFile(evidenceDir(root, state.Release, sliceID), bundle, state)
 }
 
-func resolveEvidenceBundleFile(dir, name string, state baton.State) ([]BoundEvidenceItem, error) {
+func resolveEvidenceBundleFile(dir, name string, state protocol.State) ([]BoundEvidenceItem, error) {
 	raw, err := os.ReadFile(filepath.Join(dir, name))
 	if err != nil {
 		return nil, fail("EVIDENCE_BUNDLE_NOT_FOUND")
 	}
-	bundle, err := baton.ParseEvidenceBundle(raw)
+	bundle, err := protocol.ParseEvidenceBundle(raw)
 	if err != nil {
 		return nil, err
 	}

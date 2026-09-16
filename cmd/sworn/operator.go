@@ -17,11 +17,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/cockpit"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
 	"github.com/swornagent/sworn/internal/observe"
+	"github.com/swornagent/sworn/internal/protocol"
 	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 )
 
@@ -233,10 +233,10 @@ func (s *projectOperatorService) Catalog(ctx context.Context) (cockpit.ProjectCa
 	if err != nil {
 		return cockpit.ProjectCatalog{}, &cockpit.Error{Code: "GIT_UNAVAILABLE"}
 	}
-	gitRepo := baton.UseGitRepository(repo)
-	releaseRefs, err := baton.ListReleaseRefs(gitRepo)
+	gitRepo := protocol.UseGitRepository(repo)
+	releaseRefs, err := protocol.ListReleaseRefs(gitRepo)
 	if err != nil {
-		return cockpit.ProjectCatalog{}, &cockpit.Error{Code: "BATON_UNAVAILABLE"}
+		return cockpit.ProjectCatalog{}, &cockpit.Error{Code: "PROTOCOL_UNAVAILABLE"}
 	}
 	inertness := func(request gitx.RecordRootRequest) (gitx.RecordRootDecision, error) {
 		return gitx.RecordRootDecision{Kind: request.Kind, Repository: request.Repository,
@@ -244,14 +244,14 @@ func (s *projectOperatorService) Catalog(ctx context.Context) (cockpit.ProjectCa
 	}
 	var releases []cockpit.ProjectReleaseInfo
 	for _, ref := range releaseRefs {
-		state, stateErr := baton.ReadState(gitRepo, ref.Release, inertness)
+		state, stateErr := protocol.ReadState(gitRepo, ref.Release, inertness)
 		if stateErr != nil {
 			releases = append(releases, cockpit.ProjectReleaseInfo{
 				Name:       ref.Release,
 				SourceRef:  ref.Ref,
 				State:      "not_started",
 				Status:     "Ready for Sworn",
-				Diagnostic: "BATON_UNAVAILABLE",
+				Diagnostic: "PROTOCOL_UNAVAILABLE",
 			})
 			continue
 		}
@@ -285,7 +285,7 @@ func (s *projectOperatorService) Catalog(ctx context.Context) (cockpit.ProjectCa
 				Name:       relName,
 				State:      "not_started",
 				Status:     "Ready for Sworn",
-				Diagnostic: "BATON_UNAVAILABLE",
+				Diagnostic: "PROTOCOL_UNAVAILABLE",
 			})
 		}
 	}
@@ -739,10 +739,10 @@ func serveRunOperator(
 		return errors.New("operator unavailable")
 	}
 	if matched {
-		if err := runtimeService.ReconcileCaptainDelegations(parent, options.runID); err != nil {
+		if err := runtimeService.ReconcileLeadDelegations(parent, options.runID); err != nil {
 			return errors.New("operator unavailable")
 		}
-		if err := runtimeService.ReconcileCaptainDecisions(parent, options.runID); err != nil && !runtimepkg.IsCode(err, "CAPTAIN_DECISION_RECOVERY_PENDING") {
+		if err := runtimeService.ReconcileLeadDecisions(parent, options.runID); err != nil && !runtimepkg.IsCode(err, "LEAD_DECISION_RECOVERY_PENDING") {
 			return errors.New("operator unavailable")
 		}
 		if err := runtimeService.ReconcileApprovals(

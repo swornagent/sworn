@@ -1307,7 +1307,7 @@ func operatorManifestBody(t *testing.T, runID, intent string) []byte {
 		Roles: driver.RoleSelections{
 			Planner:     profile,
 			Implementer: profile,
-			Captain:     profile,
+			Lead:        profile,
 			Verifier:    profile,
 		},
 		Automation: &runtimepkg.AutomationSelections{
@@ -1318,11 +1318,11 @@ func operatorManifestBody(t *testing.T, runID, intent string) []byte {
 			OutputBytes:   1,
 		},
 		Scripts: []runtimepkg.ScriptedAttempt{{
-			Responsibility: driver.PlannerProposal,
-			BatonAttempt:   1,
-			Epoch:          1,
-			Try:            1,
-			Behavior:       "none",
+			Responsibility:  driver.PlannerProposal,
+			ProtocolAttempt: 1,
+			Epoch:           1,
+			Try:             1,
+			Behavior:        "none",
 		}},
 	}
 	body, err := json.Marshal(manifest)
@@ -1875,7 +1875,7 @@ func operatorProjectManifestBody(t *testing.T, runID, repository, release, inten
 		Roles: driver.RoleSelections{
 			Planner:     profile,
 			Implementer: profile,
-			Captain:     profile,
+			Lead:        profile,
 			Verifier:    profile,
 		},
 		Automation: &runtimepkg.AutomationSelections{
@@ -1886,11 +1886,11 @@ func operatorProjectManifestBody(t *testing.T, runID, repository, release, inten
 			OutputBytes:   1,
 		},
 		Scripts: []runtimepkg.ScriptedAttempt{{
-			Responsibility: driver.PlannerProposal,
-			BatonAttempt:   1,
-			Epoch:          1,
-			Try:            1,
-			Behavior:       "none",
+			Responsibility:  driver.PlannerProposal,
+			ProtocolAttempt: 1,
+			Epoch:           1,
+			Try:             1,
+			Behavior:        "none",
 		}},
 	}
 	body, err := json.Marshal(manifest)

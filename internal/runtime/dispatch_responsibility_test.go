@@ -20,8 +20,8 @@ func knownDispatchResponsibility(value driver.Responsibility) bool {
 	case driver.PlannerProposal,
 		driver.ImplementerDesign,
 		driver.ImplementerImplementation,
-		driver.CaptainReview,
-		driver.CaptainPlanReview,
+		driver.LeadReview,
+		driver.LeadPlanReview,
 		driver.WorkVerification,
 		driver.AssemblyVerification:
 		return true

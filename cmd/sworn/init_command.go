@@ -16,10 +16,10 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/observe"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 // Runtime files the sandboxed agent CLI needs for name resolution and TLS.
@@ -535,7 +535,7 @@ func guidedOperatorBody(s *initSession) ([]byte, error) {
 // at all - "otel": null and share enabled:false are persisted declines
 // (sworn#269) - so an operator-edited or previously-declined config is
 // never re-asked, and when nothing was asked the existing bytes return
-// exactly (captain F6).
+// exactly (lead F6).
 func seedGuidedOperatorBody(
 	s *initSession,
 	existing []byte,
@@ -978,7 +978,7 @@ func reportProjectReleases(out io.Writer, root string) {
 	if err != nil {
 		return
 	}
-	refs, err := baton.ListReleaseRefs(baton.UseGitRepository(repository))
+	refs, err := protocol.ListReleaseRefs(protocol.UseGitRepository(repository))
 	if err != nil {
 		fmt.Fprintln(out, "\nDelivery releases: could not be read.")
 		return

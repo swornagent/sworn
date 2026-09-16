@@ -23,11 +23,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/cockpit"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 	swornruntime "github.com/swornagent/sworn/internal/runtime"
 )
 
@@ -37,13 +37,13 @@ const (
 )
 
 type journeyProvider struct {
-	t                   *testing.T
-	planBytes           []byte
-	replanBytes         []byte
-	captainPlanOutcomes []driver.DecisionOutcome
-	repair              bool
-	preservation        bool
-	faultMode           string
+	t                *testing.T
+	planBytes        []byte
+	replanBytes      []byte
+	leadPlanOutcomes []driver.DecisionOutcome
+	repair           bool
+	preservation     bool
+	faultMode        string
 	// submissionCorrectionFault drives the A2/C5 malformed-then-corrected
 	// submission crash-cut scenario, isolated from preservation/faultMode
 	// so it composes with the ordinary journey unaffected.
@@ -71,7 +71,7 @@ type journeyProvider struct {
 	access                 map[string]driver.WorkspaceAccess
 	httpCalls              int
 	submissions            int
-	captainPlanCalls       int
+	leadPlanCalls          int
 	evidenceReruns         map[string]int
 	lastRerunCapDiagnostic string
 	quietRerunCap          bool
@@ -571,8 +571,8 @@ func journeyRoleSelection(
 		return driver.ProfileOpenAIHTTP, "journey-planner"
 	case driver.RoleImplementer:
 		return driver.ProfileGemini, "journey-implementer"
-	case driver.RoleCaptain:
-		return driver.ProfileOpenAIHTTP, "journey-captain"
+	case driver.RoleLead:
+		return driver.ProfileOpenAIHTTP, "journey-lead"
 	case driver.RoleVerifier:
 		return driver.ProfileGemini, "journey-verifier"
 	default:
@@ -672,8 +672,8 @@ func (provider *journeyProvider) submissionArguments(
 		InvocationID:   prompt.InvocationID,
 		Responsibility: prompt.Responsibility,
 		Summary:        "Deterministic production journey step for " + string(prompt.Responsibility) + ".",
-		// No trailing newline: the delegated captain decision command
-		// re-carries this detail and validCaptainDecisionText refuses
+		// No trailing newline: the delegated lead decision command
+		// re-carries this detail and validLeadDecisionText refuses
 		// leading or trailing whitespace. Deliberately concise and
 		// non-padded (A3): the registry-wide submission content floor this
 		// text once padded past no longer exists, so every scripted
@@ -691,15 +691,15 @@ func (provider *journeyProvider) submissionArguments(
 		}
 		submission.Plan, err = driver.NewPlanBytes(planBytes)
 	case driver.ImplementerDesign:
-	case driver.CaptainReview:
+	case driver.LeadReview:
 		submission.Decision, err = driver.NewDecision(driver.DecisionProceed)
-	case driver.CaptainPlanReview:
+	case driver.LeadPlanReview:
 		outcome := driver.DecisionProceed
 		provider.mu.Lock()
-		if provider.captainPlanCalls < len(provider.captainPlanOutcomes) {
-			outcome = provider.captainPlanOutcomes[provider.captainPlanCalls]
+		if provider.leadPlanCalls < len(provider.leadPlanOutcomes) {
+			outcome = provider.leadPlanOutcomes[provider.leadPlanCalls]
 		}
-		provider.captainPlanCalls++
+		provider.leadPlanCalls++
 		provider.mu.Unlock()
 		submission.Decision, err = driver.NewDecision(outcome)
 	case driver.ImplementerImplementation:
@@ -809,17 +809,17 @@ func journeySlicePaths() map[string]string {
 func productionJourneyPlan(
 	t *testing.T,
 	repository string,
-) ([]byte, baton.Plan) {
+) ([]byte, protocol.Plan) {
 	t.Helper()
-	slice := func(id string) baton.Slice {
-		return baton.Slice{
+	slice := func(id string) protocol.Slice {
+		return protocol.Slice{
 			ID:      id,
 			Outcome: "Deliver deterministic production slice " + id + ".",
-			Scope: baton.Scope{
+			Scope: protocol.Scope{
 				Include: []string{journeySlicePaths()[id]},
 				Exclude: []string{},
 			},
-			Acceptance: []baton.Criterion{{
+			Acceptance: []protocol.Criterion{{
 				ID:   "A-" + id,
 				Text: id + " is present in the exact product tree.",
 			}},
@@ -829,26 +829,26 @@ func productionJourneyPlan(
 			Consumes:    []string{},
 		}
 	}
-	metadata := baton.Metadata{
-		SchemaVersion: baton.PlanVersion,
+	metadata := protocol.Metadata{
+		SchemaVersion: protocol.PlanVersion,
 		Release:       "production-journey-release",
 		Revision:      1,
 		PreviousPlan:  nil,
 		Repository:    "acme-repo",
 		TargetRef:     "refs/heads/main",
 		ApprovalRef:   "operator://production-journey-release/1",
-		Tracks: []baton.Track{
+		Tracks: []protocol.Track{
 			{
 				ID: "T1", DependsOn: []string{},
-				Slices: []baton.Slice{slice("A1"), slice("A2")},
+				Slices: []protocol.Slice{slice("A1"), slice("A2")},
 			},
 			{
 				ID: "T2", DependsOn: []string{},
-				Slices: []baton.Slice{slice("B1")},
+				Slices: []protocol.Slice{slice("B1")},
 			},
 			{
 				ID: "T3", DependsOn: []string{"T1"},
-				Slices: []baton.Slice{slice("C1")},
+				Slices: []protocol.Slice{slice("C1")},
 			},
 		},
 	}
@@ -857,12 +857,12 @@ func productionJourneyPlan(
 		t.Fatal(err)
 	}
 	body := []byte(
-		"```baton-plan-v2\n" + string(metadataBody) +
+		"```protocol-plan-v2\n" + string(metadataBody) +
 			"\n```\n\nDeterministic production journey for " + repository +
 			".\nOwned surface read from the repository: " +
 			journeyRepositoryCanary + ".\n",
 	)
-	plan, err := baton.ParsePlan(body)
+	plan, err := protocol.ParsePlan(body)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -926,7 +926,7 @@ func productionJourneyConfig(
 				Network:          driver.NetworkRequired,
 				CredentialSource: &openAICredential,
 				CertificationModels: []string{
-					"journey-captain",
+					"journey-lead",
 					"journey-planner",
 				},
 			},
@@ -968,8 +968,8 @@ func productionJourneyManifest(
 			Implementer: driver.RoleSelection{
 				Profile: "gemini", Model: "journey-implementer",
 			},
-			Captain: driver.RoleSelection{
-				Profile: "openai", Model: "journey-captain",
+			Lead: driver.RoleSelection{
+				Profile: "openai", Model: "journey-lead",
 			},
 			Verifier: driver.RoleSelection{
 				Profile: "gemini", Model: "journey-verifier",
@@ -1285,7 +1285,7 @@ func TestConfiguredProductionPreservationAndRestorationJourney(
 }
 
 // TestConfiguredProductionSubmissionCorrectionCrashCutRepairsExactRefusal
-// pins A2's checkpoint-and-refusal restoration and Captain correction C5
+// pins A2's checkpoint-and-refusal restoration and Lead correction C5
 // end to end, composed with the same S1/S2 preservation/reconciliation
 // mechanism the preservation journey above already proves: on slice A1's
 // first try, the scripted implementer submits whitespace-only Detail,
@@ -1565,21 +1565,21 @@ func TestConfiguredProductionFirstCheckpointFaultFencesWorkspace(
 func productionPreservationPlan(
 	t *testing.T,
 	repository string,
-) ([]byte, baton.Plan) {
+) ([]byte, protocol.Plan) {
 	t.Helper()
-	slice := func(id string) baton.Slice {
+	slice := func(id string) protocol.Slice {
 		scopeIncludes := []string{journeySlicePaths()[id]}
 		if id == "A1" {
 			scopeIncludes = []string{"one-a.txt", "second.txt", "exec.sh", "base.txt"}
 		}
-		return baton.Slice{
+		return protocol.Slice{
 			ID:      id,
 			Outcome: "Deliver deterministic production slice " + id + ".",
-			Scope: baton.Scope{
+			Scope: protocol.Scope{
 				Include: scopeIncludes,
 				Exclude: []string{},
 			},
-			Acceptance: []baton.Criterion{{
+			Acceptance: []protocol.Criterion{{
 				ID:   "A-" + id,
 				Text: id + " is present in the exact product tree.",
 			}},
@@ -1589,26 +1589,26 @@ func productionPreservationPlan(
 			Consumes:    []string{},
 		}
 	}
-	metadata := baton.Metadata{
-		SchemaVersion: baton.PlanVersion,
+	metadata := protocol.Metadata{
+		SchemaVersion: protocol.PlanVersion,
 		Release:       "production-journey-release",
 		Revision:      1,
 		PreviousPlan:  nil,
 		Repository:    "acme-repo",
 		TargetRef:     "refs/heads/main",
 		ApprovalRef:   "operator://production-journey-release/1",
-		Tracks: []baton.Track{
+		Tracks: []protocol.Track{
 			{
 				ID: "T1", DependsOn: []string{},
-				Slices: []baton.Slice{slice("A1"), slice("A2")},
+				Slices: []protocol.Slice{slice("A1"), slice("A2")},
 			},
 			{
 				ID: "T2", DependsOn: []string{},
-				Slices: []baton.Slice{slice("B1")},
+				Slices: []protocol.Slice{slice("B1")},
 			},
 			{
 				ID: "T3", DependsOn: []string{"T1"},
-				Slices: []baton.Slice{slice("C1")},
+				Slices: []protocol.Slice{slice("C1")},
 			},
 		},
 	}
@@ -1617,12 +1617,12 @@ func productionPreservationPlan(
 		t.Fatal(err)
 	}
 	body := []byte(
-		"```baton-plan-v2\n" + string(metadataBody) +
+		"```protocol-plan-v2\n" + string(metadataBody) +
 			"\n```\n\nDeterministic production preservation journey for " + repository +
 			".\nOwned surface read from the repository: " +
 			journeyRepositoryCanary + ".\n",
 	)
-	plan, err := baton.ParsePlan(body)
+	plan, err := protocol.ParsePlan(body)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1829,7 +1829,7 @@ func runConfiguredProductionJourney(t *testing.T, repair bool) {
 				)
 			}
 		}
-		authority := readBatonState(
+		authority := readProtocolState(
 			t,
 			repository,
 			"production-journey-release",
@@ -1871,7 +1871,7 @@ func runConfiguredProductionJourney(t *testing.T, repair bool) {
 		}
 	}
 
-	state := readBatonState(t, repository, "production-journey-release")
+	state := readProtocolState(t, repository, "production-journey-release")
 	if len(state.Tracks) != 3 ||
 		state.Assembly.Outcome != "merged" ||
 		state.Assembly.Candidate == nil ||
@@ -2214,14 +2214,14 @@ func runConfiguredProductionJourney(t *testing.T, repair bool) {
 	}
 }
 
-func assertProductionRepairState(t *testing.T, state baton.State) {
+func assertProductionRepairState(t *testing.T, state protocol.State) {
 	t.Helper()
 	slice, ok := state.Slice("A1")
 	if !ok {
 		t.Fatal("repair slice A1 is absent")
 	}
-	candidates := make(map[int64]baton.ReceiptEntry)
-	verdicts := make(map[int64]baton.ReceiptEntry)
+	candidates := make(map[int64]protocol.ReceiptEntry)
+	verdicts := make(map[int64]protocol.ReceiptEntry)
 	for _, entry := range slice.History.Entries {
 		if entry.Receipt.Attempt == nil {
 			continue

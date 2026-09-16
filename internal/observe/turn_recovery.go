@@ -9,7 +9,7 @@ const turnRecoveryEventPrefix = "turn_recovery."
 
 const (
 	turnRecoveryResumeWorker       = "resume_worker"
-	turnRecoveryAskCaptain         = "ask_captain"
+	turnRecoveryAskLead            = "ask_lead"
 	turnRecoveryRetryOperationally = "retry_operationally"
 	turnRecoveryPauseForHuman      = "pause_track_for_human"
 )
@@ -117,7 +117,7 @@ func (a turnRecoveryAggregate) summary() TurnRecoverySummary {
 
 func validTurnRecoveryAction(value string) bool {
 	switch value {
-	case turnRecoveryResumeWorker, turnRecoveryAskCaptain,
+	case turnRecoveryResumeWorker, turnRecoveryAskLead,
 		turnRecoveryRetryOperationally, turnRecoveryPauseForHuman:
 		return true
 	default:

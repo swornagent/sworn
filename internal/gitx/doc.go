@@ -1,4 +1,4 @@
-// Package gitx provides Baton-agnostic, literal Git mechanics.
+// Package gitx provides Protocol-agnostic, literal Git mechanics.
 //
 // The package deliberately has no knowledge of plans, approvals, work,
 // lifecycle transitions, evidence, or authority. Callers provide closed typed

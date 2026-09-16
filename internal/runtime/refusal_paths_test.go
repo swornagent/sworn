@@ -337,11 +337,11 @@ func TestValidateProductionWorkContextRefusalValidation(t *testing.T) {
 	try2WithRefusal.InvocationID = dispatchInvocationID(
 		fixture.manifest.value.RunID,
 		dispatchCoordinates{
-			Slice:          "S1",
-			Responsibility: driver.ImplementerImplementation,
-			BatonAttempt:   1,
-			Epoch:          1,
-			Try:            2,
+			Slice:           "S1",
+			Responsibility:  driver.ImplementerImplementation,
+			ProtocolAttempt: 1,
+			Epoch:           1,
+			Try:             2,
 		},
 	)
 	try2WithRefusal.Refusal = &productionRefusalBinding{

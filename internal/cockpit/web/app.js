@@ -81,7 +81,7 @@ const state = {
   source: null,
   refreshing: false,
   connection: "connecting",
-  pendingCaptainAction: null,
+  pendingLeadAction: null,
 };
 
 const elements = {
@@ -115,12 +115,12 @@ const elements = {
   sheetActions: document.querySelector("#sheet-actions"),
   closeSheet: document.querySelector("#close-sheet"),
   announcer: document.querySelector("#announcer"),
-  captainDialog: document.querySelector("#captain-dialog"),
-  captainForm: document.querySelector("#captain-form"),
-  captainBindings: document.querySelector("#captain-bindings"),
-  captainEnvelopeLabel: document.querySelector("#captain-envelope-label"),
-  captainEnvelope: document.querySelector("#captain-envelope"),
-  captainConfirm: document.querySelector("#captain-confirm"),
+  leadDialog: document.querySelector("#lead-dialog"),
+  leadForm: document.querySelector("#lead-form"),
+  leadBindings: document.querySelector("#lead-bindings"),
+  leadEnvelopeLabel: document.querySelector("#lead-envelope-label"),
+  leadEnvelope: document.querySelector("#lead-envelope"),
+  leadConfirm: document.querySelector("#lead-confirm"),
 };
 
 function runFromPath() {
@@ -143,7 +143,7 @@ function controlsAllowed() {
 
 function hasUnconfirmedState() {
   return Boolean(state.snapshot?.diagnostics.some(
-    (diagnostic) => diagnostic.code === "BATON_UNAVAILABLE",
+    (diagnostic) => diagnostic.code === "PROTOCOL_UNAVAILABLE",
   ));
 }
 
@@ -155,7 +155,7 @@ function presentSnapshot(snapshot) {
     needs: "Yes — review the run details.",
   };
   if (snapshot.diagnostics.some(
-    (diagnostic) => diagnostic.code === "BATON_UNAVAILABLE",
+    (diagnostic) => diagnostic.code === "PROTOCOL_UNAVAILABLE",
   )) {
     presentation = {
       status: "Needs confirmation",
@@ -201,13 +201,13 @@ function validSnapshot(value) {
     Array.isArray(value.evidence) &&
     Array.isArray(value.actions) &&
     Array.isArray(value.diagnostics) &&
-    (value.captain_delegation === undefined ||
-      validCaptainDelegation(value.captain_delegation)) &&
+    (value.lead_delegation === undefined ||
+      validLeadDelegation(value.lead_delegation)) &&
     Number.isSafeInteger(value.through_offset) &&
     value.through_offset >= 0;
 }
 
-function validCaptainDelegation(value) {
+function validLeadDelegation(value) {
   return value && /^sha256:[0-9a-f]{64}$/.test(value.digest) &&
     Number.isSafeInteger(value.epoch) && value.epoch >= 1 &&
     ["active", "revoked"].includes(value.state) &&
@@ -216,11 +216,11 @@ function validCaptainDelegation(value) {
     Number.isSafeInteger(value.replan_budget) && value.replan_budget >= 0;
 }
 
-function captainAuthority(value) {
+function leadAuthority(value) {
   if (!value) {
     return "External human approval";
   }
-  return `captain_plan_review epoch ${value.epoch} ${value.state}; ` +
+  return `lead_plan_review epoch ${value.epoch} ${value.state}; ` +
     `${value.decisions} decisions; ${value.replan_spent}/${value.replan_budget} replans`;
 }
 
@@ -239,27 +239,27 @@ function validGraphHandoff(graph, handoff) {
     return false;
   }
   const nodeIDs = new Set();
-  const batonNodes = [];
-  const batonResponsibilities = [];
+  const protocolNodes = [];
+  const protocolResponsibilities = [];
   const seenResponsibilities = new Set();
   for (const node of graph.nodes) {
     if (!node || typeof node.id !== "string" || node.id === "" ||
       nodeIDs.has(node.id) ||
-      typeof node.has_baton !== "boolean" ||
+      typeof node.has_protocol !== "boolean" ||
       (node.runtime_state !== undefined &&
         !["parked"].includes(node.runtime_state))) {
       return false;
     }
     nodeIDs.add(node.id);
-    if (node.has_baton) {
+    if (node.has_protocol) {
       if (typeof node.next_responsibility !== "string" ||
         node.next_responsibility === "" ||
         node.next_responsibility === "none") {
         return false;
       }
-      batonNodes.push(node.id);
+      protocolNodes.push(node.id);
       if (!seenResponsibilities.has(node.next_responsibility)) {
-        batonResponsibilities.push(node.next_responsibility);
+        protocolResponsibilities.push(node.next_responsibility);
         seenResponsibilities.add(node.next_responsibility);
       }
     }
@@ -267,14 +267,14 @@ function validGraphHandoff(graph, handoff) {
   if (handoff.nodes.some((nodeID) =>
     typeof nodeID !== "string" || !nodeIDs.has(nodeID)) ||
     new Set(handoff.nodes).size !== handoff.nodes.length ||
-    batonNodes.length !== handoff.nodes.length ||
-    batonNodes.some((nodeID, index) => nodeID !== handoff.nodes[index]) ||
+    protocolNodes.length !== handoff.nodes.length ||
+    protocolNodes.some((nodeID, index) => nodeID !== handoff.nodes[index]) ||
     handoff.responsibilities.some((responsibility) =>
       typeof responsibility !== "string") ||
     new Set(handoff.responsibilities).size !==
       handoff.responsibilities.length ||
-    batonResponsibilities.length !== handoff.responsibilities.length ||
-    batonResponsibilities.some((responsibility, index) =>
+    protocolResponsibilities.length !== handoff.responsibilities.length ||
+    protocolResponsibilities.some((responsibility, index) =>
       responsibility !== handoff.responsibilities[index])) {
     return false;
   }
@@ -379,7 +379,7 @@ function render() {
     fact("What's happening", presentation.doing),
     fact("Next", presentation.next),
     fact("Needs you", presentation.needs),
-    fact("Captain authority", captainAuthority(snapshot.captain_delegation)),
+    fact("Lead authority", leadAuthority(snapshot.lead_delegation)),
   );
   elements.offset.textContent = `Checked update ${snapshot.through_offset}`;
   renderHandoff(snapshot.handoff);
@@ -568,7 +568,7 @@ function nodeButton(node, handoffNodes) {
   button.dataset.state = node.state || "unknown";
   button.dataset.runtimeState = node.runtime_state || "none";
   button.dataset.outcome = node.outcome || "none";
-  button.dataset.hasBaton = String(node.has_baton);
+  button.dataset.hasProtocol = String(node.has_protocol);
   button.dataset.handoff = String(handoffNodes.has(node.id));
   button.setAttribute("aria-pressed", String(node.id === state.selectedID));
   const label = document.createElement("span");
@@ -643,7 +643,7 @@ function renderDetail() {
     ["Step", reported(humanize(node.stage))],
     ["Result", reported(humanize(node.outcome))],
     ["Next owner", reported(humanize(node.next_responsibility))],
-    ["Handoff recorded", node.has_baton ? "Yes" : "No"],
+    ["Handoff recorded", node.has_protocol ? "Yes" : "No"],
     [
       "Ready for next owner",
       snapshot.handoff.nodes.includes(node.id) ? "Ready" : "Not ready",
@@ -675,9 +675,9 @@ function renderActions(container, actions) {
     button.textContent = actionLabel(action);
     button.disabled = !controlsAllowed();
     button.addEventListener("click", () => {
-      if (action.kind === "captain_delegation_revoke" ||
-        action.kind === "captain_delegation_replace") {
-        openCaptainDialog(action);
+      if (action.kind === "lead_delegation_revoke" ||
+        action.kind === "lead_delegation_replace") {
+        openLeadDialog(action);
         return;
       }
       void submitAction(action, button);
@@ -687,13 +687,13 @@ function renderActions(container, actions) {
   container.replaceChildren(...buttons);
 }
 
-function openCaptainDialog(action) {
-  const binding = action.captain_delegation;
+function openLeadDialog(action) {
+  const binding = action.lead_delegation;
   if (!binding || !controlsAllowed() || binding.run_id !== state.runID) {
     return;
   }
-  state.pendingCaptainAction = action;
-  elements.captainBindings.textContent = [
+  state.pendingLeadAction = action;
+  elements.leadBindings.textContent = [
     `Action: ${binding.action}`,
     `Run: ${binding.run_id}`,
     `Manifest digest: ${binding.manifest_digest}`,
@@ -703,29 +703,29 @@ function openCaptainDialog(action) {
     `Current digest: ${binding.current_digest}`,
   ].join("\n");
   const replacing = binding.action === "replace";
-  elements.captainEnvelopeLabel.hidden = !replacing;
-  elements.captainEnvelope.required = replacing;
-  elements.captainEnvelope.value = "";
-  elements.captainDialog.showModal();
+  elements.leadEnvelopeLabel.hidden = !replacing;
+  elements.leadEnvelope.required = replacing;
+  elements.leadEnvelope.value = "";
+  elements.leadDialog.showModal();
 }
 
-elements.captainForm.addEventListener("submit", (event) => {
+elements.leadForm.addEventListener("submit", (event) => {
   if (event.submitter && event.submitter.value === "confirm") {
     event.preventDefault();
-    void submitCaptainDelegation();
+    void submitLeadDelegation();
     return;
   }
-  state.pendingCaptainAction = null;
+  state.pendingLeadAction = null;
 });
 
-async function submitCaptainDelegation() {
-  const action = state.pendingCaptainAction;
-  const binding = action && action.captain_delegation;
+async function submitLeadDelegation() {
+  const action = state.pendingLeadAction;
+  const binding = action && action.lead_delegation;
   if (!binding || !controlsAllowed() || binding.run_id !== state.runID) {
     return;
   }
   const body = {
-    schema_version: "sworn.captain-delegation-command/v1",
+    schema_version: "sworn.lead-delegation-command/v1",
     action: binding.action,
     run_id: binding.run_id,
     manifest_digest: binding.manifest_digest,
@@ -737,38 +737,38 @@ async function submitCaptainDelegation() {
     envelope_bytes: null,
   };
   if (binding.action === "replace") {
-    const envelope = elements.captainEnvelope.value;
+    const envelope = elements.leadEnvelope.value;
     if (new TextEncoder().encode(envelope).byteLength > 65_536 ||
       !envelope.endsWith("\n")) {
-      elements.captainEnvelope.setCustomValidity("Use the exact canonical envelope, including its final newline, under 64 KiB.");
-      elements.captainEnvelope.reportValidity();
+      elements.leadEnvelope.setCustomValidity("Use the exact canonical envelope, including its final newline, under 64 KiB.");
+      elements.leadEnvelope.reportValidity();
       return;
     }
-    elements.captainEnvelope.setCustomValidity("");
+    elements.leadEnvelope.setCustomValidity("");
     const bytes = new TextEncoder().encode(envelope);
     const digest = await crypto.subtle.digest("SHA-256", bytes);
     body.envelope_digest = `sha256:${Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("")}`;
     body.envelope_bytes = btoa(String.fromCharCode(...bytes));
   }
-  elements.captainConfirm.disabled = true;
+  elements.leadConfirm.disabled = true;
   try {
-    const response = await fetch(`${API}/runs/${state.runID}/captain-delegation/manage`, {
+    const response = await fetch(`${API}/runs/${state.runID}/lead-delegation/manage`, {
       method: "POST",
       headers: {Accept: "application/json", "Content-Type": "application/json"},
       credentials: "same-origin",
       body: JSON.stringify(body),
     });
     if (!response.ok) {
-      throw new Error("Captain authority rejected");
+      throw new Error("Lead authority rejected");
     }
-    elements.captainDialog.close();
-    state.pendingCaptainAction = null;
-    await refresh(`${humanize(binding.action)} Captain authority accepted.`);
+    elements.leadDialog.close();
+    state.pendingLeadAction = null;
+    await refresh(`${humanize(binding.action)} Lead authority accepted.`);
   } catch {
     setConnection("stale", "Refresh required");
-    elements.announcer.textContent = "Captain authority was not accepted. Refresh before trying again.";
+    elements.announcer.textContent = "Lead authority was not accepted. Refresh before trying again.";
   } finally {
-    elements.captainConfirm.disabled = false;
+    elements.leadConfirm.disabled = false;
   }
 }
 
@@ -1061,11 +1061,11 @@ function humanize(value) {
 }
 
 function actionLabel(action) {
-	if (action.kind === "captain_delegation_revoke") {
-		return "Revoke Captain delegation";
+	if (action.kind === "lead_delegation_revoke") {
+		return "Revoke Lead delegation";
 	}
-	if (action.kind === "captain_delegation_replace") {
-		return "Replace Captain delegation";
+	if (action.kind === "lead_delegation_replace") {
+		return "Replace Lead delegation";
 	}
   if (action.kind === "redeliver") {
     return `Send ${short(action.message_id)} again`;

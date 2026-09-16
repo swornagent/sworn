@@ -26,7 +26,7 @@ func TestOpenAIResponsesFakeServerCorpusCoversEveryRole(t *testing.T) {
 	}{
 		{"planner", RolePlanner, PlannerProposal, "", ReadWrite},
 		{"implementer", RoleImplementer, ImplementerImplementation, "", ReadWrite},
-		{"captain", RoleCaptain, CaptainReview, DecisionProceed, ReadOnly},
+		{"lead", RoleLead, LeadReview, DecisionProceed, ReadOnly},
 		{"verifier", RoleVerifier, WorkVerification, DecisionPass, ReadOnly},
 	}
 	for _, test := range tests {
@@ -158,7 +158,7 @@ func TestOpenAIResponsesFakeServerCorpusCoversEveryRole(t *testing.T) {
 	}
 }
 
-func TestProviderWorkerYieldIsTerminalWithoutSealedBatonAuthority(t *testing.T) {
+func TestProviderWorkerYieldIsTerminalWithoutSealedProtocolAuthority(t *testing.T) {
 	t.Parallel()
 	const invocationID = "provider-yield"
 	arguments, err := json.Marshal(map[string]any{
@@ -468,7 +468,7 @@ func TestProviderMalformedToolCallsAreCorrectedUntilValid(t *testing.T) {
 }
 
 // TestProviderPersistentMalformedToolCallsPreserveOriginalClassification
-// pins the Captain's required correction: with the operator's turn budget
+// pins the Lead's required correction: with the operator's turn budget
 // set to the maximum admitted value (equal to MaxProviderTurns), a provider
 // that never emits a well-formed tool call must still fail with the
 // original continuation.toolcall_decode.* classification once
@@ -526,7 +526,7 @@ func TestProviderPersistentMalformedToolCallsPreserveOriginalClassification(
 	// continuation.toolcall_decode.* label surviving up to the point of
 	// normalization is pinned directly against responsesFunctionCall and
 	// accept() in continuation_labels_test.go and continuation_test.go.
-	// What this asserts is the Captain's required correction: persistent
+	// What this asserts is the Lead's required correction: persistent
 	// malformation must still fail CONTINUATION_INVALID, never the
 	// runaway-loop guard's own RESOURCE_LIMIT and never an economy code.
 	if !IsCode(invokeErr, "CONTINUATION_INVALID") {

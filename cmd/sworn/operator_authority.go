@@ -42,8 +42,8 @@ type operatorDelegatedStarter interface {
 	StartDelegated(context.Context, cockpit.StartDelegatedCommand) (runtimepkg.RunStatus, error)
 }
 
-type operatorCaptainDelegationCommands interface {
-	CaptainDelegation(context.Context, runtimepkg.CaptainDelegationCommand) (runtimepkg.CaptainDelegationResult, error)
+type operatorLeadDelegationCommands interface {
+	LeadDelegation(context.Context, runtimepkg.LeadDelegationCommand) (runtimepkg.LeadDelegationResult, error)
 }
 
 func (a *operatorRunAuthority) matches(
@@ -164,22 +164,22 @@ func (c *operatorCommands) StartDelegated(
 	return status, nil
 }
 
-func (c *operatorCommands) CaptainDelegation(
+func (c *operatorCommands) LeadDelegation(
 	ctx context.Context,
-	command runtimepkg.CaptainDelegationCommand,
-) (runtimepkg.CaptainDelegationResult, error) {
+	command runtimepkg.LeadDelegationCommand,
+) (runtimepkg.LeadDelegationResult, error) {
 	if c == nil || c.authority == nil || c.delegate == nil || command.RunID != c.authority.runID ||
 		command.ManifestDigest != c.authority.manifestDigest {
-		return runtimepkg.CaptainDelegationResult{}, errOperatorAuthorityUnavailable
+		return runtimepkg.LeadDelegationResult{}, errOperatorAuthorityUnavailable
 	}
-	delegate, ok := c.delegate.(operatorCaptainDelegationCommands)
+	delegate, ok := c.delegate.(operatorLeadDelegationCommands)
 	if !ok {
-		return runtimepkg.CaptainDelegationResult{}, errOperatorAuthorityUnavailable
+		return runtimepkg.LeadDelegationResult{}, errOperatorAuthorityUnavailable
 	}
 	if err := c.authority.require(ctx); err != nil {
-		return runtimepkg.CaptainDelegationResult{}, err
+		return runtimepkg.LeadDelegationResult{}, err
 	}
-	return delegate.CaptainDelegation(ctx, command)
+	return delegate.LeadDelegation(ctx, command)
 }
 
 func (c *operatorCommands) Control(

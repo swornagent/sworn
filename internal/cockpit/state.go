@@ -5,9 +5,9 @@ import (
 	"errors"
 	"path/filepath"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 type GitStateReader struct {
@@ -25,13 +25,13 @@ func NewGitStateReader(gitExecutable string) (*GitStateReader, error) {
 func (r *GitStateReader) Read(
 	ctx context.Context,
 	run journal.Run,
-) (baton.State, error) {
+) (protocol.State, error) {
 	if r == nil || ctx == nil || run.Repository == "" || run.Release == "" {
-		return baton.State{}, errors.New("Baton state is unavailable")
+		return protocol.State{}, errors.New("Protocol state is unavailable")
 	}
 	repository, err := gitx.Open(run.Repository, r.executable)
 	if err != nil || repository.Root() != run.Repository {
-		return baton.State{}, errors.New("Baton state is unavailable")
+		return protocol.State{}, errors.New("Protocol state is unavailable")
 	}
 	inert := func(
 		request gitx.RecordRootRequest,
@@ -44,8 +44,8 @@ func (r *GitStateReader) Read(
 			Decision:   "inert",
 		}, nil
 	}
-	return baton.ReadState(
-		baton.UseGitRepository(repository),
+	return protocol.ReadState(
+		protocol.UseGitRepository(repository),
 		run.Release,
 		inert,
 	)

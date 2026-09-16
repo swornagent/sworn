@@ -158,7 +158,7 @@ func (m *model) renderBoard(width, height int) string {
 	))}
 	for _, fact := range []struct{ label, value string }{
 		{"Status", m.board.Status},
-		{"Captain authority", m.board.CaptainAuthority},
+		{"Lead authority", m.board.LeadAuthority},
 		{"Now", m.board.What},
 		{"Next", m.board.Next},
 		{"Needs you", m.board.NeedsYou},
@@ -236,8 +236,8 @@ func (m *model) graphLines(width, height int) []string {
 			lines = append(lines, selectedStyle.Copy().Width(width).Render(
 				truncate(line, width),
 			))
-		} else if node.HasBaton {
-			lines = append(lines, batonStyle.Render(truncate(line, width)))
+		} else if node.HasProtocol {
+			lines = append(lines, protocolStyle.Render(truncate(line, width)))
 		} else {
 			lines = append(lines, truncate(line, width))
 		}
@@ -261,7 +261,7 @@ func graphNodeLine(node cockpit.Node) string {
 	if node.NextResponsibility != "" && node.NextResponsibility != "none" {
 		parts = append(parts, "next "+safeText(node.NextResponsibility))
 	}
-	if node.HasBaton {
+	if node.HasProtocol {
 		parts = append(parts, "HANDOFF")
 	}
 	return prefix + strings.Join(parts, " · ")
@@ -292,8 +292,8 @@ func (m *model) detailLines(width, height int) []string {
 			))
 		}
 	}
-	if node.HasBaton {
-		lines = append(lines, batonStyle.Render(truncate("Handoff recorded", width)))
+	if node.HasProtocol {
+		lines = append(lines, protocolStyle.Render(truncate("Handoff recorded", width)))
 	}
 	if len(m.board.Actions) > 0 {
 		lines = append(lines, swornStyle.Render(truncate(fmt.Sprintf(
@@ -471,11 +471,11 @@ func (m *model) renderConfirmation(width int) string {
 		lines = append(lines, wrapExactFact("Plan digest", command.PlanDigest, width)...)
 		lines = append(lines, wrapExactFact("Target head", command.TargetHead, width)...)
 		lines = append(lines, "",
-			batonStyle.Render("y confirm")+"  "+quietStyle.Render("n cancel"))
+			protocolStyle.Render("y confirm")+"  "+quietStyle.Render("n cancel"))
 		return strings.Join(lines, "\n")
 	}
-	if binding := m.pendingAction.CaptainDelegation; binding != nil {
-		lines := []string{titleStyle.Render("CONFIRM CAPTAIN AUTHORITY"), ""}
+	if binding := m.pendingAction.LeadDelegation; binding != nil {
+		lines := []string{titleStyle.Render("CONFIRM LEAD AUTHORITY"), ""}
 		lines = append(lines, wrapFact("Action", binding.Action, width)...)
 		lines = append(lines, wrapFact("Run", binding.RunID, width)...)
 		lines = append(lines, wrapExactFact("Manifest digest", binding.ManifestDigest, width)...)
@@ -486,12 +486,12 @@ func (m *model) renderConfirmation(width int) string {
 			lines = append(lines, wrapExactFact("Current digest", binding.CurrentDigest, width)...)
 		}
 		if m.answer != "" {
-			if admitted, err := runtimepkg.ParseCaptainDelegation([]byte(m.answer)); err == nil {
+			if admitted, err := runtimepkg.ParseLeadDelegation([]byte(m.answer)); err == nil {
 				lines = append(lines, wrapFact("New epoch", fmt.Sprintf("%d", admitted.Envelope.DelegationEpoch), width)...)
 				lines = append(lines, wrapExactFact("New digest", admitted.Digest, width)...)
 			}
 		}
-		lines = append(lines, "", batonStyle.Render("y confirm")+"  "+quietStyle.Render("n cancel"))
+		lines = append(lines, "", protocolStyle.Render("y confirm")+"  "+quietStyle.Render("n cancel"))
 		return strings.Join(lines, "\n")
 	}
 	copy := fmt.Sprintf("Confirm: %s?", m.actionLabel(m.pendingAction))
@@ -500,15 +500,15 @@ func (m *model) renderConfirmation(width int) string {
 		"",
 		truncate(copy, width),
 		"",
-		batonStyle.Render("y confirm") + "  " + quietStyle.Render("n cancel"),
+		protocolStyle.Render("y confirm") + "  " + quietStyle.Render("n cancel"),
 	}, "\n")
 }
 
 func (m *model) renderAnswer(width, height int) string {
 	if m.pendingAction.Kind == "start_delegated" ||
-		m.pendingAction.Kind == "captain_delegation_replace" {
-		lines := []string{titleStyle.Render("CAPTAIN DELEGATION ENVELOPE")}
-		lines = append(lines, wrapText("Paste the exact canonical sworn.captain-delegation/v1 envelope. It will be parsed and rebound before confirmation.", width)...)
+		m.pendingAction.Kind == "lead_delegation_replace" {
+		lines := []string{titleStyle.Render("LEAD DELEGATION ENVELOPE")}
+		lines = append(lines, wrapText("Paste the exact canonical sworn.lead-delegation/v1 envelope. It will be parsed and rebound before confirmation.", width)...)
 		lines = append(lines, "", swornStyle.Render("CANONICAL JSON"))
 		answerLines := strings.Split(safeMultiline(m.answer)+"█", "\n")
 		budget := max(1, height-len(lines)-2)
@@ -518,7 +518,7 @@ func (m *model) renderAnswer(width, height int) string {
 		for _, line := range answerLines {
 			lines = append(lines, truncate(line, width))
 		}
-		lines = append(lines, quietStyle.Render(fmt.Sprintf("%d / %d bytes · ctrl+s validates", len(m.answer), runtimepkg.MaxCaptainDelegationBytes)))
+		lines = append(lines, quietStyle.Render(fmt.Sprintf("%d / %d bytes · ctrl+s validates", len(m.answer), runtimepkg.MaxLeadDelegationBytes)))
 		return strings.Join(lines, "\n")
 	}
 	question := "Answer the saved question so this work can continue."
@@ -579,7 +579,7 @@ func diagnosticExplanation(code string) string {
 		return "Earlier work changed; this part needs its inputs refreshed."
 	case "STALE_ASSEMBLY":
 		return "The combined candidate needs to be rebuilt from current work."
-	case "BATON_UNAVAILABLE":
+	case "PROTOCOL_UNAVAILABLE":
 		return "Sworn could not read the current release record."
 	case "SWORN_UNAVAILABLE":
 		return "Sworn could not read the saved run record."
@@ -590,7 +590,7 @@ func diagnosticExplanation(code string) string {
 	case "PLAN_NOT_FOUND":
 		return "The release plan could not be found. Commit an approved plan before starting delivery."
 	case "INVALID_PLAN_FENCE":
-		return "The release plan format or version is not recognized. Format the plan with ```baton-plan-v2 before continuing."
+		return "The release plan format or version is not recognized. Format the plan with ```protocol-plan-v2 before continuing."
 	case "REF_NOT_FOUND":
 		return "The release reference could not be found. Check that the release branch exists in the repository."
 	case "INVALID_HEAD_OBJECT":

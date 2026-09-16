@@ -16,7 +16,7 @@ var migrationEngineIdentity = gitx.Identity{
 }
 
 // runMigrateRecords is the operator-gated one-time relocation of the
-// reserved records root from the historical .baton/releases location to the
+// reserved records root from the historical .protocol/releases location to the
 // configured .sworn/records root. It is never a silent side effect of
 // ordinary model-directed work: it requires --confirm, refuses a dirty tree
 // or index, refuses when nothing remains to migrate, refuses to overwrite an
@@ -82,7 +82,7 @@ func runMigrateRecords(args []string, stdout, stderr io.Writer) int {
 		)
 		return 1
 	}
-	fmt.Fprintf(stdout, "Migrated %d release records from .baton/releases to %s.\n",
+	fmt.Fprintf(stdout, "Migrated %d release records from .protocol/releases to %s.\n",
 		len(migration.Releases), repository.RecordRoot())
 	for _, release := range migration.Releases {
 		fmt.Fprintf(stdout, "  %s\n", release)

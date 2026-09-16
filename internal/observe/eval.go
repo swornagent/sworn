@@ -919,7 +919,7 @@ func validVersion(value string) bool {
 func boundedResponsibility(value string) string {
 	switch driver.Responsibility(value) {
 	case driver.PlannerProposal, driver.ImplementerDesign,
-		driver.ImplementerImplementation, driver.CaptainReview,
+		driver.ImplementerImplementation, driver.LeadReview,
 		driver.WorkVerification, driver.AssemblyVerification:
 		return value
 	default:
@@ -933,8 +933,8 @@ func roleForResponsibility(value string) string {
 		return string(driver.RolePlanner)
 	case driver.ImplementerDesign, driver.ImplementerImplementation:
 		return string(driver.RoleImplementer)
-	case driver.CaptainReview:
-		return string(driver.RoleCaptain)
+	case driver.LeadReview:
+		return string(driver.RoleLead)
 	case driver.WorkVerification, driver.AssemblyVerification:
 		return string(driver.RoleVerifier)
 	default:

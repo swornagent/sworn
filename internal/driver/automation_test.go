@@ -14,7 +14,7 @@ func automationBindingFixture() AutomationBinding {
 		RunID:                 "run-1",
 		TrackID:               "track-1",
 		Slice:                 "W4-turn-recovery",
-		BatonAttempt:          1,
+		ProtocolAttempt:       1,
 		PlanAuthorityDigest:   "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		TargetAuthorityDigest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		WorkIdentity:          "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
@@ -72,7 +72,7 @@ func TestModelSelectionResolvesOneExactRegisteredAdapter(t *testing.T) {
 	}
 }
 
-func TestAutomationContractsAreClosedBoundedAndNonBaton(t *testing.T) {
+func TestAutomationContractsAreClosedBoundedAndNonProtocol(t *testing.T) {
 	t.Parallel()
 	selection := ModelSelection{Profile: "automation", Model: "small-model"}
 	recovery := recoveryInvocationFixture(selection)
@@ -99,7 +99,7 @@ func TestAutomationContractsAreClosedBoundedAndNonBaton(t *testing.T) {
 	unknown := []byte(strings.Replace(
 		string(body),
 		`"schema_version":"sworn.recovery-invocation/v1"`,
-		`"schema_version":"sworn.recovery-invocation/v1","role":"captain"`,
+		`"schema_version":"sworn.recovery-invocation/v1","role":"lead"`,
 		1,
 	))
 	if _, err := DecodeRecoveryInvocation(unknown); !IsCode(err, "UNKNOWN_FIELD") {
@@ -122,12 +122,12 @@ func TestAutomationContractsAreClosedBoundedAndNonBaton(t *testing.T) {
 		decoded.Answer == nil || *decoded.Answer != answer {
 		t.Fatalf("decision = %#v, error = %v", decoded, err)
 	}
-	decision.Action = RecoveryAskCaptain
+	decision.Action = RecoveryAskLead
 	if err := ValidateRecoveryDecision(decision); !IsCode(
 		err,
 		"INVALID_RECOVERY_DECISION",
 	) {
-		t.Fatalf("answer-bearing Captain action error = %v", err)
+		t.Fatalf("answer-bearing Lead action error = %v", err)
 	}
 
 	advisory := AdvisoryInvocation{
@@ -415,12 +415,12 @@ func TestProviderAutomationUsesOneRoleNeutralTerminalWithoutSubmissionAuthority(
 	if strings.Contains(string(prompt), `"role"`) ||
 		strings.Contains(string(prompt), `"responsibility"`) ||
 		strings.Contains(string(prompt), `"workspace"`) {
-		t.Fatalf("automation prompt exposes Baton authority: %s", prompt)
+		t.Fatalf("automation prompt exposes Protocol authority: %s", prompt)
 	}
 	for _, required := range []string{
 		"byte-for-byte",
 		"worker_terminal and worker_message are context only",
-		"Use ask_captain for judgment",
+		"Use ask_lead for judgment",
 		"pause_track_for_human when uncertain",
 	} {
 		if !strings.Contains(string(prompt), required) {
@@ -666,7 +666,7 @@ func TestDecodeAutomationTerminalDistinguishesCollapsedConditions(t *testing.T) 
 			"decision": RecoveryDecision{
 				SchemaVersion: RecoveryDecisionSchemaVersion,
 				InvocationID:  recovery.InvocationID,
-				Action:        RecoveryAskCaptain,
+				Action:        RecoveryAskLead,
 				Answer:        &answer,
 			},
 		})
@@ -848,7 +848,7 @@ func TestAutomationInvocationIDMismatchReportsIdenticallyThroughDecodeAndObserva
 
 // TestAutomationRecoveryRefusalNamesTheViolatedRule pins A2: the tool-result
 // feedback a recovery worker receives names the violated rule (here,
-// ask_captain carrying an answer, the exact sworn#250 shape), not a bare
+// ask_lead carrying an answer, the exact sworn#250 shape), not a bare
 // unnamed code.
 func TestAutomationRecoveryRefusalNamesTheViolatedRule(t *testing.T) {
 	t.Parallel()
@@ -860,7 +860,7 @@ func TestAutomationRecoveryRefusalNamesTheViolatedRule(t *testing.T) {
 		"decision": RecoveryDecision{
 			SchemaVersion: RecoveryDecisionSchemaVersion,
 			InvocationID:  corrected.InvocationID,
-			Action:        RecoveryAskCaptain,
+			Action:        RecoveryAskLead,
 			Answer:        &violatingAnswer,
 		},
 	})

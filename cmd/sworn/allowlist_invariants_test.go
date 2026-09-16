@@ -12,7 +12,7 @@ import (
 // executed-suite proof of the allowlist-shaped ignore rules (A5). It is
 // state-independent and fixture-based: it builds a fresh repository in the
 // exact post-migration shape (records under .sworn/records, authored plan and
-// contracts under docs/sworn/, committed docs/sworn/sworn.json, no .baton,
+// contracts under docs/sworn/, committed docs/sworn/sworn.json, no .protocol,
 // no journals or working files) and asserts what git actually tracks.
 func TestAllowlistInvariantsKeepRecordsTrackedAndRunStateIgnored(t *testing.T) {
 	git, err := exec.LookPath("git")
@@ -60,12 +60,12 @@ func TestAllowlistInvariantsKeepRecordsTrackedAndRunStateIgnored(t *testing.T) {
 		}
 	}
 	// The records roots stay export-ignored whether legacy or configured:
-	// until the operator-gated migration runs, .baton/releases still holds
+	// until the operator-gated migration runs, .protocol/releases still holds
 	// the historical records, and records under either root are never
 	// package input.
 	for _, line := range []string{
-		"/.baton/releases export-ignore",
-		"/.baton/releases/** export-ignore",
+		"/.protocol/releases export-ignore",
+		"/.protocol/releases/** export-ignore",
 		"/.sworn/records export-ignore",
 		"/.sworn/records/** export-ignore",
 	} {
@@ -82,7 +82,7 @@ func TestAllowlistInvariantsKeepRecordsTrackedAndRunStateIgnored(t *testing.T) {
 			t.Fatalf("CI workflow lacks records pathspec %q:\n%s", line, ciWorkflow)
 		}
 	}
-	if strings.Contains(ciWorkflow, ":(exclude,top).baton/releases") {
+	if strings.Contains(ciWorkflow, ":(exclude,top).protocol/releases") {
 		t.Fatalf("CI workflow still contains legacy records pathspec")
 	}
 
@@ -149,9 +149,9 @@ func TestAllowlistInvariantsKeepRecordsTrackedAndRunStateIgnored(t *testing.T) {
 			}
 		}
 	}
-	// (d) no .baton path is tracked.
+	// (d) no .protocol path is tracked.
 	for path := range tracked {
-		if path == ".baton" || strings.HasPrefix(path, ".baton/") {
+		if path == ".protocol" || strings.HasPrefix(path, ".protocol/") {
 			t.Fatalf("legacy path %q is tracked:\n%s", path, lsFiles)
 		}
 	}

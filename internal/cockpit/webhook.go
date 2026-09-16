@@ -174,7 +174,7 @@ type webhookEventBody struct {
 	EventOffset        int64                            `json:"event_offset"`
 	EventKind          string                           `json:"event_kind"`
 	RecordedAt         time.Time                        `json:"recorded_at"`
-	CaptainDecision    *runtimepkg.CaptainDecisionEvent `json:"captain_decision,omitempty"`
+	LeadDecision       *runtimepkg.LeadDecisionEvent    `json:"lead_decision,omitempty"`
 	Park               *runtimepkg.DegradationParkEvent `json:"park,omitempty"`
 }
 
@@ -435,7 +435,7 @@ func (s *WebhookService) Project(
 			endpoint.binding,
 			event.Offset,
 		)
-		captainDecision, err := safeCaptainDecisionEvent(event)
+		leadDecision, err := safeLeadDecisionEvent(event)
 		if err != nil {
 			return WebhookProjection{}, fail("WEBHOOK_ENCODING_FAILED")
 		}
@@ -452,7 +452,7 @@ func (s *WebhookService) Project(
 			EventOffset:        event.Offset,
 			EventKind:          safeWebhookEventKind(event.Kind),
 			RecordedAt:         event.CreatedAt,
-			CaptainDecision:    captainDecision,
+			LeadDecision:       leadDecision,
 			Park:               park,
 		})
 		if err != nil {
@@ -480,23 +480,23 @@ func (s *WebhookService) Project(
 	return result, nil
 }
 
-func safeCaptainDecisionEvent(event journal.EventFact) (*runtimepkg.CaptainDecisionEvent, error) {
-	if event.Kind != "captain_plan_decided" {
+func safeLeadDecisionEvent(event journal.EventFact) (*runtimepkg.LeadDecisionEvent, error) {
+	if event.Kind != "lead_plan_decided" {
 		return nil, nil
 	}
-	var value runtimepkg.CaptainDecisionEvent
+	var value runtimepkg.LeadDecisionEvent
 	decoder := json.NewDecoder(bytes.NewReader(event.SafeBody))
 	decoder.DisallowUnknownFields()
 	if decoder.Decode(&value) != nil {
-		return nil, errors.New("invalid captain decision")
+		return nil, errors.New("invalid lead decision")
 	}
 	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
-		return nil, errors.New("invalid captain decision")
+		return nil, errors.New("invalid lead decision")
 	}
 	canonical, err := json.Marshal(value)
-	expectedSummary, expectedNext, mapped := runtimepkg.CaptainDecisionNotificationText(value.DecisionClass, value.Outcome)
-	if err != nil || !bytes.Equal(canonical, event.SafeBody) || value.SchemaVersion != runtimepkg.CaptainDecisionEventVersion || value.RunID == "" || value.Project == "" || value.Release == "" || !mapped || value.ProposalReplayKey == "" || value.PlanDigest == "" || value.PlanRevision < 1 || value.TargetHead == "" || value.EnvelopeDigest == "" || value.EnvelopeEpoch < 1 || value.DecisionReplayKey == "" || value.Summary != expectedSummary || value.NextAction != expectedNext {
-		return nil, errors.New("invalid captain decision")
+	expectedSummary, expectedNext, mapped := runtimepkg.LeadDecisionNotificationText(value.DecisionClass, value.Outcome)
+	if err != nil || !bytes.Equal(canonical, event.SafeBody) || value.SchemaVersion != runtimepkg.LeadDecisionEventVersion || value.RunID == "" || value.Project == "" || value.Release == "" || !mapped || value.ProposalReplayKey == "" || value.PlanDigest == "" || value.PlanRevision < 1 || value.TargetHead == "" || value.EnvelopeDigest == "" || value.EnvelopeEpoch < 1 || value.DecisionReplayKey == "" || value.Summary != expectedSummary || value.NextAction != expectedNext {
+		return nil, errors.New("invalid lead decision")
 	}
 	return &value, nil
 }
@@ -825,9 +825,9 @@ func validateWebhookEvent(
 		) != value.MessageID {
 		return "WEBHOOK_PAYLOAD_INVALID"
 	}
-	if value.CaptainDecision != nil {
-		body, marshalErr := json.Marshal(value.CaptainDecision)
-		validated, validateErr := safeCaptainDecisionEvent(journal.EventFact{Kind: "captain_plan_decided", SafeBody: body})
+	if value.LeadDecision != nil {
+		body, marshalErr := json.Marshal(value.LeadDecision)
+		validated, validateErr := safeLeadDecisionEvent(journal.EventFact{Kind: "lead_plan_decided", SafeBody: body})
 		if marshalErr != nil || validateErr != nil || validated.RunID != value.RunID || value.EventKind != webhookRunUpdated {
 			return "WEBHOOK_PAYLOAD_INVALID"
 		}
@@ -857,7 +857,7 @@ func safeWebhookEventKind(kind string) string {
 		kind == journal.AttentionResolvedEvent ||
 		kind == journal.RecoveryStepReservedEvent ||
 		kind == journal.RecoveryResumeWorkerEvent ||
-		kind == journal.RecoveryAskCaptainEvent ||
+		kind == journal.RecoveryAskLeadEvent ||
 		kind == journal.RecoveryRetryOperationalEvent ||
 		kind == journal.RecoveryParkedEvent ||
 		kind == "turn_recovery.outcome.recovered" ||

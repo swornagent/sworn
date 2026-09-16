@@ -3,8 +3,8 @@ package runtime
 import (
 	"testing"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 // TestEmptyCandidateExhaustionParkNamesItsCause pins A3: an exhaustion park
@@ -22,19 +22,19 @@ func TestEmptyCandidateExhaustionParkNamesItsCause(t *testing.T) {
 	owner := fixture.owner
 	now := fixture.now
 
-	if _, err := engine.actions.AppendReceipt(baton.AppendReceiptInput{
+	if _, err := engine.actions.AppendReceipt(protocol.AppendReceiptInput{
 		Release: manifest.value.Release, Slice: "S1", Role: "implementer", Result: "designed",
 		Summary: "Design S1.", Detail: []byte("design"),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := engine.actions.AppendReceipt(baton.AppendReceiptInput{
-		Release: manifest.value.Release, Slice: "S1", Role: "captain", Result: "proceed",
+	if _, err := engine.actions.AppendReceipt(protocol.AppendReceiptInput{
+		Release: manifest.value.Release, Slice: "S1", Role: "lead", Result: "proceed",
 		Summary: "Proceed S1.", Detail: []byte("review"),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	state, err := baton.ReadState(engine.git, manifest.value.Release, engine.inertness)
+	state, err := protocol.ReadState(engine.git, manifest.value.Release, engine.inertness)
 	if err != nil {
 		t.Fatal(err)
 	}

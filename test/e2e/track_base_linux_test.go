@@ -12,10 +12,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 	swornruntime "github.com/swornagent/sworn/internal/runtime"
 )
 
@@ -23,7 +23,7 @@ func consumingE2EManifest(
 	t *testing.T,
 	runID, repository, release string,
 	fakeExecutable, fakeDigest string,
-) ([]byte, []byte, baton.Plan) {
+) ([]byte, []byte, protocol.Plan) {
 	t.Helper()
 	manifestBody, _, original := e2eManifest(
 		t,
@@ -43,10 +43,10 @@ func consumingE2EManifest(
 		t.Fatal(err)
 	}
 	planBytes := []byte(
-		"```baton-plan-v2\n" + string(metadataBody) +
+		"```protocol-plan-v2\n" + string(metadataBody) +
 			"\n```\n\nReal-binary consumed-base E2E plan.\n",
 	)
-	plan, err := baton.ParsePlan(planBytes)
+	plan, err := protocol.ParsePlan(planBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func assertConsumedBaseRun(
 	wantEffects, wantNoops int,
 ) {
 	t.Helper()
-	state := readBatonState(t, repositoryPath, release)
+	state := readProtocolState(t, repositoryPath, release)
 	consumer, ok := state.Slice("S1")
 	if !ok || consumer.Pass == nil || consumer.Outcome != "pass" {
 		t.Fatalf("consumer did not PASS: %#v", consumer)
@@ -104,7 +104,7 @@ func assertConsumedBaseRun(
 		producer.Pass.Receipt.ProductTree == nil {
 		t.Fatalf("producer PASS is absent: %#v", producer)
 	}
-	var design, candidate *baton.ReceiptEntry
+	var design, candidate *protocol.ReceiptEntry
 	for index := range consumer.History.Entries {
 		entry := &consumer.History.Entries[index]
 		switch {
@@ -425,7 +425,7 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 				"rev-parse",
 				consumerRef,
 			)
-			beforeMove := readBatonState(t, repository, release)
+			beforeMove := readProtocolState(t, repository, release)
 			consumer, ok := beforeMove.Slice("S1")
 			if !ok ||
 				consumer.Stage != "design" ||
@@ -483,7 +483,7 @@ func runRealBinaryConsumedBasePreparationAndRecovery(t *testing.T) {
 			if !strings.Contains(stdout, "  state: complete") {
 				t.Fatalf("forward-target recovery = %q", stdout)
 			}
-			after := readBatonState(t, repository, release)
+			after := readProtocolState(t, repository, release)
 			consumer, ok = after.Slice("S1")
 			if !ok ||
 				after.Plan.Metadata.Revision != 1 ||

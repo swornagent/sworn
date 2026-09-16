@@ -12,7 +12,7 @@ func TestDriverLivePlannerProposalScopeLintRefusalAndWaiver(t *testing.T) {
 	t.Parallel()
 
 	// Create a temporary workspace with Go files to establish a reverse dependency:
-	// internal/baton is imported by internal/driver.
+	// internal/protocol is imported by internal/driver.
 	workspaceDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(workspaceDir, "go.mod"), []byte("module github.com/swornagent/sworn\n\ngo 1.26\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -23,16 +23,16 @@ func TestDriverLivePlannerProposalScopeLintRefusalAndWaiver(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workspaceDir, "internal", "gitx", "gitx.go"), []byte("package gitx\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(workspaceDir, "internal", "baton"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(workspaceDir, "internal", "protocol"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(workspaceDir, "internal", "baton", "baton.go"), []byte("package baton\n\nimport \"github.com/swornagent/sworn/internal/gitx\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(workspaceDir, "internal", "protocol", "protocol.go"), []byte("package protocol\n\nimport \"github.com/swornagent/sworn/internal/gitx\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(workspaceDir, "internal", "driver"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(workspaceDir, "internal", "driver", "main.go"), []byte("package driver\n\nimport \"github.com/swornagent/sworn/internal/baton\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(workspaceDir, "internal", "driver", "main.go"), []byte("package driver\n\nimport \"github.com/swornagent/sworn/internal/protocol\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -96,7 +96,7 @@ func TestDriverLivePlannerProposalScopeLintRefusalAndWaiver(t *testing.T) {
 	}
 	defer session.Close()
 
-	// 1. Under-derived plan: touches internal/baton, omits internal/driver
+	// 1. Under-derived plan: touches internal/protocol, omits internal/driver
 	underDerivedPlanBytes := []byte("```sworn-release-manifest-v1\n" + `{
   "schema_version": "sworn.release-manifest/v1",
   "release": "under-derived-live",
@@ -117,7 +117,7 @@ func TestDriverLivePlannerProposalScopeLintRefusalAndWaiver(t *testing.T) {
           "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "depends_on": [],
           "consumes": [],
-          "touchpoints": ["internal/baton"]
+          "touchpoints": ["internal/protocol"]
         }
       ]
     }
@@ -143,7 +143,7 @@ func TestDriverLivePlannerProposalScopeLintRefusalAndWaiver(t *testing.T) {
 		t.Fatalf("expected %s, got: failed=%v content=%s", wantScopeLintContent, res.Failed, string(res.Content))
 	}
 
-	// 2. Waived plan: touches internal/baton, with waiver for internal/driver
+	// 2. Waived plan: touches internal/protocol, with waiver for internal/driver
 	waivedPlanBytes := []byte("```sworn-release-manifest-v1\n" + `{
   "schema_version": "sworn.release-manifest/v1",
   "release": "waived-live",
@@ -164,7 +164,7 @@ func TestDriverLivePlannerProposalScopeLintRefusalAndWaiver(t *testing.T) {
           "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "depends_on": [],
           "consumes": [],
-          "touchpoints": ["internal/baton"],
+          "touchpoints": ["internal/protocol"],
           "waivers": [
             {
               "package": "internal/driver",

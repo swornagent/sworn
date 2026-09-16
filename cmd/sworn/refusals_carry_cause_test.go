@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 func TestWriteCommandFailureRendersUnderlyingErrorDetail(t *testing.T) {
@@ -54,22 +54,22 @@ func TestWriteCommandFailureRendersUnderlyingErrorDetail(t *testing.T) {
 		t.Fatalf("missing driver error detail: %q", driverOut)
 	}
 
-	// 3. baton.RecordError with Msg
-	var batonBuf bytes.Buffer
-	batonErr := &baton.RecordError{
+	// 3. protocol.RecordError with Msg
+	var protocolBuf bytes.Buffer
+	protocolErr := &protocol.RecordError{
 		Code: "INVALID_FIELD",
 		Msg:  "touchpoints[0] must be a string of 1-512 characters (got 600)",
 	}
-	writeCommandFailure(&batonBuf, "test-cmd", "Plan validation failed.", batonErr)
-	batonOut := batonBuf.String()
-	if !strings.Contains(batonOut, "sworn test-cmd: Plan validation failed.\n") {
-		t.Fatalf("missing fallback sentence: %q", batonOut)
+	writeCommandFailure(&protocolBuf, "test-cmd", "Plan validation failed.", protocolErr)
+	protocolOut := protocolBuf.String()
+	if !strings.Contains(protocolOut, "sworn test-cmd: Plan validation failed.\n") {
+		t.Fatalf("missing fallback sentence: %q", protocolOut)
 	}
-	if !strings.Contains(batonOut, "Technical code: INVALID_FIELD\n") {
-		t.Fatalf("missing technical code: %q", batonOut)
+	if !strings.Contains(protocolOut, "Technical code: INVALID_FIELD\n") {
+		t.Fatalf("missing technical code: %q", protocolOut)
 	}
-	if !strings.Contains(batonOut, "touchpoints[0] must be a string of 1-512 characters (got 600)\n") {
-		t.Fatalf("missing baton error detail: %q", batonOut)
+	if !strings.Contains(protocolOut, "touchpoints[0] must be a string of 1-512 characters (got 600)\n") {
+		t.Fatalf("missing protocol error detail: %q", protocolOut)
 	}
 }
 
@@ -184,7 +184,7 @@ func TestGitExecutionFailedShowsGitArgsAndStderr(t *testing.T) {
 	}
 
 	// Provide a valid-syntax 40-character hex commit OID that does not exist in the repository.
-	// This drives baton.PinManifest -> readGitFileAt -> gitx.Repository.ListTree -> real git ls-tree execution,
+	// This drives protocol.PinManifest -> readGitFileAt -> gitx.Repository.ListTree -> real git ls-tree execution,
 	// which fails with GIT_EXECUTION_FAILED.
 	nonexistentCommit := strings.Repeat("1", 40)
 	var stdout, stderr bytes.Buffer

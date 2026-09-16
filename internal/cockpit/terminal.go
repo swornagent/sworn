@@ -141,7 +141,7 @@ func RenderTerminalWidth(snapshot Snapshot, width int) string {
 		}
 		nodeFields = append(
 			nodeFields,
-			"baton="+strconv.FormatBool(node.HasBaton),
+			"protocol="+strconv.FormatBool(node.HasProtocol),
 		)
 		if node.NextResponsibility != "" {
 			nodeFields = append(

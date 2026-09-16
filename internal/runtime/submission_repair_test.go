@@ -9,7 +9,7 @@ import (
 )
 
 // TestCaptureSubmissionRepairRestoresExactRefusalAndSkipsWhenSuperseded pins
-// A2/Captain-correction C1: a durably reserved submission refusal for the
+// A2/Lead-correction C1: a durably reserved submission refusal for the
 // immediately preceding try is restored as submission_repair on the next
 // try (and validates as a legal work context), and the same refusal is not
 // restored once that prior try's submission was actually accepted.
@@ -19,7 +19,7 @@ func TestCaptureSubmissionRepairRestoresExactRefusalAndSkipsWhenSuperseded(t *te
 
 	coordinates1 := dispatchCoordinates{
 		Slice: "S1", Responsibility: driver.ImplementerImplementation,
-		BatonAttempt: 1, Epoch: 1, Try: 1,
+		ProtocolAttempt: 1, Epoch: 1, Try: 1,
 	}
 	workContext1, _, err := captureProductionWorkContext(
 		f.ctx, f.engine, coordinates1, before, driver.ReadWrite,
@@ -44,7 +44,7 @@ func TestCaptureSubmissionRepairRestoresExactRefusalAndSkipsWhenSuperseded(t *te
 		LaneID:                lane,
 		Slice:                 slice,
 		Responsibility:        coordinates1.Responsibility,
-		BatonAttempt:          coordinates1.BatonAttempt,
+		ProtocolAttempt:       coordinates1.ProtocolAttempt,
 		WorkIdentity:          dispatchWork,
 		PlanAuthorityDigest:   planDigest,
 		TargetAuthorityDigest: targetDigest,
@@ -172,7 +172,7 @@ func TestCaptureSubmissionRepairSetsProductTreeOnlyWhenCheckpointMatches(t *test
 
 			coordinates1 := dispatchCoordinates{
 				Slice: "S1", Responsibility: driver.ImplementerImplementation,
-				BatonAttempt: 1, Epoch: 1, Try: 1,
+				ProtocolAttempt: 1, Epoch: 1, Try: 1,
 			}
 			workContext1, _, err := captureProductionWorkContext(
 				f.ctx, f.engine, coordinates1, before, driver.ReadWrite,
@@ -194,7 +194,7 @@ func TestCaptureSubmissionRepairSetsProductTreeOnlyWhenCheckpointMatches(t *test
 				LaneID:                lane,
 				Slice:                 slice,
 				Responsibility:        coordinates1.Responsibility,
-				BatonAttempt:          coordinates1.BatonAttempt,
+				ProtocolAttempt:       coordinates1.ProtocolAttempt,
 				WorkIdentity:          dispatchWork,
 				PlanAuthorityDigest:   planDigest,
 				TargetAuthorityDigest: targetDigest,

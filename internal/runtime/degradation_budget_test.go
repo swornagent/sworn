@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 // A2: Test that fresh_rehydrate fallback event bodies carry the reason
@@ -400,7 +400,7 @@ func newDegradationStatusFixture(t *testing.T) *degradationStatusFixture {
 	}
 	t.Cleanup(func() { _ = engine.Close() })
 	planBytes, _ := runtimePlan(t, manifest.value.Release, manifest.value.Authority.Project, manifest.value.TargetRef, "approval-release-1-v1")
-	if _, err := engine.actions.RecordPlanRevision(baton.RecordPlanRevisionInput{
+	if _, err := engine.actions.RecordPlanRevision(protocol.RecordPlanRevisionInput{
 		PlanBytes: planBytes,
 		Summary:   "Install exact plan",
 		Detail:    []byte("detail"),
@@ -847,7 +847,7 @@ func TestManifestDegradationBudgetAdmissionAndRoundTrip(t *testing.T) {
 		Roles: driver.RoleSelections{
 			Planner:     driver.RoleSelection{Profile: "default", Model: "model-p"},
 			Implementer: driver.RoleSelection{Profile: "default", Model: "model-i"},
-			Captain:     driver.RoleSelection{Profile: "default", Model: "model-c"},
+			Lead:        driver.RoleSelection{Profile: "default", Model: "model-c"},
 			Verifier:    driver.RoleSelection{Profile: "default", Model: "model-v"},
 		},
 		Automation: &AutomationSelections{

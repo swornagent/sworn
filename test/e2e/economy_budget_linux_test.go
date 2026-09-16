@@ -17,11 +17,11 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/cockpit"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 	swornruntime "github.com/swornagent/sworn/internal/runtime"
 )
 
@@ -88,27 +88,27 @@ const (
 	economyIndependentTrackContent = "economy budget independent track content\n"
 )
 
-func economyBudgetPlan(t *testing.T) ([]byte, baton.Plan) {
+func economyBudgetPlan(t *testing.T) ([]byte, protocol.Plan) {
 	t.Helper()
-	metadata := baton.Metadata{
-		SchemaVersion: baton.PlanVersion,
+	metadata := protocol.Metadata{
+		SchemaVersion: protocol.PlanVersion,
 		Release:       "economy-budget-release",
 		Revision:      1,
 		PreviousPlan:  nil,
 		Repository:    "acme-repo",
 		TargetRef:     "refs/heads/main",
 		ApprovalRef:   "operator://economy-budget-release/1",
-		Tracks: []baton.Track{{
+		Tracks: []protocol.Track{{
 			ID:        "T1",
 			DependsOn: []string{},
-			Slices: []baton.Slice{{
+			Slices: []protocol.Slice{{
 				ID:      "S1",
 				Outcome: "Deliver the budget-grant fixture value.",
-				Scope: baton.Scope{
+				Scope: protocol.Scope{
 					Include: []string{"one.txt"},
 					Exclude: []string{},
 				},
-				Acceptance: []baton.Criterion{{
+				Acceptance: []protocol.Criterion{{
 					ID:   "A-S1",
 					Text: "The granted value is present in the exact product tree.",
 				}},
@@ -124,10 +124,10 @@ func economyBudgetPlan(t *testing.T) ([]byte, baton.Plan) {
 		t.Fatal(err)
 	}
 	body := []byte(
-		"```baton-plan-v2\n" + string(metadataBody) +
+		"```protocol-plan-v2\n" + string(metadataBody) +
 			"\n```\n\nDeterministic real-binary economy-budget E2E.\n",
 	)
-	plan, err := baton.ParsePlan(body)
+	plan, err := protocol.ParsePlan(body)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,28 +141,28 @@ func economyBudgetPlan(t *testing.T) ([]byte, baton.Plan) {
 // depends on the other, so S4-resumable-budget-stops A5's economy-parked-
 // track-beside-a-finishing-track scenario needs no new scheduling behavior,
 // only a second scope for the same real HTTP-provider journey to drive.
-func economyBudgetTwoTrackPlan(t *testing.T) ([]byte, baton.Plan) {
+func economyBudgetTwoTrackPlan(t *testing.T) ([]byte, protocol.Plan) {
 	t.Helper()
-	metadata := baton.Metadata{
-		SchemaVersion: baton.PlanVersion,
+	metadata := protocol.Metadata{
+		SchemaVersion: protocol.PlanVersion,
 		Release:       "economy-budget-two-track-release",
 		Revision:      1,
 		PreviousPlan:  nil,
 		Repository:    "acme-repo",
 		TargetRef:     "refs/heads/main",
 		ApprovalRef:   "operator://economy-budget-two-track-release/1",
-		Tracks: []baton.Track{
+		Tracks: []protocol.Track{
 			{
 				ID:        "T1",
 				DependsOn: []string{},
-				Slices: []baton.Slice{{
+				Slices: []protocol.Slice{{
 					ID:      "S1",
 					Outcome: "Deliver the budget-grant fixture value.",
-					Scope: baton.Scope{
+					Scope: protocol.Scope{
 						Include: []string{"one.txt"},
 						Exclude: []string{},
 					},
-					Acceptance: []baton.Criterion{{
+					Acceptance: []protocol.Criterion{{
 						ID:   "A-S1",
 						Text: "The granted value is present in the exact product tree.",
 					}},
@@ -175,14 +175,14 @@ func economyBudgetTwoTrackPlan(t *testing.T) ([]byte, baton.Plan) {
 			{
 				ID:        "T2",
 				DependsOn: []string{},
-				Slices: []baton.Slice{{
+				Slices: []protocol.Slice{{
 					ID:      "S2",
 					Outcome: "Deliver the independent-track fixture value.",
-					Scope: baton.Scope{
+					Scope: protocol.Scope{
 						Include: []string{"two.txt"},
 						Exclude: []string{},
 					},
-					Acceptance: []baton.Criterion{{
+					Acceptance: []protocol.Criterion{{
 						ID:   "A-S2",
 						Text: "The independent value is present in the exact product tree.",
 					}},
@@ -199,10 +199,10 @@ func economyBudgetTwoTrackPlan(t *testing.T) ([]byte, baton.Plan) {
 		t.Fatal(err)
 	}
 	body := []byte(
-		"```baton-plan-v2\n" + string(metadataBody) +
+		"```protocol-plan-v2\n" + string(metadataBody) +
 			"\n```\n\nDeterministic real-binary economy-budget two-track E2E.\n",
 	)
-	plan, err := baton.ParsePlan(body)
+	plan, err := protocol.ParsePlan(body)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +283,7 @@ func economyBudgetManifest(
 		Roles: driver.RoleSelections{
 			Planner:     selection,
 			Implementer: selection,
-			Captain:     selection,
+			Lead:        selection,
 			Verifier:    selection,
 		},
 		Automation: &swornruntime.AutomationSelections{
@@ -600,7 +600,7 @@ func (provider *economyBudgetProvider) submissionArguments(
 	case driver.PlannerProposal:
 		submission.Plan, err = driver.NewPlanBytes(provider.planBytes)
 	case driver.ImplementerDesign:
-	case driver.CaptainReview:
+	case driver.LeadReview:
 		submission.Decision, err = driver.NewDecision(driver.DecisionProceed)
 	case driver.ImplementerImplementation:
 		submission.Checks, err = driver.NewCheckBytes(
@@ -803,7 +803,7 @@ func TestRealBinaryEconomyTurnBudgetParksGrantsAndResumes(t *testing.T) {
 		t.Fatalf("post-grant run stdout=%q stderr=%q", stdout, stderr)
 	}
 
-	finalState := readBatonState(t, repository, "economy-budget-release")
+	finalState := readProtocolState(t, repository, "economy-budget-release")
 	if finalState.Assembly.Outcome != "merged" ||
 		runGit(t, repository, "rev-parse", "main") == targetBefore ||
 		runGit(t, repository, "show", "main:one.txt") !=
@@ -1034,7 +1034,7 @@ func TestRealBinaryEconomyOutputTokenBudgetParksGrantsAndResumes(t *testing.T) {
 		t.Fatalf("post-grant run stdout=%q stderr=%q", stdout, stderr)
 	}
 
-	finalState := readBatonState(t, repository, "economy-budget-release")
+	finalState := readProtocolState(t, repository, "economy-budget-release")
 	if finalState.Assembly.Outcome != "merged" ||
 		runGit(t, repository, "rev-parse", "main") == targetBefore ||
 		runGit(t, repository, "show", "main:one.txt") !=
@@ -1167,7 +1167,7 @@ func TestRealBinaryEconomyTurnBudgetParksOneTrackWhileIndependentTrackCompletes(
 	// exists yet, while the independent track (S2) has already reached its
 	// own pass - proving T1's park neither stalled nor was gated on T2, and
 	// T2's completion did not itself trigger assembly ahead of T1.
-	state := readBatonState(t, repository, release)
+	state := readProtocolState(t, repository, release)
 	s1, ok1 := state.Slice("S1")
 	s2, ok2 := state.Slice("S2")
 	if !ok1 || !ok2 || s1.Pass != nil || s2.Pass == nil || state.Assembly.Candidate != nil {
@@ -1275,7 +1275,7 @@ func TestRealBinaryEconomyTurnBudgetParksOneTrackWhileIndependentTrackCompletes(
 	// A5: assembly, once T1's grant admits its completion, integrates the
 	// exact product both tracks passed - S1's freshly granted one.txt and
 	// S2's already-independent two.txt - into one real merged candidate.
-	finalState := readBatonState(t, repository, release)
+	finalState := readProtocolState(t, repository, release)
 	if finalState.Assembly.Outcome != "merged" ||
 		runGit(t, repository, "rev-parse", "main") == targetBefore ||
 		runGit(t, repository, "show", "main:one.txt") !=
@@ -1475,7 +1475,7 @@ func TestRealBinaryEconomyGrantSurvivesCrashBeforeResumedExecution(t *testing.T)
 		t.Fatalf("resumed execution after crashed grant stdout=%q stderr=%q", stdout, stderr)
 	}
 
-	finalState := readBatonState(t, repository, release)
+	finalState := readProtocolState(t, repository, release)
 	if finalState.Assembly.Outcome != "merged" ||
 		runGit(t, repository, "rev-parse", "main") == targetBefore ||
 		runGit(t, repository, "show", "main:one.txt") !=

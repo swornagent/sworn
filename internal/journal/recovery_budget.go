@@ -26,7 +26,7 @@ const (
 
 	RecoveryStepReservedEvent     = "turn_recovery_step_reserved"
 	RecoveryResumeWorkerEvent     = "turn_recovery.action.resume_worker"
-	RecoveryAskCaptainEvent       = "turn_recovery.action.ask_captain"
+	RecoveryAskLeadEvent          = "turn_recovery.action.ask_lead"
 	RecoveryRetryOperationalEvent = "turn_recovery.action.retry_operationally"
 	RecoveryParkedEvent           = "turn_recovery.action.pause_track_for_human"
 
@@ -49,7 +49,7 @@ const (
 	RecoveryMalformedCorrection RecoveryStepKind = "malformed_correction"
 	RecoveryProseNudge          RecoveryStepKind = "prose_nudge"
 	RecoveryResumeWorker        RecoveryStepKind = "resume_worker"
-	RecoveryAskCaptain          RecoveryStepKind = "ask_captain"
+	RecoveryAskLead             RecoveryStepKind = "ask_lead"
 	RecoveryRetryOperationally  RecoveryStepKind = "retry_operationally"
 	RecoveryParkTrack           RecoveryStepKind = "park_track"
 )
@@ -181,7 +181,7 @@ func validRecoveryKind(value RecoveryStepKind) bool {
 	case RecoveryMalformedCorrection,
 		RecoveryProseNudge,
 		RecoveryResumeWorker,
-		RecoveryAskCaptain,
+		RecoveryAskLead,
 		RecoveryRetryOperationally,
 		RecoveryParkTrack:
 		return true
@@ -196,7 +196,7 @@ func recoveryAutomatic(value RecoveryStepKind) bool {
 
 func recoveryDecision(value RecoveryStepKind) bool {
 	switch value {
-	case RecoveryResumeWorker, RecoveryAskCaptain,
+	case RecoveryResumeWorker, RecoveryAskLead,
 		RecoveryRetryOperationally:
 		return true
 	default:
@@ -417,7 +417,7 @@ func recoveryBudgetOnConnection(
 			if step.Binding.TurnID == binding.TurnID {
 				result.Nudges++
 			}
-		case RecoveryAskCaptain:
+		case RecoveryAskLead:
 			result.Advisories++
 		case RecoveryParkTrack:
 			result.Parked = true
@@ -455,7 +455,7 @@ func applyRecoveryCount(
 		projection.Corrections++
 	case RecoveryProseNudge:
 		projection.Nudges++
-	case RecoveryAskCaptain:
+	case RecoveryAskLead:
 		projection.Advisories++
 	case RecoveryParkTrack:
 		projection.Parked = true
@@ -492,7 +492,7 @@ func recoveryBudgetAllows(
 		if projection.Nudges >= MaxRecoveryNudgesPerTurn {
 			return fail("RECOVERY_BUDGET_EXHAUSTED", nil)
 		}
-	case RecoveryAskCaptain:
+	case RecoveryAskLead:
 		if projection.Advisories >= MaxRecoveryAdvisoriesPerCycle {
 			return fail("RECOVERY_BUDGET_EXHAUSTED", nil)
 		}
@@ -624,8 +624,8 @@ func reserveRecoveryStepOnConnection(
 	switch command.Kind {
 	case RecoveryResumeWorker:
 		eventKind = RecoveryResumeWorkerEvent
-	case RecoveryAskCaptain:
-		eventKind = RecoveryAskCaptainEvent
+	case RecoveryAskLead:
+		eventKind = RecoveryAskLeadEvent
 	case RecoveryRetryOperationally:
 		eventKind = RecoveryRetryOperationalEvent
 	case RecoveryParkTrack:

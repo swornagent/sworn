@@ -24,17 +24,17 @@ const (
 	MaxAutomationCorrections  = 2
 )
 
-const swornRecoveryDecisionInputSchema = `{"type":"object","properties":{"decision":{"type":"object","properties":{"schema_version":{"type":"string","enum":["sworn.recovery-decision/v1"]},"invocation_id":{"type":"string"},"action":{"type":"string","enum":["resume_worker","ask_captain","retry_operationally","pause_track_for_human"]},"answer":{"type":"string"}},"required":["schema_version","invocation_id","action"],"additionalProperties":false}},"required":["decision"],"additionalProperties":false}`
+const swornRecoveryDecisionInputSchema = `{"type":"object","properties":{"decision":{"type":"object","properties":{"schema_version":{"type":"string","enum":["sworn.recovery-decision/v1"]},"invocation_id":{"type":"string"},"action":{"type":"string","enum":["resume_worker","ask_lead","retry_operationally","pause_track_for_human"]},"answer":{"type":"string"}},"required":["schema_version","invocation_id","action"],"additionalProperties":false}},"required":["decision"],"additionalProperties":false}`
 const swornAdvisoryResultInputSchema = `{"type":"object","properties":{"result":{"type":"object","properties":{"schema_version":{"type":"string","enum":["sworn.advisory-result/v1"]},"invocation_id":{"type":"string"},"outcome":{"type":"string","enum":["answer","cannot_answer"]},"answer":{"type":"string"}},"required":["schema_version","invocation_id","outcome"],"additionalProperties":false}},"required":["result"],"additionalProperties":false}`
 
 // AutomationBinding is exact engine authority expressed only as opaque
-// identities. It intentionally contains no Git ref, workspace, Baton role,
+// identities. It intentionally contains no Git ref, workspace, Protocol role,
 // responsibility, submission permission, or tool authority.
 type AutomationBinding struct {
 	RunID                 string `json:"run_id"`
 	TrackID               string `json:"track_id"`
 	Slice                 string `json:"slice"`
-	BatonAttempt          int64  `json:"baton_attempt"`
+	ProtocolAttempt       int64  `json:"protocol_attempt"`
 	PlanAuthorityDigest   string `json:"plan_authority_digest"`
 	TargetAuthorityDigest string `json:"target_authority_digest"`
 	WorkIdentity          string `json:"work_identity"`
@@ -50,7 +50,7 @@ const (
 	FactLastDiagnostic  AutomationFactName = "last_diagnostic"
 	FactProgressSummary AutomationFactName = "progress_summary"
 	FactOperatorAnswer  AutomationFactName = "operator_answer"
-	FactCaptainAdvice   AutomationFactName = "captain_advice"
+	FactLeadAdvice      AutomationFactName = "lead_advice"
 )
 
 type AutomationFact struct {
@@ -70,7 +70,7 @@ type RecoveryAction string
 
 const (
 	RecoveryResumeWorker       RecoveryAction = "resume_worker"
-	RecoveryAskCaptain         RecoveryAction = "ask_captain"
+	RecoveryAskLead            RecoveryAction = "ask_lead"
 	RecoveryRetryOperationally RecoveryAction = "retry_operationally"
 	RecoveryPauseForHuman      RecoveryAction = "pause_track_for_human"
 )
@@ -105,7 +105,7 @@ type AdvisoryResult struct {
 	Answer        *string         `json:"answer,omitempty"`
 }
 
-// AutomationInvocation admits exactly one non-Baton operation.
+// AutomationInvocation admits exactly one non-Protocol operation.
 type AutomationInvocation struct {
 	Selected SelectedProfile
 	Recovery *RecoveryInvocation
@@ -194,7 +194,7 @@ func ValidateRecoveryDecision(value RecoveryDecision) error {
 			validateAutomationMessage(*value.Answer, false) != nil {
 			return failRecoveryDecision("recovery_decision.resume_worker_answer_required")
 		}
-	case RecoveryAskCaptain, RecoveryRetryOperationally, RecoveryPauseForHuman:
+	case RecoveryAskLead, RecoveryRetryOperationally, RecoveryPauseForHuman:
 		if value.Answer != nil {
 			return failRecoveryDecision("recovery_decision.action_forbids_answer")
 		}
@@ -213,7 +213,7 @@ func ValidateRecoveryDecision(value RecoveryDecision) error {
 // resume_worker_answer_required names one refusal reason for two distinct
 // causes - value.Answer == nil (no answer given) and a non-nil Answer
 // failing validateAutomationMessage (a malformed answer) - deliberately,
-// per the Captain's ruling that a single name for both is acceptable as
+// per the Lead's ruling that a single name for both is acceptable as
 // long as it is documented rather than implied to distinguish them.
 func validRecoveryDecisionCheck(check string) bool {
 	switch check {
@@ -250,7 +250,7 @@ func RecoveryAnswerForInvocation(
 	for _, fact := range invocation.Facts {
 		switch fact.Name {
 		case FactCurrentStatus, FactLastDiagnostic, FactProgressSummary,
-			FactOperatorAnswer, FactCaptainAdvice:
+			FactOperatorAnswer, FactLeadAdvice:
 		default:
 			continue
 		}
@@ -505,7 +505,7 @@ func validateAutomationBinding(value AutomationBinding) error {
 	if validateIdentity(value.RunID) != nil ||
 		validateIdentity(value.TrackID) != nil ||
 		validateIdentity(value.Slice) != nil ||
-		value.BatonAttempt < 1 || value.BatonAttempt > MaxSafeInteger ||
+		value.ProtocolAttempt < 1 || value.ProtocolAttempt > MaxSafeInteger ||
 		!digestPattern.MatchString(value.PlanAuthorityDigest) ||
 		!digestPattern.MatchString(value.TargetAuthorityDigest) ||
 		!digestPattern.MatchString(value.WorkIdentity) ||
@@ -525,7 +525,7 @@ func validateAutomationFacts(values []AutomationFact) error {
 		switch value.Name {
 		case FactWorkerTerminal, FactWorkerMessage, FactCurrentStatus,
 			FactLastDiagnostic, FactProgressSummary, FactOperatorAnswer,
-			FactCaptainAdvice:
+			FactLeadAdvice:
 		default:
 			return fail("INVALID_AUTOMATION_FACTS")
 		}
@@ -581,7 +581,7 @@ func closeAutomationInvocationObjects(root map[string]any) error {
 	if _, err := closedObject(
 		root["binding"],
 		[]string{
-			"run_id", "track_id", "slice", "baton_attempt",
+			"run_id", "track_id", "slice", "protocol_attempt",
 			"plan_authority_digest", "target_authority_digest",
 			"work_identity", "progress_identity",
 		},
@@ -628,13 +628,13 @@ func automationToolDefinitions(
 	if invocation.Recovery != nil {
 		return []providerToolDefinition{{
 			Name:        "sworn_recovery_decide",
-			Description: "Choose exactly one bounded recovery action. resume_worker must copy one eligible exact fact value byte-for-byte; use ask_captain for judgment and pause_track_for_human when uncertain.",
+			Description: "Choose exactly one bounded recovery action. resume_worker must copy one eligible exact fact value byte-for-byte; use ask_lead for judgment and pause_track_for_human when uncertain.",
 			InputSchema: json.RawMessage(swornRecoveryDecisionInputSchema),
 		}}, nil
 	}
 	return []providerToolDefinition{{
 		Name:        "sworn_advisory_respond",
-		Description: "Return bounded non-gate advice or cannot_answer. This is not a Baton Captain decision.",
+		Description: "Return bounded non-gate advice or cannot_answer. This is not a Protocol Lead decision.",
 		InputSchema: json.RawMessage(swornAdvisoryResultInputSchema),
 	}}, nil
 }
@@ -649,11 +649,11 @@ func automationPrompt(invocation AutomationInvocation) ([]byte, error) {
 	if invocation.Recovery != nil {
 		operation = "recovery"
 		request = invocation.Recovery
-		instruction = "Use only sworn_recovery_decide and call it exactly once. resume_worker.answer must copy byte-for-byte one current_status, last_diagnostic, progress_summary, operator_answer, or captain_advice fact from this request. worker_terminal and worker_message are context only. Use ask_captain for judgment and pause_track_for_human when uncertain. Do not claim Baton authority or invent facts."
+		instruction = "Use only sworn_recovery_decide and call it exactly once. resume_worker.answer must copy byte-for-byte one current_status, last_diagnostic, progress_summary, operator_answer, or lead_advice fact from this request. worker_terminal and worker_message are context only. Use ask_lead for judgment and pause_track_for_human when uncertain. Do not claim Protocol authority or invent facts."
 	} else {
 		operation = "advisory"
 		request = invocation.Advisory
-		instruction = "Use only sworn_advisory_respond and call it exactly once. Return answer only as bounded non-gate advice; return cannot_answer when uncertain. This is not a Baton Captain decision."
+		instruction = "Use only sworn_advisory_respond and call it exactly once. Return answer only as bounded non-gate advice; return cannot_answer when uncertain. This is not a Protocol Lead decision."
 	}
 	body, err := json.Marshal(struct {
 		SchemaVersion string `json:"schema_version"`

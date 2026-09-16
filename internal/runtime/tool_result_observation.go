@@ -76,7 +76,7 @@ func (s *Service) toolResultObservationHook(
 			Slice:          coordinates.Slice,
 			Role:           prepared.request.Role,
 			Responsibility: coordinates.Responsibility,
-			Attempt:        coordinates.BatonAttempt,
+			Attempt:        coordinates.ProtocolAttempt,
 			Epoch:          coordinates.Epoch,
 			Try:            coordinates.Try,
 			WorkID:         attemptIdentity.WorkID,

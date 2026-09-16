@@ -6,9 +6,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 // authorityFingerprint names the exact authority a checkpoint or attribution
@@ -45,14 +45,14 @@ func staleReason(current, checkpoint authorityFingerprint) string {
 // slice's contract digest from an already-read state, the same derivation
 // captureImplementationCheckpoint already performs before recording a
 // journal checkpoint.
-func resolveSliceAuthority(fresh baton.State, slice string) (baton.Plan, baton.Slice, string, error) {
+func resolveSliceAuthority(fresh protocol.State, slice string) (protocol.Plan, protocol.Slice, string, error) {
 	plan, err := planFromState(fresh)
 	if err != nil {
-		return baton.Plan{}, baton.Slice{}, "", err
+		return protocol.Plan{}, protocol.Slice{}, "", err
 	}
 	_, declared, ok := plan.FindSlice(slice)
 	if !ok {
-		return baton.Plan{}, baton.Slice{}, "", fmt.Errorf("slice %s not found in plan", slice)
+		return protocol.Plan{}, protocol.Slice{}, "", fmt.Errorf("slice %s not found in plan", slice)
 	}
 	contractDigest, _ := plan.Contract(slice)
 	return plan, declared, contractDigest, nil
@@ -63,7 +63,7 @@ func resolveSliceAuthority(fresh baton.State, slice string) (baton.Plan, baton.S
 // never mutates or re-labels the checkpoint itself; an unreadable or
 // mismatched-release state simply yields no opinion rather than a false
 // positive.
-func currentCheckpointStaleReason(state baton.State, stateErr error, cp journal.UnverifiedCheckpoint) string {
+func currentCheckpointStaleReason(state protocol.State, stateErr error, cp journal.UnverifiedCheckpoint) string {
 	if stateErr != nil || state.Release != cp.Release {
 		return ""
 	}

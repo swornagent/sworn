@@ -19,7 +19,7 @@ The boundary is deliberately small:
    user's index.
 5. `PrepareCandidate` rechecks the target, stages workspace bytes in another
    private index, writes the tree, and derives actual changed paths from the
-   base-tree to candidate-tree diff. Baton literal-prefix scope is then enforced
+   base-tree to candidate-tree diff. The protocol literal-prefix scope is then enforced
    over every changed path; exclusions win. It publishes no ref. `Capture`
    remains the prepare-and-retain convenience for callers that do not cross a
    journal-binding boundary.

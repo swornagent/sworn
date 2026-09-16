@@ -18,11 +18,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/cockpit"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 	swornruntime "github.com/swornagent/sworn/internal/runtime"
 )
 
@@ -179,7 +179,7 @@ func (a *freshAgent) enterCleanRepository(
 func freshAgentPlanBytes(t *testing.T, digests map[string]string) []byte {
 	t.Helper()
 	value := map[string]any{
-		"schema_version": baton.ManifestVersion,
+		"schema_version": protocol.ManifestVersion,
 		"release":        freshAgentRelease,
 		"revision":       int64(1),
 		"previous_plan":  nil,
@@ -218,7 +218,7 @@ func freshAgentContracts(t *testing.T, repository string) (string, map[string]st
 		raw := manifestTouchpointContractRaw(
 			t, slice, []string{freshAgentSlicePaths()[slice]},
 		)
-		_, digest, err := baton.ParseSliceContract(raw, slice, "T1")
+		_, digest, err := protocol.ParseSliceContract(raw, slice, "T1")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -297,14 +297,14 @@ func TestRealBinaryFreshAgentSkillToMCPDelivery(t *testing.T) {
 	t.Parallel()
 	repository := newProductRepository(t)
 	// The repository is genuinely untouched by Sworn.
-	for _, marker := range []string{".baton", ".sworn"} {
+	for _, marker := range []string{".protocol", ".sworn"} {
 		if _, err := os.Stat(filepath.Join(repository, marker)); err == nil {
 			t.Fatalf("the fresh repository already contains %s", marker)
 		}
 	}
 	contractTree, digests := freshAgentContracts(t, repository)
 	planBytes := freshAgentPlanBytes(t, digests)
-	plan, err := baton.ParsePlan(planBytes)
+	plan, err := protocol.ParsePlan(planBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -539,9 +539,9 @@ func TestRealBinaryFreshAgentSkillToMCPDelivery(t *testing.T) {
 
 	// 10. Separate slice artifacts, Sworn-owned authority, one fresh
 	//     read-only Verifier PASS per slice, and a merge of exactly that.
-	state := readBatonState(t, repository, freshAgentRelease)
+	state := readProtocolState(t, repository, freshAgentRelease)
 	if state.Plan.Digest != plan.Digest() ||
-		state.Plan.Metadata.SchemaVersion != baton.ManifestVersion ||
+		state.Plan.Metadata.SchemaVersion != protocol.ManifestVersion ||
 		state.Plan.Approval.Receipt.Role != "planner" ||
 		state.Plan.Approval.Receipt.Result != "approved" {
 		t.Fatalf("installed authority = %#v", state.Plan)
@@ -600,10 +600,10 @@ func TestRealBinaryFreshAgentSkillToMCPDelivery(t *testing.T) {
 	) {
 		line = strings.TrimSpace(line)
 		documentsDir := gitx.DefaultDocumentsRoot + "/" + freshAgentRelease
-		if line == "" || line == baton.RecordRoot ||
-			strings.HasPrefix(line, baton.RecordRoot+"/") ||
-			line == baton.LegacyRecordRoot ||
-			strings.HasPrefix(line, baton.LegacyRecordRoot+"/") ||
+		if line == "" || line == protocol.RecordRoot ||
+			strings.HasPrefix(line, protocol.RecordRoot+"/") ||
+			line == protocol.LegacyRecordRoot ||
+			strings.HasPrefix(line, protocol.LegacyRecordRoot+"/") ||
 			// The engine publishes the authored plan and contracts under
 			// the documents root in the same commit as the frozen record
 			// (configurable-paths S2, A1): a read surface, not product.
@@ -635,7 +635,7 @@ func TestRealBinaryFreshAgentSkillToMCPDelivery(t *testing.T) {
 	}
 
 	// The delivery is Sworn's own: nothing instructed the operator to install
-	// or restore an external Baton product, and no Baton package was needed.
+	// or restore an external Protocol product, and no Protocol package was needed.
 	if _, err := os.Stat(filepath.Join(home, ".claude", "skills")); err != nil {
 		t.Fatalf("installed skill home = %v", err)
 	}
@@ -643,9 +643,9 @@ func TestRealBinaryFreshAgentSkillToMCPDelivery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, forbidden := range []string{"install baton", "npm i -g baton", "baton install"} {
+	for _, forbidden := range []string{"install protocol", "npm i -g protocol", "protocol install"} {
 		if strings.Contains(strings.ToLower(string(body)), forbidden) {
-			t.Fatalf("the installed skill still routes through an external Baton product: %q", forbidden)
+			t.Fatalf("the installed skill still routes through an external Protocol product: %q", forbidden)
 		}
 	}
 }
@@ -673,7 +673,7 @@ func freshAgentRunManifest(
 		Roles: driver.RoleSelections{
 			Planner:     driver.RoleSelection{Profile: "openai", Model: "journey-planner"},
 			Implementer: driver.RoleSelection{Profile: "gemini", Model: "journey-implementer"},
-			Captain:     driver.RoleSelection{Profile: "openai", Model: "journey-captain"},
+			Lead:        driver.RoleSelection{Profile: "openai", Model: "journey-lead"},
 			Verifier:    driver.RoleSelection{Profile: "gemini", Model: "journey-verifier"},
 		},
 		Automation: &swornruntime.AutomationSelections{

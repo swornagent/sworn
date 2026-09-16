@@ -14,10 +14,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 const effectLease = 5 * time.Minute
@@ -26,7 +26,7 @@ var (
 	testCrashBeforeEffect  string
 	testCrashAfterEffect   string
 	testHumanTurnCrash     string
-	testCaptainCrashCut    string
+	testLeadCrashCut       string
 	testAnswerParkCrashCut string
 	testOwnerLeaseMillis   string
 	testHooksFromEnv       string
@@ -49,7 +49,7 @@ func init() {
 		{&testCrashBeforeEffect, "SWORN_TEST_CRASH_BEFORE_EFFECT"},
 		{&testCrashAfterEffect, "SWORN_TEST_CRASH_AFTER_EFFECT"},
 		{&testHumanTurnCrash, "SWORN_TEST_HUMAN_TURN_CRASH"},
-		{&testCaptainCrashCut, "SWORN_TEST_CAPTAIN_CRASH_CUT"},
+		{&testLeadCrashCut, "SWORN_TEST_LEAD_CRASH_CUT"},
 		{&testOwnerLeaseMillis, "SWORN_TEST_OWNER_LEASE_MILLIS"},
 	} {
 		if value := os.Getenv(hook.name); value != "" {
@@ -95,30 +95,30 @@ type retainedContinuation struct {
 }
 
 type RunStatus struct {
-	SchemaVersion      string                 `json:"schema_version"`
-	RunID              string                 `json:"run_id"`
-	State              string                 `json:"state"`
-	DesiredState       string                 `json:"desired_state"`
-	ControlGeneration  int64                  `json:"control_generation"`
-	ManifestDigest     string                 `json:"manifest_digest"`
-	PlanDigest         string                 `json:"plan_digest,omitempty"`
-	TargetRef          string                 `json:"target_ref"`
-	TargetHead         string                 `json:"target_head,omitempty"`
-	ReleaseHead        string                 `json:"release_head,omitempty"`
-	Outcome            string                 `json:"outcome,omitempty"`
-	AuthorityState     string                 `json:"authority_state,omitempty"`
-	Project            string                 `json:"project,omitempty"`
-	ExternalAuthorizer string                 `json:"external_authorizer,omitempty"`
-	AuthorityDigest    string                 `json:"authority_digest,omitempty"`
-	ApprovalOffer      *ApprovalOffer         `json:"approval_offer,omitempty"`
-	CaptainDelegation  *CaptainDelegationView `json:"captain_delegation,omitempty"`
-	Effects            []EffectStatus         `json:"effects"`
-	EventOffset        int64                  `json:"event_offset"`
-	Park               *ParkStatus            `json:"park,omitempty"`
-	PinnedWork         []PinnedWork           `json:"pinned_work,omitempty"`
-	Recovery           *RecoveryAction        `json:"recovery,omitempty"`
-	Checkpoint         *CheckpointStatus      `json:"checkpoint,omitempty"`
-	Checkpoints        []CheckpointStatus     `json:"checkpoints,omitempty"`
+	SchemaVersion      string              `json:"schema_version"`
+	RunID              string              `json:"run_id"`
+	State              string              `json:"state"`
+	DesiredState       string              `json:"desired_state"`
+	ControlGeneration  int64               `json:"control_generation"`
+	ManifestDigest     string              `json:"manifest_digest"`
+	PlanDigest         string              `json:"plan_digest,omitempty"`
+	TargetRef          string              `json:"target_ref"`
+	TargetHead         string              `json:"target_head,omitempty"`
+	ReleaseHead        string              `json:"release_head,omitempty"`
+	Outcome            string              `json:"outcome,omitempty"`
+	AuthorityState     string              `json:"authority_state,omitempty"`
+	Project            string              `json:"project,omitempty"`
+	ExternalAuthorizer string              `json:"external_authorizer,omitempty"`
+	AuthorityDigest    string              `json:"authority_digest,omitempty"`
+	ApprovalOffer      *ApprovalOffer      `json:"approval_offer,omitempty"`
+	LeadDelegation     *LeadDelegationView `json:"lead_delegation,omitempty"`
+	Effects            []EffectStatus      `json:"effects"`
+	EventOffset        int64               `json:"event_offset"`
+	Park               *ParkStatus         `json:"park,omitempty"`
+	PinnedWork         []PinnedWork        `json:"pinned_work,omitempty"`
+	Recovery           *RecoveryAction     `json:"recovery,omitempty"`
+	Checkpoint         *CheckpointStatus   `json:"checkpoint,omitempty"`
+	Checkpoints        []CheckpointStatus  `json:"checkpoints,omitempty"`
 }
 
 // CheckpointStatus describes the current unverified checkpoint or quarantine fence for a run.
@@ -209,7 +209,7 @@ type ParkStatus struct {
 	Reason string `json:"reason,omitempty"`
 }
 
-type CaptainDelegationView struct {
+type LeadDelegationView struct {
 	Digest       string `json:"digest"`
 	Epoch        int64  `json:"epoch"`
 	State        string `json:"state"`
@@ -230,27 +230,27 @@ type engine struct {
 	manifest   admittedManifest
 	journal    *journal.Store
 	repository *gitx.Repository
-	git        baton.GitRepository
-	actions    *baton.Actions
+	git        protocol.GitRepository
+	actions    *protocol.Actions
 	installer  *authorityInstaller
 	workspaces *gitx.Workspaces
 	product    *gitx.ProductExclusionAdmission
 	registry   driver.SelectionRegistry
 	configured *configuredRuntimeRegistry
-	inertness  baton.InertnessResolver
+	inertness  protocol.InertnessResolver
 	actionMu   sync.Mutex
 }
 
 type sealedRecord struct {
-	Slice        string                   `json:"slice"`
-	Binds        string                   `json:"binds"`
-	Before       string                   `json:"before"`
-	RefreshFrom  string                   `json:"refresh_from,omitempty"`
-	Candidate    string                   `json:"candidate"`
-	Tree         string                   `json:"tree"`
-	ProductTree  string                   `json:"product_tree"`
-	ChangedPaths []string                 `json:"changed_paths"`
-	Receipt      baton.AppendReceiptInput `json:"receipt"`
+	Slice        string                      `json:"slice"`
+	Binds        string                      `json:"binds"`
+	Before       string                      `json:"before"`
+	RefreshFrom  string                      `json:"refresh_from,omitempty"`
+	Candidate    string                      `json:"candidate"`
+	Tree         string                      `json:"tree"`
+	ProductTree  string                      `json:"product_tree"`
+	ChangedPaths []string                    `json:"changed_paths"`
+	Receipt      protocol.AppendReceiptInput `json:"receipt"`
 }
 
 type implementationCycle struct {
@@ -303,7 +303,7 @@ type planProposalCommand struct {
 }
 
 type admittedPlanProposal struct {
-	plan          baton.Plan
+	plan          protocol.Plan
 	authority     planProposalAuthority
 	replayKey     string
 	contractBytes map[string][]byte
@@ -676,21 +676,21 @@ func (s *Service) openEngine(manifest admittedManifest) (*engine, error) {
 		return gitx.RecordRootDecision{Kind: request.Kind, Repository: request.Repository,
 			RecordRoot: request.RecordRoot, Commit: request.Commit, Decision: "inert"}, nil
 	}
-	gitRepository := baton.UseGitRepository(repository)
+	gitRepository := protocol.UseGitRepository(repository)
 	recordAdmission, err := repository.ResolveRecordPathAdmission()
 	if err != nil {
-		return nil, runtimeFail("BATON_UNAVAILABLE", err)
+		return nil, runtimeFail("PROTOCOL_UNAVAILABLE", err)
 	}
 	productAdmission, err := repository.ResolveProductExclusion(
 		recordAdmission,
 		inertness,
 	)
 	if err != nil {
-		return nil, runtimeFail("BATON_UNAVAILABLE", err)
+		return nil, runtimeFail("PROTOCOL_UNAVAILABLE", err)
 	}
-	actions, err := baton.NewActions(gitRepository, inertness, manifest.value.GitIdentity)
+	actions, err := protocol.NewActions(gitRepository, inertness, manifest.value.GitIdentity)
 	if err != nil {
-		return nil, runtimeFail("BATON_UNAVAILABLE", err)
+		return nil, runtimeFail("PROTOCOL_UNAVAILABLE", err)
 	}
 	workspaces, err := gitx.NewRunWorkspaces(repository, manifest.value.RunID, manifest.value.GitIdentity)
 	if err != nil {
@@ -806,10 +806,10 @@ func (s *Service) StartDetached(ctx context.Context, manifestBytes []byte) (RunS
 	return s.Status(ctx, manifest.value.RunID)
 }
 
-// StartWithCaptainDelegation atomically establishes the run record before
-// admitting external Captain authority, and admits that authority before the
+// StartWithLeadDelegation atomically establishes the run record before
+// admitting external Lead authority, and admits that authority before the
 // first Planner dispatch. It is the only delegated-run bootstrap path.
-func (s *Service) StartWithCaptainDelegation(ctx context.Context, manifestBytes, envelopeBytes []byte) (RunStatus, error) {
+func (s *Service) StartWithLeadDelegation(ctx context.Context, manifestBytes, envelopeBytes []byte) (RunStatus, error) {
 	if s == nil || s.journal == nil || ctx == nil {
 		return RunStatus{}, runtimeFail("INVALID_SERVICE", nil)
 	}
@@ -820,52 +820,52 @@ func (s *Service) StartWithCaptainDelegation(ctx context.Context, manifestBytes,
 	if err = s.validateDriverConfigMode(manifest); err != nil {
 		return RunStatus{}, err
 	}
-	envelope, err := ParseCaptainDelegation(envelopeBytes)
+	envelope, err := ParseLeadDelegation(envelopeBytes)
 	if err != nil {
 		return RunStatus{}, err
 	}
 	if envelope.Envelope.RunID != manifest.value.RunID || envelope.Envelope.ManifestDigest != manifest.digest {
-		return RunStatus{}, runtimeFail("CAPTAIN_DELEGATION_BINDING_MISMATCH", nil)
+		return RunStatus{}, runtimeFail("LEAD_DELEGATION_BINDING_MISMATCH", nil)
 	}
 	if envelope.Envelope.Project != manifest.value.Authority.Project ||
 		envelope.Envelope.Release != manifest.value.Release ||
 		envelope.Envelope.TargetRef != manifest.value.TargetRef {
-		return RunStatus{}, runtimeFail("CAPTAIN_DELEGATION_BINDING_MISMATCH", nil)
+		return RunStatus{}, runtimeFail("LEAD_DELEGATION_BINDING_MISMATCH", nil)
 	}
 	existingRun := false
 	if binding, bindingErr := s.journal.RunBinding(ctx, manifest.value.RunID); bindingErr == nil {
 		existingRun = true
 		if binding.ManifestDigest != manifest.digest || binding.Repository != manifest.value.Repository ||
 			binding.Release != manifest.value.Release || binding.TargetRef != manifest.value.TargetRef {
-			return RunStatus{}, runtimeFail("CAPTAIN_DELEGATION_BINDING_MISMATCH", nil)
+			return RunStatus{}, runtimeFail("LEAD_DELEGATION_BINDING_MISMATCH", nil)
 		}
 	} else if !journal.IsCode(bindingErr, "RUN_NOT_FOUND") {
 		return RunStatus{}, runtimeFail("JOURNAL_READ_FAILED", bindingErr)
 	}
 	if !existingRun {
-		if err := s.validateCaptainDelegationGitFacts(manifest, envelope.Envelope); err != nil {
+		if err := s.validateLeadDelegationGitFacts(manifest, envelope.Envelope); err != nil {
 			return RunStatus{}, err
 		}
 	}
 	now := s.now().UTC()
-	delegationCommand := CaptainDelegationCommand{
-		SchemaVersion: CaptainDelegationCommandVersion,
+	delegationCommand := LeadDelegationCommand{
+		SchemaVersion: LeadDelegationCommandVersion,
 		Action:        "admit", RunID: manifest.value.RunID,
 		ManifestDigest: manifest.digest,
-		ActorClass:     CaptainDelegationActorClass,
+		ActorClass:     LeadDelegationActorClass,
 		ActorAuthority: manifest.value.Authority.ExternalAuthorizer,
 		EnvelopeDigest: envelope.Digest,
 		EnvelopeBytes:  envelope.Bytes,
 	}
-	payload, err := CanonicalCaptainDelegationCommand(delegationCommand)
+	payload, err := CanonicalLeadDelegationCommand(delegationCommand)
 	if err != nil {
 		return RunStatus{}, err
 	}
-	replay, effectID, _, err := captainDelegationIdentity(delegationCommand)
+	replay, effectID, _, err := leadDelegationIdentity(delegationCommand)
 	if err != nil {
 		return RunStatus{}, err
 	}
-	_, resultBody, err := canonicalCaptainDelegationResult(delegationCommand)
+	_, resultBody, err := canonicalLeadDelegationResult(delegationCommand)
 	if err != nil {
 		return RunStatus{}, err
 	}
@@ -877,25 +877,25 @@ func (s *Service) StartWithCaptainDelegation(ctx context.Context, manifestBytes,
 		manifestFound, authorityFound, effectFound := false, false, false
 		for _, stored := range snapshot.Commands {
 			manifestFound = manifestFound || stored.ReplayKey == "manifest" && stored.Kind == "start" && bytes.Equal(stored.Payload, manifest.raw)
-			authorityFound = authorityFound || stored.ReplayKey == replay && stored.Kind == "captain_delegation" && bytes.Equal(stored.Payload, payload)
+			authorityFound = authorityFound || stored.ReplayKey == replay && stored.Kind == "lead_delegation" && bytes.Equal(stored.Payload, payload)
 		}
 		for _, stored := range snapshot.Effects {
-			effectFound = effectFound || stored.ID == effectID && stored.ReplayKey == replay && stored.Kind == captainDelegationEffectKind && stored.BeforeDigest == sha256Digest(payload) && stored.ExpectedDigest == sha256Digest(resultBody)
+			effectFound = effectFound || stored.ID == effectID && stored.ReplayKey == replay && stored.Kind == leadDelegationEffectKind && stored.BeforeDigest == sha256Digest(payload) && stored.ExpectedDigest == sha256Digest(resultBody)
 		}
 		if !manifestFound || !authorityFound || !effectFound {
-			return RunStatus{}, runtimeFail("CAPTAIN_DELEGATION_STALE", nil)
+			return RunStatus{}, runtimeFail("LEAD_DELEGATION_STALE", nil)
 		}
 	}
 	if err = s.journal.RegisterRunCommandsEffect(
 		ctx,
 		journal.Run{ID: manifest.value.RunID, ManifestDigest: manifest.digest, Repository: manifest.value.Repository, Release: manifest.value.Release, TargetRef: manifest.value.TargetRef, CreatedAt: now},
 		journal.Command{RunID: manifest.value.RunID, ReplayKey: "manifest", Kind: "start", Payload: manifest.raw, CreatedAt: now},
-		journal.Command{RunID: manifest.value.RunID, ReplayKey: replay, Kind: "captain_delegation", Payload: payload, CreatedAt: now},
-		journal.Effect{RunID: manifest.value.RunID, ID: effectID, ReplayKey: replay, Kind: captainDelegationEffectKind, BeforeDigest: sha256Digest(payload), ExpectedDigest: sha256Digest(resultBody), UpdatedAt: now},
+		journal.Command{RunID: manifest.value.RunID, ReplayKey: replay, Kind: "lead_delegation", Payload: payload, CreatedAt: now},
+		journal.Effect{RunID: manifest.value.RunID, ID: effectID, ReplayKey: replay, Kind: leadDelegationEffectKind, BeforeDigest: sha256Digest(payload), ExpectedDigest: sha256Digest(resultBody), UpdatedAt: now},
 	); err != nil {
 		return RunStatus{}, runtimeFail("JOURNAL_WRITE_FAILED", err)
 	}
-	_, err = s.captainDelegationAt(ctx, delegationCommand, now)
+	_, err = s.leadDelegationAt(ctx, delegationCommand, now)
 	if err != nil {
 		return RunStatus{}, err
 	}
@@ -906,7 +906,7 @@ func (s *Service) StartWithCaptainDelegation(ctx context.Context, manifestBytes,
 	return s.driveOwned(ctx, manifest.value.RunID, owner)
 }
 
-func (s *Service) StartWithCaptainDelegationDetached(ctx context.Context, manifestBytes, envelopeBytes []byte) (RunStatus, error) {
+func (s *Service) StartWithLeadDelegationDetached(ctx context.Context, manifestBytes, envelopeBytes []byte) (RunStatus, error) {
 	if s == nil || s.journal == nil || ctx == nil {
 		return RunStatus{}, runtimeFail("INVALID_SERVICE", nil)
 	}
@@ -917,52 +917,52 @@ func (s *Service) StartWithCaptainDelegationDetached(ctx context.Context, manife
 	if err = s.validateDriverConfigMode(manifest); err != nil {
 		return RunStatus{}, err
 	}
-	envelope, err := ParseCaptainDelegation(envelopeBytes)
+	envelope, err := ParseLeadDelegation(envelopeBytes)
 	if err != nil {
 		return RunStatus{}, err
 	}
 	if envelope.Envelope.RunID != manifest.value.RunID || envelope.Envelope.ManifestDigest != manifest.digest {
-		return RunStatus{}, runtimeFail("CAPTAIN_DELEGATION_BINDING_MISMATCH", nil)
+		return RunStatus{}, runtimeFail("LEAD_DELEGATION_BINDING_MISMATCH", nil)
 	}
 	if envelope.Envelope.Project != manifest.value.Authority.Project ||
 		envelope.Envelope.Release != manifest.value.Release ||
 		envelope.Envelope.TargetRef != manifest.value.TargetRef {
-		return RunStatus{}, runtimeFail("CAPTAIN_DELEGATION_BINDING_MISMATCH", nil)
+		return RunStatus{}, runtimeFail("LEAD_DELEGATION_BINDING_MISMATCH", nil)
 	}
 	existingRun := false
 	if binding, bindingErr := s.journal.RunBinding(ctx, manifest.value.RunID); bindingErr == nil {
 		existingRun = true
 		if binding.ManifestDigest != manifest.digest || binding.Repository != manifest.value.Repository ||
 			binding.Release != manifest.value.Release || binding.TargetRef != manifest.value.TargetRef {
-			return RunStatus{}, runtimeFail("CAPTAIN_DELEGATION_BINDING_MISMATCH", nil)
+			return RunStatus{}, runtimeFail("LEAD_DELEGATION_BINDING_MISMATCH", nil)
 		}
 	} else if !journal.IsCode(bindingErr, "RUN_NOT_FOUND") {
 		return RunStatus{}, runtimeFail("JOURNAL_READ_FAILED", bindingErr)
 	}
 	if !existingRun {
-		if err := s.validateCaptainDelegationGitFacts(manifest, envelope.Envelope); err != nil {
+		if err := s.validateLeadDelegationGitFacts(manifest, envelope.Envelope); err != nil {
 			return RunStatus{}, err
 		}
 	}
 	now := s.now().UTC()
-	delegationCommand := CaptainDelegationCommand{
-		SchemaVersion: CaptainDelegationCommandVersion,
+	delegationCommand := LeadDelegationCommand{
+		SchemaVersion: LeadDelegationCommandVersion,
 		Action:        "admit", RunID: manifest.value.RunID,
 		ManifestDigest: manifest.digest,
-		ActorClass:     CaptainDelegationActorClass,
+		ActorClass:     LeadDelegationActorClass,
 		ActorAuthority: manifest.value.Authority.ExternalAuthorizer,
 		EnvelopeDigest: envelope.Digest,
 		EnvelopeBytes:  envelope.Bytes,
 	}
-	payload, err := CanonicalCaptainDelegationCommand(delegationCommand)
+	payload, err := CanonicalLeadDelegationCommand(delegationCommand)
 	if err != nil {
 		return RunStatus{}, err
 	}
-	replay, effectID, _, err := captainDelegationIdentity(delegationCommand)
+	replay, effectID, _, err := leadDelegationIdentity(delegationCommand)
 	if err != nil {
 		return RunStatus{}, err
 	}
-	_, resultBody, err := canonicalCaptainDelegationResult(delegationCommand)
+	_, resultBody, err := canonicalLeadDelegationResult(delegationCommand)
 	if err != nil {
 		return RunStatus{}, err
 	}
@@ -974,25 +974,25 @@ func (s *Service) StartWithCaptainDelegationDetached(ctx context.Context, manife
 		manifestFound, authorityFound, effectFound := false, false, false
 		for _, stored := range snapshot.Commands {
 			manifestFound = manifestFound || stored.ReplayKey == "manifest" && stored.Kind == "start" && bytes.Equal(stored.Payload, manifest.raw)
-			authorityFound = authorityFound || stored.ReplayKey == replay && stored.Kind == "captain_delegation" && bytes.Equal(stored.Payload, payload)
+			authorityFound = authorityFound || stored.ReplayKey == replay && stored.Kind == "lead_delegation" && bytes.Equal(stored.Payload, payload)
 		}
 		for _, stored := range snapshot.Effects {
-			effectFound = effectFound || stored.ID == effectID && stored.ReplayKey == replay && stored.Kind == captainDelegationEffectKind && stored.BeforeDigest == sha256Digest(payload) && stored.ExpectedDigest == sha256Digest(resultBody)
+			effectFound = effectFound || stored.ID == effectID && stored.ReplayKey == replay && stored.Kind == leadDelegationEffectKind && stored.BeforeDigest == sha256Digest(payload) && stored.ExpectedDigest == sha256Digest(resultBody)
 		}
 		if !manifestFound || !authorityFound || !effectFound {
-			return RunStatus{}, runtimeFail("CAPTAIN_DELEGATION_STALE", nil)
+			return RunStatus{}, runtimeFail("LEAD_DELEGATION_STALE", nil)
 		}
 	}
 	if err = s.journal.RegisterRunCommandsEffect(
 		ctx,
 		journal.Run{ID: manifest.value.RunID, ManifestDigest: manifest.digest, Repository: manifest.value.Repository, Release: manifest.value.Release, TargetRef: manifest.value.TargetRef, CreatedAt: now},
 		journal.Command{RunID: manifest.value.RunID, ReplayKey: "manifest", Kind: "start", Payload: manifest.raw, CreatedAt: now},
-		journal.Command{RunID: manifest.value.RunID, ReplayKey: replay, Kind: "captain_delegation", Payload: payload, CreatedAt: now},
-		journal.Effect{RunID: manifest.value.RunID, ID: effectID, ReplayKey: replay, Kind: captainDelegationEffectKind, BeforeDigest: sha256Digest(payload), ExpectedDigest: sha256Digest(resultBody), UpdatedAt: now},
+		journal.Command{RunID: manifest.value.RunID, ReplayKey: replay, Kind: "lead_delegation", Payload: payload, CreatedAt: now},
+		journal.Effect{RunID: manifest.value.RunID, ID: effectID, ReplayKey: replay, Kind: leadDelegationEffectKind, BeforeDigest: sha256Digest(payload), ExpectedDigest: sha256Digest(resultBody), UpdatedAt: now},
 	); err != nil {
 		return RunStatus{}, runtimeFail("JOURNAL_WRITE_FAILED", err)
 	}
-	_, err = s.captainDelegationAt(ctx, delegationCommand, now)
+	_, err = s.leadDelegationAt(ctx, delegationCommand, now)
 	if err != nil {
 		return RunStatus{}, err
 	}
@@ -1049,7 +1049,7 @@ func proposalSourceEffect(
 func (s *Service) recordProposal(
 	ctx context.Context,
 	runID string,
-	plan baton.Plan,
+	plan protocol.Plan,
 	authority planProposalAuthority,
 	contractBytes map[string][]byte,
 ) error {
@@ -1081,7 +1081,7 @@ func (s *Service) recordProposal(
 	return nil
 }
 
-func validatePlanBinding(manifest admittedManifest, plan baton.Plan, current *baton.State) error {
+func validatePlanBinding(manifest admittedManifest, plan protocol.Plan, current *protocol.State) error {
 	metadata := plan.Metadata()
 	if metadata.Release != manifest.value.Release ||
 		metadata.Repository != manifest.value.Authority.Project ||
@@ -1125,7 +1125,7 @@ func admitPlanProposal(
 		wire.Authority.SourceEffect == "" {
 		return admittedPlanProposal{}, runtimeFail("CORRUPT_JOURNAL", nil)
 	}
-	plan, err := baton.ParsePlan(wire.PlanBytes)
+	plan, err := protocol.ParsePlan(wire.PlanBytes)
 	if err != nil || wire.PlanDigest != plan.Digest() {
 		return admittedPlanProposal{}, runtimeFail("CORRUPT_JOURNAL", nil)
 	}
@@ -1265,7 +1265,7 @@ func loadRunSnapshot(
 		if stored.Kind != "planner_continuation" {
 			continue
 		}
-		var continuation CaptainPlannerContinuationCommand
+		var continuation LeadPlannerContinuationCommand
 		if json.Unmarshal(stored.Payload, &continuation) != nil || continuation.RunID != runID {
 			return admittedManifest{}, nil, runtimeFail("CORRUPT_JOURNAL", nil)
 		}
@@ -1769,7 +1769,7 @@ func bytesMapEqual(a, b map[string][]byte) bool {
 // contract_path for that plan, and its bytes must resolve against that
 // slice's declared digest. A proposal's carried bytes can therefore never
 // install under any authority other than the plan that declared them.
-func validateProposalContracts(plan baton.Plan, contractBytes map[string][]byte) error {
+func validateProposalContracts(plan protocol.Plan, contractBytes map[string][]byte) error {
 	if len(contractBytes) == 0 {
 		return nil
 	}
@@ -1787,7 +1787,7 @@ func validateProposalContracts(plan baton.Plan, contractBytes map[string][]byte)
 			return runtimeFail("CONTRACT_NOT_DECLARED", nil)
 		}
 		if _, err := plan.ResolveSliceContract(sliceID, body); err != nil {
-			return runtimeFail(baton.ErrorCode(err), err)
+			return runtimeFail(protocol.ErrorCode(err), err)
 		}
 	}
 	return nil
@@ -1821,7 +1821,7 @@ func stableErrorCode(err error) string {
 		runtimeIdentityPattern.MatchString(journalErr.Code) {
 		return journalErr.Code
 	}
-	var recordErr *baton.RecordError
+	var recordErr *protocol.RecordError
 	if errors.As(err, &recordErr) &&
 		runtimeIdentityPattern.MatchString(recordErr.Code) {
 		return recordErr.Code

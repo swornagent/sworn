@@ -57,14 +57,14 @@ An exact durable result wins the commit-ambiguity window; absence returns the
 original apply error, and a probe failure is joined to it. This is bounded
 convergence, not a retry policy or loop.
 
-The Store-derived effect ID is also the stable Baton builder or producer run
+The Store-derived effect ID is also the stable protocol builder or producer run
 ID. `effects.run_id` remains the enclosing delivery-engine run in SQLite and is
 called `delivery_run_id` by Go and JSON APIs. Native build request v2 keeps
 `dispatch_digest` as the exact work-contract digest and separately binds
 `builder_dispatch_digest` to process configuration. Store derives a builder
 invocation identity from effect ID, attempt, and that profile digest. A local
 check derives a separate executor invocation identity from effect ID, attempt,
-and content-runtime digest while retaining the effect ID in its Baton receipt.
+and content-runtime digest while retaining the effect ID in its protocol receipt.
 Completion compare-and-swaps effect ID, owner, and attempt together, so an old
 worker cannot complete a reconciled retry even when the same owner name is
 reused.
@@ -234,7 +234,7 @@ The reducer has two narrow internal edges after builder success:
 - `checks.dispatch` reparses the exact plan, resolves its policy and ordered
   definitions, rebinds the succeeded builder and process-configured runtime,
   and atomically creates the complete serial check batch. Work moves from
-  `active` to internal `checking`; Baton board projection remains `active`.
+  `active` to internal `checking`; protocol board projection remains `active`.
 - `submission.admit` accepts only `{work_id}`. Ordinary reduction validates that
   intent and returns a sentinel requiring Store-derived facts. The Store anchors
   admission to the current dispatch event and complete effect batch, requires
@@ -243,7 +243,7 @@ The reducer has two narrow internal edges after builder success:
 
 Admission repeats the full durable closure inside its SQLite transaction: exact
 plan and policy, definitions, authenticated historical approval, builder
-attempt, typed results, receipt/environment/output CAS, content runtime, Baton
+attempt, typed results, receipt/environment/output CAS, content runtime, protocol
 snapshot, and configured-repository Git candidate and scope. It writes the
 command, state, event, canonical submission, and run/command-bound identity
 together and emits no effect. A preflight or write failure leaves `checking`

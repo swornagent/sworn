@@ -34,7 +34,7 @@ type productionSubmissionRepair struct {
 
 // captureSubmissionRepair restores the exact outstanding submission refusal
 // from the immediately preceding implementer attempt, when that refusal was
-// never superseded by an accepted submission (Captain correction C1) - the
+// never superseded by an accepted submission (Lead correction C1) - the
 // journal's turn-recovery budget records it durably before it ever reaches
 // the worker (internal/driver's rejectSubmission -> RecoveryStepHook), so it
 // survives worker death, host death and an invocation timeout mid-correction
@@ -75,7 +75,7 @@ func captureSubmissionRepair(
 		LaneID:                lane,
 		Slice:                 slice,
 		Responsibility:        coordinates.Responsibility,
-		BatonAttempt:          coordinates.BatonAttempt,
+		ProtocolAttempt:       coordinates.ProtocolAttempt,
 		WorkIdentity:          dispatchWork,
 		PlanAuthorityDigest:   planDigest,
 		TargetAuthorityDigest: targetDigest,
@@ -136,7 +136,7 @@ func captureSubmissionRepair(
 // (epoch, try) sealed a decodable submission, over the same candidate
 // dispatch-effect identities capturePriorSubmission's own per-try scan
 // probes. A decodable submission at that exact prior try means whatever
-// refusal preceded it was corrected in-session (Captain correction C1): the
+// refusal preceded it was corrected in-session (Lead correction C1): the
 // next continuation must not be told an already-resolved refusal is still
 // outstanding.
 func priorTryHasAcceptedSubmission(
@@ -150,7 +150,7 @@ func priorTryHasAcceptedSubmission(
 		engine.manifest.digest,
 		coordinates.Slice,
 		coordinates.Responsibility,
-		coordinates.BatonAttempt,
+		coordinates.ProtocolAttempt,
 		before,
 	)
 	dispatchEffect := journal.AttemptEffectID(generalWork, epoch, try)

@@ -150,13 +150,13 @@ func TestRoleSelectionsResolveOneExactProfileAdapterAndModel(t *testing.T) {
 	adapters := []Adapter{
 		processAdapterFixture(t, "planner-adapter", "driver.planner"),
 		processAdapterFixture(t, "implementer-adapter", "driver.implementer"),
-		processAdapterFixture(t, "captain-adapter", "driver.captain"),
+		processAdapterFixture(t, "lead-adapter", "driver.lead"),
 		processAdapterFixture(t, "verifier-adapter", "driver.verifier"),
 	}
 	configs := []ProfileConfig{
 		{Key: "planner-profile", Adapter: "planner-adapter", Network: NetworkNone},
 		{Key: "implementer-profile", Adapter: "implementer-adapter", Network: NetworkNone},
-		{Key: "captain-profile", Adapter: "captain-adapter", Network: NetworkNone},
+		{Key: "lead-profile", Adapter: "lead-adapter", Network: NetworkNone},
 		{Key: "verifier-profile", Adapter: "verifier-adapter", Network: NetworkNone},
 	}
 	registry, err := NewSelectionRegistry(configs, adapters)
@@ -166,13 +166,13 @@ func TestRoleSelectionsResolveOneExactProfileAdapterAndModel(t *testing.T) {
 	selections := RoleSelections{
 		Planner:     RoleSelection{"planner-profile", "planner-model"},
 		Implementer: RoleSelection{"implementer-profile", "implementer-model"},
-		Captain:     RoleSelection{"captain-profile", "captain-model"},
+		Lead:        RoleSelection{"lead-profile", "lead-model"},
 		Verifier:    RoleSelection{"verifier-profile", "verifier-model"},
 	}
 	expected := map[Role]RoleSelection{
 		RolePlanner:     selections.Planner,
 		RoleImplementer: selections.Implementer,
-		RoleCaptain:     selections.Captain,
+		RoleLead:        selections.Lead,
 		RoleVerifier:    selections.Verifier,
 	}
 	for role, want := range expected {
@@ -202,10 +202,10 @@ func TestRoleSelectionsResolveOneExactProfileAdapterAndModel(t *testing.T) {
 		t.Fatalf("unknown profile error = %v", err)
 	}
 	empty := selections
-	empty.Captain.Model = ""
+	empty.Lead.Model = ""
 	if _, err := registry.Resolve(
 		empty,
-		RoleCaptain,
+		RoleLead,
 	); !IsCode(err, "INVALID_MODEL") {
 		t.Fatalf("empty model error = %v", err)
 	}
@@ -216,7 +216,7 @@ func TestRoleSelectionsCodecIsClosedAndRequiresAllFourRoles(t *testing.T) {
 	selections := RoleSelections{
 		Planner:     RoleSelection{"planner", "planner-model"},
 		Implementer: RoleSelection{"implementer", "implementer-model"},
-		Captain:     RoleSelection{"captain", "captain-model"},
+		Lead:        RoleSelection{"lead", "lead-model"},
 		Verifier:    RoleSelection{"verifier", "verifier-model"},
 	}
 	body, err := EncodeRoleSelections(selections)
@@ -278,7 +278,7 @@ func TestRegistryIsProviderNeutralAndHasNoFallbackOrLaunchEscape(t *testing.T) {
 	selected, err := registry.Resolve(RoleSelections{
 		Planner:     RoleSelection{"cloud-profile", "p"},
 		Implementer: RoleSelection{"cloud-profile", "i"},
-		Captain:     RoleSelection{"cloud-profile", "c"},
+		Lead:        RoleSelection{"cloud-profile", "c"},
 		Verifier:    RoleSelection{"cloud-profile", "v"},
 	}, RolePlanner)
 	if err != nil {

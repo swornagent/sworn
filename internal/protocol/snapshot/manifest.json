@@ -1,0 +1,131 @@
+{
+  "schema": "sworn.protocol-assets/v1",
+  "commit": "3dc5f2f0164ff379a3000fe25d2a323b4fe2e8ef",
+  "assets": [
+    {
+      "path": "VERSION",
+      "size": 12,
+      "sha256": "sha256:4ccee453fa70bbc4f6be190f5cdb6dc962448d6abeec00d8330198f91453c3fe"
+    },
+    {
+      "path": "conformance/engine-adapter.md",
+      "size": 2813,
+      "sha256": "sha256:7e42f65eb88783cbfc356416b5ac4c04ccdad21c06a2a30fc338fadfb240a42b"
+    },
+    {
+      "path": "conformance/manifest.json",
+      "size": 6804,
+      "sha256": "sha256:21aacbd7cf7ad95f535dc54473b7f36cd4f2afa882d0c30a38d69f4e7adda916"
+    },
+    {
+      "path": "operations/protocol-design-review.md",
+      "size": 2570,
+      "sha256": "sha256:e3d5ad816e113ff0b5bc9f94d365419d0842cbe9cb641b91c783cd03c589765b"
+    },
+    {
+      "path": "operations/protocol-implement.md",
+      "size": 2886,
+      "sha256": "sha256:47a158b82bb97f886e73f30bfe5bc88e9b596c131ccee32107c7b859ef792b30"
+    },
+    {
+      "path": "operations/protocol-merge.md",
+      "size": 2068,
+      "sha256": "sha256:8784299f6338fc5b92fd9d727db6ef50a7f6aff9226cd8ec7e6224e1c0b63c69"
+    },
+    {
+      "path": "operations/protocol-plan.md",
+      "size": 3756,
+      "sha256": "sha256:9ca77fd2f390544416dbe9f2556d6cd7dcaf3a65bfe7cecb2bc514d05f09d32d"
+    },
+    {
+      "path": "operations/protocol-verify.md",
+      "size": 3408,
+      "sha256": "sha256:35027e7d633042a001ed7a24e72cd149a58d0964b83011d79881ae86dd5af826"
+    },
+    {
+      "path": "protocol/ASSURANCE.md",
+      "size": 2979,
+      "sha256": "sha256:c6a787c9dbb6f65886a755e40fb89627da94a89d72bc78518673d4812966005c"
+    },
+    {
+      "path": "protocol/CONFORMANCE.md",
+      "size": 7493,
+      "sha256": "sha256:64379eb43e219204a1d53cb0fd5c9ae6982e1d1712c773ea7303c73dbd2a152f"
+    },
+    {
+      "path": "protocol/CORE.md",
+      "size": 4211,
+      "sha256": "sha256:8d796f7690b5b6ec001f5f0bc8324bcd93ebb2939010d468f98e5882d5e03773"
+    },
+    {
+      "path": "protocol/PROTOCOL.md",
+      "size": 12855,
+      "sha256": "sha256:a224a535ade1e0560205c0eddc5b6c0d782a9e7f403961272c30c477b66a886a"
+    },
+    {
+      "path": "protocol/RATIONALE.md",
+      "size": 2867,
+      "sha256": "sha256:1a590dbf68729a19bc9105dd3c61077b2bb12b674ab2f833249e9c221fdf9bca"
+    },
+    {
+      "path": "protocol/README.md",
+      "size": 1710,
+      "sha256": "sha256:cf3ab82772f788cef76930bfab76f46b90108f741ca39a4fe54c4f7d963dc344"
+    },
+    {
+      "path": "reference/board/oracle.mjs",
+      "size": 16903,
+      "sha256": "sha256:a65b51bdc4b79958e1c271dca862bf62e3d5080f1a74e5790907ccba3a256520"
+    },
+    {
+      "path": "reference/board/presentation.mjs",
+      "size": 1510,
+      "sha256": "sha256:58b62124d5a8fac027ba4bf757b1f10c8522b021d29b1b71c1966fb1e6922493"
+    },
+    {
+      "path": "reference/board/terminal.mjs",
+      "size": 9484,
+      "sha256": "sha256:f75831f651a4033a0eb7e275e07013360ff0a06e30d578fe9ea66bbcc6faec44"
+    },
+    {
+      "path": "reference/board/web.mjs",
+      "size": 56771,
+      "sha256": "sha256:b954e982272bb8dc37c17650dcd7db60d9b4da1293b1490cab18b99de426d119"
+    },
+    {
+      "path": "reference/records/README.md",
+      "size": 6416,
+      "sha256": "sha256:a1ca9d25a0cdcb690374391efc8703ce6c5a41d19b8d09d31882baf29fe74e16"
+    },
+    {
+      "path": "reference/records/actions.mjs",
+      "size": 43225,
+      "sha256": "sha256:dfc665b9a114140027844a6525f6d87d730eb981f502a3f27272d956437ebbf5"
+    },
+    {
+      "path": "reference/records/git.mjs",
+      "size": 90796,
+      "sha256": "sha256:fade956b34e264d9ef9077ab9b73c2aaf63eab92d8ac09839a921582a93876f1"
+    },
+    {
+      "path": "reference/records/receipts.mjs",
+      "size": 30919,
+      "sha256": "sha256:bde28fdb3b4352d0f5852aa605b16e7713ce7c7d428077b3a3799aed7994b5c9"
+    },
+    {
+      "path": "reference/records/state.mjs",
+      "size": 72875,
+      "sha256": "sha256:d22af34221eba71c50b6f76a84ddbd47fe145f6883e99d81c8f8d624587a1b75"
+    },
+    {
+      "path": "schemas/receipt-v1.json",
+      "size": 2175,
+      "sha256": "sha256:30be30a9411a2ffc582d8448f12c64a555dc081f8671743ce6f9388a12af65da"
+    },
+    {
+      "path": "templates/plan.md",
+      "size": 4174,
+      "sha256": "sha256:98b7e8037c665c50126482fde0df52516ccbc721544546abfc9f3d5eb00186f9"
+    }
+  ]
+}

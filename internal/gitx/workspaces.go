@@ -37,7 +37,7 @@ type WorkspaceView string
 const (
 	PlannerView          WorkspaceView = "planner"
 	DesignView           WorkspaceView = "design"
-	CaptainView          WorkspaceView = "captain"
+	LeadView             WorkspaceView = "lead"
 	ImplementationView   WorkspaceView = "implementation"
 	WorkVerifierView     WorkspaceView = "work_verifier"
 	AssemblyVerifierView WorkspaceView = "assembly_verifier"
@@ -723,7 +723,7 @@ func trackHeadRef(key TrackKey) string {
 
 func validView(view WorkspaceView) bool {
 	switch view {
-	case PlannerView, DesignView, CaptainView, ImplementationView,
+	case PlannerView, DesignView, LeadView, ImplementationView,
 		WorkVerifierView, AssemblyVerifierView, ReleaseAssemblyView:
 		return true
 	default:
@@ -849,8 +849,8 @@ func (w *Workspaces) OpenSnapshot(head OID) (*WorkspaceLease, error) {
 }
 
 // OpenReleaseAssembly binds one opaque, read-only engine lease to the exact
-// current release authority. Baton's compare-and-set action remains the
-// mutation authority; this lease only establishes the Coach-style topology.
+// current release authority. Protocol's compare-and-set action remains the
+// mutation authority; this lease only establishes the Principal-style topology.
 func (w *Workspaces) OpenReleaseAssembly(
 	release string,
 	expected OID,
@@ -923,7 +923,7 @@ func (w *Workspaces) OpenTrack(
 	access := WorkspaceReadOnly
 	if view == ImplementationView {
 		access = WorkspaceReadWrite
-	} else if view != DesignView && view != CaptainView {
+	} else if view != DesignView && view != LeadView {
 		return nil, fail("INVALID_WORKSPACE_REQUEST", "open track workspace", nil)
 	}
 	var writerLock *os.File

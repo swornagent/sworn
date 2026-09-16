@@ -1817,7 +1817,7 @@ func platformRunNative(
 	}
 	definitions := toolDefinitions(invocation.Request.Workspace.Access)
 	var session nativeBrokerSession
-	var batonSession *toolSession
+	var protocolSession *toolSession
 	var automationSession *nativeAutomationSession
 	var err error
 	projectionRoot := filepath.Join(
@@ -1825,12 +1825,12 @@ func platformRunNative(
 		".sworn-no-input-projection",
 	)
 	if automationRun == nil {
-		batonSession, err = newToolSession(invocation)
+		protocolSession, err = newToolSession(invocation)
 		if err != nil {
 			return Observation{}, err
 		}
-		session = batonSession
-		projectionRoot = batonSession.projection.Root()
+		session = protocolSession
+		projectionRoot = protocolSession.projection.Root()
 	} else {
 		definitions = automationRun.definitions
 		automationSession, err = newNativeAutomationSession(
@@ -1845,9 +1845,9 @@ func platformRunNative(
 		}
 		session = automationSession
 	}
-	if batonSession != nil {
+	if protocolSession != nil {
 		defer func() {
-			if closeErr := batonSession.Close(); closeErr != nil {
+			if closeErr := protocolSession.Close(); closeErr != nil {
 				observation.Handoff = nil
 				observation.Yield = nil
 				resultErr = joinErrors(resultErr, closeErr)
@@ -2027,12 +2027,12 @@ func platformRunNative(
 		),
 		broker: broker, launch: launch,
 	}
-	if batonSession != nil {
+	if protocolSession != nil {
 		// Bind the credentials the engine actually holds at the broker
 		// seam — capability, capture bearer, launch credential snapshot —
 		// so the emitted projection redacts them before anything leaves
 		// the driver. The automation session needs none of this.
-		batonSession.bindRedactionSecrets(append(
+		protocolSession.bindRedactionSecrets(append(
 			redactionSecretSet(capability, captureToken),
 			nativeSecretFragments(credentialBefore)...,
 		))
@@ -2370,8 +2370,8 @@ func platformRunNative(
 	// before the tool session closes, or its observer would see the
 	// session as already closed and drop the events.
 	broker.flushPending()
-	if batonSession != nil {
-		if closeErr := batonSession.Close(); closeErr != nil {
+	if protocolSession != nil {
+		if closeErr := protocolSession.Close(); closeErr != nil {
 			return Observation{}, closeErr
 		}
 	}
@@ -2400,10 +2400,10 @@ func platformRunNative(
 		}
 		return Observation{}, nil
 	}
-	if batonSession == nil {
+	if protocolSession == nil {
 		return Observation{}, failNativeSurface("dispatch.tool_session_missing")
 	}
-	if yielded := batonSession.yielded(); yielded != nil {
+	if yielded := protocolSession.yielded(); yielded != nil {
 		return withCredentialRotationEvent(
 			completedYieldObservation(started, usage, yielded),
 			credentialRotated,
@@ -2413,7 +2413,7 @@ func platformRunNative(
 		completedToolObservation(
 			started,
 			usage,
-			batonSession.handoff(),
+			protocolSession.handoff(),
 		),
 		credentialRotated,
 	), nil
@@ -3303,29 +3303,29 @@ func nativeAutomationAuthorityDigest(
 		return ""
 	}
 	body, err := canonicalJSON(struct {
-		Stage              nativeInvocationStage
-		Arguments          string
-		Tools              string
-		Home               string
-		Workspace          string
-		ProductMounted     bool
-		InputMounted       bool
-		ShellPresent       bool
-		SubmissionPresent  bool
-		BatonToolsPresent  bool
-		WorkspaceToolsSeen bool
+		Stage                nativeInvocationStage
+		Arguments            string
+		Tools                string
+		Home                 string
+		Workspace            string
+		ProductMounted       bool
+		InputMounted         bool
+		ShellPresent         bool
+		SubmissionPresent    bool
+		ProtocolToolsPresent bool
+		WorkspaceToolsSeen   bool
 	}{
-		Stage:              stage,
-		Arguments:          arguments,
-		Tools:              nativeToolDefinitionsDigest(definitions),
-		Home:               "fresh_private",
-		Workspace:          "empty_read_only",
-		ProductMounted:     false,
-		InputMounted:       false,
-		ShellPresent:       false,
-		SubmissionPresent:  false,
-		BatonToolsPresent:  false,
-		WorkspaceToolsSeen: false,
+		Stage:                stage,
+		Arguments:            arguments,
+		Tools:                nativeToolDefinitionsDigest(definitions),
+		Home:                 "fresh_private",
+		Workspace:            "empty_read_only",
+		ProductMounted:       false,
+		InputMounted:         false,
+		ShellPresent:         false,
+		SubmissionPresent:    false,
+		ProtocolToolsPresent: false,
+		WorkspaceToolsSeen:   false,
 	})
 	if err != nil {
 		return ""

@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 	swornruntime "github.com/swornagent/sworn/internal/runtime"
 )
 
@@ -73,7 +73,7 @@ func assemblyInventoryFrom(
 	repository, release, journalPath, runID, binary, targetBefore string,
 ) assemblyInventory {
 	t.Helper()
-	state := readBatonState(t, repository, release)
+	state := readProtocolState(t, repository, release)
 	if state.Assembly.Outcome != "merged" || state.Assembly.ResultCommit == "" {
 		t.Fatalf("inventory needs a merged assembly, got %#v", state.Assembly)
 	}
@@ -231,7 +231,7 @@ func TestRealBinaryAssemblyEvidenceRecordResolvesAndFailsClosed(t *testing.T) {
 
 	// Publish the inventory as a real evidence item and bind the bundle to a
 	// real verifier receipt in this release's slice history.
-	state := readBatonState(t, repository, release)
+	state := readProtocolState(t, repository, release)
 	slice, ok := state.Slice("S1")
 	if !ok || slice.Pass == nil {
 		t.Fatalf("slice S1 has no PASS to bind to: %#v", slice)
@@ -255,7 +255,7 @@ func TestRealBinaryAssemblyEvidenceRecordResolvesAndFailsClosed(t *testing.T) {
 	bundleBytes := assemblyEvidenceBundleBytes(
 		t, release, "S1", pass, itemPath, onDisk, nil,
 	)
-	bundle, err := baton.ParseEvidenceBundle(bundleBytes)
+	bundle, err := protocol.ParseEvidenceBundle(bundleBytes)
 	if err != nil {
 		t.Fatalf("evidence bundle did not admit: %v", err)
 	}
@@ -267,7 +267,7 @@ func TestRealBinaryAssemblyEvidenceRecordResolvesAndFailsClosed(t *testing.T) {
 		resolved.Receipt.Result != "pass" {
 		t.Fatalf("resolved receipt = %#v", resolved.Receipt)
 	}
-	if bundle.Digest() != baton.DigestBytes(bundleBytes) {
+	if bundle.Digest() != protocol.DigestBytes(bundleBytes) {
 		t.Fatal("bundle digest does not name its own bytes")
 	}
 	items := bundle.Items()
@@ -289,7 +289,7 @@ func TestRealBinaryAssemblyEvidenceRecordResolvesAndFailsClosed(t *testing.T) {
 		}
 		if _, err := bundle.Resolve(
 			state, map[string][]byte{itemPath: tampered},
-		); baton.ErrorCode(err) != "STALE_BINDING" {
+		); protocol.ErrorCode(err) != "STALE_BINDING" {
 			t.Fatalf("tampered inventory resolved: %v", err)
 		}
 	})
@@ -300,18 +300,18 @@ func TestRealBinaryAssemblyEvidenceRecordResolvesAndFailsClosed(t *testing.T) {
 				"product_tree": "sha256:" + strings.Repeat("0", 64),
 			},
 		)
-		parsed, err := baton.ParseEvidenceBundle(wrong)
+		parsed, err := protocol.ParseEvidenceBundle(wrong)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if _, err := parsed.Resolve(
 			state, map[string][]byte{itemPath: onDisk},
-		); baton.ErrorCode(err) != "STALE_BINDING" {
+		); protocol.ErrorCode(err) != "STALE_BINDING" {
 			t.Fatalf("wrong product tree resolved: %v", err)
 		}
 	})
 	t.Run("non_verifier_receipt_is_refused", func(t *testing.T) {
-		var candidate *baton.ReceiptEntry
+		var candidate *protocol.ReceiptEntry
 		for index := range slice.History.Entries {
 			entry := &slice.History.Entries[index]
 			if entry.Receipt.Role == "implementer" &&
@@ -326,20 +326,20 @@ func TestRealBinaryAssemblyEvidenceRecordResolvesAndFailsClosed(t *testing.T) {
 			t, release, "S1", pass, itemPath, onDisk,
 			map[string]any{"receipt": candidate.OID},
 		)
-		parsed, err := baton.ParseEvidenceBundle(wrong)
+		parsed, err := protocol.ParseEvidenceBundle(wrong)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if _, err := parsed.Resolve(
 			state, map[string][]byte{itemPath: onDisk},
-		); baton.ErrorCode(err) != "STALE_BINDING" {
+		); protocol.ErrorCode(err) != "STALE_BINDING" {
 			t.Fatalf("non-verifier receipt resolved: %v", err)
 		}
 	})
 	t.Run("missing_item_is_refused", func(t *testing.T) {
 		if _, err := bundle.Resolve(
 			state, map[string][]byte{},
-		); baton.ErrorCode(err) != "EVIDENCE_ITEM_MISSING" {
+		); protocol.ErrorCode(err) != "EVIDENCE_ITEM_MISSING" {
 			t.Fatalf("missing item resolved: %v", err)
 		}
 	})
@@ -351,7 +351,7 @@ func TestRealBinaryAssemblyEvidenceRecordResolvesAndFailsClosed(t *testing.T) {
 func assemblyEvidenceBundleBytes(
 	t *testing.T,
 	release, slice string,
-	pass *baton.ReceiptEntry,
+	pass *protocol.ReceiptEntry,
 	itemPath string,
 	itemBytes []byte,
 	overrides map[string]any,
@@ -362,7 +362,7 @@ func assemblyEvidenceBundleBytes(
 		t.Fatalf("verifier receipt is not fully bound: %#v", pass.Receipt)
 	}
 	value := map[string]any{
-		"schema_version": baton.EvidenceBundleVersion,
+		"schema_version": protocol.EvidenceBundleVersion,
 		"release":        release,
 		"slice":          slice,
 		"attempt":        *pass.Receipt.Attempt,
@@ -374,7 +374,7 @@ func assemblyEvidenceBundleBytes(
 		"items": []any{map[string]any{
 			"path":   itemPath,
 			"kind":   "command-output",
-			"digest": baton.DigestBytes(itemBytes),
+			"digest": protocol.DigestBytes(itemBytes),
 			"bytes":  int64(len(itemBytes)),
 		}},
 	}

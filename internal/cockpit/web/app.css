@@ -35,7 +35,7 @@
   --paper: #ffffff;
   --carbon: #17201e;
   --relay: #2f687a;
-  --baton: #cb432d;
+  --protocol: #cb432d;
   --sworn: #56508a;
   --fault: #a53d47;
   --rule: #c8d1cc;
@@ -231,8 +231,8 @@ main {
   text-transform: uppercase;
 }
 
-.handoff-baton {
-  background: var(--baton);
+.handoff-protocol {
+  background: var(--protocol);
 }
 
 .handoff-sworn {
@@ -434,7 +434,7 @@ main {
 
 .node-handoff > span {
   padding: 0.2rem 0.3rem;
-  background: var(--baton);
+  background: var(--protocol);
 }
 
 .node-handoff > span + span {
@@ -548,7 +548,7 @@ main {
 .attention-panel li {
   padding: 0.9rem;
   background: var(--paper);
-  border: 2px solid var(--baton);
+  border: 2px solid var(--protocol);
 }
 
 .attention-question {

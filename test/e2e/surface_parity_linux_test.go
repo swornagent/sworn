@@ -18,10 +18,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/cockpit"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 	swornruntime "github.com/swornagent/sworn/internal/runtime"
 	"github.com/swornagent/sworn/internal/skill"
 )
@@ -49,7 +49,7 @@ type surfaceRun struct {
 	environment  map[string]string
 	provider     *recoveryE2EProvider
 	planBytes    []byte
-	plan         baton.Plan
+	plan         protocol.Plan
 }
 
 func newSurfaceRun(t *testing.T, binary, runID string) *surfaceRun {

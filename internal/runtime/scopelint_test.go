@@ -17,7 +17,7 @@ func TestRuntimeProposePlanAttemptScopeLintRefusalAndWaiver(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	// 1. Create a real git repository with internal/baton and internal/driver
+	// 1. Create a real git repository with internal/protocol and internal/driver
 	repoDir := filepath.Join(t.TempDir(), "repo")
 	if err := os.MkdirAll(repoDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -57,23 +57,23 @@ func TestRuntimeProposePlanAttemptScopeLintRefusalAndWaiver(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repoDir, "internal", "gitx", "gitx.go"), []byte("package gitx\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(repoDir, "internal", "baton"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(repoDir, "internal", "protocol"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(repoDir, "internal", "baton", "baton.go"), []byte("package baton\n\nimport \"github.com/swornagent/sworn/internal/gitx\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(repoDir, "internal", "protocol", "protocol.go"), []byte("package protocol\n\nimport \"github.com/swornagent/sworn/internal/gitx\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(repoDir, "internal", "driver"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(repoDir, "internal", "driver", "main.go"), []byte("package driver\n\nimport \"github.com/swornagent/sworn/internal/baton\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(repoDir, "internal", "driver", "main.go"), []byte("package driver\n\nimport \"github.com/swornagent/sworn/internal/protocol\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	runGit("add", "--all")
 	runGit("commit", "--quiet", "-m", "initial")
 
-	// 2. Set up under-derived plan (touching internal/baton, omitting internal/driver)
+	// 2. Set up under-derived plan (touching internal/protocol, omitting internal/driver)
 	underDerivedPlanBytes := []byte("```sworn-release-manifest-v1\n" + `{
   "schema_version": "sworn.release-manifest/v1",
   "release": "runtime-scope-lint",
@@ -94,7 +94,7 @@ func TestRuntimeProposePlanAttemptScopeLintRefusalAndWaiver(t *testing.T) {
           "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "depends_on": [],
           "consumes": [],
-          "touchpoints": ["internal/baton"]
+          "touchpoints": ["internal/protocol"]
         }
       ]
     }
@@ -109,11 +109,11 @@ func TestRuntimeProposePlanAttemptScopeLintRefusalAndWaiver(t *testing.T) {
 	manifest.Authority.BootstrapApprovedPlanDigest = nil
 	manifest.Scripts = []ScriptedAttempt{
 		{
-			Responsibility: driver.PlannerProposal,
-			BatonAttempt:   1,
-			Epoch:          1,
-			Try:            1,
-			Behavior:       "submit",
+			Responsibility:  driver.PlannerProposal,
+			ProtocolAttempt: 1,
+			Epoch:           1,
+			Try:             1,
+			Behavior:        "submit",
 		},
 	}
 
@@ -192,7 +192,7 @@ func TestRuntimeProposePlanAttemptScopeLintRefusalAndWaiver(t *testing.T) {
           "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "depends_on": [],
           "consumes": [],
-          "touchpoints": ["internal/baton"],
+          "touchpoints": ["internal/protocol"],
           "waivers": [
             {
               "package": "internal/driver",

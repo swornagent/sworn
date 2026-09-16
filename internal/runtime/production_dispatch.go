@@ -11,10 +11,10 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 const (
@@ -23,13 +23,13 @@ const (
 	productionDispatchVersionV1    = "sworn.production-dispatch/v1"
 	productionDispatchVersion      = "sworn.production-dispatch/v2"
 	productionWorkContextPath      = "work-context.json"
-	productionPlanPath             = "baton/plan.md"
-	productionReceiptPath          = "baton/current-receipt.json"
-	productionReceiptDetailPath    = "baton/current-receipt-detail.md"
-	productionDesignReceiptPath    = "baton/design-receipt.json"
-	productionDesignDetailPath     = "baton/design-receipt-detail.md"
-	productionCaptainEnvelopePath  = "captain/delegation.json"
-	productionCaptainProposalPath  = "captain/proposal.md"
+	productionPlanPath             = "protocol/plan.md"
+	productionReceiptPath          = "protocol/current-receipt.json"
+	productionReceiptDetailPath    = "protocol/current-receipt-detail.md"
+	productionDesignReceiptPath    = "protocol/design-receipt.json"
+	productionDesignDetailPath     = "protocol/design-receipt-detail.md"
+	productionLeadEnvelopePath     = "lead/delegation.json"
+	productionLeadProposalPath     = "lead/proposal.md"
 )
 
 var productionOutputExpectation = sha256Digest(
@@ -39,7 +39,7 @@ var productionOutputExpectation = sha256Digest(
 type dispatchCoordinates struct {
 	Slice           string
 	Responsibility  driver.Responsibility
-	BatonAttempt    int64
+	ProtocolAttempt int64
 	Epoch           int64
 	Try             int64
 	InvocationScope string
@@ -102,7 +102,7 @@ type productionEvidenceBinding struct {
 }
 
 const (
-	productionHostEvidencePath    = "baton/host-evidence.json"
+	productionHostEvidencePath    = "protocol/host-evidence.json"
 	productionHostEvidenceVersion = "sworn.host-evidence/v1"
 )
 
@@ -136,7 +136,7 @@ type productionHostCheckResult struct {
 	HostEffect   string `json:"host_effect"`
 }
 
-type productionCaptainPlanBinding struct {
+type productionLeadPlanBinding struct {
 	EnvelopeDigest    string       `json:"envelope_digest"`
 	EnvelopeEpoch     int64        `json:"envelope_epoch"`
 	EnvelopeInput     driver.Input `json:"envelope_input"`
@@ -179,7 +179,7 @@ type productionWorkContext struct {
 	Candidate          *productionCandidateBinding       `json:"candidate,omitempty"`
 	Evidence           []productionEvidenceBinding       `json:"evidence"`
 	HostEvidence       *productionHostEvidence           `json:"host_evidence,omitempty"`
-	CaptainPlan        *productionCaptainPlanBinding     `json:"captain_plan,omitempty"`
+	LeadPlan           *productionLeadPlanBinding        `json:"lead_plan,omitempty"`
 	Refusal            *productionRefusalBinding         `json:"refusal,omitempty"`
 	PriorSubmission    *productionPriorSubmissionBinding `json:"prior_submission,omitempty"`
 	HostRepair         *productionHostRepair             `json:"host_repair,omitempty"`
@@ -231,8 +231,8 @@ func roleForResponsibility(
 		return driver.RolePlanner, true
 	case driver.ImplementerDesign, driver.ImplementerImplementation:
 		return driver.RoleImplementer, true
-	case driver.CaptainReview, driver.CaptainPlanReview:
-		return driver.RoleCaptain, true
+	case driver.LeadReview, driver.LeadPlanReview:
+		return driver.RoleLead, true
 	case driver.WorkVerification, driver.AssemblyVerification:
 		return driver.RoleVerifier, true
 	default:
@@ -255,7 +255,7 @@ func dispatchInvocationID(
 		runID,
 		work,
 		coordinates.Responsibility,
-		coordinates.BatonAttempt,
+		coordinates.ProtocolAttempt,
 		coordinates.Epoch,
 		coordinates.Try,
 	)
@@ -275,7 +275,7 @@ func invocationIdentity(
 		strconv.FormatInt(try, 10)
 }
 
-func currentPlanBinding(state baton.State) (*productionPlanBinding, error) {
+func currentPlanBinding(state protocol.State) (*productionPlanBinding, error) {
 	for _, history := range state.Plan.History {
 		if history.OID != state.Plan.OID {
 			continue
@@ -301,7 +301,7 @@ func currentPlanBinding(state baton.State) (*productionPlanBinding, error) {
 }
 
 func receiptBinding(
-	entry *baton.ReceiptEntry,
+	entry *protocol.ReceiptEntry,
 ) (*productionReceiptBinding, error) {
 	return namedReceiptBinding(
 		entry,
@@ -313,7 +313,7 @@ func receiptBinding(
 }
 
 func designReceiptBinding(
-	entry *baton.ReceiptEntry,
+	entry *protocol.ReceiptEntry,
 ) (*productionReceiptBinding, error) {
 	return namedReceiptBinding(
 		entry,
@@ -325,7 +325,7 @@ func designReceiptBinding(
 }
 
 func namedReceiptBinding(
-	entry *baton.ReceiptEntry,
+	entry *protocol.ReceiptEntry,
 	bodyName string,
 	bodyPath string,
 	detailName string,
@@ -335,7 +335,7 @@ func namedReceiptBinding(
 		return nil, runtimeFail("INVALID_AUTHORITY_STATE", nil)
 	}
 	body, err := entry.Receipt.CanonicalBytes()
-	if err != nil || entry.Receipt.Detail != baton.DigestBytes(entry.Detail) {
+	if err != nil || entry.Receipt.Detail != protocol.DigestBytes(entry.Detail) {
 		return nil, runtimeFail("INVALID_AUTHORITY_STATE", err)
 	}
 	return &productionReceiptBinding{
@@ -356,7 +356,7 @@ func namedReceiptBinding(
 }
 
 func candidateBinding(
-	entry *baton.ReceiptEntry,
+	entry *protocol.ReceiptEntry,
 ) (*productionCandidateBinding, error) {
 	if entry == nil || entry.Receipt.Candidate == nil {
 		return nil, runtimeFail("INVALID_AUTHORITY_STATE", nil)
@@ -386,7 +386,7 @@ func candidateBinding(
 }
 
 func sliceEvidence(
-	inputs []baton.ConsumedInput,
+	inputs []protocol.ConsumedInput,
 ) []productionEvidenceBinding {
 	result := make([]productionEvidenceBinding, len(inputs))
 	for index, input := range inputs {
@@ -404,7 +404,7 @@ func sliceEvidence(
 }
 
 func assemblyEvidence(
-	state baton.State,
+	state protocol.State,
 ) ([]productionEvidenceBinding, error) {
 	if len(state.Tracks) == 0 ||
 		len(state.Assembly.InputPins) != len(state.Tracks) {
@@ -457,7 +457,7 @@ func assemblyEvidence(
 	return result, nil
 }
 
-func exactPassedSlice(slice *baton.SliceState, trackID string) bool {
+func exactPassedSlice(slice *protocol.SliceState, trackID string) bool {
 	if slice == nil || slice.Location.Track.ID != trackID ||
 		slice.Location.Slice.ID == "" ||
 		slice.Candidate == nil || slice.Candidate.OID == "" ||
@@ -508,7 +508,7 @@ func captureProductionWorkContext(
 ) (productionWorkContext, []byte, error) {
 	role, ok := roleForResponsibility(coordinates.Responsibility)
 	if engine == nil || !ok || !engine.manifest.value.production() ||
-		coordinates.BatonAttempt < 1 || coordinates.Epoch < 1 ||
+		coordinates.ProtocolAttempt < 1 || coordinates.Epoch < 1 ||
 		coordinates.Try < 1 || coordinates.Try > 3 ||
 		!runtimeDigestPattern.MatchString(before) {
 		return productionWorkContext{}, nil,
@@ -528,7 +528,7 @@ func captureProductionWorkContext(
 		Track:              "",
 		Slice:              coordinates.Slice,
 		Responsibility:     coordinates.Responsibility,
-		Attempt:            coordinates.BatonAttempt,
+		Attempt:            coordinates.ProtocolAttempt,
 		Epoch:              coordinates.Epoch,
 		Try:                coordinates.Try,
 		Before:             before,
@@ -543,15 +543,15 @@ func captureProductionWorkContext(
 		if err := capturePlannerWorkContext(engine, coordinates, before, &workContext); err != nil {
 			return productionWorkContext{}, nil, err
 		}
-	} else if coordinates.Responsibility == driver.CaptainPlanReview {
+	} else if coordinates.Responsibility == driver.LeadPlanReview {
 		if coordinates.Slice != "" {
 			return productionWorkContext{}, nil, runtimeFail("INVALID_PRODUCTION_DISPATCH", nil)
 		}
-		if err := captureCaptainPlanReviewContext(ctx, engine, coordinates, before, &workContext); err != nil {
+		if err := captureLeadPlanReviewContext(ctx, engine, coordinates, before, &workContext); err != nil {
 			return productionWorkContext{}, nil, err
 		}
 	} else {
-		if err := captureBatonWorkContext(
+		if err := captureProtocolWorkContext(
 			ctx,
 			engine,
 			coordinates,
@@ -676,7 +676,7 @@ func captureEffectiveLimits(
 	return nil
 }
 
-func captainReviewBefore(proposal admittedPlanProposal, delegation CaptainDelegationState) string {
+func leadReviewBefore(proposal admittedPlanProposal, delegation LeadDelegationState) string {
 	return sha256Digest(mustJSON(struct {
 		SchemaVersion     string `json:"schema_version"`
 		ProposalReplayKey string `json:"proposal_replay_key"`
@@ -685,10 +685,10 @@ func captainReviewBefore(proposal admittedPlanProposal, delegation CaptainDelega
 		EnvelopeEpoch     int64  `json:"envelope_epoch"`
 		TargetHead        string `json:"target_head"`
 		ReleaseHead       string `json:"release_head"`
-	}{"sworn.captain-plan-review-binding/v1", proposal.replayKey, proposal.plan.Digest(), delegation.Digest, delegation.Epoch, proposal.authority.TargetHead, proposal.authority.ReleaseHead}))
+	}{"sworn.lead-plan-review-binding/v1", proposal.replayKey, proposal.plan.Digest(), delegation.Digest, delegation.Epoch, proposal.authority.TargetHead, proposal.authority.ReleaseHead}))
 }
 
-func captureCaptainPlanReviewContext(ctx context.Context, engine *engine, coordinates dispatchCoordinates, before string, workContext *productionWorkContext) error {
+func captureLeadPlanReviewContext(ctx context.Context, engine *engine, coordinates dispatchCoordinates, before string, workContext *productionWorkContext) error {
 	snapshot, err := engineSnapshot(ctx, engine)
 	if err != nil {
 		return err
@@ -697,13 +697,13 @@ func captureCaptainPlanReviewContext(ctx context.Context, engine *engine, coordi
 	if err != nil || manifest.digest != engine.manifest.digest {
 		return runtimeFail("RUN_BINDING_MISMATCH", err)
 	}
-	state, stateErr := baton.ReadState(engine.git, manifest.value.Release, engine.inertness)
+	state, stateErr := protocol.ReadState(engine.git, manifest.value.Release, engine.inertness)
 	proposal, found, _, err := selectPlanProposal(engine, snapshot, proposals, state, stateErr)
 	if err != nil || !found {
 		return runtimeFail("STALE_DISPATCH", err)
 	}
-	delegation, err := currentCaptainDelegation(snapshot)
-	if err != nil || !delegation.Active || captainReviewBefore(proposal, delegation) != before {
+	delegation, err := currentLeadDelegation(snapshot)
+	if err != nil || !delegation.Active || leadReviewBefore(proposal, delegation) != before {
 		return runtimeFail("STALE_DISPATCH", err)
 	}
 	class, err := approvalDecisionClass(proposal)
@@ -711,7 +711,7 @@ func captureCaptainPlanReviewContext(ctx context.Context, engine *engine, coordi
 		return err
 	}
 	workContext.Authority = productionAuthorityBinding{ReleaseRef: proposal.authority.ReleaseRef, ReleaseHead: proposal.authority.ReleaseHead, TargetRef: proposal.authority.TargetRef, TargetHead: proposal.authority.TargetHead}
-	workContext.CaptainPlan = &productionCaptainPlanBinding{EnvelopeDigest: delegation.Digest, EnvelopeEpoch: delegation.Epoch, EnvelopeInput: driver.Input{Name: "captain-delegation", Path: productionCaptainEnvelopePath, Digest: driver.Digest(delegation.EnvelopeBytes)}, ProposalReplayKey: proposal.replayKey, ProposalDigest: proposal.plan.Digest(), ProposalByteCount: int64(len(proposal.plan.Bytes())), ProposalInput: driver.Input{Name: "captain-proposal", Path: productionCaptainProposalPath, Digest: driver.Digest(proposal.plan.Bytes())}, DecisionClass: class, PredicateResults: []string{"authority_active", "bindings_exact", "limits_available", "policy_admitted", "proposal_unique"}, envelopeBody: append([]byte(nil), delegation.EnvelopeBytes...), proposalBody: proposal.plan.Bytes()}
+	workContext.LeadPlan = &productionLeadPlanBinding{EnvelopeDigest: delegation.Digest, EnvelopeEpoch: delegation.Epoch, EnvelopeInput: driver.Input{Name: "lead-delegation", Path: productionLeadEnvelopePath, Digest: driver.Digest(delegation.EnvelopeBytes)}, ProposalReplayKey: proposal.replayKey, ProposalDigest: proposal.plan.Digest(), ProposalByteCount: int64(len(proposal.plan.Bytes())), ProposalInput: driver.Input{Name: "lead-proposal", Path: productionLeadProposalPath, Digest: driver.Digest(proposal.plan.Bytes())}, DecisionClass: class, PredicateResults: []string{"authority_active", "bindings_exact", "limits_available", "policy_admitted", "proposal_unique"}, envelopeBody: append([]byte(nil), delegation.EnvelopeBytes...), proposalBody: proposal.plan.Bytes()}
 	return nil
 }
 
@@ -755,28 +755,28 @@ func capturePlannerWorkContext(
 			if stored.Kind != "planner_continuation" {
 				continue
 			}
-			var continuation CaptainPlannerContinuationCommand
+			var continuation LeadPlannerContinuationCommand
 			if json.Unmarshal(stored.Payload, &continuation) != nil {
 				return runtimeFail("CORRUPT_JOURNAL", nil)
 			}
-			if continuation.PlanRevision == coordinates.BatonAttempt && continuation.PlannerAttempt > authority.PlannerAttempt {
+			if continuation.PlanRevision == coordinates.ProtocolAttempt && continuation.PlannerAttempt > authority.PlannerAttempt {
 				authority.PlannerAttempt = continuation.PlannerAttempt
 				authority.ReplanDecision = continuation.DecisionReplayKey
 			}
 		}
 	}
 	if release.Head.String() == "" {
-		if coordinates.BatonAttempt != 1 {
+		if coordinates.ProtocolAttempt != 1 {
 			return runtimeFail("STALE_DISPATCH", nil)
 		}
 	} else {
-		state, readErr := baton.ReadState(
+		state, readErr := protocol.ReadState(
 			engine.git,
 			engine.manifest.value.Release,
 			engine.inertness,
 		)
 		if readErr != nil ||
-			coordinates.BatonAttempt != state.Plan.Metadata.Revision+1 ||
+			coordinates.ProtocolAttempt != state.Plan.Metadata.Revision+1 ||
 			state.Refs.Release.Head != release.Head.String() ||
 			state.Refs.Target.Head != target.Head.String() {
 			return runtimeFail("STALE_DISPATCH", readErr)
@@ -804,7 +804,7 @@ func capturePlannerWorkContext(
 	}
 	workContext.PlannerAttempt = authority.PlannerAttempt
 	workContext.ReplanDecision = authority.ReplanDecision
-	if coordinates.Try > 1 || authority.PlannerAttempt > 1 || coordinates.BatonAttempt > 1 {
+	if coordinates.Try > 1 || authority.PlannerAttempt > 1 || coordinates.ProtocolAttempt > 1 {
 		coords := coordinates
 		coords.Responsibility = driver.PlannerProposal
 		priorSub, priorErr := capturePriorPlannerSubmission(engine, coords, authority)
@@ -816,20 +816,20 @@ func capturePlannerWorkContext(
 	return nil
 }
 
-func captureBatonWorkContext(
+func captureProtocolWorkContext(
 	ctx context.Context,
 	engine *engine,
 	coordinates dispatchCoordinates,
 	before string,
 	workContext *productionWorkContext,
 ) error {
-	state, err := baton.ReadState(
+	state, err := protocol.ReadState(
 		engine.git,
 		engine.manifest.value.Release,
 		engine.inertness,
 	)
 	if err != nil {
-		return runtimeFail("BATON_UNAVAILABLE", err)
+		return runtimeFail("PROTOCOL_UNAVAILABLE", err)
 	}
 	if !dispatchAuthorityCurrent(
 		state,
@@ -851,7 +851,7 @@ func captureBatonWorkContext(
 	}
 	if coordinates.Responsibility == driver.AssemblyVerification {
 		if coordinates.Slice != "" ||
-			coordinates.BatonAttempt != state.Plan.Metadata.Revision ||
+			coordinates.ProtocolAttempt != state.Plan.Metadata.Revision ||
 			state.Assembly.NextRole != "verifier" ||
 			state.Assembly.Candidate == nil {
 			return runtimeFail("STALE_DISPATCH", nil)
@@ -868,15 +868,15 @@ func captureBatonWorkContext(
 		return err
 	}
 	slice, ok := state.Slice(coordinates.Slice)
-	if !ok || slice.Attempt != coordinates.BatonAttempt ||
+	if !ok || slice.Attempt != coordinates.ProtocolAttempt ||
 		slice.CurrentReceipt == nil {
 		return runtimeFail("STALE_DISPATCH", nil)
 	}
 	switch coordinates.Responsibility {
 	case driver.ImplementerDesign:
 		ok = slice.Stage == "design" && slice.NextRole == "implementer"
-	case driver.CaptainReview:
-		ok = slice.NextRole == "captain"
+	case driver.LeadReview:
+		ok = slice.NextRole == "lead"
 	case driver.ImplementerImplementation:
 		ok = slice.Stage == "implement" && slice.NextRole == "implementer"
 	case driver.WorkVerification:
@@ -935,7 +935,7 @@ func captureBatonWorkContext(
 			return err
 		}
 	}
-	if coordinates.Try > 1 || coordinates.BatonAttempt > 1 {
+	if coordinates.Try > 1 || coordinates.ProtocolAttempt > 1 {
 		priorSub, priorErr := capturePriorSubmission(ctx, engine, coordinates, before)
 		if priorErr != nil {
 			return priorErr
@@ -968,8 +968,8 @@ func captureBatonWorkContext(
 func captureHostEvidence(
 	ctx context.Context,
 	engine *engine,
-	state baton.State,
-	slice *baton.SliceState,
+	state protocol.State,
+	slice *protocol.SliceState,
 	workContext *productionWorkContext,
 ) error {
 	if engine == nil || slice == nil || workContext == nil ||
@@ -979,7 +979,7 @@ func captureHostEvidence(
 	if workContext.Plan == nil {
 		return runtimeFail("INVALID_AUTHORITY_STATE", nil)
 	}
-	plan, err := baton.ParsePlan(workContext.Plan.body)
+	plan, err := protocol.ParsePlan(workContext.Plan.body)
 	if err != nil || plan.Digest() != workContext.Plan.Digest {
 		return runtimeFail("INVALID_AUTHORITY_STATE", nil)
 	}
@@ -1071,15 +1071,15 @@ func readJournaledHostResults(
 }
 
 func currentImplementationDesignReceipt(
-	state baton.State,
-	slice *baton.SliceState,
-	track *baton.TrackState,
-) (*baton.ReceiptEntry, error) {
+	state protocol.State,
+	slice *protocol.SliceState,
+	track *protocol.TrackState,
+) (*protocol.ReceiptEntry, error) {
 	if slice == nil || track == nil || slice.CurrentReceipt == nil ||
 		slice.CurrentReceipt.Receipt.SliceID() != slice.Location.Slice.ID {
 		return nil, runtimeFail("INVALID_AUTHORITY_STATE", nil)
 	}
-	if slice.CurrentReceipt.Receipt.Role != "captain" ||
+	if slice.CurrentReceipt.Receipt.Role != "lead" ||
 		slice.CurrentReceipt.Receipt.Result != "proceed" {
 		return nil, nil
 	}
@@ -1091,7 +1091,7 @@ func currentImplementationDesignReceipt(
 		return nil, runtimeFail("INVALID_AUTHORITY_STATE", nil)
 	}
 	designOID := slice.CurrentReceipt.Receipt.Binds
-	var design *baton.ReceiptEntry
+	var design *protocol.ReceiptEntry
 	for index := range slice.History.Entries {
 		entry := &slice.History.Entries[index]
 		if entry.OID != designOID {
@@ -1151,7 +1151,7 @@ func capturePriorRefusal(
 		engine.manifest.digest,
 		coordinates.Slice,
 		coordinates.Responsibility,
-		coordinates.BatonAttempt,
+		coordinates.ProtocolAttempt,
 		before,
 	)
 	generalDispatchEffect := journal.AttemptEffectID(generalWork, coordinates.Epoch, priorTry)
@@ -1189,7 +1189,7 @@ func extractRefusal(err error) *productionRefusalBinding {
 			TotalPaths: total,
 		}
 	}
-	var recordErr *baton.RecordError
+	var recordErr *protocol.RecordError
 	if errors.As(err, &recordErr) && len(recordErr.Paths) > 0 {
 		total := recordErr.TotalPaths
 		if total < len(recordErr.Paths) {
@@ -1236,7 +1236,7 @@ func capturePriorSubmission(
 	before string,
 ) (*productionPriorSubmissionBinding, error) {
 	if engine == nil || engine.journal == nil ||
-		(coordinates.Try <= 1 && coordinates.BatonAttempt <= 1) {
+		(coordinates.Try <= 1 && coordinates.ProtocolAttempt <= 1) {
 		return nil, nil
 	}
 	snapshot, err := engineSnapshot(ctx, engine)
@@ -1269,10 +1269,10 @@ func capturePriorSubmission(
 		}
 		candAttempt := command.Context.Attempt
 		candTry := command.Context.Try
-		if candAttempt > coordinates.BatonAttempt {
+		if candAttempt > coordinates.ProtocolAttempt {
 			continue
 		}
-		if candAttempt == coordinates.BatonAttempt && candTry >= coordinates.Try {
+		if candAttempt == coordinates.ProtocolAttempt && candTry >= coordinates.Try {
 			continue
 		}
 		eff, found := effectsByID[cmd.ReplayKey]
@@ -1296,10 +1296,10 @@ func capturePriorSubmission(
 		}
 	}
 
-	startAttempt := coordinates.BatonAttempt
+	startAttempt := coordinates.ProtocolAttempt
 	for att := startAttempt; att >= 1; att-- {
 		startTry := int64(3)
-		if att == coordinates.BatonAttempt {
+		if att == coordinates.ProtocolAttempt {
 			startTry = coordinates.Try - 1
 		}
 		for t := startTry; t >= 1; t-- {
@@ -1347,7 +1347,7 @@ func capturePriorSubmission(
 		return nil, nil
 	}
 	provenance := fmt.Sprintf("try %d", best.try)
-	if best.attempt > 1 || coordinates.BatonAttempt > 1 {
+	if best.attempt > 1 || coordinates.ProtocolAttempt > 1 {
 		provenance = fmt.Sprintf("attempt %d, try %d", best.attempt, best.try)
 	}
 	return &productionPriorSubmissionBinding{
@@ -1363,7 +1363,7 @@ func capturePriorPlannerSubmission(
 	authority planProposalAuthority,
 ) (*productionPriorSubmissionBinding, error) {
 	if engine == nil || engine.journal == nil ||
-		(coordinates.Try <= 1 && authority.PlannerAttempt <= 1 && coordinates.BatonAttempt <= 1) {
+		(coordinates.Try <= 1 && authority.PlannerAttempt <= 1 && coordinates.ProtocolAttempt <= 1) {
 		return nil, nil
 	}
 	snapshot, err := engine.journal.Snapshot(context.Background(), engine.manifest.value.RunID)
@@ -1398,9 +1398,9 @@ func capturePriorPlannerSubmission(
 		candPlannerAttempt := command.Context.PlannerAttempt
 		candTry := command.Context.Try
 		isPrior := false
-		if candAttempt < coordinates.BatonAttempt {
+		if candAttempt < coordinates.ProtocolAttempt {
 			isPrior = true
-		} else if candAttempt == coordinates.BatonAttempt {
+		} else if candAttempt == coordinates.ProtocolAttempt {
 			if candPlannerAttempt < authority.PlannerAttempt {
 				isPrior = true
 			} else if candPlannerAttempt == authority.PlannerAttempt && candTry < coordinates.Try {
@@ -1436,7 +1436,7 @@ func capturePriorPlannerSubmission(
 	provenance := fmt.Sprintf("try %d", best.try)
 	if best.plannerAttempt > 1 || authority.PlannerAttempt > 1 {
 		provenance = fmt.Sprintf("planner_attempt %d, try %d", best.plannerAttempt, best.try)
-	} else if best.attempt > 1 || coordinates.BatonAttempt > 1 {
+	} else if best.attempt > 1 || coordinates.ProtocolAttempt > 1 {
 		provenance = fmt.Sprintf("attempt %d, try %d", best.attempt, best.try)
 	}
 	return &productionPriorSubmissionBinding{
@@ -1466,7 +1466,7 @@ func validateProductionWorkContext(
 			dispatchCoordinates{
 				Slice:           workContext.Slice,
 				Responsibility:  workContext.Responsibility,
-				BatonAttempt:    workContext.Attempt,
+				ProtocolAttempt: workContext.Attempt,
 				Epoch:           workContext.Epoch,
 				Try:             workContext.Try,
 				InvocationScope: workContext.InvocationScope,
@@ -1494,7 +1494,7 @@ func validateProductionWorkContext(
 		expected := strings.TrimPrefix(workID, "sha256:")[:12]
 		if workContext.InvocationScope != expected ||
 			(workContext.Responsibility != driver.PlannerProposal &&
-				workContext.Responsibility != driver.CaptainPlanReview) {
+				workContext.Responsibility != driver.LeadPlanReview) {
 			return runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 	}
@@ -1524,8 +1524,8 @@ func validateProductionWorkContext(
 			!utf8.ValidString(sub.Detail) ||
 			strings.ContainsRune(sub.Detail, '\x00') ||
 			strings.ContainsRune(sub.Detail, '\r') ||
-			strings.Contains(sub.Detail, "Baton-Detail-Begin") ||
-			strings.Contains(sub.Detail, "Baton-Detail-End") {
+			strings.Contains(sub.Detail, "Protocol-Detail-Begin") ||
+			strings.Contains(sub.Detail, "Protocol-Detail-End") {
 			return runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 		if !utf8.ValidString(sub.Provenance) ||
@@ -1541,7 +1541,7 @@ func validateProductionWorkContext(
 		if workContext.Responsibility != driver.ImplementerImplementation || !previous || workContext.Plan == nil || repair.Plan != workContext.Plan.OID || repair.Before != workContext.Before || repair.PreparedBase != workContext.Authority.TrackHead {
 			return runtimeFail("CORRUPT_JOURNAL", nil)
 		}
-		prior := dispatchCoordinates{Slice: workContext.Slice, Responsibility: workContext.Responsibility, BatonAttempt: workContext.Attempt, Epoch: repair.SourceEpoch, Try: repair.SourceTry}
+		prior := dispatchCoordinates{Slice: workContext.Slice, Responsibility: workContext.Responsibility, ProtocolAttempt: workContext.Attempt, Epoch: repair.SourceEpoch, Try: repair.SourceTry}
 		if err := validateHostRepair(*workContext.HostRepair, dispatchInvocationID(workContext.RunID, prior), workContext.Slice); err != nil {
 			return err
 		}
@@ -1711,18 +1711,18 @@ func validateProductionWorkContext(
 		}
 	} else if workContext.PlannerAttempt != 0 || workContext.ReplanDecision != "" {
 		return runtimeFail("CORRUPT_JOURNAL", nil)
-	} else if workContext.Responsibility != driver.CaptainPlanReview && (workContext.Plan == nil || workContext.Receipt == nil) {
+	} else if workContext.Responsibility != driver.LeadPlanReview && (workContext.Plan == nil || workContext.Receipt == nil) {
 		return runtimeFail("CORRUPT_JOURNAL", nil)
 	}
 	switch workContext.Responsibility {
-	case driver.CaptainPlanReview:
-		binding := workContext.CaptainPlan
+	case driver.LeadPlanReview:
+		binding := workContext.LeadPlan
 		if workContext.Track != "" || workContext.Slice != "" || workContext.Plan != nil || workContext.Receipt != nil || workContext.DesignReceipt != nil || workContext.Candidate != nil || len(workContext.Evidence) != 0 || binding == nil ||
-			!runtimeDigestPattern.MatchString(binding.EnvelopeDigest) || binding.EnvelopeEpoch < 1 || binding.EnvelopeInput.Name != "captain-delegation" || binding.EnvelopeInput.Path != productionCaptainEnvelopePath || !runtimeDigestPattern.MatchString(binding.EnvelopeInput.Digest) || binding.ProposalReplayKey == "" || !runtimeDigestPattern.MatchString(binding.ProposalDigest) || binding.ProposalByteCount < 1 || binding.ProposalInput.Name != "captain-proposal" || binding.ProposalInput.Path != productionCaptainProposalPath || !runtimeDigestPattern.MatchString(binding.ProposalInput.Digest) || (binding.DecisionClass != PlannerProposalClass && binding.DecisionClass != PlannerReplanClass) || len(binding.PredicateResults) == 0 || captainReviewBeforeFromBinding(binding, workContext.Authority) != workContext.Before {
+			!runtimeDigestPattern.MatchString(binding.EnvelopeDigest) || binding.EnvelopeEpoch < 1 || binding.EnvelopeInput.Name != "lead-delegation" || binding.EnvelopeInput.Path != productionLeadEnvelopePath || !runtimeDigestPattern.MatchString(binding.EnvelopeInput.Digest) || binding.ProposalReplayKey == "" || !runtimeDigestPattern.MatchString(binding.ProposalDigest) || binding.ProposalByteCount < 1 || binding.ProposalInput.Name != "lead-proposal" || binding.ProposalInput.Path != productionLeadProposalPath || !runtimeDigestPattern.MatchString(binding.ProposalInput.Digest) || (binding.DecisionClass != PlannerProposalClass && binding.DecisionClass != PlannerReplanClass) || len(binding.PredicateResults) == 0 || leadReviewBeforeFromBinding(binding, workContext.Authority) != workContext.Before {
 			return runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 	case driver.ImplementerDesign,
-		driver.CaptainReview:
+		driver.LeadReview:
 		if (workContext.SchemaVersion == productionWorkContextVersion &&
 			(workContext.Track == "" ||
 				workContext.Authority.TrackRef !=
@@ -1777,13 +1777,13 @@ func validateProductionWorkContext(
 			return runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 	}
-	if workContext.Responsibility != driver.CaptainPlanReview && workContext.CaptainPlan != nil {
+	if workContext.Responsibility != driver.LeadPlanReview && workContext.LeadPlan != nil {
 		return runtimeFail("CORRUPT_JOURNAL", nil)
 	}
 	return nil
 }
 
-func captainReviewBeforeFromBinding(binding *productionCaptainPlanBinding, authority productionAuthorityBinding) string {
+func leadReviewBeforeFromBinding(binding *productionLeadPlanBinding, authority productionAuthorityBinding) string {
 	return sha256Digest(mustJSON(struct {
 		SchemaVersion     string `json:"schema_version"`
 		ProposalReplayKey string `json:"proposal_replay_key"`
@@ -1792,7 +1792,7 @@ func captainReviewBeforeFromBinding(binding *productionCaptainPlanBinding, autho
 		EnvelopeEpoch     int64  `json:"envelope_epoch"`
 		TargetHead        string `json:"target_head"`
 		ReleaseHead       string `json:"release_head"`
-	}{"sworn.captain-plan-review-binding/v1", binding.ProposalReplayKey, binding.ProposalDigest, binding.EnvelopeDigest, binding.EnvelopeEpoch, authority.TargetHead, authority.ReleaseHead}))
+	}{"sworn.lead-plan-review-binding/v1", binding.ProposalReplayKey, binding.ProposalDigest, binding.EnvelopeDigest, binding.EnvelopeEpoch, authority.TargetHead, authority.ReleaseHead}))
 }
 
 func productionWorkContextV1(
@@ -1916,8 +1916,8 @@ func selectionForRole(
 		return selections.Planner, true
 	case driver.RoleImplementer:
 		return selections.Implementer, true
-	case driver.RoleCaptain:
-		return selections.Captain, true
+	case driver.RoleLead:
+		return selections.Lead, true
 	case driver.RoleVerifier:
 		return selections.Verifier, true
 	default:
@@ -1978,8 +1978,8 @@ func productionRequestForContextFreshness(
 	if workContext.HostEvidence != nil {
 		inputs = append(inputs, workContext.HostEvidence.Input)
 	}
-	if workContext.CaptainPlan != nil {
-		inputs = append(inputs, workContext.CaptainPlan.EnvelopeInput, workContext.CaptainPlan.ProposalInput)
+	if workContext.LeadPlan != nil {
+		inputs = append(inputs, workContext.LeadPlan.EnvelopeInput, workContext.LeadPlan.ProposalInput)
 	}
 	request, err := driver.NewRequest(
 		workContext.InvocationID,
@@ -2084,8 +2084,8 @@ func productionInputContents(
 			},
 		)
 	}
-	if workContext.CaptainPlan != nil {
-		binding := workContext.CaptainPlan
+	if workContext.LeadPlan != nil {
+		binding := workContext.LeadPlan
 		if driver.Digest(binding.envelopeBody) != binding.EnvelopeInput.Digest || driver.Digest(binding.proposalBody) != binding.ProposalInput.Digest {
 			return nil, runtimeFail("INVALID_AUTHORITY_STATE", nil)
 		}

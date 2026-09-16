@@ -36,21 +36,21 @@ type NotificationRedeliverer interface {
 	) error
 }
 
-type captainDelegationRuntime interface {
-	CaptainDelegation(context.Context, runtimepkg.CaptainDelegationCommand) (runtimepkg.CaptainDelegationResult, error)
+type leadDelegationRuntime interface {
+	LeadDelegation(context.Context, runtimepkg.LeadDelegationCommand) (runtimepkg.LeadDelegationResult, error)
 }
 
-func (f *CommandFacade) CaptainDelegation(ctx context.Context, command runtimepkg.CaptainDelegationCommand) (runtimepkg.CaptainDelegationResult, error) {
+func (f *CommandFacade) LeadDelegation(ctx context.Context, command runtimepkg.LeadDelegationCommand) (runtimepkg.LeadDelegationResult, error) {
 	if f == nil || ctx == nil {
-		return runtimepkg.CaptainDelegationResult{}, fail("INVALID_COMMAND")
+		return runtimepkg.LeadDelegationResult{}, fail("INVALID_COMMAND")
 	}
-	runtime, ok := f.runtime.(captainDelegationRuntime)
+	runtime, ok := f.runtime.(leadDelegationRuntime)
 	if !ok {
-		return runtimepkg.CaptainDelegationResult{}, fail("COMMAND_UNAVAILABLE")
+		return runtimepkg.LeadDelegationResult{}, fail("COMMAND_UNAVAILABLE")
 	}
-	result, err := runtime.CaptainDelegation(ctx, command)
+	result, err := runtime.LeadDelegation(ctx, command)
 	if err != nil {
-		return runtimepkg.CaptainDelegationResult{}, fail("COMMAND_REJECTED")
+		return runtimepkg.LeadDelegationResult{}, fail("COMMAND_REJECTED")
 	}
 	return result, nil
 }
@@ -88,7 +88,7 @@ type StartDelegatedCommand struct {
 }
 
 type delegatedStarter interface {
-	StartWithCaptainDelegation(context.Context, []byte, []byte) (runtimepkg.RunStatus, error)
+	StartWithLeadDelegation(context.Context, []byte, []byte) (runtimepkg.RunStatus, error)
 }
 
 func (f *CommandFacade) StartDelegated(ctx context.Context, command StartDelegatedCommand) (runtimepkg.RunStatus, error) {
@@ -103,7 +103,7 @@ func (f *CommandFacade) StartDelegated(ctx context.Context, command StartDelegat
 	if !ok {
 		return runtimepkg.RunStatus{}, fail("COMMAND_UNAVAILABLE")
 	}
-	status, err := runtime.StartWithCaptainDelegation(ctx, manifest.body, command.EnvelopeBytes)
+	status, err := runtime.StartWithLeadDelegation(ctx, manifest.body, command.EnvelopeBytes)
 	if err != nil {
 		return runtimepkg.RunStatus{}, fail("COMMAND_REJECTED")
 	}

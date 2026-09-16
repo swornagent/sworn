@@ -256,7 +256,7 @@ func explicitSelections(profile string) RoleSelections {
 	return RoleSelections{
 		Planner:     RoleSelection{Profile: profile, Model: "planner"},
 		Implementer: RoleSelection{Profile: profile, Model: "implementer"},
-		Captain:     RoleSelection{Profile: profile, Model: "captain"},
+		Lead:        RoleSelection{Profile: profile, Model: "lead"},
 		Verifier:    RoleSelection{Profile: profile, Model: "verifier"},
 	}
 }

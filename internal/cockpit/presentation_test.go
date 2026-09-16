@@ -55,7 +55,7 @@ func TestPresentSnapshotPrioritisesUnconfirmedFactsAndHumanAttention(
 		t.Fatalf("attention presentation = %#v", got)
 	}
 
-	attention.Diagnostics = []Diagnostic{{Code: "BATON_UNAVAILABLE"}}
+	attention.Diagnostics = []Diagnostic{{Code: "PROTOCOL_UNAVAILABLE"}}
 	if got := PresentSnapshot(attention); got.Status != "Needs confirmation" {
 		t.Fatalf("diagnostic presentation = %#v", got)
 	}

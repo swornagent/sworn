@@ -159,7 +159,7 @@ func PresentSnapshot(snapshot Snapshot) RunPresentation {
 		snapshot.Run.Park,
 	)
 	for _, diagnostic := range snapshot.Diagnostics {
-		if diagnostic.Code != "BATON_UNAVAILABLE" {
+		if diagnostic.Code != "PROTOCOL_UNAVAILABLE" {
 			continue
 		}
 		presentation.Status = "Needs confirmation"

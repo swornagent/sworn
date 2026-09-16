@@ -12,9 +12,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 // derivedWorks returns the set of work identities a git.seal command
@@ -726,7 +726,7 @@ func dispatchLineageKey(
 // lineageHasLaterSuccess reports whether the journal already carries a
 // Succeeded driver.dispatch effect sharing lineageKey, for a work other than
 // the streak's own, whose persisted attempt is no lower than the streak's
-// attempt. Baton advances the attempt before the same responsibility
+// attempt. Protocol advances the attempt before the same responsibility
 // dispatches again, so "no lower" can neither under-park an unbroken streak
 // (which has no succeeded dispatch in its own lineage at or after its own
 // attempt) nor over-break a genuine one.
@@ -1053,10 +1053,10 @@ func exhaustionDispatchContext(
 // pins: the track owning its slice, or the release pseudo-lane for a work
 // with no slice of its own (a planner proposal, an assembly dispatch). A
 // park the journal attributes to no dispatch context names no lane, and
-// neither does a slice the current Baton state no longer carries: an
+// neither does a slice the current Protocol state no longer carries: an
 // unattributed park is not silently charged to the release lane.
 func exhaustionParkLane(
-	state baton.State,
+	state protocol.State,
 	park exhaustionParkFacts,
 ) (string, bool) {
 	if !park.attributed {
@@ -1076,7 +1076,7 @@ func exhaustionParkLane(
 // lane each one pins, keeping the first park per lane so one lane is never
 // pinned twice.
 func exhaustionParksByLane(
-	state baton.State,
+	state protocol.State,
 	parks []exhaustionParkFacts,
 ) map[string]exhaustionParkFacts {
 	byLane := make(map[string]exhaustionParkFacts, len(parks))

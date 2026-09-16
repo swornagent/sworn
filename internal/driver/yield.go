@@ -20,13 +20,13 @@ const (
 	YieldQuestion YieldKind = "question"
 	YieldBlocked  YieldKind = "blocked"
 	// Human-only yields are durable operator turn boundaries. Recovery
-	// automation and Captain advisory must never answer them.
+	// automation and Lead advisory must never answer them.
 	YieldHumanChoice       YieldKind = "human_choice"
 	YieldHumanConfirmation YieldKind = "human_confirmation"
 )
 
 // Yield is a non-authoritative worker terminal. It can ask for help or report
-// a real block, but it cannot carry a Baton responsibility, decision, receipt,
+// a real block, but it cannot carry a Protocol responsibility, decision, receipt,
 // or submission permission.
 type Yield struct {
 	SchemaVersion string    `json:"schema_version"`

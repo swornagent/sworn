@@ -4,18 +4,18 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 )
 
-func TestProjectReleaseUsesBatonGraphWithoutInventingRun(t *testing.T) {
-	state := baton.State{
+func TestProjectReleaseUsesProtocolGraphWithoutInventingRun(t *testing.T) {
+	state := protocol.State{
 		Release: "release-1",
-		Tracks: []baton.TrackState{{
+		Tracks: []protocol.TrackState{{
 			ID: "T1",
-			Slices: []*baton.SliceState{{
-				Location: baton.SliceLocation{Slice: baton.Slice{ID: "S1"}},
+			Slices: []*protocol.SliceState{{
+				Location: protocol.SliceLocation{Slice: protocol.Slice{ID: "S1"}},
 				Status:   "ready", NextRole: "implementer",
 			}},
 		}},
@@ -23,7 +23,7 @@ func TestProjectReleaseUsesBatonGraphWithoutInventingRun(t *testing.T) {
 
 	snapshot := ProjectRelease(state)
 	if len(snapshot.Graph.Nodes) != 4 ||
-		!snapshot.Graph.Nodes[2].HasBaton ||
+		!snapshot.Graph.Nodes[2].HasProtocol ||
 		snapshot.Graph.Nodes[2].NextResponsibility != "implementer" {
 		t.Fatalf("release graph = %#v", snapshot.Graph)
 	}
@@ -33,24 +33,24 @@ func TestProjectReleaseUsesBatonGraphWithoutInventingRun(t *testing.T) {
 	}
 }
 
-func TestProjectReleasePresentationNeverNamesBatonAsActiveAuthority(t *testing.T) {
-	for _, state := range []baton.State{
+func TestProjectReleasePresentationNeverNamesProtocolAsActiveAuthority(t *testing.T) {
+	for _, state := range []protocol.State{
 		{Release: "not-started"},
-		{Release: "merged", Assembly: baton.AssemblyState{Status: "complete", Outcome: "merged"}},
-		{Release: "blocked", Assembly: baton.AssemblyState{Status: "blocked"}},
+		{Release: "merged", Assembly: protocol.AssemblyState{Status: "complete", Outcome: "merged"}},
+		{Release: "blocked", Assembly: protocol.AssemblyState{Status: "blocked"}},
 		{
 			Release: "ready",
-			Tracks: []baton.TrackState{{
+			Tracks: []protocol.TrackState{{
 				ID: "T1",
-				Slices: []*baton.SliceState{{
-					Location: baton.SliceLocation{Slice: baton.Slice{ID: "S1"}},
+				Slices: []*protocol.SliceState{{
+					Location: protocol.SliceLocation{Slice: protocol.Slice{ID: "S1"}},
 					Status:   "ready", NextRole: "implementer",
 				}},
 			}},
 		},
 		{
 			Release: "broken",
-			Diagnostics: []baton.Diagnostic{{
+			Diagnostics: []protocol.Diagnostic{{
 				Code: "INVALID_HISTORY", Track: "T1", Work: "S1",
 			}},
 		},
@@ -60,9 +60,9 @@ func TestProjectReleasePresentationNeverNamesBatonAsActiveAuthority(t *testing.T
 			presentation.Status, presentation.What,
 			presentation.Next, presentation.NeedsYou, presentation.Checked,
 		} {
-			if strings.Contains(field, "Baton") {
+			if strings.Contains(field, "Protocol") {
 				t.Fatalf(
-					"release %q presentation names Baton as active authority: %#v",
+					"release %q presentation names Protocol as active authority: %#v",
 					state.Release, presentation,
 				)
 			}
@@ -71,17 +71,17 @@ func TestProjectReleasePresentationNeverNamesBatonAsActiveAuthority(t *testing.T
 }
 
 func TestProjectReleaseReportsCompleteAndDiagnostics(t *testing.T) {
-	complete := ProjectRelease(baton.State{
+	complete := ProjectRelease(protocol.State{
 		Release:  "complete",
-		Assembly: baton.AssemblyState{Status: "complete", Outcome: "merged"},
+		Assembly: protocol.AssemblyState{Status: "complete", Outcome: "merged"},
 	})
 	if complete.Presentation.Status != "Complete" {
 		t.Fatalf("complete presentation = %#v", complete.Presentation)
 	}
 
-	diagnostic := ProjectRelease(baton.State{
+	diagnostic := ProjectRelease(protocol.State{
 		Release: "broken",
-		Diagnostics: []baton.Diagnostic{{
+		Diagnostics: []protocol.Diagnostic{{
 			Code: "INVALID_HISTORY", Track: "T1", Work: "S1",
 		}},
 	})

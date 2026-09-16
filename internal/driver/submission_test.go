@@ -74,13 +74,13 @@ func permissionFixture(
 	return permission, request
 }
 
-// validPlanBytes returns one complete, canonically admissible baton.plan/v2
+// validPlanBytes returns one complete, canonically admissible protocol.plan/v2
 // body: NewPlanBytes/ValidateSubmission now delegate fully to
-// baton.ParsePlan, which requires every plan field and at least one track
+// protocol.ParsePlan, which requires every plan field and at least one track
 // and slice, not just a syntactically valid fenced JSON object.
 func validPlanBytes() []byte {
-	return []byte("```baton-plan-v2\n" + `{
-  "schema_version": "baton.plan/v2",
+	return []byte("```protocol-plan-v2\n" + `{
+  "schema_version": "protocol.plan/v2",
   "release": "fixture",
   "revision": 1,
   "previous_plan": null,
@@ -158,7 +158,7 @@ func TestEverySubmissionPermissionRowAcceptsOnlyItsExactShape(t *testing.T) {
 		{"planner", RolePlanner, PlannerProposal, ""},
 		{"implementer design", RoleImplementer, ImplementerDesign, ""},
 		{"implementer candidate", RoleImplementer, ImplementerImplementation, ""},
-		{"captain", RoleCaptain, CaptainReview, DecisionProceed},
+		{"lead", RoleLead, LeadReview, DecisionProceed},
 		{"work verifier", RoleVerifier, WorkVerification, DecisionPass},
 		{"assembly verifier", RoleVerifier, AssemblyVerification, DecisionBlocked},
 	}
@@ -205,8 +205,8 @@ func TestEverySubmissionPermissionRowAcceptsOnlyItsExactShape(t *testing.T) {
 // pins A3: decodeToolSubmission (the live author-side tool boundary)
 // refuses INVALID_DETAIL for empty or whitespace-only Detail on exactly the
 // five responsibilities detailRequiredResponsibility names, and admits
-// empty Detail for captain_plan_review and assembly_verification.
-// ValidateSubmission itself stays permissive on Detail emptiness (Captain
+// empty Detail for lead_plan_review and assembly_verification.
+// ValidateSubmission itself stays permissive on Detail emptiness (Lead
 // correction C3), because DecodeSubmission also re-admits historical and
 // scripted-fixture bytes that predate this rule.
 func TestDecodeToolSubmissionRequiresNonEmptyDetailOnlyForFlooredResponsibilities(t *testing.T) {
@@ -220,9 +220,9 @@ func TestDecodeToolSubmissionRequiresNonEmptyDetailOnlyForFlooredResponsibilitie
 		{"planner proposal", PlannerProposal, "", true},
 		{"implementer design", ImplementerDesign, "", true},
 		{"implementer implementation", ImplementerImplementation, "", true},
-		{"captain review", CaptainReview, DecisionProceed, true},
+		{"lead review", LeadReview, DecisionProceed, true},
 		{"work verification", WorkVerification, DecisionPass, true},
-		{"captain plan review", CaptainPlanReview, DecisionProceed, false},
+		{"lead plan review", LeadPlanReview, DecisionProceed, false},
 		{"assembly verification", AssemblyVerification, DecisionPass, false},
 	}
 	for _, test := range tests {
@@ -263,7 +263,7 @@ func TestDecodeToolSubmissionRequiresNonEmptyDetailOnlyForFlooredResponsibilitie
 	}
 }
 
-// TestValidateSubmissionAdmitsEmptyDetailForHistoricalDecode pins Captain
+// TestValidateSubmissionAdmitsEmptyDetailForHistoricalDecode pins Lead
 // correction C3 directly: ValidateSubmission (and so DecodeSubmission, used
 // for stored/scripted bytes) must not retroactively refuse a pre-floor
 // submission whose Detail is empty for a responsibility decodeToolSubmission
@@ -471,8 +471,8 @@ func TestDecisionFailScopeIsAdditiveToWorkVerificationFailOnly(t *testing.T) {
 			value.Decision.Scope = FailScopeEvidence
 			return value
 		}(),
-		"captain review": func() Submission {
-			value := submissionFixture(t, verifierRequest.InvocationID, CaptainReview, DecisionRevise)
+		"lead review": func() Submission {
+			value := submissionFixture(t, verifierRequest.InvocationID, LeadReview, DecisionRevise)
 			value.Decision.Scope = FailScopeEvidence
 			return value
 		}(),
@@ -493,7 +493,7 @@ func TestDecisionFailScopeIsAdditiveToWorkVerificationFailOnly(t *testing.T) {
 	}
 }
 
-func TestSubmissionPermissionPinsBatonPackageAdapterAndVerifierDuty(t *testing.T) {
+func TestSubmissionPermissionPinsProtocolPackageAdapterAndVerifierDuty(t *testing.T) {
 	t.Parallel()
 	permission, _ := permissionFixture(t, RolePlanner, PlannerProposal)
 	permission.descriptor.Package.Version = "1.0.0-rc.3"
@@ -517,7 +517,7 @@ func TestSubmissionPermissionPinsBatonPackageAdapterAndVerifierDuty(t *testing.T
 	}
 }
 
-func TestSubmissionCodecMatchesBatonLimitsAndBinaryChecks(t *testing.T) {
+func TestSubmissionCodecMatchesProtocolLimitsAndBinaryChecks(t *testing.T) {
 	t.Parallel()
 	submission := submissionFixture(
 		t,
@@ -558,7 +558,7 @@ func TestSubmissionCodecMatchesBatonLimitsAndBinaryChecks(t *testing.T) {
 			value.Detail = strings.Repeat("d", MaxSubmissionDetailBytes+1)
 		},
 		"detail marker": func(value *Submission) {
-			value.Detail = "Baton-Detail-Begin"
+			value.Detail = "Protocol-Detail-Begin"
 		},
 	} {
 		value := submission

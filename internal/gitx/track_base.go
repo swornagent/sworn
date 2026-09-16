@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-// MaxTrackBaseInputs matches Baton's bounded list cardinality. This transport
+// MaxTrackBaseInputs matches Protocol's bounded list cardinality. This transport
 // must not introduce a narrower topology limit than the admitted plan.
 const MaxTrackBaseInputs = 256
 

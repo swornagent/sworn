@@ -178,7 +178,7 @@ var hardLimitPhrases = []string{
 
 // hardLimitExhausted matches the closed hard-cap phrase table over a
 // normalized provider message. Per the S4-refusal-taxonomy A2 ruling
-// (superseding the prior Captain C2 inert-table reading), a matched phrase
+// (superseding the prior Lead C2 inert-table reading), a matched phrase
 // classifies hard even under a provider-named retry window: the exhaustion
 // vocabulary is live, not classification-inert.
 func hardLimitExhausted(message string) bool {

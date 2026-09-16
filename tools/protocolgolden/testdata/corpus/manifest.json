@@ -1,0 +1,50 @@
+{
+  "schema": "sworn.protocolgolden/v2",
+  "protocol": "1.0.0-rc.14",
+  "generator": "exact embedded Protocol JavaScript reference",
+  "oracle_sha256": "00051605256582bf074d26e4495f41da701e4aa31fc4d5e2b38b6d5afeb453f6",
+  "references": [
+    {
+      "file": "actions.mjs",
+      "sha256": "dfc665b9a114140027844a6525f6d87d730eb981f502a3f27272d956437ebbf5",
+      "bytes": 43225
+    },
+    {
+      "file": "git.mjs",
+      "sha256": "fade956b34e264d9ef9077ab9b73c2aaf63eab92d8ac09839a921582a93876f1",
+      "bytes": 90796
+    },
+    {
+      "file": "receipts.mjs",
+      "sha256": "bde28fdb3b4352d0f5852aa605b16e7713ce7c7d428077b3a3799aed7994b5c9",
+      "bytes": 30919
+    },
+    {
+      "file": "state.mjs",
+      "sha256": "d22af34221eba71c50b6f76a84ddbd47fe145f6883e99d81c8f8d624587a1b75",
+      "bytes": 72875
+    }
+  ],
+  "files": [
+    {
+      "file": "receipts.json",
+      "sha256": "0133b1706b470d7f6a8e7ff694916ad1a437a3ee90e7f8be2c28ebf471a49685",
+      "bytes": 5800
+    },
+    {
+      "file": "actions.json",
+      "sha256": "61708aec6267b552958164dbd20db773517eb81fee63b8884f4cafba90b8de78",
+      "bytes": 28430
+    },
+    {
+      "file": "state.json",
+      "sha256": "233f61001c05dd857202fac2285cb3a343b663d01b22c7f6c543072358e17e99",
+      "bytes": 44194
+    },
+    {
+      "file": "git.json",
+      "sha256": "90d26654a431179aca993932e19d31fa1fbecd99e7884c4fb947ff381880c9b9",
+      "bytes": 8380
+    }
+  ]
+}

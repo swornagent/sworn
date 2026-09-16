@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/gitx"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 func TestRunHostCommandPassFailAndOverflow(t *testing.T) {
@@ -17,33 +17,33 @@ func TestRunHostCommandPassFailAndOverflow(t *testing.T) {
 
 	t.Run("pass", func(t *testing.T) {
 		result := runHostCommand(t.TempDir(), "printf 'ok\\n'", hostCheckOutputBytes, 5*time.Second)
-		if result.Outcome != baton.CheckOutcomePass || result.ExitCode != 0 {
+		if result.Outcome != protocol.CheckOutcomePass || result.ExitCode != 0 {
 			t.Fatalf("pass result = %#v", result)
 		}
 		if !strings.Contains(result.Output, "ok") {
 			t.Fatalf("pass output = %q", result.Output)
 		}
-		if result.OutputDigest != baton.DigestBytes([]byte(result.Output)) {
+		if result.OutputDigest != protocol.DigestBytes([]byte(result.Output)) {
 			t.Fatal("output digest does not match output")
 		}
 	})
 
 	t.Run("fail", func(t *testing.T) {
 		result := runHostCommand(t.TempDir(), "exit 7", hostCheckOutputBytes, 5*time.Second)
-		if result.Outcome != baton.CheckOutcomeFail || result.ExitCode != 7 {
+		if result.Outcome != protocol.CheckOutcomeFail || result.ExitCode != 7 {
 			t.Fatalf("fail result = %#v", result)
 		}
 	})
 
 	t.Run("overflow", func(t *testing.T) {
 		result := runHostCommand(t.TempDir(), "yes x | head -c 1000000", 4096, 5*time.Second)
-		if result.Outcome != baton.CheckOutcomeOverflow {
+		if result.Outcome != protocol.CheckOutcomeOverflow {
 			t.Fatalf("overflow result = %#v", result)
 		}
 		if !result.Truncated {
 			t.Fatal("overflow was not marked truncated")
 		}
-		if !strings.Contains(result.Output, baton.HostCheckTruncationPrefix) {
+		if !strings.Contains(result.Output, protocol.HostCheckTruncationPrefix) {
 			t.Fatalf("overflow output lacks the truthful marker: %q", result.Output)
 		}
 		if len(result.Output) > 8192 {
@@ -63,7 +63,7 @@ func TestRunHostCommandFailsLoudlyWithoutResolvableShell(t *testing.T) {
 		result := runHostCommand(
 			t.TempDir(), "true", hostCheckOutputBytes, 5*time.Second,
 		)
-		if result.Outcome != baton.CheckOutcomeFail || result.ExitCode != -1 {
+		if result.Outcome != protocol.CheckOutcomeFail || result.ExitCode != -1 {
 			t.Fatalf("no-shell result = %#v", result)
 		}
 		if !strings.Contains(result.Diagnostic, "POSIX shell") {
@@ -75,7 +75,7 @@ func TestRunHostCommandFailsLoudlyWithoutResolvableShell(t *testing.T) {
 		result := runHostCommand(
 			t.TempDir(), "true", hostCheckOutputBytes, 5*time.Second,
 		)
-		if result.Outcome != baton.CheckOutcomeFail || result.ExitCode != -1 {
+		if result.Outcome != protocol.CheckOutcomeFail || result.ExitCode != -1 {
 			t.Fatalf("invalid-override result = %#v", result)
 		}
 		if !strings.Contains(result.Diagnostic, "POSIX shell") {
@@ -96,7 +96,7 @@ func TestRunHostCommandFailsLoudlyWithoutResolvableShell(t *testing.T) {
 		result := runHostCommand(
 			t.TempDir(), "printf 'ok\\n'", hostCheckOutputBytes, 5*time.Second,
 		)
-		if result.Outcome != baton.CheckOutcomePass || result.ExitCode != 0 {
+		if result.Outcome != protocol.CheckOutcomePass || result.ExitCode != 0 {
 			t.Fatalf("override result = %#v", result)
 		}
 	})
@@ -105,7 +105,7 @@ func TestRunHostCommandFailsLoudlyWithoutResolvableShell(t *testing.T) {
 func TestRunHostCommandTimeoutIsRecordedAsTimeout(t *testing.T) {
 	t.Parallel()
 	result := runHostCommand(t.TempDir(), "sleep 10", hostCheckOutputBytes, 300*time.Millisecond)
-	if result.Outcome != baton.CheckOutcomeTimeout {
+	if result.Outcome != protocol.CheckOutcomeTimeout {
 		t.Fatalf("timeout result = %#v", result)
 	}
 	if result.Diagnostic == "" {
@@ -121,16 +121,16 @@ func TestHostOutputExcerptKeepsDigestInvariantForFullOutput(t *testing.T) {
 	if truncated || excerpt != full {
 		t.Fatalf("excerpt = %q truncated=%v", excerpt, truncated)
 	}
-	if baton.DigestBytes([]byte(excerpt)) != baton.DigestBytes([]byte(full)) {
+	if protocol.DigestBytes([]byte(excerpt)) != protocol.DigestBytes([]byte(full)) {
 		t.Fatal("excerpt digest differs")
 	}
 
-	big := strings.Repeat("x", baton.HostCheckOutputManifestBytes+10)
+	big := strings.Repeat("x", protocol.HostCheckOutputManifestBytes+10)
 	excerpt, truncated = hostOutputExcerpt(big, false)
 	if !truncated {
 		t.Fatal("large output was not marked truncated")
 	}
-	if !strings.Contains(excerpt, baton.HostCheckTruncationPrefix) {
+	if !strings.Contains(excerpt, protocol.HostCheckTruncationPrefix) {
 		t.Fatalf("large output excerpt lacks marker: %q", excerpt)
 	}
 }
@@ -142,9 +142,9 @@ func TestBuildHostCheckResultsManifestBindsHostAndRoleEntries(t *testing.T) {
 	results := []hostCheckResult{{
 		Slice: "S1", Candidate: strings.Repeat("1", 40),
 		ContractDigest: "sha256:" + strings.Repeat("b", 64),
-		Check:          "go test ./...", Outcome: baton.CheckOutcomePass,
+		Check:          "go test ./...", Outcome: protocol.CheckOutcomePass,
 		ExitCode: 0, Output: "all good\n",
-		OutputDigest: baton.DigestBytes([]byte("all good\n")),
+		OutputDigest: protocol.DigestBytes([]byte("all good\n")),
 		EffectID:     "attempt/host/1/1",
 	}}
 	manifest, err := buildHostCheckResultsManifest(
@@ -154,7 +154,7 @@ func TestBuildHostCheckResultsManifestBindsHostAndRoleEntries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	parsed, err := baton.ParseCheckResults(manifest)
+	parsed, err := protocol.ParseCheckResults(manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,13 +162,13 @@ func TestBuildHostCheckResultsManifestBindsHostAndRoleEntries(t *testing.T) {
 		t.Fatalf("entries = %d", len(parsed.Entries))
 	}
 	host, role := parsed.Entries[0], parsed.Entries[1]
-	if host.Provenance != baton.CheckProvenanceHost ||
-		host.Outcome != baton.CheckOutcomePass ||
+	if host.Provenance != protocol.CheckProvenanceHost ||
+		host.Outcome != protocol.CheckOutcomePass ||
 		host.HostEffect != "attempt/host/1/1" ||
 		host.OutputDigest != results[0].OutputDigest {
 		t.Fatalf("host entry = %#v", host)
 	}
-	if role.Provenance != baton.CheckProvenanceRole ||
+	if role.Provenance != protocol.CheckProvenanceRole ||
 		role.RoleDigest != "sha256:"+strings.Repeat("c", 64) {
 		t.Fatalf("role entry = %#v", role)
 	}
@@ -181,9 +181,9 @@ func TestParseHostCheckResultRejectsSubstitution(t *testing.T) {
 	original := hostCheckResult{
 		Slice: "S1", Candidate: strings.Repeat("1", 40),
 		ContractDigest: "sha256:" + strings.Repeat("b", 64),
-		Check:          "go test ./...", Outcome: baton.CheckOutcomePass,
+		Check:          "go test ./...", Outcome: protocol.CheckOutcomePass,
 		ExitCode: 0, Output: "all good\n",
-		OutputDigest: baton.DigestBytes([]byte("all good\n")),
+		OutputDigest: protocol.DigestBytes([]byte("all good\n")),
 		EffectID:     "attempt/host/1/1",
 	}
 	body := mustJSON(original)

@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 func TestResumeReportsOwnerTransitionUntilExactReplayCanAcquire(t *testing.T) {
@@ -221,8 +221,8 @@ func TestAnswerAttentionReturnsSuccessAndContinuesDrivingInBackground(t *testing
 		t.Fatalf("answerCalls = %d, want 1", answerCalls)
 	}
 
-	// Verify Baton state reached pass/merge stage.
-	state, err := baton.ReadState(fixture.engine.git, fixture.manifest.value.Release, fixture.engine.inertness)
+	// Verify Protocol state reached pass/merge stage.
+	state, err := protocol.ReadState(fixture.engine.git, fixture.manifest.value.Release, fixture.engine.inertness)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -654,30 +654,30 @@ func TestStatusPreservesCompleteForCompletedRunsWhenOwnerExpired(t *testing.T) {
 		t.Fatal(err)
 	}
 	planBytes := []byte(
-		"```baton-plan-v2\n" + string(metadataBody) +
+		"```protocol-plan-v2\n" + string(metadataBody) +
 			"\n```\n\nFixture plan.\n",
 	)
-	plan, err = baton.ParsePlan(planBytes)
+	plan, err = protocol.ParsePlan(planBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
 	digest := plan.Digest()
 	manifest.Authority.BootstrapApprovedPlanDigest = &digest
 	manifest.Scripts = []ScriptedAttempt{
-		{Responsibility: driver.AssemblyVerification, BatonAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
-		{Slice: "S1", Responsibility: driver.CaptainReview, BatonAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
-		{Slice: "S1", Responsibility: driver.ImplementerDesign, BatonAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
-		{Slice: "S1", Responsibility: driver.ImplementerImplementation, BatonAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
-		{Responsibility: driver.PlannerProposal, BatonAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
-		{Slice: "S1", Responsibility: driver.WorkVerification, BatonAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
+		{Responsibility: driver.AssemblyVerification, ProtocolAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
+		{Slice: "S1", Responsibility: driver.LeadReview, ProtocolAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
+		{Slice: "S1", Responsibility: driver.ImplementerDesign, ProtocolAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
+		{Slice: "S1", Responsibility: driver.ImplementerImplementation, ProtocolAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
+		{Responsibility: driver.PlannerProposal, ProtocolAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
+		{Slice: "S1", Responsibility: driver.WorkVerification, ProtocolAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
 	}
 	submission := func(
 		slice string,
 		responsibility driver.Responsibility,
-		batonAttempt int64,
+		protocolAttempt int64,
 	) driver.Submission {
 		script := ScriptedAttempt{Slice: slice, Responsibility: responsibility,
-			BatonAttempt: batonAttempt, Epoch: 1, Try: 1}
+			ProtocolAttempt: protocolAttempt, Epoch: 1, Try: 1}
 		return driver.Submission{
 			SchemaVersion:  driver.SubmissionSchemaVersion,
 			InvocationID:   invocationID(manifest.RunID, script),
@@ -689,8 +689,8 @@ func TestStatusPreservesCompleteForCompletedRunsWhenOwnerExpired(t *testing.T) {
 	planner := submission("", driver.PlannerProposal, 1)
 	planner.Plan, _ = driver.NewPlanBytes(planBytes)
 	design := submission("S1", driver.ImplementerDesign, 1)
-	captain := submission("S1", driver.CaptainReview, 1)
-	captain.Decision, _ = driver.NewDecision(driver.DecisionProceed)
+	lead := submission("S1", driver.LeadReview, 1)
+	lead.Decision, _ = driver.NewDecision(driver.DecisionProceed)
 	implementation := submission("S1", driver.ImplementerImplementation, 1)
 	implementation.Checks, _ = driver.NewCheckBytes([]byte("implementation checks\n"))
 	work := submission("S1", driver.WorkVerification, 1)
@@ -700,7 +700,7 @@ func TestStatusPreservesCompleteForCompletedRunsWhenOwnerExpired(t *testing.T) {
 	assembly.Checks, _ = driver.NewCheckBytes([]byte("assembly checks\n"))
 	assembly.Decision, _ = driver.NewDecision(driver.DecisionPass)
 	manifest.Scripts[0].Submission = encodeSubmission(t, assembly)
-	manifest.Scripts[1].Submission = encodeSubmission(t, captain)
+	manifest.Scripts[1].Submission = encodeSubmission(t, lead)
 	manifest.Scripts[2].Submission = encodeSubmission(t, design)
 	manifest.Scripts[3].Submission = encodeSubmission(t, implementation)
 	manifest.Scripts[4].Submission = encodeSubmission(t, planner)
@@ -721,7 +721,7 @@ func TestStatusPreservesCompleteForCompletedRunsWhenOwnerExpired(t *testing.T) {
 		return gitx.RecordRootDecision{Kind: request.Kind, Repository: request.Repository,
 			RecordRoot: request.RecordRoot, Commit: request.Commit, Decision: "inert"}, nil
 	}
-	actions, err := baton.NewActions(baton.UseGitRepository(repoView), inertness, manifest.GitIdentity)
+	actions, err := protocol.NewActions(protocol.UseGitRepository(repoView), inertness, manifest.GitIdentity)
 	if err != nil {
 		t.Fatal(err)
 	}

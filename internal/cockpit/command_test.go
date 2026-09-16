@@ -27,7 +27,7 @@ type fakeCommandRuntime struct {
 	err            error
 }
 
-func (f *fakeCommandRuntime) StartWithCaptainDelegation(_ context.Context, manifest, envelope []byte) (runtimepkg.RunStatus, error) {
+func (f *fakeCommandRuntime) StartWithLeadDelegation(_ context.Context, manifest, envelope []byte) (runtimepkg.RunStatus, error) {
 	f.startCalls++
 	f.startBody = append([]byte(nil), manifest...)
 	f.delegationBody = append([]byte(nil), envelope...)

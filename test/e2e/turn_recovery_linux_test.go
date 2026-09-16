@@ -16,12 +16,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/cockpit"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
 	"github.com/swornagent/sworn/internal/observe"
+	"github.com/swornagent/sworn/internal/protocol"
 	swornruntime "github.com/swornagent/sworn/internal/runtime"
 )
 
@@ -399,7 +399,7 @@ func (provider *recoveryE2EProvider) submissionArguments(
 	case driver.PlannerProposal:
 		submission.Plan, err = driver.NewPlanBytes(provider.planBytes)
 	case driver.ImplementerDesign:
-	case driver.CaptainReview:
+	case driver.LeadReview:
 		submission.Decision, err = driver.NewDecision(driver.DecisionProceed)
 	case driver.ImplementerImplementation:
 		submission.Checks, err = driver.NewCheckBytes(
@@ -440,27 +440,27 @@ func (provider *recoveryE2EProvider) submissionArguments(
 	return map[string]any{"submission": value}, nil
 }
 
-func recoveryE2EPlan(t *testing.T) ([]byte, baton.Plan) {
+func recoveryE2EPlan(t *testing.T) ([]byte, protocol.Plan) {
 	t.Helper()
-	metadata := baton.Metadata{
-		SchemaVersion: baton.PlanVersion,
+	metadata := protocol.Metadata{
+		SchemaVersion: protocol.PlanVersion,
 		Release:       "turn-recovery-release",
 		Revision:      1,
 		PreviousPlan:  nil,
 		Repository:    "acme-repo",
 		TargetRef:     "refs/heads/main",
 		ApprovalRef:   "operator://turn-recovery-release/1",
-		Tracks: []baton.Track{{
+		Tracks: []protocol.Track{{
 			ID:        "T1",
 			DependsOn: []string{},
-			Slices: []baton.Slice{{
+			Slices: []protocol.Slice{{
 				ID:      "S1",
 				Outcome: "Deliver the matched production fixture.",
-				Scope: baton.Scope{
+				Scope: protocol.Scope{
 					Include: []string{"one.txt"},
 					Exclude: []string{},
 				},
-				Acceptance: []baton.Criterion{{
+				Acceptance: []protocol.Criterion{{
 					ID:   "A-S1",
 					Text: "The matched value is present in the exact product tree.",
 				}},
@@ -476,10 +476,10 @@ func recoveryE2EPlan(t *testing.T) ([]byte, baton.Plan) {
 		t.Fatal(err)
 	}
 	body := []byte(
-		"```baton-plan-v2\n" + string(metadataBody) +
+		"```protocol-plan-v2\n" + string(metadataBody) +
 			"\n```\n\nDeterministic paired turn-recovery E2E.\n",
 	)
-	plan, err := baton.ParsePlan(body)
+	plan, err := protocol.ParsePlan(body)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -559,7 +559,7 @@ func recoveryE2EManifest(
 		Roles: driver.RoleSelections{
 			Planner:     selection,
 			Implementer: selection,
-			Captain:     selection,
+			Lead:        selection,
 			Verifier:    selection,
 		},
 		Automation: &swornruntime.AutomationSelections{
@@ -592,7 +592,7 @@ func runDirectTurnRecoveryBaseline(
 	t *testing.T,
 	swornBinary string,
 	planBytes []byte,
-	plan baton.Plan,
+	plan protocol.Plan,
 ) recoveryE2EPairedResult {
 	t.Helper()
 
@@ -674,7 +674,7 @@ func runDirectTurnRecoveryBaseline(
 	if stderr != "" || !strings.Contains(stdout, "  state: complete") {
 		t.Fatalf("direct resume stdout=%q stderr=%q", stdout, stderr)
 	}
-	finalState := readBatonState(
+	finalState := readProtocolState(
 		t,
 		repository,
 		"turn-recovery-release",
@@ -866,7 +866,7 @@ func TestProductionHumanOnlyTurnUsesOneDurableOperatorBoundary(
 		t.Fatalf("answer actions=%d automation calls=%d", answerActions, automationCalls)
 	}
 
-	beforeAnswer := readBatonState(t, repository, "turn-recovery-release")
+	beforeAnswer := readProtocolState(t, repository, "turn-recovery-release")
 	targetBefore := runGit(t, repository, "rev-parse", "main")
 	stdout, stderr = runBinaryWithEnvironment(
 		t, swornBinary, 0, environment,
@@ -885,7 +885,7 @@ func TestProductionHumanOnlyTurnUsesOneDurableOperatorBoundary(
 	if stderr != "" || !strings.Contains(stdout, "  state: complete") {
 		t.Fatalf("human answer stdout=%q stderr=%q", stdout, stderr)
 	}
-	finalState := readBatonState(t, repository, "turn-recovery-release")
+	finalState := readProtocolState(t, repository, "turn-recovery-release")
 	if beforeAnswer.Plan.OID != finalState.Plan.OID ||
 		finalState.Assembly.Outcome != "merged" ||
 		runGit(t, repository, "rev-parse", "main") == targetBefore ||
@@ -1461,7 +1461,7 @@ func TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce(
 		}
 	}
 
-	parkedState := readBatonState(
+	parkedState := readProtocolState(
 		t,
 		repository,
 		"turn-recovery-release",
@@ -1471,7 +1471,7 @@ func TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce(
 		parkedSlice.NextRole != "implementer" ||
 		parkedSlice.Candidate != nil || parkedSlice.Pass != nil ||
 		parkedSlice.CurrentReceipt == nil ||
-		parkedSlice.CurrentReceipt.Receipt.Role != "captain" ||
+		parkedSlice.CurrentReceipt.Receipt.Role != "lead" ||
 		parkedSlice.CurrentReceipt.Receipt.Result != "proceed" ||
 		runGit(t, repository, "rev-parse", "main") != targetBefore ||
 		runGit(
@@ -1521,7 +1521,7 @@ func TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce(
 	if stderr != "" || !strings.Contains(stdout, "  state: complete") {
 		t.Fatalf("recovery answer stdout=%q stderr=%q", stdout, stderr)
 	}
-	finalState := readBatonState(
+	finalState := readProtocolState(
 		t,
 		repository,
 		"turn-recovery-release",

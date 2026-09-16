@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 )
 
@@ -71,7 +71,7 @@ func (f *fakeRuntime) Status(
 }
 
 type fakeStateReader struct {
-	states []baton.State
+	states []protocol.State
 	errs   []error
 	calls  *[]string
 }
@@ -79,7 +79,7 @@ type fakeStateReader struct {
 func (f *fakeStateReader) Read(
 	context.Context,
 	journal.Run,
-) (baton.State, error) {
+) (protocol.State, error) {
 	*f.calls = append(*f.calls, "state")
 	value := f.states[0]
 	err := f.errs[0]
@@ -96,7 +96,7 @@ func projectionFixture() (
 	journal.Run,
 	journal.Observation,
 	runtimepkg.RunStatus,
-	baton.State,
+	protocol.State,
 ) {
 	now := time.Unix(1_700_100_000, 0).UTC()
 	run := journal.Run{
@@ -132,7 +132,7 @@ func projectionFixture() (
 			},
 			{
 				EffectID: "effect-2", Number: 1,
-				Responsibility: "captain_review",
+				Responsibility: "lead_review",
 				Transport:      "completed",
 				Usage: []byte(
 					`{"token_status":"unavailable","input_tokens":null,` +
@@ -191,57 +191,57 @@ func projectionFixture() (
 		EventOffset: 7,
 	}
 	product := "sha256:" + strings.Repeat("e", 64)
-	sliceOne := &baton.SliceState{
-		Location: baton.SliceLocation{
-			Track: baton.Track{ID: "T1"},
-			Slice: baton.Slice{ID: "S1"},
+	sliceOne := &protocol.SliceState{
+		Location: protocol.SliceLocation{
+			Track: protocol.Track{ID: "T1"},
+			Slice: protocol.Slice{ID: "S1"},
 		},
 		Stage: "implement", Status: "ready", NextRole: "implementer",
 		Outcome: "none", Attempt: 2,
 	}
-	sliceTwo := &baton.SliceState{
-		Location: baton.SliceLocation{
-			Track: baton.Track{ID: "T2", DependsOn: []string{"T1"}},
-			Slice: baton.Slice{
+	sliceTwo := &protocol.SliceState{
+		Location: protocol.SliceLocation{
+			Track: protocol.Track{ID: "T2", DependsOn: []string{"T1"}},
+			Slice: protocol.Slice{
 				ID: "S2", DependsOn: []string{"S1"}, Consumes: []string{"S1"},
 			},
 		},
 		Stage: "design", Status: "waiting", NextRole: "none",
 		Outcome: "none", Attempt: 1,
 	}
-	state := baton.State{
+	state := protocol.State{
 		Release: run.Release, Repository: run.Repository,
-		Plan: baton.PlanState{
+		Plan: protocol.PlanState{
 			Digest: status.PlanDigest,
 		},
-		Refs: baton.StateRefs{
-			Release: baton.CapturedRef{
+		Refs: protocol.StateRefs{
+			Release: protocol.CapturedRef{
 				Ref:  "refs/heads/release-wt/release-1",
 				Head: status.ReleaseHead, State: "direct",
 			},
-			Target: baton.CapturedRef{
+			Target: protocol.CapturedRef{
 				Ref: run.TargetRef, Head: status.TargetHead, State: "direct",
 			},
-			Tracks: []baton.TrackRefState{
-				{ID: "T1", CapturedRef: baton.CapturedRef{
+			Tracks: []protocol.TrackRefState{
+				{ID: "T1", CapturedRef: protocol.CapturedRef{
 					Ref:  "refs/heads/track/release-1/T1",
 					Head: strings.Repeat("3", 40), State: "direct",
 				}},
-				{ID: "T2", CapturedRef: baton.CapturedRef{
+				{ID: "T2", CapturedRef: protocol.CapturedRef{
 					Ref:  "refs/heads/track/release-1/T2",
 					Head: strings.Repeat("4", 40), State: "direct",
 				}},
 			},
 		},
-		Tracks: []baton.TrackState{
-			{ID: "T1", Slices: []*baton.SliceState{sliceOne}},
+		Tracks: []protocol.TrackState{
+			{ID: "T1", Slices: []*protocol.SliceState{sliceOne}},
 			{
 				ID: "T2", DependsOn: []string{"T1"},
-				Slices: []*baton.SliceState{sliceTwo},
+				Slices: []*protocol.SliceState{sliceTwo},
 			},
 		},
-		Slices: []*baton.SliceState{sliceOne, sliceTwo},
-		Assembly: baton.AssemblyState{
+		Slices: []*protocol.SliceState{sliceOne, sliceTwo},
+		Assembly: protocol.AssemblyState{
 			InputPins: map[string]*string{"T1": &product, "T2": nil},
 			Stage:     "verify", Status: "waiting", NextRole: "none", Outcome: "none",
 		},
@@ -254,7 +254,7 @@ func TestProjectorBuildsOneStableTruthfulGraph(t *testing.T) {
 
 	run, observation, status, state := projectionFixture()
 	status.ExternalAuthorizer = "external-authorizer"
-	status.CaptainDelegation = &runtimepkg.CaptainDelegationView{Digest: "sha256:" + strings.Repeat("a", 64), Epoch: 2, State: "active", Decisions: 3, ReplanSpent: 1, ReplanBudget: 4}
+	status.LeadDelegation = &runtimepkg.LeadDelegationView{Digest: "sha256:" + strings.Repeat("a", 64), Epoch: 2, State: "active", Decisions: 3, ReplanSpent: 1, ReplanBudget: 4}
 	var calls []string
 	projector, err := NewProjector(
 		&fakeJournal{
@@ -266,7 +266,7 @@ func TestProjectorBuildsOneStableTruthfulGraph(t *testing.T) {
 			calls:    &calls,
 		},
 		&fakeStateReader{
-			states: []baton.State{state, state},
+			states: []protocol.State{state, state},
 			errs:   []error{nil, nil},
 			calls:  &calls,
 		},
@@ -279,26 +279,26 @@ func TestProjectorBuildsOneStableTruthfulGraph(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.CaptainDelegation == nil || !reflect.DeepEqual(snapshot.CaptainDelegation, status.CaptainDelegation) {
-		t.Fatalf("captain delegation = %#v", snapshot.CaptainDelegation)
+	if snapshot.LeadDelegation == nil || !reflect.DeepEqual(snapshot.LeadDelegation, status.LeadDelegation) {
+		t.Fatalf("lead delegation = %#v", snapshot.LeadDelegation)
 	}
 	var authorityActions []Action
 	for _, action := range snapshot.Actions {
-		if strings.HasPrefix(action.Kind, "captain_delegation_") {
+		if strings.HasPrefix(action.Kind, "lead_delegation_") {
 			authorityActions = append(authorityActions, action)
 		}
 	}
 	if len(authorityActions) != 2 {
-		t.Fatalf("Captain authority actions = %#v", authorityActions)
+		t.Fatalf("Lead authority actions = %#v", authorityActions)
 	}
 	for _, action := range authorityActions {
-		binding := action.CaptainDelegation
+		binding := action.LeadDelegation
 		if binding == nil || binding.RunID != status.RunID ||
 			binding.ManifestDigest != status.ManifestDigest ||
-			binding.ActorClass != runtimepkg.CaptainDelegationActorClass ||
+			binding.ActorClass != runtimepkg.LeadDelegationActorClass ||
 			binding.ActorAuthority != status.ExternalAuthorizer ||
-			binding.CurrentEpoch != 2 || binding.CurrentDigest != status.CaptainDelegation.Digest {
-			t.Fatalf("Captain authority binding = %#v", action)
+			binding.CurrentEpoch != 2 || binding.CurrentDigest != status.LeadDelegation.Digest {
+			t.Fatalf("Lead authority binding = %#v", action)
 		}
 	}
 	wantCalls := []string{
@@ -333,7 +333,7 @@ func TestProjectorBuildsOneStableTruthfulGraph(t *testing.T) {
 		snapshot.Graph.Nodes[1].RuntimeState != "parked" ||
 		snapshot.Graph.Nodes[2].State != "ready" ||
 		snapshot.Graph.Nodes[2].RuntimeState != "parked" ||
-		!snapshot.Graph.Nodes[2].HasBaton ||
+		!snapshot.Graph.Nodes[2].HasProtocol ||
 		snapshot.Graph.Nodes[2].NextResponsibility != "implementer" {
 		t.Fatalf("lane-local park = %#v", snapshot.Graph.Nodes[:3])
 	}
@@ -434,7 +434,7 @@ func TestProjectorFailsClosedWhenObservationNeverStabilizes(t *testing.T) {
 			calls: &calls,
 		},
 		&fakeStateReader{
-			states: []baton.State{state, state, state, state},
+			states: []protocol.State{state, state, state, state},
 			errs:   []error{nil, nil, nil, nil},
 			calls:  &calls,
 		},
@@ -450,7 +450,7 @@ func TestProjectorFailsClosedWhenObservationNeverStabilizes(t *testing.T) {
 	}
 }
 
-func TestProjectorDegradesWithoutInventingBatonProgressOrControls(t *testing.T) {
+func TestProjectorDegradesWithoutInventingProtocolProgressOrControls(t *testing.T) {
 	t.Parallel()
 
 	run, observation, status, state := projectionFixture()
@@ -465,7 +465,7 @@ func TestProjectorDegradesWithoutInventingBatonProgressOrControls(t *testing.T) 
 			calls:    &calls,
 		},
 		&fakeStateReader{
-			states: []baton.State{state, state},
+			states: []protocol.State{state, state},
 			errs: []error{
 				errors.New("missing"),
 				errors.New("missing"),
@@ -485,7 +485,7 @@ func TestProjectorDegradesWithoutInventingBatonProgressOrControls(t *testing.T) 
 		len(snapshot.Graph.Edges) != 0 ||
 		len(snapshot.Actions) != 0 ||
 		len(snapshot.Diagnostics) != 1 ||
-		snapshot.Diagnostics[0].Code != "BATON_UNAVAILABLE" {
+		snapshot.Diagnostics[0].Code != "PROTOCOL_UNAVAILABLE" {
 		t.Fatalf("degraded snapshot = %#v", snapshot)
 	}
 }
@@ -646,7 +646,7 @@ func TestProjectorEventsFilteredByTrack(t *testing.T) {
 						CreatedAt: now.Add(3 * time.Second),
 					},
 					{
-						Offset: 4, Kind: "captain_plan_decided",
+						Offset: 4, Kind: "lead_plan_decided",
 						SafeBody:  nil, // run-scoped legacy / body-free
 						CreatedAt: now.Add(4 * time.Second),
 					},
@@ -772,7 +772,7 @@ func TestProjectorSurfacesExactlyOneRetryActionForParkedCycle(t *testing.T) {
 			calls:    &calls,
 		},
 		&fakeStateReader{
-			states: []baton.State{state, state},
+			states: []protocol.State{state, state},
 			errs:   []error{nil, nil},
 			calls:  &calls,
 		},

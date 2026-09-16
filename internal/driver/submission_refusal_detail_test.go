@@ -70,7 +70,7 @@ func TestSubmissionDeclaresProbeMatchesObservedPayloadsAndAdmitsHonestWork(t *te
 		bound   string
 	}{
 		{"bare test exact", "test", true, "known_probe_declaration"},
-		{"bare probe exact (the 2026-09-12 Captain receipt body)", "probe", true, "known_probe_declaration"},
+		{"bare probe exact (the 2026-09-12 Lead receipt body)", "probe", true, "known_probe_declaration"},
 		{"honest probe-ordering prefix does not match bare probe", "Probe ordering is documented in the design's section three, well past the floor.", false, ""},
 		{"bare test mixed case and padding trims", "  TEST  ", true, "known_probe_declaration"},
 		{"known probe sentence verbatim", "probe: minimal submission to isolate field validation", true, "known_probe_declaration"},
@@ -111,7 +111,7 @@ func TestSubmissionDeclaresProbeMatchesObservedPayloadsAndAdmitsHonestWork(t *te
 	}
 }
 
-// TestSubmitEncodeDetailAttachesBoundOnlyForResourceLimit pins Captain
+// TestSubmitEncodeDetailAttachesBoundOnlyForResourceLimit pins Lead
 // correction C2: the max_submission_bytes bound is named only when the
 // wrapped EncodeSubmission error is actually RESOURCE_LIMIT.
 func TestSubmitEncodeDetailAttachesBoundOnlyForResourceLimit(t *testing.T) {
@@ -144,7 +144,7 @@ func TestSubmitEncodeDetailAttachesBoundOnlyForResourceLimit(t *testing.T) {
 // is cut and ends with the truncation marker rather than losing everything.
 func TestTruncateSubmissionScopeLintPathsBoundsEncodedBytesAndMarksTruncation(t *testing.T) {
 	t.Parallel()
-	short := []string{"internal/driver", "internal/baton"}
+	short := []string{"internal/driver", "internal/protocol"}
 	if got := truncateSubmissionScopeLintPaths(short); len(got) != len(short) {
 		t.Fatalf("short list truncated unexpectedly: %v", got)
 	}
@@ -494,7 +494,7 @@ func TestToolSubmitNamesWrongTypedKnownFieldAndExpectedShape(t *testing.T) {
 	requireSubmissionRefusalExpected(t, res.Content, "contracts entry.digest", "string")
 
 	decisionOutcome := fullShape()
-	decisionOutcome["responsibility"] = string(CaptainReview)
+	decisionOutcome["responsibility"] = string(LeadReview)
 	decisionOutcome["decision"] = map[string]any{"outcome": 1}
 	res = executeToolJSON(t, session, "decision-outcome", "sworn_submit", map[string]any{"submission": decisionOutcome})
 	requireSubmissionRefusalExpected(t, res.Content, "decision.outcome", "string")

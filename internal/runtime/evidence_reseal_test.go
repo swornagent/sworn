@@ -5,35 +5,35 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/gitx"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
-func evidenceResealVerifierFailState() (baton.State, *baton.SliceState) {
-	state := baton.State{Tracks: []baton.TrackState{{
+func evidenceResealVerifierFailState() (protocol.State, *protocol.SliceState) {
+	state := protocol.State{Tracks: []protocol.TrackState{{
 		ID:   "T1",
 		Head: "fail-receipt",
 	}}}
-	slice := &baton.SliceState{
-		Location: baton.SliceLocation{
-			Track: baton.Track{ID: "T1"},
-			Slice: baton.Slice{ID: "S1"},
+	slice := &protocol.SliceState{
+		Location: protocol.SliceLocation{
+			Track: protocol.Track{ID: "T1"},
+			Slice: protocol.Slice{ID: "S1"},
 		},
-		History:  baton.SliceHistory{MaximumAttempt: 1},
+		History:  protocol.SliceHistory{MaximumAttempt: 1},
 		Stage:    "implement",
 		Status:   "ready",
 		NextRole: "implementer",
 		Outcome:  "fail",
 		Attempt:  2,
 		Retained: false,
-		CurrentReceipt: &baton.ReceiptEntry{
+		CurrentReceipt: &protocol.ReceiptEntry{
 			OID: "fail-receipt",
-			Receipt: baton.Receipt{
+			Receipt: protocol.Receipt{
 				Role: "verifier", Result: "fail",
 				FailScope: strPtr("evidence"),
 			},
 		},
-		Candidate: &baton.ReceiptEntry{OID: "candidate-receipt"},
+		Candidate: &protocol.ReceiptEntry{OID: "candidate-receipt"},
 	}
 	return state, slice
 }
@@ -51,28 +51,28 @@ func TestEvidenceOnlyResealMatchesExactlyTheVerifierFailShape(t *testing.T) {
 		t.Fatal("verifier/fail state was misrecognized as a candidate head refresh")
 	}
 
-	for name, mutate := range map[string]func(baton.State, *baton.SliceState) (baton.State, *baton.SliceState){
-		"code-scoped fail": func(s baton.State, sl *baton.SliceState) (baton.State, *baton.SliceState) {
+	for name, mutate := range map[string]func(protocol.State, *protocol.SliceState) (protocol.State, *protocol.SliceState){
+		"code-scoped fail": func(s protocol.State, sl *protocol.SliceState) (protocol.State, *protocol.SliceState) {
 			sl.CurrentReceipt.Receipt.FailScope = nil
 			return s, sl
 		},
-		"unspecified scope": func(s baton.State, sl *baton.SliceState) (baton.State, *baton.SliceState) {
+		"unspecified scope": func(s protocol.State, sl *protocol.SliceState) (protocol.State, *protocol.SliceState) {
 			sl.CurrentReceipt.Receipt.FailScope = strPtr("")
 			return s, sl
 		},
-		"track moved since the fail receipt": func(s baton.State, sl *baton.SliceState) (baton.State, *baton.SliceState) {
+		"track moved since the fail receipt": func(s protocol.State, sl *protocol.SliceState) (protocol.State, *protocol.SliceState) {
 			s.Tracks[0].Head = "some-later-commit"
 			return s, sl
 		},
-		"retained across a plan revision": func(s baton.State, sl *baton.SliceState) (baton.State, *baton.SliceState) {
+		"retained across a plan revision": func(s protocol.State, sl *protocol.SliceState) (protocol.State, *protocol.SliceState) {
 			sl.Retained = true
 			return s, sl
 		},
-		"stale outcome, not fail": func(s baton.State, sl *baton.SliceState) (baton.State, *baton.SliceState) {
+		"stale outcome, not fail": func(s protocol.State, sl *protocol.SliceState) (protocol.State, *protocol.SliceState) {
 			sl.Outcome = "stale"
 			return s, sl
 		},
-		"no candidate": func(s baton.State, sl *baton.SliceState) (baton.State, *baton.SliceState) {
+		"no candidate": func(s protocol.State, sl *protocol.SliceState) (protocol.State, *protocol.SliceState) {
 			sl.Candidate = nil
 			return s, sl
 		},
@@ -103,7 +103,7 @@ func TestSealedRefreshRecordAdmitsEvidenceResealBeyondBinds(t *testing.T) {
 		RefreshFrom: cycle.RefreshFrom,
 		Candidate:   "fail-receipt",
 		ProductTree: "sha256:product",
-		Receipt: baton.AppendReceiptInput{
+		Receipt: protocol.AppendReceiptInput{
 			Release:   cycle.Release,
 			Slice:     cycle.Slice,
 			Role:      "implementer",
@@ -140,7 +140,7 @@ func runRuntimeGitIdentity(t *testing.T, repository string, arguments ...string)
 	}, arguments...)...)
 }
 
-// TestEvidenceResealBaseWalksBackPastChainOfReseals pins Captain correction
+// TestEvidenceResealBaseWalksBackPastChainOfReseals pins Lead correction
 // 1: after two consecutive evidence-only reseals, evidenceResealBase must
 // resolve the parent of the real content commit, not the parent of an
 // intervening metadata (receipt) commit that shares the content's tree -
@@ -180,22 +180,22 @@ func TestEvidenceResealBaseWalksBackPastChainOfReseals(t *testing.T) {
 	v2 := commitTree(i2)
 	i3 := commitTree(v2) // second reseal: Candidate == Binds == v2
 
-	entry := func(oid, parent, role, result string, candidate *string, binds string) baton.ReceiptEntry {
-		return baton.ReceiptEntry{
+	entry := func(oid, parent, role, result string, candidate *string, binds string) protocol.ReceiptEntry {
+		return protocol.ReceiptEntry{
 			OID: oid, Parent: parent,
-			Receipt: baton.Receipt{Role: role, Result: result, Candidate: candidate, Binds: binds},
+			Receipt: protocol.Receipt{Role: role, Result: result, Candidate: candidate, Binds: binds},
 		}
 	}
 	contentCopy, v1Copy, v2Copy := content, v1, v2
-	entries := []baton.ReceiptEntry{
-		entry(i1, content, "implementer", "candidate", &contentCopy, "captain-proceed-placeholder"),
+	entries := []protocol.ReceiptEntry{
+		entry(i1, content, "implementer", "candidate", &contentCopy, "lead-proceed-placeholder"),
 		entry(v1, i1, "verifier", "fail", &contentCopy, i1),
 		entry(i2, v1, "implementer", "candidate", &v1Copy, v1),
 		entry(v2, i2, "verifier", "fail", &v1Copy, i2),
 		entry(i3, v2, "implementer", "candidate", &v2Copy, v2),
 	}
-	slice := &baton.SliceState{
-		History:   baton.SliceHistory{Entries: entries},
+	slice := &protocol.SliceState{
+		History:   protocol.SliceHistory{Entries: entries},
 		Candidate: &entries[4],
 	}
 

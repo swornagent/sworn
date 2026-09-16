@@ -82,9 +82,9 @@ func TestSparseToolSubmissionNormalizesAndRemainsFailClosed(t *testing.T) {
 		t.Fatalf("role-irrelevant field = %#v, error=%v", withoutAuthority, err)
 	}
 	delete(sparse, "decision")
-	sparse["responsibility"] = CaptainReview
+	sparse["responsibility"] = LeadReview
 	if _, err := decodeToolSubmission(sparse); !IsCode(err, "SUBMISSION_SHAPE_MISMATCH") {
-		t.Fatalf("missing required Captain decision error = %v", err)
+		t.Fatalf("missing required Lead decision error = %v", err)
 	}
 	sparse["responsibility"] = ImplementerDesign
 	delete(sparse, "detail")
@@ -419,7 +419,7 @@ func TestModelPromptCarriesRoleAssetAddendumForNonPlannerRolesAndOmitsItForPlann
 	}{
 		{RolePlanner, PlannerProposal, ReadWrite, true},
 		{RoleImplementer, ImplementerImplementation, ReadWrite, true},
-		{RoleCaptain, CaptainReview, ReadOnly, true},
+		{RoleLead, LeadReview, ReadOnly, true},
 		{RoleVerifier, WorkVerification, ReadOnly, false},
 	} {
 		tc := tc
@@ -487,7 +487,7 @@ func TestSubmissionResultFieldsMatchResponsibility(t *testing.T) {
 		PlannerProposal:           "summary,detail,plan",
 		ImplementerDesign:         "summary,detail",
 		ImplementerImplementation: "summary,detail,checks",
-		CaptainReview:             "summary,detail,decision",
+		LeadReview:                "summary,detail,decision",
 		WorkVerification:          "summary,detail,checks,decision",
 		AssemblyVerification:      "summary,detail,checks,decision",
 	} {

@@ -959,7 +959,7 @@ func TestCandidateRecordRootMustMatchExactBase(t *testing.T) {
 			}
 
 			// The historical legacy root stays reserved too: a candidate that
-			// forges a record under .baton/releases is refused exactly like a
+			// forges a record under .protocol/releases is refused exactly like a
 			// change to the configured root.
 			legacyPath := filepath.Join(root, filepath.FromSlash(LegacyRecordsRoot), "demo", "plan.md")
 			if err := os.MkdirAll(filepath.Dir(legacyPath), 0o755); err != nil {
