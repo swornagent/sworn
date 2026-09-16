@@ -525,7 +525,7 @@ func TestNativeSpontaneousExitFailureClassifiesSignalledExitCodes(t *testing.T) 
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			waitErr := exitWith(t, test.code)
-			err := nativeSpontaneousExitFailure(false, ProfileClaude, waitErr, nil)
+			err := nativeSpontaneousExitFailure(false, ProfileClaude, waitErr, nil, nativeResultError{})
 			if test.wantSignalled {
 				detail := decodeNativeSurfaceDetail(t, err)
 				if detail.Check != "dispatch.process_signaled" {

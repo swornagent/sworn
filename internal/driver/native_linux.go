@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -206,6 +207,23 @@ type nativeEventState struct {
 	// error, so the crossing carries its own spent-bytes fact.
 	streamBytes int64
 	err         error
+	// resultErrored and resultErrorDetail retain the CLI's own terminal
+	// "result" event when it reported an error (is_error, or a non-success
+	// subtype), bounded and normalized through the shared provider-detail
+	// discipline (#310). A usage-limit or rate-limit exit otherwise leaves
+	// a zero-byte stderr and an unexplained PROVIDER_TRANSPORT_FAILED.
+	resultErrored     bool
+	resultSubtype     string
+	resultErrorDetail string
+}
+
+// nativeResultError is the retained error result handed to the spontaneous
+// exit classifier: whether the CLI's final result event reported an error,
+// and its bounded, normalized message.
+type nativeResultError struct {
+	errored bool
+	subtype string
+	detail  string
 }
 
 type nativeCaptureRun struct {
@@ -2340,6 +2358,7 @@ func platformRunNative(
 				config.Family,
 				waitErr,
 				transportTail,
+				state.resultError(),
 			)
 		}
 		if automationRun != nil {
@@ -2428,29 +2447,58 @@ func platformRunNative(
 // The exit code is the only observable process fact consulted: stderr
 // remains a leak check first and unparsable stdout remains
 // NATIVE_SURFACE_INVALID.
+//
+// The CLI's own error result outranks a plain transport reading (#310):
+// when the final result event reported an error naming a provider limit
+// (nativeLimitReached), the exit is PROVIDER_LIMITED as a hard wall, so
+// the funnel classifies it hard exhaustion and the engine can park on it
+// rather than spend tries; any other error result rides
+// PROVIDER_TRANSPORT_FAILED's Detail, with the exit status, whenever the
+// stderr tail has nothing to say.
 func nativeSpontaneousExitFailure(
 	staleCredential bool,
 	family ProfileFamily,
 	waitErr error,
 	stderrTail []byte,
+	result nativeResultError,
 ) error {
 	if staleCredential {
 		return fail("CREDENTIAL_STALE")
 	}
+	exitCode := -1
 	var exitErr *exec.ExitError
 	if errors.As(waitErr, &exitErr) {
+		exitCode = exitErr.ExitCode()
 		if code, ok := nativeAuthExitCode(family); ok &&
-			code != 1 && exitErr.ExitCode() == code {
+			code != 1 && exitCode == code {
 			return fail("PROVIDER_AUTHORIZATION_FAILED")
 		}
 		engineKillExit := 128 + int(syscall.SIGTERM)
 		engineKillExitHard := 128 + int(syscall.SIGKILL)
-		if code := exitErr.ExitCode(); code > 128 &&
-			code != engineKillExit && code != engineKillExitHard {
+		if exitCode > 128 &&
+			exitCode != engineKillExit && exitCode != engineKillExitHard {
 			return failNativeSurface("dispatch.process_signaled")
 		}
 	}
+	// The CLI's own turn cap (error_max_turns) is never a provider limit,
+	// whatever its message says about limits.
+	if result.errored && result.subtype != "error_max_turns" &&
+		nativeLimitReached(result.detail) {
+		return &ContractError{
+			Code:      "PROVIDER_LIMITED",
+			Detail:    result.detail,
+			HardLimit: true,
+		}
+	}
 	detail := normalizeProviderErrorDetail(string(stderrTail))
+	if detail == "" && result.errored {
+		detail = result.detail
+		if exitCode >= 0 {
+			detail = normalizeProviderErrorDetail(
+				fmt.Sprintf("exit status %d: %s", exitCode, detail),
+			)
+		}
+	}
 	return &ContractError{Code: "PROVIDER_TRANSPORT_FAILED", Detail: detail}
 }
 
@@ -3484,6 +3532,7 @@ func (state *nativeEventState) accept(body []byte) error {
 		if eventType == "result" {
 			state.turns++
 			state.captureUsage(root["usage"])
+			state.captureResultError(root)
 		}
 	case ProfileCodex:
 		if eventType == "thread.started" {
@@ -3556,6 +3605,75 @@ func (state *nativeEventState) acceptSessionID(body []byte) error {
 	state.launch.capturedID = append([]byte(nil), body...)
 	state.identityAccepted = true
 	return nil
+}
+
+// captureResultError retains a Claude result event that reports an error
+// (#310): is_error true, or a subtype other than "success" (the CLI's
+// error_during_execution / error_max_turns family). The message is the
+// result text prefixed by the subtype, normalized and bounded exactly like
+// an HTTP provider error message, so it can ride a refusal's Detail.
+func (state *nativeEventState) captureResultError(root map[string]any) {
+	subtype, _ := root["subtype"].(string)
+	isError, _ := root["is_error"].(bool)
+	if !isError && (subtype == "" || subtype == "success") {
+		return
+	}
+	text, _ := root["result"].(string)
+	state.resultErrored = true
+	state.resultSubtype = subtype
+	state.resultErrorDetail = nativeResultErrorDetail(subtype, text)
+}
+
+// nativeResultErrorDetail renders one error result as "<subtype>: <text>"
+// (either half alone when the other is absent) through
+// normalizeProviderErrorDetail.
+func nativeResultErrorDetail(subtype, text string) string {
+	message := text
+	if subtype != "" && subtype != "success" {
+		if message != "" {
+			message = subtype + ": " + message
+		} else {
+			message = subtype
+		}
+	}
+	return normalizeProviderErrorDetail(message)
+}
+
+func (state *nativeEventState) resultError() nativeResultError {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	return nativeResultError{
+		errored: state.resultErrored,
+		subtype: state.resultSubtype,
+		detail:  state.resultErrorDetail,
+	}
+}
+
+// nativeLimitPhrases is the closed phrase table that classifies a CLI error
+// result as the provider refusing the account or the request for capacity
+// (#310): the subscription usage limit, a rate limit, an overload, or a
+// quota. Matching is case-insensitive over the normalized result message;
+// the hard-cap spend phrases (hardLimitPhrases) count too.
+var nativeLimitPhrases = []string{
+	"usage limit",
+	"hit your limit",
+	"limit reached",
+	"rate limit",
+	"out of extra usage",
+	"overloaded",
+	"quota",
+}
+
+// nativeLimitReached reports whether a normalized CLI error result names a
+// provider limit.
+func nativeLimitReached(detail string) bool {
+	lower := strings.ToLower(detail)
+	for _, phrase := range nativeLimitPhrases {
+		if strings.Contains(lower, phrase) {
+			return true
+		}
+	}
+	return hardLimitExhausted(detail)
 }
 
 func (state *nativeEventState) captureUsage(value any) {
