@@ -55,8 +55,8 @@ func TestEmptyCatalogUsesSwornOwnedLanguage(t *testing.T) {
 	if !strings.Contains(view, "No Sworn releases found in this project.") {
 		t.Fatalf("empty catalog view = %q", view)
 	}
-	if strings.Contains(view, "Baton") {
-		t.Fatalf("empty catalog view names Baton as active authority: %q", view)
+	if strings.Contains(view, "Protocol") {
+		t.Fatalf("empty catalog view names Protocol as active authority: %q", view)
 	}
 }
 
@@ -67,7 +67,7 @@ func TestMissingReleaseBoardUsesSwornOwnedLanguage(t *testing.T) {
 		selection: selection,
 		board: Board{
 			Selection:   selection,
-			Diagnostics: []cockpit.Diagnostic{{Code: "BATON_UNAVAILABLE"}},
+			Diagnostics: []cockpit.Diagnostic{{Code: "PROTOCOL_UNAVAILABLE"}},
 			Status:      "Needs confirmation",
 			What:        "Sworn found saved run information, but this release's saved state could not be read.",
 			Next:        "Review this release, then refresh.",
@@ -76,8 +76,8 @@ func TestMissingReleaseBoardUsesSwornOwnedLanguage(t *testing.T) {
 		},
 	}
 	view := lipgloss.NewStyle().Render(m.renderBoard(100, 30))
-	if strings.Contains(view, "Baton") {
-		t.Fatalf("missing-release board names Baton as active authority: %q", view)
+	if strings.Contains(view, "Protocol") {
+		t.Fatalf("missing-release board names Protocol as active authority: %q", view)
 	}
 	lower := strings.ToLower(view)
 	if strings.Contains(lower, "restore") || strings.Contains(lower, "prepare") {
@@ -369,7 +369,7 @@ func TestGrantActionOpensAnswerOverlayAndDispatchesTypedAmount(t *testing.T) {
 }
 
 func TestRiskyActionsRequireConfirmation(t *testing.T) {
-	for _, kind := range []string{"start", "start_delegated", "cancel", "retry", "takeover", "captain_delegation_revoke", "captain_delegation_replace"} {
+	for _, kind := range []string{"start", "start_delegated", "cancel", "retry", "takeover", "lead_delegation_revoke", "lead_delegation_replace"} {
 		if !confirmAction(kind) {
 			t.Errorf("%s does not require confirmation", kind)
 		}
@@ -381,37 +381,37 @@ func TestRiskyActionsRequireConfirmation(t *testing.T) {
 	}
 }
 
-func TestCaptainAuthorityControlShowsFullBindingAndRejectsStaleOrNoncanonicalInput(t *testing.T) {
+func TestLeadAuthorityControlShowsFullBindingAndRejectsStaleOrNoncanonicalInput(t *testing.T) {
 	selection := Selection{Release: "release", RunID: "run-1", Source: "source"}
-	binding := &cockpit.CaptainDelegationAction{
+	binding := &cockpit.LeadDelegationAction{
 		Action: "revoke", RunID: "run-1",
 		ManifestDigest: "sha256:" + strings.Repeat("1", 64),
 		ActorClass:     "external_authorizer", ActorAuthority: "release-owner",
 		CurrentEpoch: 3, CurrentDigest: "sha256:" + strings.Repeat("2", 64),
 	}
-	revoke := cockpit.Action{Kind: "captain_delegation_revoke", CaptainDelegation: binding}
+	revoke := cockpit.Action{Kind: "lead_delegation_revoke", LeadDelegation: binding}
 	backend, m := readyBoardModel(selection, revoke)
 	updateModel(t, m, runeKey('a'))
 	updateModel(t, m, specialKey(tea.KeyEnter))
 	view := m.View()
 	for _, exact := range []string{"release-owner", binding.ManifestDigest, binding.CurrentDigest, "Current epoch", "3"} {
 		if !strings.Contains(view, exact) {
-			t.Fatalf("Captain confirmation omitted %q:\n%s", exact, view)
+			t.Fatalf("Lead confirmation omitted %q:\n%s", exact, view)
 		}
 	}
 	drifted := revoke
 	driftedBinding := *binding
 	driftedBinding.CurrentEpoch = 4
-	drifted.CaptainDelegation = &driftedBinding
+	drifted.LeadDelegation = &driftedBinding
 	m.board.Actions = []cockpit.Action{drifted}
 	updateModel(t, m, runeKey('y'))
 	if len(backend.executed) != 0 {
-		t.Fatalf("stale Captain action executed: %#v", backend.executed)
+		t.Fatalf("stale Lead action executed: %#v", backend.executed)
 	}
 
 	replaceBinding := *binding
 	replaceBinding.Action = "replace"
-	replace := cockpit.Action{Kind: "captain_delegation_replace", CaptainDelegation: &replaceBinding}
+	replace := cockpit.Action{Kind: "lead_delegation_replace", LeadDelegation: &replaceBinding}
 	_, m = readyBoardModel(selection, replace)
 	updateModel(t, m, runeKey('a'))
 	updateModel(t, m, specialKey(tea.KeyEnter))
@@ -589,7 +589,7 @@ func TestDiagnosticExplanationsIncludeExplanationAndNextStep(t *testing.T) {
 		{
 			code:            "INVALID_PLAN_FENCE",
 			wantExplanation: "plan format or version is not recognized",
-			wantNextStep:    "Format the plan with ```baton-plan-v2",
+			wantNextStep:    "Format the plan with ```protocol-plan-v2",
 		},
 		{
 			code:            "REF_NOT_FOUND",
@@ -665,7 +665,7 @@ func TestConfigViewSurfacesResolvedMatrixAndSourceFilesWithoutSecrets(t *testing
 		Roles: []RoleMatrixEntry{
 			{Role: "planner", Profile: "google-native", Model: "gemini-3.7-flash", Source: ".sworn/runs/delivery.json"},
 			{Role: "implementer", Profile: "anthropic-native", Model: "claude-3-7-sonnet", Source: ".sworn/runs/delivery.json"},
-			{Role: "captain", Profile: "deepseek-direct", Model: "deepseek-reasoner", Source: ".sworn/runs/delivery.json"},
+			{Role: "lead", Profile: "deepseek-direct", Model: "deepseek-reasoner", Source: ".sworn/runs/delivery.json"},
 			{Role: "verifier", Profile: "qwen-cloud", Model: "qwen-max", Source: ".sworn/runs/delivery.json"},
 			{Role: "recovery", Profile: "anthropic-native", Model: "claude-3-7-sonnet", Source: ".sworn/runs/delivery.json"},
 		},
@@ -675,7 +675,7 @@ func TestConfigViewSurfacesResolvedMatrixAndSourceFilesWithoutSecrets(t *testing
 		},
 		OperatorListen: ConfigItem{Value: "127.0.0.1:7337", Source: ".sworn/operator.json"},
 		OperatorOTel:   ConfigItem{Value: "http://localhost:4318", Source: ".sworn/operator.json"},
-		RecordsRoot:    ConfigItem{Value: ".baton/records", Source: "docs/sworn/sworn.json"},
+		RecordsRoot:    ConfigItem{Value: ".protocol/records", Source: "docs/sworn/sworn.json"},
 		JournalsRoot:   ConfigItem{Value: ".sworn", Source: "docs/sworn/sworn.json"},
 		JournalPath:    ConfigItem{Value: "/repo/.sworn/sworn.db", Source: "docs/sworn/sworn.json"},
 		ManifestDir:    ConfigItem{Value: "/repo/.sworn/runs", Source: "docs/sworn/sworn.json"},
@@ -717,7 +717,7 @@ func TestConfigViewSurfacesResolvedMatrixAndSourceFilesWithoutSecrets(t *testing
 	}
 
 	// Records root & paths
-	if !strings.Contains(view, ".baton/records") || !strings.Contains(view, "docs/sworn/sworn.json") {
+	if !strings.Contains(view, ".protocol/records") || !strings.Contains(view, "docs/sworn/sworn.json") {
 		t.Fatalf("config view missing records root:\n%s", view)
 	}
 	if !strings.Contains(view, "/repo/.sworn/sworn.db") || !strings.Contains(view, "/repo/.sworn/runs") {
@@ -817,7 +817,7 @@ func boardFixture(selection Selection) Board {
 		Selection: selection,
 		Graph: cockpit.Graph{Nodes: []cockpit.Node{
 			{ID: "release:" + selection.Release, Kind: "release", Label: selection.Release, State: "running"},
-			{ID: "slice:S01", Kind: "slice", Label: "S01", State: "ready", NextResponsibility: "implementer", HasBaton: true},
+			{ID: "slice:S01", Kind: "slice", Label: "S01", State: "ready", NextResponsibility: "implementer", HasProtocol: true},
 		}},
 		Status: "Sworn is working", What: "Carrying the next handoff.",
 		Next: "Continue with ready work.", NeedsYou: "No.",

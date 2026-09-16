@@ -49,19 +49,19 @@ type NeedsYouItem struct {
 }
 
 type Snapshot struct {
-	SchemaVersion     string                            `json:"schema_version"`
-	Run               RunView                           `json:"run"`
-	Graph             Graph                             `json:"graph"`
-	Handoff           Handoff                           `json:"handoff"`
-	Runtime           RuntimeView                       `json:"runtime"`
-	Evidence          []Evidence                        `json:"evidence"`
-	Actions           []Action                          `json:"actions"`
-	Diagnostics       []Diagnostic                      `json:"diagnostics"`
-	ThroughOffset     int64                             `json:"through_offset"`
-	ApprovalOffer     *runtimepkg.ApprovalOffer         `json:"approval_offer,omitempty"`
-	CaptainDelegation *runtimepkg.CaptainDelegationView `json:"captain_delegation,omitempty"`
-	Checkpoint        *runtimepkg.CheckpointStatus      `json:"checkpoint,omitempty"`
-	Checkpoints       []runtimepkg.CheckpointStatus     `json:"checkpoints,omitempty"`
+	SchemaVersion  string                         `json:"schema_version"`
+	Run            RunView                        `json:"run"`
+	Graph          Graph                          `json:"graph"`
+	Handoff        Handoff                        `json:"handoff"`
+	Runtime        RuntimeView                    `json:"runtime"`
+	Evidence       []Evidence                     `json:"evidence"`
+	Actions        []Action                       `json:"actions"`
+	Diagnostics    []Diagnostic                   `json:"diagnostics"`
+	ThroughOffset  int64                          `json:"through_offset"`
+	ApprovalOffer  *runtimepkg.ApprovalOffer      `json:"approval_offer,omitempty"`
+	LeadDelegation *runtimepkg.LeadDelegationView `json:"lead_delegation,omitempty"`
+	Checkpoint     *runtimepkg.CheckpointStatus   `json:"checkpoint,omitempty"`
+	Checkpoints    []runtimepkg.CheckpointStatus  `json:"checkpoints,omitempty"`
 }
 
 type RunView struct {
@@ -98,7 +98,7 @@ type Node struct {
 	Outcome            string                       `json:"outcome,omitempty"`
 	NextResponsibility string                       `json:"next_responsibility,omitempty"`
 	Attempt            int64                        `json:"attempt,omitempty"`
-	HasBaton           bool                         `json:"has_baton"`
+	HasProtocol        bool                         `json:"has_protocol"`
 	ContractPath       string                       `json:"contract_path,omitempty"`
 	ContractDigest     string                       `json:"contract_digest,omitempty"`
 	BoundEvidence      []BoundEvidenceItem          `json:"bound_evidence,omitempty"`
@@ -106,7 +106,7 @@ type Node struct {
 }
 
 // Touchpoint is the cockpit's read-only presentation of one
-// baton.TouchpointRelation: a repository path two slices in independent
+// protocol.TouchpointRelation: a repository path two slices in independent
 // tracks both declare, and whether the plan's dependency closure orders
 // them. It carries no scheduling authority.
 type Touchpoint struct {
@@ -159,7 +159,7 @@ type HumanAttentionView struct {
 	Role                  string `json:"role"`
 	Responsibility        string `json:"responsibility"`
 	InvocationID          string `json:"invocation_id"`
-	BatonAttempt          int64  `json:"baton_attempt"`
+	ProtocolAttempt       int64  `json:"protocol_attempt"`
 	PlanAuthorityDigest   string `json:"plan_authority_digest"`
 	TargetAuthorityDigest string `json:"target_authority_digest"`
 	WorkIdentity          string `json:"work_identity"`
@@ -231,7 +231,7 @@ type Action struct {
 	DestinationID      string                      `json:"destination_id,omitempty"`
 	MessageID          string                      `json:"message_id,omitempty"`
 	Approval           *runtimepkg.ApprovalCommand `json:"approval,omitempty"`
-	CaptainDelegation  *CaptainDelegationAction    `json:"captain_delegation,omitempty"`
+	LeadDelegation     *LeadDelegationAction       `json:"lead_delegation,omitempty"`
 	// Unit names the Grant-only economy unit a "grant" action targets,
 	// pre-filled from the pinned work's own park cause. Amount and
 	// AcknowledgeUnknownUsage are left for the operator to supply at
@@ -241,11 +241,11 @@ type Action struct {
 	AcknowledgeUnknownUsage bool   `json:"acknowledge_unknown_usage,omitempty"`
 }
 
-// CaptainDelegationAction carries the complete immutable authority binding
+// LeadDelegationAction carries the complete immutable authority binding
 // that a local cockpit must confirm before asking the shared command service
-// to mutate Captain authority. Envelope bytes are supplied only at execution
+// to mutate Lead authority. Envelope bytes are supplied only at execution
 // time and are independently parsed and rebound by runtime.Service.
-type CaptainDelegationAction struct {
+type LeadDelegationAction struct {
 	Action         string `json:"action"`
 	RunID          string `json:"run_id"`
 	ManifestDigest string `json:"manifest_digest"`

@@ -1,6 +1,6 @@
 # Atomic reviewable submission
 
-Sworn admits one dependency-free Standard work attempt as Baton `reviewable`
+Sworn admits one dependency-free Standard work attempt as protocol `reviewable`
 through a single Store-owned transaction. The command expresses only intent:
 
 ```json
@@ -15,7 +15,7 @@ submit those facts or invoke the pure reducer with a reviewable projection.
 
 The initial path is deliberately narrow:
 
-1. An exact Baton plan selects one Standard work contract, canonical assurance
+1. An exact protocol plan selects one Standard work contract, canonical assurance
    policy, ordered local-check definitions, target, scope, and authority grants.
 2. An authenticated historical approval and its complete source, proof, plan,
    and receipt closure are persisted immutably. This proves provenance; it is
@@ -24,7 +24,7 @@ The initial path is deliberately narrow:
    delivery, work attempt, contract digest, and retained Git candidate.
 4. `checks.dispatch` re-resolves the plan and policy, rebinds the builder and
    configured content runtime, and creates the whole ordered check batch in one
-   transaction. Work becomes internal `checking`; the public Baton board still
+   transaction. Work becomes internal `checking`; the public protocol board still
    reports `active`.
 5. Before each pending `check.local` claim, the controller freshly resolves
    current authority for the exact work, builder, check definition, and runtime.
@@ -38,11 +38,11 @@ The initial path is deliberately narrow:
    ordinal, requires every policy-selected check to be durably `succeeded` and
    semantically `pass`, and revalidates every typed result and artifact closure.
 7. Admission reloads the exact plan and authenticated approval, rechecks
-   approval grants and chronology, validates the embedded Baton snapshot and
+   approval grants and chronology, validates the embedded protocol snapshot and
    request-to-environment runtime binding, and asks the configured repository
    to rederive immutable Git objects, parent, tree, changed paths, scope, and
    candidate-retention facts.
-8. `protocol.BuildSubmission` derives Baton checks and evidence from the
+8. `protocol.BuildSubmission` derives protocol checks and evidence from the
    policy-ordered receipts. It accepts no caller-projected check or evidence
    records and returns one RFC 8785-canonical `submission-v1` record.
 9. The same SQLite transaction writes the accepted command, next engine state,

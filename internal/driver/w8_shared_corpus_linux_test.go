@@ -470,7 +470,7 @@ func w8CorpusP02(t *testing.T, target *w8CorpusTarget) {
 	}{
 		{RolePlanner, PlannerProposal, "", ReadWrite},
 		{RoleImplementer, ImplementerImplementation, "", ReadWrite},
-		{RoleCaptain, CaptainReview, DecisionProceed, ReadOnly},
+		{RoleLead, LeadReview, DecisionProceed, ReadOnly},
 		{RoleVerifier, WorkVerification, DecisionPass, ReadOnly},
 	}
 	for _, row := range rows {
@@ -564,7 +564,7 @@ func w8CorpusP03(t *testing.T, target *w8CorpusTarget) {
 		t.Fatalf("stale operation error = %v", err)
 	}
 	mismatched := invocation.Request
-	mismatched.Role = RoleCaptain
+	mismatched.Role = RoleLead
 	if err := ValidateRequest(mismatched); !IsCode(err, "OPERATION_ROLE_MISMATCH") {
 		t.Fatalf("role/operation mismatch error = %v", err)
 	}

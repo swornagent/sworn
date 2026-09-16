@@ -11,7 +11,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/swornagent/sworn/internal/baton"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 // S5-A3: check evidence carries provenance. Every Bash call a verifier's
@@ -24,18 +24,18 @@ import (
 // turn instead of losing it silently to a post-turn backstop.
 
 const (
-	// checkEvidenceEntryLimit matches baton.MaxListItems, the manifest's own
+	// checkEvidenceEntryLimit matches protocol.MaxListItems, the manifest's own
 	// entries-array bound.
-	checkEvidenceEntryLimit = baton.MaxListItems
+	checkEvidenceEntryLimit = protocol.MaxListItems
 	// checkEvidenceByteBudget is a running total ceiling well under
-	// baton.MaxCheckBytes/MaxEvidenceBytes (1,048,576), leaving headroom for
+	// protocol.MaxCheckBytes/MaxEvidenceBytes (1,048,576), leaving headroom for
 	// the JSON envelope and the outer submission's own share of the same
 	// cap once base64-encoded.
 	checkEvidenceByteBudget      = 512 * 1024
 	checkCommandTruncationMarker = "...[truncated]"
 )
 
-// recordCheckEvidence appends one baton.CheckResultEntry for a completed
+// recordCheckEvidence appends one protocol.CheckResultEntry for a completed
 // Bash call. It never holds session.mu while redacting: redactionSecrets
 // itself locks session.mu, so redacting first and locking only to append
 // avoids a self-deadlock on the session's own (non-reentrant) mutex.
@@ -44,15 +44,15 @@ func (session *toolSession) recordCheckEvidence(
 ) {
 	outcome, diagnostic := checkResultOutcome(code, runErr)
 	redacted, _ := redactToolResultSpan(output, session.redactionSecrets())
-	roleDigest := baton.DigestBytes(redacted)
+	roleDigest := protocol.DigestBytes(redacted)
 	excerpt, truncated := boundedCheckExcerpt(redacted)
 	check := script
-	if len(check) > baton.MaxCheckCommandBytes {
+	if len(check) > protocol.MaxCheckCommandBytes {
 		check = truncateCheckCommand(check)
 	}
-	entry := baton.CheckResultEntry{
+	entry := protocol.CheckResultEntry{
 		Check:      check,
-		Provenance: baton.CheckProvenanceRole,
+		Provenance: protocol.CheckProvenanceRole,
 		Outcome:    outcome,
 		Diagnostic: diagnostic,
 		RoleDigest: roleDigest,
@@ -70,7 +70,7 @@ func (session *toolSession) recordCheckEvidence(
 // appendCheckEvidenceLocked evicts the oldest recorded entry first whenever
 // the new one would cross either bound, so the declared checks a verifier
 // runs last are never the ones dropped.
-func (session *toolSession) appendCheckEvidenceLocked(entry baton.CheckResultEntry) {
+func (session *toolSession) appendCheckEvidenceLocked(entry protocol.CheckResultEntry) {
 	size := checkEvidenceEntrySize(entry)
 	if size > checkEvidenceByteBudget {
 		return
@@ -86,7 +86,7 @@ func (session *toolSession) appendCheckEvidenceLocked(entry baton.CheckResultEnt
 	session.checkEvidenceBytes += size
 }
 
-func checkEvidenceEntrySize(entry baton.CheckResultEntry) int {
+func checkEvidenceEntrySize(entry protocol.CheckResultEntry) int {
 	encoded, err := json.Marshal(entry)
 	if err != nil {
 		return 0
@@ -94,10 +94,10 @@ func checkEvidenceEntrySize(entry baton.CheckResultEntry) int {
 	return len(encoded)
 }
 
-func (session *toolSession) snapshotCheckEvidence() []baton.CheckResultEntry {
+func (session *toolSession) snapshotCheckEvidence() []protocol.CheckResultEntry {
 	session.mu.Lock()
 	defer session.mu.Unlock()
-	return append([]baton.CheckResultEntry(nil), session.checkEvidence...)
+	return append([]protocol.CheckResultEntry(nil), session.checkEvidence...)
 }
 
 // checkResultOutcome classifies one Bash call's result exactly as observed:
@@ -112,20 +112,20 @@ func (session *toolSession) snapshotCheckEvidence() []baton.CheckResultEntry {
 func checkResultOutcome(code int, runErr error) (outcome, diagnostic string) {
 	if runErr == nil {
 		if code == 0 {
-			return baton.CheckOutcomePass, ""
+			return protocol.CheckOutcomePass, ""
 		}
-		return baton.CheckOutcomeFail, fmt.Sprintf("exited %d", code)
+		return protocol.CheckOutcomeFail, fmt.Sprintf("exited %d", code)
 	}
 	if isContextError(runErr) {
-		return baton.CheckOutcomeTimeout, runErr.Error()
+		return protocol.CheckOutcomeTimeout, runErr.Error()
 	}
 	if IsCode(runErr, "OUTPUT_OVERFLOW") {
-		return baton.CheckOutcomeOverflow, "OUTPUT_OVERFLOW"
+		return protocol.CheckOutcomeOverflow, "OUTPUT_OVERFLOW"
 	}
 	if diag := contractErrorDiagnostic(runErr); diag != "" {
-		return baton.CheckOutcomeFail, diag
+		return protocol.CheckOutcomeFail, diag
 	}
-	return baton.CheckOutcomeFail, "harness error"
+	return protocol.CheckOutcomeFail, "harness error"
 }
 
 func contractErrorCode(err error) string {
@@ -158,21 +158,21 @@ func boundedCheckExcerpt(redacted []byte) (excerpt string, truncated bool) {
 	if len(redacted) == 0 {
 		return "", false
 	}
-	if len(redacted) <= baton.HostCheckOutputManifestBytes {
+	if len(redacted) <= protocol.HostCheckOutputManifestBytes {
 		return strings.ToValidUTF8(string(redacted), "�"), false
 	}
-	cut := redacted[:baton.HostCheckOutputManifestBytes]
-	marked := baton.HostCheckTruncationPrefix + " at " +
-		strconv.Itoa(baton.HostCheckOutputManifestBytes) + " bytes]\n" + string(cut)
+	cut := redacted[:protocol.HostCheckOutputManifestBytes]
+	marked := protocol.HostCheckTruncationPrefix + " at " +
+		strconv.Itoa(protocol.HostCheckOutputManifestBytes) + " bytes]\n" + string(cut)
 	return strings.ToValidUTF8(marked, "�"), true
 }
 
-// truncateCheckCommand bounds a recorded command to baton.MaxCheckCommandBytes,
+// truncateCheckCommand bounds a recorded command to protocol.MaxCheckCommandBytes,
 // keeping the head: CheckCommandCovers matches a declared check as a prefix
 // of the recorded command, so preserving the head keeps coverage possible
 // even for a script far longer than the manifest's own per-entry bound.
 func truncateCheckCommand(script string) string {
-	limit := baton.MaxCheckCommandBytes - len(checkCommandTruncationMarker)
+	limit := protocol.MaxCheckCommandBytes - len(checkCommandTruncationMarker)
 	if limit < 0 {
 		limit = 0
 	}
@@ -205,10 +205,10 @@ type verifierContractBinding struct {
 // resolveVerifierContractBinding resolves the declared checks and binding
 // identity for this invocation's slice entirely from data internal/driver
 // already receives: work-context.json and plan.md are already
-// Invocation.Inputs for every baton-dispatched role (production_dispatch.go),
+// Invocation.Inputs for every protocol-dispatched role (production_dispatch.go),
 // and the contract bytes are read directly from the checked-out workspace
 // tree at the path the plan declares. No new Invocation field, no
-// internal/runtime change, no repository handle - baton.ParsePlan and
+// internal/runtime change, no repository handle - protocol.ParsePlan and
 // Plan.ResolveSliceContract are pure over already-admitted bytes.
 func resolveVerifierContractBinding(invocation Invocation) verifierContractBinding {
 	var context struct {
@@ -231,7 +231,7 @@ func resolveVerifierContractBinding(invocation Invocation) verifierContractBindi
 	if context.Slice == "" || planBytes == nil {
 		return binding
 	}
-	plan, err := baton.ParsePlan(planBytes)
+	plan, err := protocol.ParsePlan(planBytes)
 	if err != nil {
 		return binding
 	}
@@ -262,7 +262,7 @@ func resolveVerifierContractBinding(invocation Invocation) verifierContractBindi
 // readPinnedWorkspaceFile reads a workspace-relative path's exact bytes,
 // refusing anything but a plain regular file that stays under root - the
 // same discipline native.go's openPinnedRuntimeFile applies for a different
-// purpose - and bounding the read at baton.MaxPlanBytes.
+// purpose - and bounding the read at protocol.MaxPlanBytes.
 func readPinnedWorkspaceFile(root, relative string) ([]byte, error) {
 	if relative == "" || filepath.IsAbs(relative) {
 		return nil, fail("INVALID_CONTRACT_PATH")
@@ -285,23 +285,23 @@ func readPinnedWorkspaceFile(root, relative string) ([]byte, error) {
 		return nil, fail("INVALID_CONTRACT_PATH")
 	}
 	defer file.Close()
-	body, err := io.ReadAll(io.LimitReader(file, baton.MaxPlanBytes+1))
-	if err != nil || int64(len(body)) > baton.MaxPlanBytes {
+	body, err := io.ReadAll(io.LimitReader(file, protocol.MaxPlanBytes+1))
+	if err != nil || int64(len(body)) > protocol.MaxPlanBytes {
 		return nil, fail("INVALID_CONTRACT_PATH")
 	}
 	return body, nil
 }
 
 // firstUncoveredCheck returns the first declared check with no recorded
-// entry that both matches it (baton.CheckCommandCovers) and observed pass.
+// entry that both matches it (protocol.CheckCommandCovers) and observed pass.
 func firstUncoveredCheck(
-	declaredChecks []string, entries []baton.CheckResultEntry,
+	declaredChecks []string, entries []protocol.CheckResultEntry,
 ) (check string, incomplete bool) {
 	for _, declared := range declaredChecks {
 		covered := false
 		for _, entry := range entries {
-			if entry.Outcome == baton.CheckOutcomePass &&
-				baton.CheckCommandCovers(declared, entry.Check) {
+			if entry.Outcome == protocol.CheckOutcomePass &&
+				protocol.CheckCommandCovers(declared, entry.Check) {
 				covered = true
 				break
 			}
@@ -314,14 +314,14 @@ func firstUncoveredCheck(
 }
 
 // lastAttemptSandboxDetail inspects recorded entries in reverse order to find
-// the last recorded attempt matching declaredCheck (via baton.CheckCommandCovers).
+// the last recorded attempt matching declaredCheck (via protocol.CheckCommandCovers).
 // When that last attempt failed with PROCESS_START_FAILED carrying a valid
 // sandbox_start.* detail envelope, it extracts the check and cause from the
 // re-validated envelope. Both return empty strings if no attempt matched, if
 // the last attempt was not a sandbox-start failure, or if re-validation failed.
-func lastAttemptSandboxDetail(declaredCheck string, entries []baton.CheckResultEntry) (sandboxCheck, sandboxCause string) {
+func lastAttemptSandboxDetail(declaredCheck string, entries []protocol.CheckResultEntry) (sandboxCheck, sandboxCause string) {
 	for i := len(entries) - 1; i >= 0; i-- {
-		if baton.CheckCommandCovers(declaredCheck, entries[i].Check) {
+		if protocol.CheckCommandCovers(declaredCheck, entries[i].Check) {
 			const prefix = "PROCESS_START_FAILED detail="
 			diag := entries[i].Diagnostic
 			if !strings.HasPrefix(diag, prefix) {
@@ -364,15 +364,15 @@ func (session *toolSession) applyCheckEvidence(submission *Submission) error {
 	if len(entries) == 0 {
 		return nil
 	}
-	results := baton.CheckResults{
-		SchemaVersion:  baton.CheckResultsVersion,
+	results := protocol.CheckResults{
+		SchemaVersion:  protocol.CheckResultsVersion,
 		Release:        binding.release,
 		Slice:          binding.slice,
 		Attempt:        binding.attempt,
 		ContractDigest: binding.contractDigest,
 		Entries:        entries,
 	}
-	encoded, err := baton.EncodeCheckResults(results)
+	encoded, err := protocol.EncodeCheckResults(results)
 	if err != nil {
 		return submitCheckEvidenceEncodeError(err)
 	}

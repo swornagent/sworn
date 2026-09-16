@@ -693,7 +693,7 @@ func (r *Repository) prepareTwoParentComposition(
 	}
 	timestamp++
 	rawCommit, err := r.run(
-		[]byte(fmt.Sprintf("Baton exact composition of %s into %s\n", request.Candidate.String(), request.TargetRef)),
+		[]byte(fmt.Sprintf("Protocol exact composition of %s into %s\n", request.Candidate.String(), request.TargetRef)),
 		commitEnvironment(request.Identity, timestamp),
 		"commit-tree", tree.String(), "-p", request.Expected.String(), "-p", request.Candidate.String(),
 	)

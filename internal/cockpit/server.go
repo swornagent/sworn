@@ -27,8 +27,8 @@ const (
 	// bytes. The normal request allowance covers the bounded envelope.
 	maxAttentionAnswerRequestBytes = maxRequestBytes +
 		6*journal.MaxAttentionAnswerBytes
-	maxCaptainDelegationRequestBytes = maxRequestBytes +
-		6*runtimepkg.MaxCaptainDelegationBytes
+	maxLeadDelegationRequestBytes = maxRequestBytes +
+		6*runtimepkg.MaxLeadDelegationBytes
 	defaultSSELimit     = 32
 	apiVersion          = "v2"
 	apiPathPrefix       = "/api/" + apiVersion
@@ -381,9 +381,9 @@ func (h *HTTPHandler) route(w http.ResponseWriter, r *http.Request) {
 	case len(parts) == 6 && parts[4] == "notifications" &&
 		parts[5] == "redeliver":
 		h.serveRedelivery(w, r, runID)
-	case len(parts) == 6 && parts[4] == "captain-delegation" &&
+	case len(parts) == 6 && parts[4] == "lead-delegation" &&
 		parts[5] == "manage":
-		h.serveCaptainDelegation(w, r, runID)
+		h.serveLeadDelegation(w, r, runID)
 	default:
 		writeHTTPError(w, http.StatusNotFound, "NOT_FOUND")
 	}
@@ -684,7 +684,7 @@ func (h *HTTPHandler) serveStartDelegated(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var command StartDelegatedCommand
-	if !decodeRequestUpTo(w, r, &command, maxCaptainDelegationRequestBytes) {
+	if !decodeRequestUpTo(w, r, &command, maxLeadDelegationRequestBytes) {
 		return
 	}
 	status, err := commands.StartDelegated(r.Context(), command)
@@ -695,7 +695,7 @@ func (h *HTTPHandler) serveStartDelegated(w http.ResponseWriter, r *http.Request
 	writeJSON(w, r, http.StatusOK, status)
 }
 
-func (h *HTTPHandler) serveCaptainDelegation(
+func (h *HTTPHandler) serveLeadDelegation(
 	w http.ResponseWriter,
 	r *http.Request,
 	runID string,
@@ -705,21 +705,21 @@ func (h *HTTPHandler) serveCaptainDelegation(
 		return
 	}
 	commands, ok := h.commands.(interface {
-		CaptainDelegation(context.Context, runtimepkg.CaptainDelegationCommand) (runtimepkg.CaptainDelegationResult, error)
+		LeadDelegation(context.Context, runtimepkg.LeadDelegationCommand) (runtimepkg.LeadDelegationResult, error)
 	})
 	if !ok {
 		writeHTTPError(w, http.StatusNotFound, "COMMAND_UNAVAILABLE")
 		return
 	}
-	var command runtimepkg.CaptainDelegationCommand
-	if !decodeRequestUpTo(w, r, &command, maxCaptainDelegationRequestBytes) {
+	var command runtimepkg.LeadDelegationCommand
+	if !decodeRequestUpTo(w, r, &command, maxLeadDelegationRequestBytes) {
 		return
 	}
 	if command.RunID != runID {
 		writeHTTPError(w, http.StatusBadRequest, "RUN_BINDING_MISMATCH")
 		return
 	}
-	result, err := commands.CaptainDelegation(r.Context(), command)
+	result, err := commands.LeadDelegation(r.Context(), command)
 	if err != nil {
 		writeHTTPError(w, http.StatusConflict, errorCode(err))
 		return

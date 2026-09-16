@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/gitx"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 // engineIdentityDomain is the one domain every machine identity the engine
@@ -62,8 +62,8 @@ func runPlanPin(args []string, stdout, stderr io.Writer) int {
 		writeKnownFailure(stderr, "plan pin", "Could not open the Git project.", commandErrorCode(err), commandErrorDetail(err))
 		return 1
 	}
-	gitRepo := baton.UseGitRepository(repo)
-	pinned, err := baton.PinManifest(baton.PinManifestInput{
+	gitRepo := protocol.UseGitRepository(repo)
+	pinned, err := protocol.PinManifest(protocol.PinManifestInput{
 		ManifestBytes: manifestBytes,
 		Repository:    gitRepo,
 		Commit:        options["--commit"],
@@ -95,8 +95,8 @@ func runPlanLint(args []string, stdout, stderr io.Writer) int {
 		writeKnownFailure(stderr, "plan lint", "Could not open the Git project.", commandErrorCode(err), commandErrorDetail(err))
 		return 1
 	}
-	gitRepo := baton.UseGitRepository(repo)
-	results, err := baton.RunPlanScopeLint(baton.RunPlanScopeLintInput{
+	gitRepo := protocol.UseGitRepository(repo)
+	results, err := protocol.RunPlanScopeLint(protocol.RunPlanScopeLintInput{
 		ManifestBytes: manifestBytes,
 		Repository:    gitRepo,
 		Commit:        options["--commit"],
@@ -170,12 +170,12 @@ func runPlanRecord(args []string, stdout, stderr io.Writer) int {
 			Decision: "inert",
 		}, nil
 	}
-	actions, err := baton.NewActions(baton.UseGitRepository(repo), inertness, planEngineIdentity)
+	actions, err := protocol.NewActions(protocol.UseGitRepository(repo), inertness, planEngineIdentity)
 	if err != nil {
 		writeCommandFailure(stderr, "plan record", "Could not open the recording engine.", err)
 		return 1
 	}
-	result, err := actions.RecordPlanRevision(baton.RecordPlanRevisionInput{
+	result, err := actions.RecordPlanRevision(protocol.RecordPlanRevisionInput{
 		PlanBytes:    manifestBytes,
 		Summary:      options["--summary"],
 		Detail:       detail,
@@ -189,8 +189,8 @@ func runPlanRecord(args []string, stdout, stderr io.Writer) int {
 	// Surface the resulting state (approval result, diagnostics) the way
 	// the scratch tool does today (Correction 4). ReadState yields the
 	// approval and diagnostics A3 names.
-	gitRepo := baton.UseGitRepository(repo)
-	state, stateErr := baton.ReadState(gitRepo, result.Release, inertness)
+	gitRepo := protocol.UseGitRepository(repo)
+	state, stateErr := protocol.ReadState(gitRepo, result.Release, inertness)
 	fmt.Fprintf(stdout, "Recorded plan revision %d for release %s.\n", result.Revision, result.Release)
 	fmt.Fprintf(stdout, "  plan: %s\n", result.Plan)
 	fmt.Fprintf(stdout, "  ref: %s\n", result.Ref)

@@ -11,26 +11,26 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 	swornruntime "github.com/swornagent/sworn/internal/runtime"
 )
 
 func conflictParityPlan(
 	t *testing.T,
 	repository string,
-) ([]byte, baton.Plan) {
+) ([]byte, protocol.Plan) {
 	t.Helper()
-	slice := func(id, pathValue string) baton.Slice {
-		return baton.Slice{
+	slice := func(id, pathValue string) protocol.Slice {
+		return protocol.Slice{
 			ID: id, Outcome: "Deliver composition fixture " + id + ".",
-			Scope: baton.Scope{
+			Scope: protocol.Scope{
 				Include: []string{pathValue},
 				Exclude: []string{},
 			},
-			Acceptance: []baton.Criterion{{
+			Acceptance: []protocol.Criterion{{
 				ID: "A-" + id, Text: id + " has its exact product.",
 			}},
 			Checks: []string{"check " + id},
@@ -45,22 +45,22 @@ func conflictParityPlan(
 	priorConsumer := slice("S2", "shared.txt")
 	consumer := slice("S3", "consumer.txt")
 	consumer.Consumes = []string{"S1"}
-	metadata := baton.Metadata{
-		SchemaVersion: baton.PlanVersion,
+	metadata := protocol.Metadata{
+		SchemaVersion: protocol.PlanVersion,
 		Release:       "parity-conflict-release",
 		Revision:      1,
 		PreviousPlan:  nil,
 		Repository:    "acme-repo",
 		TargetRef:     "refs/heads/main",
 		ApprovalRef:   "operator://parity-conflict-release/1",
-		Tracks: []baton.Track{
+		Tracks: []protocol.Track{
 			{
 				ID: "T1", DependsOn: []string{},
-				Slices: []baton.Slice{producer},
+				Slices: []protocol.Slice{producer},
 			},
 			{
 				ID: "T2", DependsOn: []string{"T1"},
-				Slices: []baton.Slice{priorConsumer, consumer},
+				Slices: []protocol.Slice{priorConsumer, consumer},
 			},
 		},
 	}
@@ -69,11 +69,11 @@ func conflictParityPlan(
 		t.Fatal(err)
 	}
 	body := []byte(
-		"```baton-plan-v2\n" + string(metadataBody) +
+		"```protocol-plan-v2\n" + string(metadataBody) +
 			"\n```\n\nReal-binary derived-base conflict for " +
 			repository + ".\n",
 	)
-	plan, err := baton.ParsePlan(body)
+	plan, err := protocol.ParsePlan(body)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,18 +85,18 @@ func conflictParityManifest(
 	repository string,
 	fakeBinary string,
 	fakeDigest string,
-) ([]byte, baton.Plan) {
+) ([]byte, protocol.Plan) {
 	t.Helper()
 	const runID = "parity-conflict"
 	planBytes, plan := conflictParityPlan(t, repository)
 	var scripts []swornruntime.ScriptedAttempt
 	for try := int64(1); try <= 3; try++ {
 		scripts = append(scripts, swornruntime.ScriptedAttempt{
-			Responsibility: driver.PlannerProposal,
-			BatonAttempt:   1,
-			Epoch:          1,
-			Try:            try,
-			Behavior:       "submit",
+			Responsibility:  driver.PlannerProposal,
+			ProtocolAttempt: 1,
+			Epoch:           1,
+			Try:             try,
+			Behavior:        "submit",
 			Submission: exactPlannerSubmission(
 				t,
 				runID,
@@ -108,17 +108,17 @@ func conflictParityManifest(
 		for _, sliceID := range []string{"S1", "S2", "S3"} {
 			for _, responsibility := range []driver.Responsibility{
 				driver.ImplementerDesign,
-				driver.CaptainReview,
+				driver.LeadReview,
 				driver.ImplementerImplementation,
 				driver.WorkVerification,
 			} {
 				scripts = append(scripts, swornruntime.ScriptedAttempt{
-					Slice:          sliceID,
-					Responsibility: responsibility,
-					BatonAttempt:   1,
-					Epoch:          1,
-					Try:            try,
-					Behavior:       "submit",
+					Slice:           sliceID,
+					Responsibility:  responsibility,
+					ProtocolAttempt: 1,
+					Epoch:           1,
+					Try:             try,
+					Behavior:        "submit",
 					Submission: scriptedSubmission(
 						t,
 						runID,
@@ -132,11 +132,11 @@ func conflictParityManifest(
 			}
 		}
 		scripts = append(scripts, swornruntime.ScriptedAttempt{
-			Responsibility: driver.AssemblyVerification,
-			BatonAttempt:   1,
-			Epoch:          1,
-			Try:            try,
-			Behavior:       "submit",
+			Responsibility:  driver.AssemblyVerification,
+			ProtocolAttempt: 1,
+			Epoch:           1,
+			Try:             try,
+			Behavior:        "submit",
 			Submission: scriptedSubmission(
 				t,
 				runID,
@@ -153,7 +153,7 @@ func conflictParityManifest(
 			"%s/%s/%020d/%020d/%d",
 			scripts[left].Responsibility,
 			scripts[left].Slice,
-			scripts[left].BatonAttempt,
+			scripts[left].ProtocolAttempt,
 			scripts[left].Epoch,
 			scripts[left].Try,
 		)
@@ -161,7 +161,7 @@ func conflictParityManifest(
 			"%s/%s/%020d/%020d/%d",
 			scripts[right].Responsibility,
 			scripts[right].Slice,
-			scripts[right].BatonAttempt,
+			scripts[right].ProtocolAttempt,
 			scripts[right].Epoch,
 			scripts[right].Try,
 		)
@@ -194,9 +194,9 @@ func conflictParityManifest(
 				Profile: "parity-conflict-fake",
 				Model:   "composition-conflict",
 			},
-			Captain: driver.RoleSelection{
+			Lead: driver.RoleSelection{
 				Profile: "parity-conflict-fake",
-				Model:   "captain-model",
+				Model:   "lead-model",
 			},
 			Verifier: driver.RoleSelection{
 				Profile: "parity-conflict-fake",
@@ -276,7 +276,7 @@ func TestRealBinaryCompositionConflictParksWithoutMutation(t *testing.T) {
 		"--journal", journalPath,
 	)
 	if stderr != "" || !strings.Contains(stdout, "  state: parked") {
-		state := readBatonState(
+		state := readProtocolState(
 			t,
 			repository,
 			"parity-conflict-release",
@@ -322,7 +322,7 @@ func TestRealBinaryCompositionConflictParksWithoutMutation(t *testing.T) {
 		)
 	}
 
-	state := readBatonState(t, repository, "parity-conflict-release")
+	state := readProtocolState(t, repository, "parity-conflict-release")
 	s1, s1OK := state.Slice("S1")
 	s2, s2OK := state.Slice("S2")
 	s3, s3OK := state.Slice("S3")
@@ -416,8 +416,8 @@ func TestRealBinaryCompositionConflictParksWithoutMutation(t *testing.T) {
 					)
 				}
 			}
-		case "baton.prepare_assembly", "baton.assembly_verdict",
-			"baton.merge":
+		case "protocol.prepare_assembly", "protocol.assembly_verdict",
+			"protocol.merge":
 			t.Fatalf("conflict reached %s: %#v", effect.Kind, effect)
 		}
 	}

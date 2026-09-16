@@ -24,11 +24,11 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/cockpit"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 )
 
@@ -341,15 +341,15 @@ func (p *tuiAnswerProvider) serve(w http.ResponseWriter, r *http.Request) {
 					"detail":         "Detail for the scripted PTY implementer design turn. Padded past the two-hundred-byte submission detail content floor so this fixture clears A3 for its scripted PTY coverage of the interactive worker loop end to end.\n",
 				},
 			}
-		case driver.CaptainReview:
+		case driver.LeadReview:
 			toolName = "sworn_submit"
 			arguments = map[string]any{
 				"submission": map[string]any{
 					"schema_version": driver.SubmissionSchemaVersion,
 					"invocation_id":  prompt.InvocationID,
 					"responsibility": prompt.Responsibility,
-					"summary":        "Captain review padded past the one-hundred-twenty-byte submission content floor for its scripted PTY coverage of the interactive worker loop.",
-					"detail":         "Detail for the scripted PTY captain review turn. Padded past the two-hundred-byte submission detail content floor so this fixture clears A3 for its scripted PTY coverage of the interactive worker loop end to end.\n",
+					"summary":        "Lead review padded past the one-hundred-twenty-byte submission content floor for its scripted PTY coverage of the interactive worker loop.",
+					"detail":         "Detail for the scripted PTY lead review turn. Padded past the two-hundred-byte submission detail content floor so this fixture clears A3 for its scripted PTY coverage of the interactive worker loop end to end.\n",
 					"decision":       map[string]any{"outcome": "proceed"},
 				},
 			}
@@ -555,7 +555,7 @@ func writeTUIAnswerManifest(
 	t *testing.T,
 	directory, repository, release, runID string,
 	configDigest string,
-) (string, baton.Plan) {
+) (string, protocol.Plan) {
 	t.Helper()
 	_, plan := hostedDrivePlanFixture(t, release, repository)
 	digest := plan.Digest()
@@ -580,7 +580,7 @@ func writeTUIAnswerManifest(
 		Roles: driver.RoleSelections{
 			Planner:     selection,
 			Implementer: selection,
-			Captain:     selection,
+			Lead:        selection,
 			Verifier:    selection,
 		},
 		Automation: &runtimepkg.AutomationSelections{
@@ -600,7 +600,7 @@ func writeTUIAnswerManifest(
 	return manifestPath, plan
 }
 
-func installHostedDrivePlan(t *testing.T, root string, plan baton.Plan) {
+func installHostedDrivePlan(t *testing.T, root string, plan protocol.Plan) {
 	t.Helper()
 	gitExecutable, err := resolveGitExecutable()
 	if err != nil {
@@ -615,11 +615,11 @@ func installHostedDrivePlan(t *testing.T, root string, plan baton.Plan) {
 			RecordRoot: request.RecordRoot, Commit: request.Commit, Decision: "inert"}, nil
 	}
 	identity := gitx.Identity{Name: "Test Engine", Email: "engine@example.test"}
-	actions, err := baton.NewActions(baton.UseGitRepository(repoView), inertness, identity)
+	actions, err := protocol.NewActions(protocol.UseGitRepository(repoView), inertness, identity)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := actions.RecordPlanRevision(baton.RecordPlanRevisionInput{
+	if _, err := actions.RecordPlanRevision(protocol.RecordPlanRevisionInput{
 		PlanBytes: plan.Bytes(),
 		Summary:   "Install fixture plan",
 		Detail:    []byte("Fixture detail"),
@@ -769,7 +769,7 @@ func TestTUIActionDriveSurvivesActionReturn(t *testing.T) {
 		t.Fatal("background drive did not reach complete after action return")
 	}
 
-	// 5. Verify journal contains succeeded baton.merge effect. Status
+	// 5. Verify journal contains succeeded protocol.merge effect. Status
 	// "complete" derives from git truth (the merge refs), which lands
 	// before the journal Succeeded row is written on the same claimed
 	// action, so the journal is polled rather than sampled once.
@@ -785,7 +785,7 @@ func TestTUIActionDriveSurvivesActionReturn(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, effect := range snapshot.Effects {
-			if effect.Kind == "baton.merge" && effect.State == journal.Succeeded {
+			if effect.Kind == "protocol.merge" && effect.State == journal.Succeeded {
 				hasMerge = true
 				break
 			}
@@ -908,7 +908,7 @@ func TestTUIAnswerObservesSubsequentDriveProgress(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, effect := range snapshot.Effects {
-			if effect.Kind == "baton.merge" && effect.State == journal.Succeeded {
+			if effect.Kind == "protocol.merge" && effect.State == journal.Succeeded {
 				hasMerge = true
 				break
 			}

@@ -1251,7 +1251,7 @@ func TestGuardedSealRejectsReleaseTargetOrTrackSupersessionWithoutPublishing(t *
 	}
 }
 
-func TestSealRejectsBatonAuthorityChangesBeforeRefMove(t *testing.T) {
+func TestSealRejectsProtocolAuthorityChangesBeforeRefMove(t *testing.T) {
 	t.Parallel()
 
 	repository, base := newRepository(t, SHA1)
@@ -1268,7 +1268,7 @@ func TestSealRejectsBatonAuthorityChangesBeforeRefMove(t *testing.T) {
 	}
 	authority := filepath.Join(
 		lease.Path(),
-		".baton",
+		".protocol",
 		"releases",
 		"escape",
 		"plan.md",
@@ -1280,7 +1280,7 @@ func TestSealRejectsBatonAuthorityChangesBeforeRefMove(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := workspaces.SealTrack(lease); err == nil {
-		t.Fatal("seal admitted Baton authority bytes")
+		t.Fatal("seal admitted Protocol authority bytes")
 	} else {
 		requireGitxErrorCode(t, err, "AUTHORITY_PATH_CHANGED")
 	}

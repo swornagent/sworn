@@ -161,7 +161,7 @@ func TestSealedProposalBytesSurviveParentOperationalFailure(t *testing.T) {
 	store, run, _, parent := journalFixture(t)
 	ctx := context.Background()
 	now := run.CreatedAt.Add(time.Second)
-	plan := []byte("```baton-plan-v2\n{\"release\":\"sealed\"}\n```\n# Plan\n")
+	plan := []byte("```protocol-plan-v2\n{\"release\":\"sealed\"}\n```\n# Plan\n")
 	childID := parent.ID + "/sealed-proposal"
 	if err := store.RecordCommandEffect(ctx, Command{
 		RunID: run.ID, ReplayKey: childID, Kind: "planner.sealed_plan",

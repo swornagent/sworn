@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 type customWrappedErr struct {
@@ -30,7 +30,7 @@ func (e *customWrappedErr) Unwrap() error {
 	return e.err
 }
 
-func TestStableErrorCodeUnwrapsJournalAndBatonErrorsWithPrecedence(t *testing.T) {
+func TestStableErrorCodeUnwrapsJournalAndProtocolErrorsWithPrecedence(t *testing.T) {
 	t.Parallel()
 
 	// A1: Journal error unwraps STALE_RETRY_EPOCH
@@ -39,13 +39,13 @@ func TestStableErrorCodeUnwrapsJournalAndBatonErrorsWithPrecedence(t *testing.T)
 		t.Fatalf("stableErrorCode(journalErr) = %q, want STALE_RETRY_EPOCH", got)
 	}
 
-	// A2: Baton error unwraps TARGET_DIVERGED
-	batonErr := &baton.RecordError{Code: "TARGET_DIVERGED", Msg: "target has diverged"}
-	if got := stableErrorCode(batonErr); got != "TARGET_DIVERGED" {
-		t.Fatalf("stableErrorCode(batonErr) = %q, want TARGET_DIVERGED", got)
+	// A2: Protocol error unwraps TARGET_DIVERGED
+	protocolErr := &protocol.RecordError{Code: "TARGET_DIVERGED", Msg: "target has diverged"}
+	if got := stableErrorCode(protocolErr); got != "TARGET_DIVERGED" {
+		t.Fatalf("stableErrorCode(protocolErr) = %q, want TARGET_DIVERGED", got)
 	}
 
-	// Precedence tests: Runtime > Gitx > Driver Contract > Journal > Baton > operational_failure
+	// Precedence tests: Runtime > Gitx > Driver Contract > Journal > Protocol > operational_failure
 	runtimeErr := &Error{Code: "RUNTIME_CODE", Err: &gitx.Error{Code: "GITX_CODE"}}
 	if got := stableErrorCode(runtimeErr); got != "RUNTIME_CODE" {
 		t.Fatalf("runtime precedence = %q, want RUNTIME_CODE", got)
@@ -72,7 +72,7 @@ func TestStableErrorCodeUnwrapsJournalAndBatonErrorsWithPrecedence(t *testing.T)
 		t.Fatalf("wrapped contract precedence = %q, want CONTRACT_CODE", got)
 	}
 
-	journalPrecedenceErr := &journal.Error{Code: "JOURNAL_CODE", Err: &baton.RecordError{Code: "BATON_CODE"}}
+	journalPrecedenceErr := &journal.Error{Code: "JOURNAL_CODE", Err: &protocol.RecordError{Code: "PROTOCOL_CODE"}}
 	if got := stableErrorCode(journalPrecedenceErr); got != "JOURNAL_CODE" {
 		t.Fatalf("journal precedence = %q, want JOURNAL_CODE", got)
 	}
@@ -85,7 +85,7 @@ func TestStableErrorCodeUnwrapsJournalAndBatonErrorsWithPrecedence(t *testing.T)
 		{"plain error", errors.New("generic error")},
 		{"empty runtime code", &Error{Code: ""}},
 		{"malformed journal code with spaces", &journal.Error{Code: "INVALID CODE"}},
-		{"malformed baton code with symbols", &baton.RecordError{Code: "@INVALID!"}},
+		{"malformed protocol code with symbols", &protocol.RecordError{Code: "@INVALID!"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := stableErrorCode(tc.err); got != "operational_failure" {
@@ -205,7 +205,7 @@ func TestStatusReadBackSurfacesJournalCodedErrors(t *testing.T) {
 	}
 }
 
-func TestFailedBatonActionJournalsTargetDivergedCode(t *testing.T) {
+func TestFailedProtocolActionJournalsTargetDivergedCode(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -227,7 +227,7 @@ func TestFailedBatonActionJournalsTargetDivergedCode(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	journalPath := filepath.Join(t.TempDir(), "baton-action-fail.sqlite")
+	journalPath := filepath.Join(t.TempDir(), "protocol-action-fail.sqlite")
 	store, err := journal.Open(ctx, journalPath)
 	if err != nil {
 		t.Fatal(err)
@@ -280,7 +280,7 @@ func TestFailedBatonActionJournalsTargetDivergedCode(t *testing.T) {
 	}
 
 	sliceID := "S1"
-	state, err := baton.ReadState(engine.git, manifest.value.Release, engine.inertness)
+	state, err := protocol.ReadState(engine.git, manifest.value.Release, engine.inertness)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +294,7 @@ func TestFailedBatonActionJournalsTargetDivergedCode(t *testing.T) {
 	}
 
 	// Prepare append_receipt command
-	input := baton.AppendReceiptInput{
+	input := protocol.AppendReceiptInput{
 		Release: manifest.value.Release,
 		Slice:   sliceID,
 		Role:    "implementer",
@@ -310,18 +310,18 @@ func TestFailedBatonActionJournalsTargetDivergedCode(t *testing.T) {
 	)
 	payload := marshalActionCommand(engine.manifest.value.GitIdentity, authority, input)
 
-	// Failing baton action returning TARGET_DIVERGED
-	divergedErr := &baton.RecordError{Code: "TARGET_DIVERGED", Msg: "target ref has diverged from record ancestry"}
-	failingAction := func() (baton.ActionResult, error) {
-		return baton.ActionResult{}, divergedErr
+	// Failing protocol action returning TARGET_DIVERGED
+	divergedErr := &protocol.RecordError{Code: "TARGET_DIVERGED", Msg: "target ref has diverged from record ancestry"}
+	failingAction := func() (protocol.ActionResult, error) {
+		return protocol.ActionResult{}, divergedErr
 	}
 
-	// Direct test of reconcileClaimedBatonAction
+	// Direct test of reconcileClaimedProtocolAction
 	effectID := journal.AttemptEffectID(workID, 1, 1)
 	if err := store.EnsureAttempt(ctx,
-		journal.Command{RunID: run.ID, ReplayKey: effectID, Kind: "baton.append_receipt",
+		journal.Command{RunID: run.ID, ReplayKey: effectID, Kind: "protocol.append_receipt",
 			Payload: payload, CreatedAt: now},
-		journal.Effect{RunID: run.ID, ID: effectID, ReplayKey: effectID, Kind: "baton.append_receipt",
+		journal.Effect{RunID: run.ID, ID: effectID, ReplayKey: effectID, Kind: "protocol.append_receipt",
 			BeforeDigest: workID, ExpectedDigest: sha256Digest(payload), UpdatedAt: now},
 		journal.EffectAttempt{WorkID: workID, Epoch: 1, Try: 1}); err != nil {
 		t.Fatal(err)
@@ -340,7 +340,7 @@ func TestFailedBatonActionJournalsTargetDivergedCode(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	truth, _, actionErr := service.reconcileClaimedBatonAction(
+	truth, _, actionErr := service.reconcileClaimedProtocolAction(
 		ctx, engine, owner, effect, persisted, failingAction, true, false,
 	)
 	if truth != actionAllOld {
@@ -358,7 +358,7 @@ func TestFailedBatonActionJournalsTargetDivergedCode(t *testing.T) {
 		t.Fatalf("storedEffect.State = %q, want OperationalFailed", storedEffect.State)
 	}
 	if storedEffect.ErrorCode != "TARGET_DIVERGED" {
-		t.Fatalf("storedEffect.ErrorCode = %q, want TARGET_DIVERGED (was baton_action_failed)", storedEffect.ErrorCode)
+		t.Fatalf("storedEffect.ErrorCode = %q, want TARGET_DIVERGED (was protocol_action_failed)", storedEffect.ErrorCode)
 	}
 
 	// Verify status projects this error code

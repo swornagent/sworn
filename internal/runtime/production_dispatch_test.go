@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 type fixtureDriver func(
@@ -230,7 +230,7 @@ func productionConfig(t *testing.T) driver.LoadedDriverConfig {
 				Key: "planner", Adapter: "openai",
 				Network:             driver.NetworkRequired,
 				CredentialSource:    &credential,
-				CertificationModels: []string{"captain-model", "implementer-model", "planner-model", "verifier-model"},
+				CertificationModels: []string{"implementer-model", "lead-model", "planner-model", "verifier-model"},
 			},
 			{
 				Key: "unused", Adapter: "openai",
@@ -271,8 +271,8 @@ func productionManifest(
 		Implementer: driver.RoleSelection{
 			Profile: "planner", Model: "implementer-model",
 		},
-		Captain: driver.RoleSelection{
-			Profile: "planner", Model: "captain-model",
+		Lead: driver.RoleSelection{
+			Profile: "planner", Model: "lead-model",
 		},
 		Verifier: driver.RoleSelection{
 			Profile: "planner", Model: "verifier-model",
@@ -463,7 +463,7 @@ func TestProductionDriverConfigBindsDigestAndBuildsOnlySelectedProfiles(
 	}
 	fakeManifest.value.Roles = driver.RoleSelections{
 		Planner: fakeRole, Implementer: fakeRole,
-		Captain: fakeRole, Verifier: fakeRole,
+		Lead: fakeRole, Verifier: fakeRole,
 	}
 	if _, err := fakeProduction.registryFor(fakeManifest); !IsCode(err, "DRIVER_UNAVAILABLE") {
 		t.Fatalf("production fake profile = %v", err)
@@ -502,27 +502,27 @@ func TestAssemblyEvidenceBindsTrackPinsToFinalPassedSlices(
 ) {
 	t.Parallel()
 
-	passedSlice := func(trackID, sliceID, token string) *baton.SliceState {
+	passedSlice := func(trackID, sliceID, token string) *protocol.SliceState {
 		candidateOID := strings.Repeat(token, 40)
 		passOID := strings.Repeat(string(token[0]+1), 40)
 		candidate := strings.Repeat(string(token[0]+2), 40)
 		productTree := "sha256:" + strings.Repeat(token, 64)
-		return &baton.SliceState{
-			Location: baton.SliceLocation{
-				Track: baton.Track{ID: trackID},
-				Slice: baton.Slice{ID: sliceID},
+		return &protocol.SliceState{
+			Location: protocol.SliceLocation{
+				Track: protocol.Track{ID: trackID},
+				Slice: protocol.Slice{ID: sliceID},
 			},
-			Candidate: &baton.ReceiptEntry{
+			Candidate: &protocol.ReceiptEntry{
 				OID: candidateOID,
-				Receipt: baton.Receipt{
+				Receipt: protocol.Receipt{
 					Slice: &sliceID, Role: "implementer",
 					Result: "candidate", Candidate: &candidate,
 					ProductTree: &productTree,
 				},
 			},
-			Pass: &baton.ReceiptEntry{
+			Pass: &protocol.ReceiptEntry{
 				OID: passOID,
-				Receipt: baton.Receipt{
+				Receipt: protocol.Receipt{
 					Slice: &sliceID, Role: "verifier", Result: "pass",
 					Binds: candidateOID, Candidate: &candidate,
 					ProductTree: &productTree,
@@ -530,31 +530,31 @@ func TestAssemblyEvidenceBindsTrackPinsToFinalPassedSlices(
 			},
 		}
 	}
-	fixture := func() baton.State {
+	fixture := func() protocol.State {
 		a1 := passedSlice("T1", "A1", "1")
 		a2 := passedSlice("T1", "A2", "4")
 		b1 := passedSlice("T2", "B1", "7")
 		treeOne := *a2.Candidate.Receipt.ProductTree
 		treeTwo := *b1.Candidate.Receipt.ProductTree
-		return baton.State{
+		return protocol.State{
 			Release: "release",
-			Tracks: []baton.TrackState{
+			Tracks: []protocol.TrackState{
 				{
 					ID: "T1", Ref: "refs/heads/track/release/T1",
 					Head:          strings.Repeat("b", 40),
 					AuthorityHead: strings.Repeat("b", 40),
-					Slices:        []*baton.SliceState{a1, a2},
+					Slices:        []*protocol.SliceState{a1, a2},
 				},
 				{
 					ID: "T2", DependsOn: []string{"T1"},
 					Ref:           "refs/heads/track/release/T2",
 					Head:          strings.Repeat("c", 40),
 					AuthorityHead: strings.Repeat("c", 40),
-					Slices:        []*baton.SliceState{b1},
+					Slices:        []*protocol.SliceState{b1},
 				},
 			},
-			Slices: []*baton.SliceState{a1, a2, b1},
-			Assembly: baton.AssemblyState{
+			Slices: []*protocol.SliceState{a1, a2, b1},
+			Assembly: protocol.AssemblyState{
 				InputPins: map[string]*string{
 					"T1": &treeOne,
 					"T2": &treeTwo,
@@ -579,24 +579,24 @@ func TestAssemblyEvidenceBindsTrackPinsToFinalPassedSlices(
 
 	cases := []struct {
 		name   string
-		mutate func(*baton.State)
+		mutate func(*protocol.State)
 	}{
 		{
 			name: "missing pin",
-			mutate: func(value *baton.State) {
+			mutate: func(value *protocol.State) {
 				delete(value.Assembly.InputPins, "T2")
 			},
 		},
 		{
 			name: "extra pin",
-			mutate: func(value *baton.State) {
+			mutate: func(value *protocol.State) {
 				extra := "sha256:" + strings.Repeat("e", 64)
 				value.Assembly.InputPins["T3"] = &extra
 			},
 		},
 		{
 			name: "duplicate final slice",
-			mutate: func(value *baton.State) {
+			mutate: func(value *protocol.State) {
 				slice := value.Tracks[1].Slices[0]
 				duplicate := "A2"
 				slice.Location.Slice.ID = duplicate
@@ -606,21 +606,21 @@ func TestAssemblyEvidenceBindsTrackPinsToFinalPassedSlices(
 		},
 		{
 			name: "slice track drift",
-			mutate: func(value *baton.State) {
+			mutate: func(value *protocol.State) {
 				value.Tracks[0].Slices[1].Location.Track.ID = "T2"
 			},
 		},
 		{
 			name: "pass shape and binding drift",
-			mutate: func(value *baton.State) {
+			mutate: func(value *protocol.State) {
 				pass := &value.Tracks[0].Slices[1].Pass.Receipt
-				pass.Role = "captain"
+				pass.Role = "lead"
 				pass.Binds = strings.Repeat("f", 40)
 			},
 		},
 		{
 			name: "candidate identity drift",
-			mutate: func(value *baton.State) {
+			mutate: func(value *protocol.State) {
 				candidate := strings.Repeat("d", 40)
 				value.Tracks[0].Slices[1].Pass.Receipt.Candidate =
 					&candidate
@@ -628,20 +628,20 @@ func TestAssemblyEvidenceBindsTrackPinsToFinalPassedSlices(
 		},
 		{
 			name: "tree pin drift",
-			mutate: func(value *baton.State) {
+			mutate: func(value *protocol.State) {
 				tree := "sha256:" + strings.Repeat("f", 64)
 				value.Assembly.InputPins["T1"] = &tree
 			},
 		},
 		{
 			name: "source drift",
-			mutate: func(value *baton.State) {
+			mutate: func(value *protocol.State) {
 				value.Tracks[1].AuthorityHead = strings.Repeat("d", 40)
 			},
 		},
 		{
 			name: "serial predecessor not passed",
-			mutate: func(value *baton.State) {
+			mutate: func(value *protocol.State) {
 				value.Tracks[0].Slices[0].Pass = nil
 			},
 		},
@@ -670,11 +670,11 @@ func TestProductionWorkContextProjectsPlanReceiptCandidateAndEvidence(
 	config := productionConfig(t)
 	manifest := productionManifest(t, repository, config)
 	coordinates := dispatchCoordinates{
-		Slice:          "S1",
-		Responsibility: driver.WorkVerification,
-		BatonAttempt:   2,
-		Epoch:          3,
-		Try:            1,
+		Slice:           "S1",
+		Responsibility:  driver.WorkVerification,
+		ProtocolAttempt: 2,
+		Epoch:           3,
+		Try:             1,
 	}
 	planBody := []byte("bounded plan bytes\n")
 	receiptBody := []byte("{\"bounded\":\"receipt\"}\n")
@@ -695,7 +695,7 @@ func TestProductionWorkContextProjectsPlanReceiptCandidateAndEvidence(
 		Track:           "T1",
 		Slice:           coordinates.Slice,
 		Responsibility:  coordinates.Responsibility,
-		Attempt:         coordinates.BatonAttempt,
+		Attempt:         coordinates.ProtocolAttempt,
 		Epoch:           coordinates.Epoch,
 		Try:             coordinates.Try,
 		Before:          "sha256:" + strings.Repeat("1", 64),
@@ -762,7 +762,7 @@ func TestProductionWorkContextProjectsPlanReceiptCandidateAndEvidence(
 		access         driver.WorkspaceAccess
 	}{
 		{driver.ImplementerDesign, driver.ReadOnly},
-		{driver.CaptainReview, driver.ReadOnly},
+		{driver.LeadReview, driver.ReadOnly},
 		{driver.ImplementerImplementation, driver.ReadWrite},
 		{driver.WorkVerification, driver.ReadOnly},
 	} {
@@ -795,11 +795,11 @@ func TestProductionWorkContextProjectsPlanReceiptCandidateAndEvidence(
 		value.InvocationID = dispatchInvocationID(
 			value.RunID,
 			dispatchCoordinates{
-				Slice:          value.Slice,
-				Responsibility: value.Responsibility,
-				BatonAttempt:   value.Attempt,
-				Epoch:          value.Epoch,
-				Try:            value.Try,
+				Slice:           value.Slice,
+				Responsibility:  value.Responsibility,
+				ProtocolAttempt: value.Attempt,
+				Epoch:           value.Epoch,
+				Try:             value.Try,
 			},
 		)
 		if err := validateProductionWorkContext(
@@ -1105,8 +1105,8 @@ func TestProductionPlannerCannotEmitPlanBytesBeforeItsHumanTurn(
 		workspace,
 		driver.RolePlanner,
 		dispatchCoordinates{
-			Responsibility: driver.PlannerProposal,
-			BatonAttempt:   1, Epoch: 1, Try: 1,
+			Responsibility:  driver.PlannerProposal,
+			ProtocolAttempt: 1, Epoch: 1, Try: 1,
 		},
 		journal.EffectAttempt{WorkID: work, Epoch: 1, Try: 1},
 		before,
@@ -1258,10 +1258,10 @@ func TestProductionDispatchPersistsRequestWithoutPreknownOutput(
 	}
 	defer workspace.Close()
 	coordinates := dispatchCoordinates{
-		Responsibility: driver.PlannerProposal,
-		BatonAttempt:   1,
-		Epoch:          1,
-		Try:            1,
+		Responsibility:  driver.PlannerProposal,
+		ProtocolAttempt: 1,
+		Epoch:           1,
+		Try:             1,
 	}
 	work := driverWorkIdentity(
 		manifest.digest,
@@ -1460,9 +1460,9 @@ type productionImplementationRecoveryFixture struct {
 	now         time.Time
 	service     *Service
 	engine      *engine
-	state       baton.State
-	slice       *baton.SliceState
-	track       *baton.TrackState
+	state       protocol.State
+	slice       *protocol.SliceState
+	track       *protocol.TrackState
 	cycle       implementationCycle
 	outer       journal.Effect
 	workspace   *gitx.WorkspaceLease
@@ -1533,7 +1533,7 @@ func newProductionImplementationRecoveryFixture(
 		"approval-release-1-v1",
 	)
 	if _, err := engine.actions.RecordPlanRevision(
-		baton.RecordPlanRevisionInput{
+		protocol.RecordPlanRevisionInput{
 			PlanBytes: planBytes,
 			Summary:   "Install the exact production recovery plan.",
 			Detail:    []byte("Production recovery fixture."),
@@ -1541,7 +1541,7 @@ func newProductionImplementationRecoveryFixture(
 	); err != nil {
 		t.Fatal(err)
 	}
-	for _, receipt := range []baton.AppendReceiptInput{
+	for _, receipt := range []protocol.AppendReceiptInput{
 		{
 			Release: manifest.value.Release, Slice: "S1",
 			Role: "implementer", Result: "designed",
@@ -1550,7 +1550,7 @@ func newProductionImplementationRecoveryFixture(
 		},
 		{
 			Release: manifest.value.Release, Slice: "S1",
-			Role: "captain", Result: "proceed",
+			Role: "lead", Result: "proceed",
 			Summary: "Proceed with the production recovery fixture.",
 			Detail:  []byte("Exact review."),
 		},
@@ -1559,7 +1559,7 @@ func newProductionImplementationRecoveryFixture(
 			t.Fatal(err)
 		}
 	}
-	state, err := baton.ReadState(
+	state, err := protocol.ReadState(
 		engine.git,
 		manifest.value.Release,
 		engine.inertness,
@@ -1647,7 +1647,7 @@ func newProductionImplementationRecoveryFixture(
 		workspace: workspace,
 		coordinates: dispatchCoordinates{
 			Slice: "S1", Responsibility: driver.ImplementerImplementation,
-			BatonAttempt: slice.Attempt, Epoch: 1, Try: 1,
+			ProtocolAttempt: slice.Attempt, Epoch: 1, Try: 1,
 		},
 	}
 }
@@ -1907,11 +1907,11 @@ func runCandidateHeadRefreshDispatch(
 		t.Fatal(err)
 	}
 	planBytes := []byte(
-		"```baton-plan-v2\n" + string(metadataBody) +
+		"```protocol-plan-v2\n" + string(metadataBody) +
 			"\n```\n\nConsuming refresh fixture.\n",
 	)
 	if _, err := engine.actions.RecordPlanRevision(
-		baton.RecordPlanRevisionInput{
+		protocol.RecordPlanRevisionInput{
 			PlanBytes: planBytes,
 			Summary:   "Install the consuming refresh plan.",
 			Detail:    []byte("Exact consuming refresh fixture."),
@@ -1919,7 +1919,7 @@ func runCandidateHeadRefreshDispatch(
 	); err != nil {
 		t.Fatal(err)
 	}
-	appendReceipt := func(input baton.AppendReceiptInput) baton.ActionResult {
+	appendReceipt := func(input protocol.AppendReceiptInput) protocol.ActionResult {
 		t.Helper()
 		result, err := engine.actions.AppendReceipt(input)
 		if err != nil {
@@ -1927,9 +1927,9 @@ func runCandidateHeadRefreshDispatch(
 		}
 		return result
 	}
-	readState := func() baton.State {
+	readState := func() protocol.State {
 		t.Helper()
-		state, err := baton.ReadState(
+		state, err := protocol.ReadState(
 			engine.git,
 			manifest.value.Release,
 			engine.inertness,
@@ -1939,7 +1939,7 @@ func runCandidateHeadRefreshDispatch(
 		}
 		return state
 	}
-	prepare := func(sliceID string) (baton.State, *baton.SliceState) {
+	prepare := func(sliceID string) (protocol.State, *protocol.SliceState) {
 		t.Helper()
 		state := readState()
 		slice, ok := state.Slice(sliceID)
@@ -1986,25 +1986,25 @@ func runCandidateHeadRefreshDispatch(
 	}
 
 	_, _ = prepare("S1")
-	appendReceipt(baton.AppendReceiptInput{
+	appendReceipt(protocol.AppendReceiptInput{
 		Release: manifest.value.Release, Slice: "S1",
 		Role: "implementer", Result: "designed",
 		Summary: "Design producer.", Detail: []byte("Exact producer design."),
 	})
-	appendReceipt(baton.AppendReceiptInput{
+	appendReceipt(protocol.AppendReceiptInput{
 		Release: manifest.value.Release, Slice: "S1",
-		Role: "captain", Result: "proceed",
+		Role: "lead", Result: "proceed",
 		Summary: "Proceed producer.", Detail: []byte("Exact producer review."),
 	})
 	producer := sealTrack("T1", "one.txt", "producer\n")
-	appendReceipt(baton.AppendReceiptInput{
+	appendReceipt(protocol.AppendReceiptInput{
 		Release: manifest.value.Release, Slice: "S1",
 		Role: "implementer", Result: "candidate",
 		Summary: "Producer candidate.", Detail: []byte("Exact producer."),
 		Candidate:    producer.Candidate.String(),
 		CheckResults: []byte("producer checks\n"),
 	})
-	appendReceipt(baton.AppendReceiptInput{
+	appendReceipt(protocol.AppendReceiptInput{
 		Release: manifest.value.Release, Slice: "S1",
 		Role: "verifier", Result: "pass",
 		Summary: "Producer passes.", Detail: []byte("Exact producer verification."),
@@ -2013,14 +2013,14 @@ func runCandidateHeadRefreshDispatch(
 	})
 
 	_, _ = prepare("S2")
-	appendReceipt(baton.AppendReceiptInput{
+	appendReceipt(protocol.AppendReceiptInput{
 		Release: manifest.value.Release, Slice: "S2",
 		Role: "implementer", Result: "designed",
 		Summary: "Design consumer.", Detail: []byte("Exact consumer design."),
 	})
-	appendReceipt(baton.AppendReceiptInput{
+	appendReceipt(protocol.AppendReceiptInput{
 		Release: manifest.value.Release, Slice: "S2",
-		Role: "captain", Result: "proceed",
+		Role: "lead", Result: "proceed",
 		Summary: "Proceed consumer.", Detail: []byte("Exact consumer review."),
 	})
 	consumerReady := readState()
@@ -2032,7 +2032,7 @@ func runCandidateHeadRefreshDispatch(
 	}
 	firstBase := consumer.PreparedBase
 	firstCandidate := sealTrack("T2", "two.txt", "first consumer\n")
-	firstReceipt := appendReceipt(baton.AppendReceiptInput{
+	firstReceipt := appendReceipt(protocol.AppendReceiptInput{
 		Release: manifest.value.Release, Slice: "S2",
 		Role: "implementer", Result: "candidate",
 		Summary: "First consumer candidate.", Detail: []byte("Exact first consumer."),
@@ -2253,7 +2253,7 @@ func prepareCleanHeadRefreshRecovery(
 	}
 	first := seal("first candidate\n")
 	firstReceipt, err := fixture.engine.actions.AppendReceipt(
-		baton.AppendReceiptInput{
+		protocol.AppendReceiptInput{
 			Release:      fixture.manifest.value.Release,
 			Slice:        "S1",
 			Role:         "implementer",
@@ -2268,7 +2268,7 @@ func prepareCleanHeadRefreshRecovery(
 		t.Fatalf("first candidate receipt = %#v, %v", firstReceipt, err)
 	}
 	head := seal("unreceipted correction\n")
-	state, err := baton.ReadState(
+	state, err := protocol.ReadState(
 		fixture.engine.git,
 		fixture.manifest.value.Release,
 		fixture.engine.inertness,
@@ -2372,11 +2372,11 @@ func prepareCleanHeadRefreshRecovery(
 			workspace,
 			cycle,
 			dispatchCoordinates{
-				Slice:          "S1",
-				Responsibility: driver.ImplementerImplementation,
-				BatonAttempt:   slice.Attempt,
-				Epoch:          1,
-				Try:            1,
+				Slice:           "S1",
+				Responsibility:  driver.ImplementerImplementation,
+				ProtocolAttempt: slice.Attempt,
+				Epoch:           1,
+				Try:             1,
 			},
 		)
 	if closeErr := workspace.Close(); err == nil {
@@ -2481,7 +2481,7 @@ func TestCleanHeadRefreshPreparedRecoveryNeverRewindsOrDuplicates(
 				); got != foreignHead.String() {
 					t.Fatalf("foreign head was rewritten to %s", got)
 				}
-				state, stateErr := baton.ReadState(
+				state, stateErr := protocol.ReadState(
 					restartedEngine.git,
 					prepared.fixture.manifest.value.Release,
 					restartedEngine.inertness,
@@ -2520,7 +2520,7 @@ func TestCleanHeadRefreshPreparedRecoveryNeverRewindsOrDuplicates(
 			if recovered {
 				t.Fatal("clean adoption recovery did not become quiescent")
 			}
-			state, err := baton.ReadState(
+			state, err := protocol.ReadState(
 				restartedEngine.git,
 				prepared.fixture.manifest.value.Release,
 				restartedEngine.inertness,
@@ -3126,7 +3126,7 @@ func TestProductionImplementationHandoffRecoversItsDurablePreparedCandidate(
 		"approval-release-1-v1",
 	)
 	if _, err := engine.actions.RecordPlanRevision(
-		baton.RecordPlanRevisionInput{
+		protocol.RecordPlanRevisionInput{
 			PlanBytes: planBytes,
 			Summary:   "Install the exact production test plan.",
 			Detail:    []byte("Production recovery fixture."),
@@ -3134,7 +3134,7 @@ func TestProductionImplementationHandoffRecoversItsDurablePreparedCandidate(
 	); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := engine.actions.AppendReceipt(baton.AppendReceiptInput{
+	if _, err := engine.actions.AppendReceipt(protocol.AppendReceiptInput{
 		Release: manifest.value.Release,
 		Slice:   "S1",
 		Role:    "implementer",
@@ -3144,17 +3144,17 @@ func TestProductionImplementationHandoffRecoversItsDurablePreparedCandidate(
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := engine.actions.AppendReceipt(baton.AppendReceiptInput{
+	if _, err := engine.actions.AppendReceipt(protocol.AppendReceiptInput{
 		Release: manifest.value.Release,
 		Slice:   "S1",
-		Role:    "captain",
+		Role:    "lead",
 		Result:  "proceed",
 		Summary: "Proceed with the production fixture.",
 		Detail:  []byte("Exact review."),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	state, err := baton.ReadState(
+	state, err := protocol.ReadState(
 		engine.git,
 		manifest.value.Release,
 		engine.inertness,
@@ -3242,11 +3242,11 @@ func TestProductionImplementationHandoffRecoversItsDurablePreparedCandidate(
 			workspace,
 			cycle,
 			dispatchCoordinates{
-				Slice:          "S1",
-				Responsibility: driver.ImplementerImplementation,
-				BatonAttempt:   slice.Attempt,
-				Epoch:          1,
-				Try:            1,
+				Slice:           "S1",
+				Responsibility:  driver.ImplementerImplementation,
+				ProtocolAttempt: slice.Attempt,
+				Epoch:           1,
+				Try:             1,
 			},
 		)
 	if err != nil {
@@ -3498,8 +3498,8 @@ func TestPrepareDriverDispatchPreflightRegistryRefusesStaleCredentialWithZeroBur
 	engine.registry = registry
 
 	coordinates := dispatchCoordinates{
-		Responsibility: driver.PlannerProposal,
-		BatonAttempt:   1, Epoch: 1, Try: 1,
+		Responsibility:  driver.PlannerProposal,
+		ProtocolAttempt: 1, Epoch: 1, Try: 1,
 	}
 	if _, err := service.prepareDriverDispatch(
 		ctx, engine, workspace, driver.RolePlanner, coordinates, before,
@@ -3585,10 +3585,10 @@ func TestProductionClaimedDispatchRecoveryRetainsUncertaintyUntilAuthorityChange
 	}
 	defer workspace.Close()
 	coordinates := dispatchCoordinates{
-		Responsibility: driver.PlannerProposal,
-		BatonAttempt:   1,
-		Epoch:          1,
-		Try:            1,
+		Responsibility:  driver.PlannerProposal,
+		ProtocolAttempt: 1,
+		Epoch:           1,
+		Try:             1,
 	}
 	prepared, err := service.prepareDriverDispatch(
 		ctx,
@@ -3640,13 +3640,13 @@ func TestProductionClaimedDispatchRecoveryRetainsUncertaintyUntilAuthorityChange
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, stateErr := baton.ReadState(
+	state, stateErr := protocol.ReadState(
 		engine.git,
 		manifest.value.Release,
 		engine.inertness,
 	)
-	if baton.ErrorCode(stateErr) != "REF_NOT_FOUND" {
-		t.Fatalf("initial Baton state = %#v, %v", state, stateErr)
+	if protocol.ErrorCode(stateErr) != "REF_NOT_FOUND" {
+		t.Fatalf("initial Protocol state = %#v, %v", state, stateErr)
 	}
 	recovered, err := service.recoverStaleClaimedDispatchesFromSnapshot(
 		ctx,
@@ -3718,7 +3718,7 @@ func TestProductionClaimedDispatchRecoveryRetainsUncertaintyUntilAuthorityChange
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, stateErr = baton.ReadState(
+	state, stateErr = protocol.ReadState(
 		engine.git,
 		manifest.value.Release,
 		engine.inertness,
@@ -3778,7 +3778,7 @@ func TestCheckpointCannotBeAdmittedAsCandidate(t *testing.T) {
 		Tree:         cpResult.Tree.String(),
 		ProductTree:  cpResult.ProductTree,
 		ChangedPaths: cpResult.ChangedPaths,
-		Receipt: baton.AppendReceiptInput{
+		Receipt: protocol.AppendReceiptInput{
 			Release:   fixture.cycle.Release,
 			Slice:     fixture.cycle.Slice,
 			Role:      "implementer",
@@ -3822,7 +3822,7 @@ func TestCandidateValidationFailsClosedOnCommitSubjectError(t *testing.T) {
 		Tree:         nonExistentOID,
 		ProductTree:  "sha256:" + strings.Repeat("a", 64),
 		ChangedPaths: []string{"one.txt"},
-		Receipt: baton.AppendReceiptInput{
+		Receipt: protocol.AppendReceiptInput{
 			Release:   fixture.cycle.Release,
 			Slice:     fixture.cycle.Slice,
 			Role:      "implementer",

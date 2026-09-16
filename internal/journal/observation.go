@@ -186,7 +186,7 @@ func recentEventFacts(
 ) ([]EventFact, error) {
 	rows, err := conn.QueryContext(
 		ctx,
-		`SELECT event_offset, kind, CASE WHEN kind='captain_plan_decided' THEN body ELSE NULL END, created_at
+		`SELECT event_offset, kind, CASE WHEN kind='lead_plan_decided' THEN body ELSE NULL END, created_at
 		 FROM events
 		 WHERE run_id=?
 		 ORDER BY event_offset DESC
@@ -437,7 +437,7 @@ func (s *Store) EventsAfter(
 		}
 		rows, err := conn.QueryContext(
 			ctx,
-			`SELECT event_offset, kind, CASE WHEN kind='captain_plan_decided' THEN body ELSE NULL END, created_at
+			`SELECT event_offset, kind, CASE WHEN kind='lead_plan_decided' THEN body ELSE NULL END, created_at
 			 FROM events
 			 WHERE run_id=? AND event_offset>?
 			 ORDER BY event_offset

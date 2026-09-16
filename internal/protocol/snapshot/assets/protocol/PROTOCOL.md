@@ -1,0 +1,256 @@
+# Protocol Protocol 1.0
+
+In plain language, this document says who may make each decision and what must
+be saved when work moves to the next person or agent. Those boundaries stop the
+builder from approving its own plan or marking its own work as passed.
+
+Protocol does not choose the scheduler, worktree strategy, AI provider, model,
+project-management method, or recovery system.
+
+## 1. Responsibilities
+
+Roles are authority boundaries, not personas.
+
+### Planner
+
+The Planner proposes a bounded plan or forward-only revision. It defines the
+goal, target, authority, tracks, stable slices, behavioral and product scope,
+acceptance, minimum checks, real dependencies and consumed inputs, semantic
+constraints, and exclusions. It cannot approve, implement, or certify its own
+plan. Predicted support paths, exhaustive commands, evidence notes, scheduling,
+retries, worktrees, and bookkeeping are not plan commitments.
+
+### Implementer
+
+For each attempt, the Implementer first returns a concise design TL;DR and
+stops. After an applicable Lead `PROCEED`, it builds the candidate, runs the
+required checks, and returns acceptance-linked evidence. It does not review its
+own design or issue a delivery verdict.
+
+### Lead
+
+A distinct Lead reviews the exact applicable plan revision and design
+attempt against the exact consumed product base prepared for that design. It
+returns:
+
+- `PROCEED` — implementation may begin;
+- `REVISE` — the same slice needs another design attempt; or
+- `ESCALATE` — an external decision or revised approved plan is required.
+
+### Verifier
+
+An independent Verifier thread is one separate conversation. It starts fresh,
+with no conversation inherited from the Implementer, Lead, or another
+delivery role. A Verifier invocation is one read-only check in that conversation
+against one exact candidate. It returns at most one verdict:
+
+- `PASS` — the candidate satisfies the approved contract;
+- `FAIL` — the contract is adequate but candidate or evidence is wrong; or
+- `BLOCKED` — a trust-critical decision, scope, contract, or authority fact
+  cannot be established.
+
+A transport, runner, tool, or persistence failure produces no verdict. Without
+an earlier applicable recorded `FAIL`, even an unchanged-candidate retry starts
+a new Verifier thread.
+
+#### Direct-repair continuation
+
+After a recorded `FAIL`, the same Verifier thread MAY receive a new invocation
+for the uninterrupted direct repair chain. This is valid only while the stable
+slice, exact approved plan revision, target ref, approved target floor,
+contract, Lead-reviewed design and decision, consumed-input pins, and
+authority bindings remain unchanged and no later Verifier verdict has
+intervened. Receipt ancestry MAY advance only through that repair chain, which
+MAY include a bounded exact-head refresh as defined below.
+
+Each invocation receives only that Verifier thread's own conversation history,
+gets new read-only access to the exact current candidate, and checks the
+complete contract again. A fresh thread is always valid. `PASS`, `BLOCKED`, a
+changed binding, heightened policy that requires a new thread, assembly
+verification, or lost or unsupported thread context requires a fresh thread.
+
+### Merge
+
+Merge has no discretionary verdict. It proves eligibility, composes passed
+track candidates, obtains fresh verification of the assembled product, and
+integrates only the exact passed candidate against the expected target.
+
+The external authorizer remains outside these responsibilities and owns plan
+approval, consequential product judgement, and standing authority.
+
+## 2. Plan revisions and attempts
+
+One release has one goal, target, authority, and evolving plan path. Each plan
+revision is immutable in Git and approval binds its exact bytes.
+
+Slice identities remain stable:
+
+- `REVISE` appends a design attempt;
+- `FAIL` appends an implementation attempt;
+- a plan revision retains a slice whose contract and consumed inputs are
+  unchanged;
+- a changed slice invalidates only itself and the dependency closure whose
+  consumed inputs changed;
+- a new outcome adds a slice and a removed outcome retires it explicitly; and
+- a new release identity is required only when the goal, target, or authority
+  is replaced.
+
+Attempts never erase prior candidates or decisions. The applicable attempt is
+the latest one whose bindings agree with the current approved plan and inputs.
+
+### Exact-head refresh
+
+An engine MAY admit a bounded exact-head refresh for a candidate receipt with no
+Verifier verdict. The current track head MUST descend from that receipt commit
+through a non-empty linear chain in which every commit has exactly one parent
+and no merge or intervening Protocol receipt occurs. The reserved records root tree at that head MUST exactly match the tree at the bound
+candidate-receipt commit, and the candidate recorded MUST still be the current
+track head. The current approved plan MUST retain the same target ref, approved
+target floor, stable slice, contract, Lead-reviewed design and decision,
+consumed-input pins, and authority bindings.
+
+The Implementer rechecks and records that exact head as the next candidate
+attempt. The previous candidate becomes stale without an invented `FAIL`, plan
+revision, or history rewrite. A same-product commit is still a refresh because
+the exact candidate changed. Failure of any condition is not this recovery. A
+valid refresh inside a direct repair chain does not by itself end permitted
+Verifier-thread continuation.
+
+### Commitment boundary
+
+Plan fields describe what must remain true, not every implementation step
+expected in advance:
+
+- `scope.include` identifies owned behavioral or product surfaces;
+  `scope.exclude` remains a hard boundary;
+- `checks` names the minimum required proof; additional focused checks and
+  their exact results are candidate evidence;
+- `constraints` records non-negotiable semantic and safety limits; and
+- `depends_on` and `consumes` record actual delivery or product relationships,
+  not test co-touch, scheduling convenience, or likely support work.
+
+The configured records root is reserved Protocol metadata. Product code MUST NOT
+read or depend on it, including from build, test, package, deploy, hooks, or
+runtime. Only Protocol's record writer may modify it. Product identity ignores
+exactly this directory.
+
+An Implementer may discover ancillary tests, oracles, support files, extra
+checks, or evidence corrections and repair them under the current approved
+plan. A Lead may carry bounded corrections with `PROCEED` when they do not
+alter the contract. A Verifier `FAIL` returns the same stable slice directly to
+implementation. Material behavior, consumed product, contract, authority, or
+external-decision changes require the applicable Lead, Planner, or
+authorizer boundary.
+
+## 3. Compact receipts
+
+Each responsibility boundary produces one small machine-written receipt. Every
+receipt identifies its version, release, optional slice and attempt, role,
+result, exact immutable object binding, and concise summary. Role-specific
+bindings cover approval, design, candidate, checks, evidence, verification,
+expected target, or observed Merge as needed.
+
+The role returns decisions and evidence; it does not construct protocol
+records. A receipt writer validates and persists the result. Receipts may use
+Git trailers or compact repository records. Protocol standardises their meaning;
+the reference kit standardises one deterministic representation.
+
+Longer design or evidence documents are optional. When used, a receipt binds
+their exact immutable identity. They do not become universal handoffs.
+
+Runtime facts such as workers, leases, retries, tokens, cost, and logs are
+engine data, not Protocol receipts.
+
+Candidate evidence records the actual diff and checks. Their exact bindings
+make discovered support work observable without copying it into a revised plan.
+
+## 4. Binding rules
+
+- Approval binds the exact plan revision and is protected from delivery actors.
+- Lead differs from the design producer and binds the plan revision, slice,
+  and design attempt.
+- A consuming design binds its pre-composition track or release authority,
+  reviewed product-tree pins, and the deterministic prepared parent reviewed
+  by Lead.
+- Candidate evidence binds the plan revision, slice, attempt, repository,
+  exact prepared base, candidate, product tree, consumed product pins, checks,
+  and relevant Lead decision. The candidate preserves the reserved record
+  root exactly from its implementation base.
+- A Verifier thread differs from the Implementer and Lead, starts fresh, and
+  follows the direct-repair continuation rule above. Every invocation stays
+  read-only and binds its decision to the exact candidate and evidence.
+- Work `PASS` covers one slice candidate. Assembly `PASS` separately covers the
+  exact composed track candidates and complete product.
+- Merge binds the applicable `PASS`, exact candidate, expected target, observed
+  target, and resulting integration.
+
+A receipt, runtime event, board row, or self-declared boolean alone cannot prove
+protected approval, clean verification, Git identity, or effect success.
+
+## 5. Tracks and composition
+
+Independent tracks may advance concurrently. Ordered slices remain serial
+inside a track, and only one writer may mutate a track at a time. Dependencies
+and consumed inputs come from the approved plan.
+
+A consuming track is prepared from the exact current producer `PASS`
+authorities before its design is recorded and again before implementation.
+The consuming design records the pre-composition authority seed and reviewed
+product pins; its receipt parent is the deterministic prepared review base.
+Changing a consumed product after review requires a fresh design. A new
+producer candidate with the same product-tree digest keeps the review, but its
+current `PASS` authority is still prepared before implementation.
+
+A passed track candidate may be composed only through the approved topology.
+Composition preserves exact candidate identity and ancestry. After every
+required track is present, a fresh Verifier checks the assembled product. Only
+that assembly `PASS` permits final Merge.
+
+The approved target commit is the stable working floor for tracks. A normal
+fast-forward of the same target ref is operational movement, not a plan change:
+final assembly starts from the exact release authority, folds in the latest
+target, then the exact passed track products. If the target advances after
+assembly `PASS`, only that assembly becomes stale and must be rebuilt and
+checked again. A target that no longer descends from the approved floor pauses
+for reconciliation as `TARGET_DIVERGED`; it does not manufacture a plan
+revision. A composition conflict also pauses without moving a ref.
+
+Worktree names, branch conventions, locks, compare-and-set mechanics,
+transaction receipts, and effect recovery belong to the reference kit or
+engine. They must preserve the Protocol bindings but are not additional protocol
+stages.
+
+## 6. Trust stops and operational recovery
+
+Protocol blocks only when a trust-critical fact cannot be established: applicable
+approval, unambiguous scope or authority, an applicable Lead decision, an
+exact candidate and evidence, valid independent verification, unchanged
+verified candidate, or safe exact composition.
+
+Missing derived status, stale board output, duplicate dispatch, interrupted
+execution, a skipped procedural cursor, or a reconcilable Git effect is
+operational. An engine reconstructs, retries, or reports it without creating a
+plan revision or Protocol verdict.
+
+Clerical omissions and evidence corrections are repaired at the role that owns
+them. A bounded Lead correction may proceed inline. Candidate or evidence
+defects produce `FAIL` and another implementation attempt on the same slice.
+A direct unreceipted track advance after a candidate but before a verdict
+returns to the Implementer for an exact replacement candidate receipt; it does
+not require a fabricated Verifier decision or history rewrite.
+Only a material design issue crosses back to Lead; only a material contract,
+authority, or external decision crosses to Planner or the authorizer.
+
+When competing evidence or an external effect cannot be reconciled safely, the
+honest result is an operational stop until the trust fact becomes unambiguous.
+It is never permission to guess.
+
+## 7. Guided and autonomous use
+
+A guided host may rely on a person to preserve responsibility separation and
+record receipts. An autonomous engine additionally proves protected approval,
+process and credential isolation, one active writer per track, durable dispatch
+identity, resource bounds, effect recovery, and expected-target updates.
+
+Sworn is the reference autonomous engine. Protocol remains usable without Sworn
+through its portable operations and reference kit.

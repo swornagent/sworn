@@ -40,17 +40,17 @@ func TestModuleHasOnlyTheAdmittedPackageSet(t *testing.T) {
 	sort.Strings(got)
 	want := []string{
 		"github.com/swornagent/sworn/cmd/sworn",
-		"github.com/swornagent/sworn/internal/baton",
 		"github.com/swornagent/sworn/internal/cockpit",
 		"github.com/swornagent/sworn/internal/driver",
 		"github.com/swornagent/sworn/internal/gitx",
 		"github.com/swornagent/sworn/internal/journal",
 		"github.com/swornagent/sworn/internal/observe",
+		"github.com/swornagent/sworn/internal/protocol",
 		"github.com/swornagent/sworn/internal/runtime",
 		"github.com/swornagent/sworn/internal/skill",
 		"github.com/swornagent/sworn/internal/tui",
-		"github.com/swornagent/sworn/tools/batonassets",
-		"github.com/swornagent/sworn/tools/batongolden",
+		"github.com/swornagent/sworn/tools/protocolassets",
+		"github.com/swornagent/sworn/tools/protocolgolden",
 	}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Fatalf("module packages = %v, want %v", got, want)
@@ -75,7 +75,9 @@ func TestBuiltBinaryHasNoLegacySymbolsOrVCSSettings(t *testing.T) {
 		"internal/executor",
 		"internal/policy",
 		"internal/producer",
-		"internal/protocol",
+		// internal/protocol was a pre-v1 package; the name is reused since
+		// ADR-0014 by the embedded delivery protocol, so it is no longer a
+		// legacy marker.
 		"internal/repo",
 		"internal/store",
 		"internal/workspace",
@@ -182,7 +184,7 @@ func TestTwinStrippedProductBuildsAreByteIdentical(t *testing.T) {
 	)
 }
 
-func TestProductCopyAndArchiveExcludeBatonRecords(t *testing.T) {
+func TestProductCopyAndArchiveExcludeProtocolRecords(t *testing.T) {
 	root := moduleRoot(t)
 	repository := copyProductTree(t, root)
 	initProductRepository(t, repository)

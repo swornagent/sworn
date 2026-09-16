@@ -5,36 +5,36 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 func TestTrackBaseBeforeBindsCASStateAndConsumedAuthority(
 	t *testing.T,
 ) {
-	state := baton.State{
-		Plan: baton.PlanState{OID: "plan"},
-		Refs: baton.StateRefs{Target: baton.CapturedRef{
+	state := protocol.State{
+		Plan: protocol.PlanState{OID: "plan"},
+		Refs: protocol.StateRefs{Target: protocol.CapturedRef{
 			Ref:  "refs/heads/main",
 			Head: "target",
 		}},
-		Tracks: []baton.TrackState{{
+		Tracks: []protocol.TrackState{{
 			ID:   "T1",
 			Head: "physical-before",
 		}},
 	}
-	slice := &baton.SliceState{
-		Location: baton.SliceLocation{
-			Track: baton.Track{ID: "T1"},
-			Slice: baton.Slice{ID: "S1"},
+	slice := &protocol.SliceState{
+		Location: protocol.SliceLocation{
+			Track: protocol.Track{ID: "T1"},
+			Slice: protocol.Slice{ID: "S1"},
 		},
 		Stage:           "design",
 		NextRole:        "implementer",
 		Attempt:         7,
 		PreparationSeed: "seed",
 		PreparedBase:    "prepared",
-		ConsumedInputs: []baton.ConsumedInput{{
+		ConsumedInputs: []protocol.ConsumedInput{{
 			Slice:            "S2",
 			PassReceipt:      "pass-1",
 			CandidateReceipt: "receipt-1",
@@ -54,7 +54,7 @@ func TestTrackBaseBeforeBindsCASStateAndConsumedAuthority(
 
 	newPass := *slice
 	newPass.ConsumedInputs = append(
-		[]baton.ConsumedInput(nil),
+		[]protocol.ConsumedInput(nil),
 		slice.ConsumedInputs...,
 	)
 	newPass.ConsumedInputs[0].PassReceipt = "pass-2"
@@ -65,17 +65,17 @@ func TestTrackBaseBeforeBindsCASStateAndConsumedAuthority(
 }
 
 func TestCandidateHeadRefreshNeedsNoBaseMutation(t *testing.T) {
-	state := baton.State{Tracks: []baton.TrackState{{
+	state := protocol.State{Tracks: []protocol.TrackState{{
 		ID:            "T1",
 		Head:          "unreceipted-head",
 		AuthorityHead: "candidate-receipt",
 	}}}
-	slice := &baton.SliceState{
-		Location: baton.SliceLocation{
-			Track: baton.Track{ID: "T1"},
-			Slice: baton.Slice{ID: "S1"},
+	slice := &protocol.SliceState{
+		Location: protocol.SliceLocation{
+			Track: protocol.Track{ID: "T1"},
+			Slice: protocol.Slice{ID: "S1"},
 		},
-		History:        baton.SliceHistory{MaximumAttempt: 1},
+		History:        protocol.SliceHistory{MaximumAttempt: 1},
 		Stage:          "implement",
 		Status:         "ready",
 		NextRole:       "implementer",
@@ -83,13 +83,13 @@ func TestCandidateHeadRefreshNeedsNoBaseMutation(t *testing.T) {
 		Attempt:        2,
 		Retained:       false,
 		StaleReason:    "track head changed before verification was recorded",
-		CurrentReceipt: &baton.ReceiptEntry{OID: "candidate-receipt"},
-		Candidate:      &baton.ReceiptEntry{OID: "candidate-receipt"},
+		CurrentReceipt: &protocol.ReceiptEntry{OID: "candidate-receipt"},
+		Candidate:      &protocol.ReceiptEntry{OID: "candidate-receipt"},
 	}
 	if !candidateHeadRefresh(state, slice) {
 		t.Fatal("exact candidate-head refresh was not recognized")
 	}
-	slice.Candidate = &baton.ReceiptEntry{OID: "other-receipt"}
+	slice.Candidate = &protocol.ReceiptEntry{OID: "other-receipt"}
 	if candidateHeadRefresh(state, slice) {
 		t.Fatal("mismatched candidate authority was recognized as a refresh")
 	}
@@ -110,7 +110,7 @@ func TestSealedRefreshRecordMustMatchItsExplicitCycleAuthority(t *testing.T) {
 		RefreshFrom: cycle.RefreshFrom,
 		Candidate:   "next-candidate",
 		ProductTree: "sha256:product",
-		Receipt: baton.AppendReceiptInput{
+		Receipt: protocol.AppendReceiptInput{
 			Release:   cycle.Release,
 			Slice:     cycle.Slice,
 			Role:      "implementer",

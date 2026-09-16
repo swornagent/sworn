@@ -73,7 +73,7 @@ const (
 )
 
 // ContinuationBinding is authority already validated by the runtime. The
-// driver treats each digest as opaque and binds it without parsing Baton, Git,
+// driver treats each digest as opaque and binds it without parsing Protocol, Git,
 // journal, or work-context content.
 type ContinuationBinding struct {
 	RunID                 string
@@ -108,7 +108,7 @@ type ContinuationResult struct {
 }
 
 // continuationState contains only adapter-owned replay material. It must not
-// retain permission, workspace, Baton decision, credential, or tool-session
+// retain permission, workspace, Protocol decision, credential, or tool-session
 // authority. The dispatcher can bound and destroy it but cannot inspect it.
 type continuationState interface {
 	continuationMode() ContinuationMode

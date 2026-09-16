@@ -85,10 +85,10 @@ func TestProductionRegistryRequiresEveryFamilyAndExplicitRoleModels(t *testing.T
 	selections := RoleSelections{
 		Planner:     RoleSelection{Profile: "profile-1", Model: "planner-model"},
 		Implementer: RoleSelection{Profile: "profile-2", Model: "implementer-model"},
-		Captain:     RoleSelection{Profile: "profile-3", Model: "captain-model"},
+		Lead:        RoleSelection{Profile: "profile-3", Model: "lead-model"},
 		Verifier:    RoleSelection{Profile: "profile-4", Model: "verifier-model"},
 	}
-	for _, role := range []Role{RolePlanner, RoleImplementer, RoleCaptain, RoleVerifier} {
+	for _, role := range []Role{RolePlanner, RoleImplementer, RoleLead, RoleVerifier} {
 		selected, resolveErr := registry.Resolve(selections, role)
 		if resolveErr != nil || selected.Model == "" ||
 			selected.Profile.Key == "" || selected.Adapter.Key == "" {

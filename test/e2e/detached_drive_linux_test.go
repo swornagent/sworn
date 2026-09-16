@@ -245,13 +245,13 @@ func TestDetachedLifecycleScenarioProvesDetach(t *testing.T) {
 		t.Fatalf("final board run state = %q, want complete", finalBoard.Run.State)
 	}
 
-	// Baton state in git
-	finalState := readBatonState(t, repository, release)
+	// Protocol state in git
+	finalState := readProtocolState(t, repository, release)
 	if finalState.Assembly.Outcome != "merged" ||
 		finalState.Assembly.Candidate == nil ||
 		finalState.Assembly.Pass == nil ||
 		finalState.Assembly.ResultCommit == "" {
-		t.Fatalf("baton state = %#v", finalState.Assembly)
+		t.Fatalf("protocol state = %#v", finalState.Assembly)
 	}
 	targetAfter := runGit(t, repository, "rev-parse", "main")
 	if targetAfter == targetBefore || targetAfter != finalState.Assembly.ResultCommit {

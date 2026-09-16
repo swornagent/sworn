@@ -79,7 +79,7 @@ func newTrackBaseFixture(t *testing.T, name string) trackBaseFixture {
 func TestTrackBaseValidatesLegacyPlanAtRelease(t *testing.T) {
 	t.Parallel()
 	// A release recorded before the relocation carries its plan only under the
-	// historical .baton/releases root. Track-base preparation must still find
+	// historical .protocol/releases root. Track-base preparation must still find
 	// the exact plan through the legacy fallback (A4).
 	repository, target := newRepository(t, SHA1)
 	record, product := inertAdmissions(t, repository, nil)
@@ -832,7 +832,7 @@ func TestReconcileTrackBaseAllOldAllNewAdvancedAndAmbiguous(t *testing.T) {
 	)
 }
 
-func TestPrepareTrackBaseInputBoundaryMatchesBatonListBound(t *testing.T) {
+func TestPrepareTrackBaseInputBoundaryMatchesProtocolListBound(t *testing.T) {
 	fixture := newTrackBaseFixture(t, "boundary")
 	inputs := make([]TrackBaseInput, MaxTrackBaseInputs+1)
 	for index := range inputs {

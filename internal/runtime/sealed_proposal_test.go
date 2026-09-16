@@ -52,7 +52,7 @@ func TestLiveSealedProposalHookSurvivesParentOperationalFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := &Service{journal: store, now: func() time.Time { return now }}
-	plan := []byte("```baton-plan-v2\n{\"release\":\"hook\"}\n```\n# Plan\n")
+	plan := []byte("```protocol-plan-v2\n{\"release\":\"hook\"}\n```\n# Plan\n")
 	hook := service.sealedProposalHook(owner, parentID)
 	if hook == nil {
 		t.Fatal("live sealed proposal hook is nil")
@@ -133,7 +133,7 @@ func TestLiveSealedProposalHookPersistsAndRereadsCarriedContracts(t *testing.T) 
 		t.Fatal(err)
 	}
 	service := &Service{journal: store, now: func() time.Time { return now }}
-	plan := []byte("```baton-plan-v2\n{\"release\":\"hook\"}\n```\n# Plan\n")
+	plan := []byte("```protocol-plan-v2\n{\"release\":\"hook\"}\n```\n# Plan\n")
 	contracts := map[string][]byte{"contracts/S1.json": []byte(`{"outcome":"Deliver S1."}`)}
 	hook := service.sealedProposalHook(owner, parentID)
 	if hook == nil {

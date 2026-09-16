@@ -11,7 +11,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"github.com/swornagent/sworn/internal/baton"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 const (
@@ -102,8 +102,8 @@ const (
 	PlannerProposal           Responsibility = "planner_proposal"
 	ImplementerDesign         Responsibility = "implementer_design"
 	ImplementerImplementation Responsibility = "implementer_implementation"
-	CaptainReview             Responsibility = "captain_review"
-	CaptainPlanReview         Responsibility = "captain_plan_review"
+	LeadReview                Responsibility = "lead_review"
+	LeadPlanReview            Responsibility = "lead_plan_review"
 	WorkVerification          Responsibility = "work_verification"
 	AssemblyVerification      Responsibility = "assembly_verification"
 )
@@ -280,7 +280,7 @@ func ValidateSubmission(submission Submission) error {
 		case submission.Contracts != nil:
 			return submissionShapeMismatch("contracts")
 		}
-	case CaptainReview, CaptainPlanReview:
+	case LeadReview, LeadPlanReview:
 		switch {
 		case submission.Plan != nil:
 			return submissionShapeMismatch("plan")
@@ -288,7 +288,7 @@ func ValidateSubmission(submission Submission) error {
 			return submissionShapeMismatch("checks")
 		case submission.Decision == nil:
 			return submissionShapeMismatch("decision")
-		case !submission.Decision.Outcome.captain():
+		case !submission.Decision.Outcome.lead():
 			return submissionShapeMismatch("decision")
 		case submission.Decision.Scope != FailScopeUnspecified:
 			return submissionShapeMismatch("decision")
@@ -336,8 +336,8 @@ func validateExactBytes(value ExactBytes, maximum int, requireUTF8 bool) error {
 func validateSubmissionDetail(detail string) error {
 	if len([]byte(detail)) > MaxSubmissionDetailBytes || !utf8.ValidString(detail) ||
 		strings.ContainsRune(detail, '\x00') || strings.ContainsRune(detail, '\r') ||
-		strings.Contains(detail, "Baton-Detail-Begin") ||
-		strings.Contains(detail, "Baton-Detail-End") {
+		strings.Contains(detail, "Protocol-Detail-Begin") ||
+		strings.Contains(detail, "Protocol-Detail-End") {
 		return fail("INVALID_DETAIL")
 	}
 	return nil
@@ -345,14 +345,14 @@ func validateSubmissionDetail(detail string) error {
 
 // validatePlanBytes delegates plan admission to the one canonical parser
 // shared with plan recording: any bytes a Planner submission carries must be
-// exactly what baton.ParsePlan would later admit, whether that is the legacy
-// baton.plan/v2 fence or a sworn.release-manifest/v1 manifest. This drops the
+// exactly what protocol.ParsePlan would later admit, whether that is the legacy
+// protocol.plan/v2 fence or a sworn.release-manifest/v1 manifest. This drops the
 // prior driver-local fence/JSON precheck, which duplicated and could drift
 // from that authority. The wire-facing code stays INVALID_PLAN_BYTES for
 // every rejection, matching this package's existing certification mapping
 // and tests.
 func validatePlanBytes(body []byte) error {
-	if _, err := baton.ParsePlan(body); err != nil {
+	if _, err := protocol.ParsePlan(body); err != nil {
 		return fail("INVALID_PLAN_BYTES")
 	}
 	return nil
@@ -363,8 +363,8 @@ func (responsibility Responsibility) valid() bool {
 	case PlannerProposal,
 		ImplementerDesign,
 		ImplementerImplementation,
-		CaptainReview,
-		CaptainPlanReview,
+		LeadReview,
+		LeadPlanReview,
 		WorkVerification,
 		AssemblyVerification:
 		return true
@@ -374,10 +374,10 @@ func (responsibility Responsibility) valid() bool {
 }
 
 func (outcome DecisionOutcome) valid() bool {
-	return outcome.captain() || outcome.verifier()
+	return outcome.lead() || outcome.verifier()
 }
 
-func (outcome DecisionOutcome) captain() bool {
+func (outcome DecisionOutcome) lead() bool {
 	return outcome == DecisionProceed ||
 		outcome == DecisionRevise ||
 		outcome == DecisionEscalate
@@ -521,8 +521,8 @@ func validateResponsibility(descriptor PermissionDescriptor) error {
 		if descriptor.Role != RoleImplementer {
 			return fail("INVALID_PERMISSION")
 		}
-	case CaptainReview, CaptainPlanReview:
-		if descriptor.Role != RoleCaptain {
+	case LeadReview, LeadPlanReview:
+		if descriptor.Role != RoleLead {
 			return fail("INVALID_PERMISSION")
 		}
 	case WorkVerification:

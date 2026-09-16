@@ -5,16 +5,17 @@ a proposed plan through to a checked merge, and it is the sole active
 authority for that journey: no separate installation, release, version match,
 or certification of another product is required to build or run it.
 
-Sworn's design absorbed [Baton](https://github.com/sawy3r/baton)'s trust
-rules and recorded handoffs. Baton-authored history remains safely readable
-as legacy provenance, and its published receipt schema stays stable, but it
-is design heritage, not a product Sworn depends on at build or run time.
+Sworn's design absorbed the trust rules and recorded handoffs of a retired
+predecessor protocol, now embedded and re-worded in Sworn's own role
+vocabulary (ADR-0014). Records written under the old vocabulary are not
+migrated. It is design heritage, not a product Sworn depends on at build or
+run time.
 
 Sworn gives each part of the job a clear owner:
 
 - the Planner proposes the work and its order;
 - the Implementer designs and writes the change;
-- the Captain reviews the design before implementation continues;
+- the Lead reviews the design before implementation continues;
 - a fresh Verifier checks the finished candidate; and
 - Sworn performs the Git merge only after its own recorded handoffs show a
   passing result.
@@ -23,7 +24,7 @@ Sworn gives each part of the job a clear owner:
 Planner
    |
    v
-Implementer --> Captain
+Implementer --> Lead
    ^              |
    +---- revise --+
    |
@@ -40,25 +41,25 @@ approval or a passing verdict.
 
 Sworn's orchestrator keeps the relay moving when a worker asks a question,
 reports a block, or returns something Sworn cannot safely use. It can resume
-the same worker with an answer grounded in saved facts, ask the Captain for
+the same worker with an answer grounded in saved facts, ask the Lead for
 advice, retry an operational failure, or pause only that track for a human
 answer while independent work continues.
 
 The orchestrator is not a sixth role. It cannot approve a plan, invent a
-Captain decision or Verifier verdict, or merge code. Only Sworn's own recorded
+Lead decision or Verifier verdict, or merge code. Only Sworn's own recorded
 handoffs decide what advances.
 
 ## Current release candidate
 
-Sworn `1.0.0-rc.2-dev` embeds its own Planner, Implementer, Captain, and
+Sworn `1.0.0-rc.2-dev` embeds its own Planner, Implementer, Lead, and
 Verifier role assets; some of that prose and reference material still carries
-legacy Baton `1.0.0-rc.14` content verbatim. Check the installed version and
+the retired predecessor's `1.0.0-rc.14` reference content, re-worded. Check the installed version and
 embedded role-asset identity with `sworn version`, or use `sworn version
 --json` when another tool needs to read them.
 
 This candidate can:
 
-- run the Planner, Implementer, Captain, Verifier, and merge journey;
+- run the Planner, Implementer, Lead, Verifier, and merge journey;
 - work on independent tracks in parallel while keeping changes on each track
   in order;
 - pause, resume, cancel, take over, and retry a saved run safely;
@@ -180,7 +181,7 @@ exact evidence and known limits.
 
 ```text
 cmd/sworn         command line, project TUI, and local browser service
-internal/baton    included Baton protocol and deterministic decisions
+internal/protocol the embedded delivery protocol and deterministic decisions
 internal/runtime  work order, recovery, and the single state owner
 internal/journal  saved commands, external work, receipts, and events
 internal/gitx     measured Git facts and controlled Git changes

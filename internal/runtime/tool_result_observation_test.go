@@ -58,11 +58,11 @@ func toolResultTestHook(
 		},
 	}
 	coordinates := dispatchCoordinates{
-		Slice:          "S8-tool-result-observation",
-		Responsibility: driver.ImplementerImplementation,
-		BatonAttempt:   2,
-		Epoch:          1,
-		Try:            3,
+		Slice:           "S8-tool-result-observation",
+		Responsibility:  driver.ImplementerImplementation,
+		ProtocolAttempt: 2,
+		Epoch:           1,
+		Try:             3,
 	}
 	attemptIdentity := journal.EffectAttempt{
 		WorkID: "work-tool-result-events",

@@ -76,16 +76,16 @@ type httpFakeCommands struct {
 	answer       AnswerAttentionCommand
 	redeliveries int
 	approveCalls int
-	captainCalls int
-	captain      runtimepkg.CaptainDelegationCommand
+	leadCalls    int
+	lead         runtimepkg.LeadDelegationCommand
 }
 
-func (f *httpFakeCommands) CaptainDelegation(_ context.Context, command runtimepkg.CaptainDelegationCommand) (runtimepkg.CaptainDelegationResult, error) {
+func (f *httpFakeCommands) LeadDelegation(_ context.Context, command runtimepkg.LeadDelegationCommand) (runtimepkg.LeadDelegationResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.captainCalls++
-	f.captain = command
-	return runtimepkg.CaptainDelegationResult{SchemaVersion: runtimepkg.CaptainDelegationResultVersion, State: "revoked"}, nil
+	f.leadCalls++
+	f.lead = command
+	return runtimepkg.LeadDelegationResult{SchemaVersion: runtimepkg.LeadDelegationResultVersion, State: "revoked"}, nil
 }
 
 type httpFakeTelemetry struct {
@@ -319,7 +319,7 @@ func TestLocalProductMCPInitializeListCallAndStrictInput(t *testing.T) {
 	sort.Strings(advertised)
 	wantTools := []string{
 		mcpAnswerAttentionTool, mcpApprovalTool, mcpAttentionsTool,
-		mcpCaptainDelegationTool, mcpControlTool, mcpStartTool,
+		mcpLeadDelegationTool, mcpControlTool, mcpStartTool,
 		mcpStartDelegatedTool, mcpStatusTool,
 	}
 	sort.Strings(wantTools)
@@ -400,7 +400,7 @@ func TestLocalProductMCPInitializeListCallAndStrictInput(t *testing.T) {
 			Role:                  "implementer",
 			Responsibility:        "implementer_implementation",
 			InvocationID:          "run-1/S1/implementer_implementation/1/1/1",
-			BatonAttempt:          1,
+			ProtocolAttempt:       1,
 			PlanAuthorityDigest:   "sha256:" + strings.Repeat("1", 64),
 			TargetAuthorityDigest: "sha256:" + strings.Repeat("2", 64),
 			WorkIdentity:          "sha256:" + strings.Repeat("3", 64),
@@ -468,29 +468,29 @@ func TestLocalProductMCPInitializeListCallAndStrictInput(t *testing.T) {
 		!strings.Contains(unknown.Body.String(), `"code":-32602`) {
 		t.Fatalf("unknown input = %d calls=%d %s", unknown.Code, commands.approveCalls, unknown.Body.String())
 	}
-	captainCommand := runtimepkg.CaptainDelegationCommand{
-		SchemaVersion: runtimepkg.CaptainDelegationCommandVersion,
+	leadCommand := runtimepkg.LeadDelegationCommand{
+		SchemaVersion: runtimepkg.LeadDelegationCommandVersion,
 		Action:        "revoke", RunID: "run-1",
 		ManifestDigest: "sha256:" + strings.Repeat("1", 64),
-		ActorClass:     runtimepkg.CaptainDelegationActorClass,
+		ActorClass:     runtimepkg.LeadDelegationActorClass,
 		ActorAuthority: "external-authorizer",
 		CurrentEpoch:   1, CurrentDigest: "sha256:" + strings.Repeat("2", 64),
 	}
-	captainArguments, _ := json.Marshal(captainCommand)
-	captainCall, _ := json.Marshal(map[string]any{
+	leadArguments, _ := json.Marshal(leadCommand)
+	leadCall, _ := json.Marshal(map[string]any{
 		"jsonrpc": "2.0", "id": 4, "method": "tools/call",
-		"params": map[string]any{"name": mcpCaptainDelegationTool, "arguments": json.RawMessage(captainArguments)},
+		"params": map[string]any{"name": mcpLeadDelegationTool, "arguments": json.RawMessage(leadArguments)},
 	})
-	captainCalled := call(string(captainCall), "127.0.0.1:41100")
-	if captainCalled.Code != http.StatusOK || commands.captainCalls != 1 ||
-		commands.captain.ActorAuthority != "external-authorizer" ||
-		!strings.Contains(captainCalled.Body.String(), `"state":"revoked"`) {
-		t.Fatalf("captain tools/call = %d calls=%d %s", captainCalled.Code, commands.captainCalls, captainCalled.Body.String())
+	leadCalled := call(string(leadCall), "127.0.0.1:41100")
+	if leadCalled.Code != http.StatusOK || commands.leadCalls != 1 ||
+		commands.lead.ActorAuthority != "external-authorizer" ||
+		!strings.Contains(leadCalled.Body.String(), `"state":"revoked"`) {
+		t.Fatalf("lead tools/call = %d calls=%d %s", leadCalled.Code, commands.leadCalls, leadCalled.Body.String())
 	}
-	captainUnknown := strings.Replace(string(captainCall), `"actor_authority":"external-authorizer"`, `"actor_authority":"external-authorizer","unknown":true`, 1)
-	unknownCaptain := call(captainUnknown, "127.0.0.1:41100")
-	if unknownCaptain.Code != http.StatusOK || commands.captainCalls != 1 || !strings.Contains(unknownCaptain.Body.String(), `"code":-32602`) {
-		t.Fatalf("unknown Captain input = %d calls=%d %s", unknownCaptain.Code, commands.captainCalls, unknownCaptain.Body.String())
+	leadUnknown := strings.Replace(string(leadCall), `"actor_authority":"external-authorizer"`, `"actor_authority":"external-authorizer","unknown":true`, 1)
+	unknownLead := call(leadUnknown, "127.0.0.1:41100")
+	if unknownLead.Code != http.StatusOK || commands.leadCalls != 1 || !strings.Contains(unknownLead.Body.String(), `"code":-32602`) {
+		t.Fatalf("unknown Lead input = %d calls=%d %s", unknownLead.Code, commands.leadCalls, unknownLead.Body.String())
 	}
 	remote := call(string(callBody), "203.0.113.10:41100")
 	if remote.Code != http.StatusForbidden || commands.approveCalls != 1 {
@@ -498,32 +498,32 @@ func TestLocalProductMCPInitializeListCallAndStrictInput(t *testing.T) {
 	}
 }
 
-func TestLoopbackCockpitCaptainManagementUsesExactCommandAndRejectsRemoteMutation(t *testing.T) {
+func TestLoopbackCockpitLeadManagementUsesExactCommandAndRejectsRemoteMutation(t *testing.T) {
 	handler, _, commands := newHTTPFixture(t, testLocalHost, testLocalOrigin)
-	command := runtimepkg.CaptainDelegationCommand{
-		SchemaVersion: runtimepkg.CaptainDelegationCommandVersion,
+	command := runtimepkg.LeadDelegationCommand{
+		SchemaVersion: runtimepkg.LeadDelegationCommandVersion,
 		Action:        "revoke", RunID: "run-1",
 		ManifestDigest: "sha256:" + strings.Repeat("1", 64),
-		ActorClass:     runtimepkg.CaptainDelegationActorClass,
+		ActorClass:     runtimepkg.LeadDelegationActorClass,
 		ActorAuthority: "external-authorizer", CurrentEpoch: 4,
 		CurrentDigest: "sha256:" + strings.Repeat("2", 64),
 	}
 	body, _ := json.Marshal(command)
-	target := testLocalOrigin + apiPathPrefix + "/runs/run-1/captain-delegation/manage"
+	target := testLocalOrigin + apiPathPrefix + "/runs/run-1/lead-delegation/manage"
 	local := httpRequest(http.MethodPost, target, "127.0.0.1:41100", body)
 	local.Header.Set("Content-Type", "application/json")
 	response := serve(handler, local)
-	if response.Code != http.StatusOK || commands.captainCalls != 1 ||
-		!reflect.DeepEqual(commands.captain, command) {
-		t.Fatalf("local management = %d calls=%d command=%#v body=%s", response.Code, commands.captainCalls, commands.captain, response.Body.String())
+	if response.Code != http.StatusOK || commands.leadCalls != 1 ||
+		!reflect.DeepEqual(commands.lead, command) {
+		t.Fatalf("local management = %d calls=%d command=%#v body=%s", response.Code, commands.leadCalls, commands.lead, response.Body.String())
 	}
 	remote := httpRequest(http.MethodPost, target, "203.0.113.10:41100", body)
 	remote.Header.Set("Content-Type", "application/json")
 	remote.TLS = &tls.ConnectionState{}
 	remote.Header.Set("Authorization", "Bearer "+testHTTPToken)
 	response = serve(handler, remote)
-	if response.Code != http.StatusForbidden || commands.captainCalls != 1 {
-		t.Fatalf("remote management = %d calls=%d", response.Code, commands.captainCalls)
+	if response.Code != http.StatusForbidden || commands.leadCalls != 1 {
+		t.Fatalf("remote management = %d calls=%d", response.Code, commands.leadCalls)
 	}
 }
 
@@ -1189,8 +1189,8 @@ func TestHTTPAssetsArePinnedAndUIContractIsStatic(t *testing.T) {
 	javascript := mustEmbeddedAsset(t, "web/app.js")
 	if strings.Count(index, `id="topology"`) != 1 ||
 		strings.Count(index, `id="handoff"`) != 1 ||
-		strings.Count(index, `id="captain-dialog"`) != 1 ||
-		strings.Count(index, `id="captain-envelope"`) != 1 ||
+		strings.Count(index, `id="lead-dialog"`) != 1 ||
+		strings.Count(index, `id="lead-envelope"`) != 1 ||
 		!strings.Contains(index, "Confirm every current binding") {
 		t.Errorf("UI must have one topology and one handoff ribbon")
 	}
@@ -1216,7 +1216,7 @@ func TestHTTPAssetsArePinnedAndUIContractIsStatic(t *testing.T) {
 		`() => void refresh("", false)`,
 		"validGraphHandoff(value.graph, value.handoff)",
 		"rail.append(trackNode)",
-		"button.dataset.hasBaton = String(node.has_baton)",
+		"button.dataset.hasProtocol = String(node.has_protocol)",
 		"button.dataset.handoff = String(handoffNodes.has(node.id))",
 		"path.dataset.edgeId = edge.id",
 		"path.dataset.from = edge.from",
@@ -1227,9 +1227,9 @@ func TestHTTPAssetsArePinnedAndUIContractIsStatic(t *testing.T) {
 		"Sworn could not confirm the current handoff records.",
 		"Sworn is carrying the next recorded handoff.",
 		"new TextEncoder().encode(answer).byteLength",
-		"openCaptainDialog(action)",
+		"openLeadDialog(action)",
 		"Current digest:",
-		"captain-delegation/manage",
+		"lead-delegation/manage",
 		"Use the exact canonical envelope, including its final newline",
 	} {
 		if !strings.Contains(javascript, required) {

@@ -43,7 +43,7 @@ type PinnedRuntimeFile struct {
 // testUncontainedDispatch. Production ships only entries probed against the
 // pinned CLIs on the operator host; families absent from the map stay
 // fail-open (their clean exits classify as transport). Exit code 1 is barred
-// by the Captain ruling: bubblewrap uses 1 for its own setup failures, and
+// by the Lead ruling: bubblewrap uses 1 for its own setup failures, and
 // mislabeling a sandbox fault as an auth failure is the exact confusion this
 // vocabulary exists to end.
 var nativeAuthExitCodes = map[ProfileFamily]int{}
@@ -136,7 +136,7 @@ type nativeSurfaceCertificate struct {
 }
 
 // nativeAutomationSurfaceCertificate is deliberately disjoint from the
-// Baton invocation certificate. An automation launch is admitted only after
+// Protocol invocation certificate. An automation launch is admitted only after
 // both of its one-tool surfaces have been observed from the pinned CLI.
 type nativeAutomationSurfaceCertificate struct {
 	Family              ProfileFamily
@@ -657,7 +657,7 @@ func nativeAutomationCertificationInvocations(
 		RunID:                 "native-certification-run",
 		TrackID:               "native-certification-track",
 		Slice:                 "native-certification-slice",
-		BatonAttempt:          1,
+		ProtocolAttempt:       1,
 		PlanAuthorityDigest:   Digest([]byte("native-certification-plan")),
 		TargetAuthorityDigest: Digest([]byte("native-certification-target")),
 		WorkIdentity:          Digest([]byte("native-certification-work")),

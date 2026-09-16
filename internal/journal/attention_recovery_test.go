@@ -66,7 +66,7 @@ func TestHumanTurnAttentionBindingIsCompleteVersionedAndLegacyCompatible(
 		Role:                  "implementer",
 		Responsibility:        "implementer_implementation",
 		InvocationID:          run.ID + "/S1/implementer_implementation/1/1/1",
-		BatonAttempt:          1,
+		ProtocolAttempt:       1,
 		PlanAuthorityDigest:   digest([]byte("plan-authority")),
 		TargetAuthorityDigest: digest([]byte("target-authority")),
 		WorkIdentity:          recovery.ProgressID,
@@ -109,7 +109,7 @@ func TestHumanTurnAttentionBindingIsCompleteVersionedAndLegacyCompatible(
 		{"role", func(value *HumanTurnBinding) { value.Role = "merge" }},
 		{"responsibility", func(value *HumanTurnBinding) { value.Responsibility = "" }},
 		{"invocation_id", func(value *HumanTurnBinding) { value.InvocationID = "" }},
-		{"baton_attempt", func(value *HumanTurnBinding) { value.BatonAttempt = 0 }},
+		{"protocol_attempt", func(value *HumanTurnBinding) { value.ProtocolAttempt = 0 }},
 		{"plan_authority", func(value *HumanTurnBinding) { value.PlanAuthorityDigest = "" }},
 		{"target_authority", func(value *HumanTurnBinding) { value.TargetAuthorityDigest = "" }},
 		{"work_identity", func(value *HumanTurnBinding) { value.WorkIdentity = digest([]byte("wrong-work")) }},
@@ -836,7 +836,7 @@ func TestRecoveryDecisionReservationsEmitClosedActionEvents(t *testing.T) {
 	)
 	for ordinal, kind := range []RecoveryStepKind{
 		RecoveryResumeWorker,
-		RecoveryAskCaptain,
+		RecoveryAskLead,
 	} {
 		if _, err := store.ReserveRecoveryStep(
 			ctx,
@@ -871,14 +871,14 @@ func TestRecoveryDecisionReservationsEmitClosedActionEvents(t *testing.T) {
 	for _, event := range snapshot.Events {
 		switch event.Kind {
 		case RecoveryResumeWorkerEvent,
-			RecoveryAskCaptainEvent,
+			RecoveryAskLeadEvent,
 			RecoveryRetryOperationalEvent:
 			got = append(got, event.Kind)
 		}
 	}
 	want := []string{
 		RecoveryResumeWorkerEvent,
-		RecoveryAskCaptainEvent,
+		RecoveryAskLeadEvent,
 		RecoveryRetryOperationalEvent,
 	}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
@@ -955,7 +955,7 @@ func TestRecoveryBudgetScopesAndHardLimits(t *testing.T) {
 		for ordinal := int64(1); ordinal <= MaxRecoveryAdvisoriesPerCycle; ordinal++ {
 			next := binding
 			next.ProgressID = digest([]byte(fmt.Sprintf("progress-%d", ordinal)))
-			if err := reserve(next, ordinal, RecoveryAskCaptain); err != nil {
+			if err := reserve(next, ordinal, RecoveryAskLead); err != nil {
 				t.Fatalf("advisory %d = %v", ordinal, err)
 			}
 		}
@@ -964,7 +964,7 @@ func TestRecoveryBudgetScopesAndHardLimits(t *testing.T) {
 		if err := reserve(
 			over,
 			MaxRecoveryAdvisoriesPerCycle+1,
-			RecoveryAskCaptain,
+			RecoveryAskLead,
 		); !IsCode(err, "RECOVERY_BUDGET_EXHAUSTED") {
 			t.Fatalf("over-budget cycle advisory = %v", err)
 		}

@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// seedLegacyRecords writes the historical .baton/releases/<release>/plan.md
+// seedLegacyRecords writes the historical .protocol/releases/<release>/plan.md
 // files at the current head and commits them, then points each release ref at
 // the resulting commit. It returns the commit and its tree so tests can
 // assert the exact pre-migration shape.
@@ -163,7 +163,7 @@ func TestMigrateLegacyRecordsExactTransitionMarkerAndIdempotency(t *testing.T) {
 		}
 	}
 
-	// Each release ref head carries its own relocated plan and no .baton tree.
+	// Each release ref head carries its own relocated plan and no .protocol tree.
 	for _, release := range []string{"rel-a", "rel-b"} {
 		ref := "refs/heads/release-wt/" + release
 		refHead := runTestGit(t, root, nil, "rev-parse", ref)
@@ -250,7 +250,7 @@ func TestMigrateLegacyRecordsToConfiguredNonDefaultRoot(t *testing.T) {
 		t.Fatalf("custom record = %q", body)
 	}
 
-	// No plan under .sworn/records or .baton/releases.
+	// No plan under .sworn/records or .protocol/releases.
 	raw := runTestGit(t, root, nil, "ls-tree", "-r", "--name-only", "HEAD")
 	if strings.Contains(raw, DefaultRecordsRoot) {
 		t.Fatalf("default records root %s was created in custom migration", DefaultRecordsRoot)

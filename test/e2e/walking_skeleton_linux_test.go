@@ -21,10 +21,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 	swornruntime "github.com/swornagent/sworn/internal/runtime"
 )
 
@@ -201,8 +201,8 @@ func crashHookEnvironmentName(t *testing.T, variable string) string {
 		return "SWORN_TEST_CRASH_AFTER_EFFECT"
 	case "testHumanTurnCrash":
 		return "SWORN_TEST_HUMAN_TURN_CRASH"
-	case "testCaptainCrashCut":
-		return "SWORN_TEST_CAPTAIN_CRASH_CUT"
+	case "testLeadCrashCut":
+		return "SWORN_TEST_LEAD_CRASH_CUT"
 	}
 	t.Fatalf("unknown crash hook variable %q", variable)
 	return ""
@@ -344,25 +344,25 @@ func newProductRepository(t *testing.T) string {
 func e2ePlan(
 	t *testing.T,
 	release, repository string,
-) ([]byte, baton.Plan) {
+) ([]byte, protocol.Plan) {
 	t.Helper()
-	slice := func(id, path string) baton.Slice {
-		return baton.Slice{
+	slice := func(id, path string) protocol.Slice {
+		return protocol.Slice{
 			ID: id, Outcome: "Deliver " + id + ".",
-			Scope:      baton.Scope{Include: []string{path}, Exclude: []string{}},
-			Acceptance: []baton.Criterion{{ID: "A-" + id, Text: id + " is exact."}},
+			Scope:      protocol.Scope{Include: []string{path}, Exclude: []string{}},
+			Acceptance: []protocol.Criterion{{ID: "A-" + id, Text: id + " is exact."}},
 			Checks:     []string{"check " + id}, Constraints: []string{"deterministic"},
 			DependsOn: []string{}, Consumes: []string{},
 		}
 	}
-	metadata := baton.Metadata{
-		SchemaVersion: baton.PlanVersion, Release: release, Revision: 1,
+	metadata := protocol.Metadata{
+		SchemaVersion: protocol.PlanVersion, Release: release, Revision: 1,
 		PreviousPlan: nil, Repository: "acme-repo",
 		TargetRef:   "refs/heads/main",
 		ApprovalRef: "operator://" + release + "/1",
-		Tracks: []baton.Track{
-			{ID: "T1", DependsOn: []string{}, Slices: []baton.Slice{slice("S1", "one.txt")}},
-			{ID: "T2", DependsOn: []string{}, Slices: []baton.Slice{slice("S2", "two.txt")}},
+		Tracks: []protocol.Track{
+			{ID: "T1", DependsOn: []string{}, Slices: []protocol.Slice{slice("S1", "one.txt")}},
+			{ID: "T2", DependsOn: []string{}, Slices: []protocol.Slice{slice("S2", "two.txt")}},
 		},
 	}
 	metadataBody, err := json.MarshalIndent(metadata, "", "  ")
@@ -370,10 +370,10 @@ func e2ePlan(
 		t.Fatal(err)
 	}
 	body := []byte(
-		"```baton-plan-v2\n" + string(metadataBody) +
+		"```protocol-plan-v2\n" + string(metadataBody) +
 			"\n```\n\nReal-binary E2E plan for " + repository + ".\n",
 	)
-	plan, err := baton.ParsePlan(body)
+	plan, err := protocol.ParsePlan(body)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -393,11 +393,11 @@ func e2eManifest(
 	t *testing.T,
 	runID, repository, release string,
 	fakeExecutable, fakeDigest, verifierModel string,
-) ([]byte, []byte, baton.Plan) {
+) ([]byte, []byte, protocol.Plan) {
 	t.Helper()
 	planBytes, plan := e2ePlan(t, release, repository)
 	var scripts []swornruntime.ScriptedAttempt
-	add := func(slice string, responsibility driver.Responsibility, batonAttempt int64) {
+	add := func(slice string, responsibility driver.Responsibility, protocolAttempt int64) {
 		for try := int64(1); try <= 3; try++ {
 			work := slice
 			if work == "" {
@@ -406,7 +406,7 @@ func e2eManifest(
 			submission := driver.Submission{
 				SchemaVersion: driver.SubmissionSchemaVersion,
 				InvocationID: fmt.Sprintf("%s/%s/%s/%d/1/%d", runID, work,
-					responsibility, batonAttempt, try),
+					responsibility, protocolAttempt, try),
 				Responsibility: responsibility,
 				Summary:        "Exact " + string(responsibility) + ".",
 				Detail:         "Fresh bounded E2E evidence.",
@@ -414,7 +414,7 @@ func e2eManifest(
 			switch responsibility {
 			case driver.PlannerProposal:
 				submission.Plan, _ = driver.NewPlanBytes(planBytes)
-			case driver.CaptainReview:
+			case driver.LeadReview:
 				submission.Decision, _ = driver.NewDecision(driver.DecisionProceed)
 			case driver.ImplementerImplementation:
 				submission.Checks, _ = driver.NewCheckBytes([]byte("implementation checks\n"))
@@ -426,21 +426,21 @@ func e2eManifest(
 				submission.Decision, _ = driver.NewDecision(driver.DecisionPass)
 			}
 			scripts = append(scripts, swornruntime.ScriptedAttempt{Slice: slice,
-				Responsibility: responsibility, BatonAttempt: batonAttempt, Epoch: 1,
+				Responsibility: responsibility, ProtocolAttempt: protocolAttempt, Epoch: 1,
 				Try: try, Behavior: "submit", Submission: encodedSubmission(t, submission)})
 		}
 	}
 	add("", driver.PlannerProposal, 1)
 	add("S1", driver.ImplementerDesign, 1)
-	add("S1", driver.CaptainReview, 1)
+	add("S1", driver.LeadReview, 1)
 	add("S1", driver.ImplementerImplementation, 1)
 	add("S1", driver.WorkVerification, 1)
 	add("", driver.AssemblyVerification, 1)
 	sort.Slice(scripts, func(i, j int) bool {
 		left := fmt.Sprintf("%s/%s/%020d/%020d/%d", scripts[i].Responsibility,
-			scripts[i].Slice, scripts[i].BatonAttempt, scripts[i].Epoch, scripts[i].Try)
+			scripts[i].Slice, scripts[i].ProtocolAttempt, scripts[i].Epoch, scripts[i].Try)
 		right := fmt.Sprintf("%s/%s/%020d/%020d/%d", scripts[j].Responsibility,
-			scripts[j].Slice, scripts[j].BatonAttempt, scripts[j].Epoch, scripts[j].Try)
+			scripts[j].Slice, scripts[j].ProtocolAttempt, scripts[j].Epoch, scripts[j].Try)
 		return left < right
 	})
 	manifest := swornruntime.Manifest{
@@ -459,7 +459,7 @@ func e2eManifest(
 		Roles: driver.RoleSelections{
 			Planner:     driver.RoleSelection{Profile: "e2e-fake", Model: "planner-model"},
 			Implementer: driver.RoleSelection{Profile: "e2e-fake", Model: "implementer-model"},
-			Captain:     driver.RoleSelection{Profile: "e2e-fake", Model: "captain-model"},
+			Lead:        driver.RoleSelection{Profile: "e2e-fake", Model: "lead-model"},
 			Verifier:    driver.RoleSelection{Profile: "e2e-fake", Model: verifierModel},
 		},
 		Automation: &swornruntime.AutomationSelections{
@@ -482,7 +482,7 @@ func e2eManifest(
 func authorizePlan(
 	t *testing.T,
 	journalPath, runID string,
-	plan baton.Plan,
+	plan protocol.Plan,
 ) {
 	t.Helper()
 	store, err := journal.Open(context.Background(), journalPath)
@@ -528,19 +528,19 @@ func installAndPassComponent(
 	if err != nil {
 		t.Fatal(err)
 	}
-	gitRepository := baton.UseGitRepository(repository)
-	actions, err := baton.NewActions(gitRepository, inertResolver, gitx.Identity{Name: "E2E Engine", Email: "engine@example.test"})
+	gitRepository := protocol.UseGitRepository(repository)
+	actions, err := protocol.NewActions(gitRepository, inertResolver, gitx.Identity{Name: "E2E Engine", Email: "engine@example.test"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, input := range []baton.AppendReceiptInput{
+	for _, input := range []protocol.AppendReceiptInput{
 		{
 			Release: release, Slice: "S2", Role: "implementer", Result: "designed",
 			Summary: "Design disjoint component.", Detail: []byte("Component design."),
 		},
 		{
-			Release: release, Slice: "S2", Role: "captain", Result: "proceed",
-			Summary: "Proceed with disjoint component.", Detail: []byte("Distinct component Captain."),
+			Release: release, Slice: "S2", Role: "lead", Result: "proceed",
+			Summary: "Proceed with disjoint component.", Detail: []byte("Distinct component Lead."),
 		},
 	} {
 		if _, err := actions.AppendReceipt(input); err != nil {
@@ -574,11 +574,11 @@ func installAndPassComponent(
 	if err := workspace.Close(); err != nil {
 		t.Fatal(err)
 	}
-	plan, err := baton.ParsePlan(planBytes)
+	plan, err := protocol.ParsePlan(planBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := baton.ValidateSliceCandidateScope(
+	if err := protocol.ValidateSliceCandidateScope(
 		gitRepository,
 		inertResolver,
 		plan,
@@ -588,7 +588,7 @@ func installAndPassComponent(
 	); err != nil {
 		t.Fatal(err)
 	}
-	for _, input := range []baton.AppendReceiptInput{
+	for _, input := range []protocol.AppendReceiptInput{
 		{
 			Release: release, Slice: "S2", Role: "implementer", Result: "candidate",
 			Summary: "Seal disjoint component.", Detail: []byte("Component implementation."),
@@ -616,15 +616,15 @@ func installApprovedPlan(
 	if err != nil {
 		t.Fatal(err)
 	}
-	actions, err := baton.NewActions(
-		baton.UseGitRepository(repository),
+	actions, err := protocol.NewActions(
+		protocol.UseGitRepository(repository),
 		inertResolver,
 		gitx.Identity{Name: "E2E Engine", Email: "engine@example.test"},
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := actions.RecordPlanRevision(baton.RecordPlanRevisionInput{
+	if _, err := actions.RecordPlanRevision(protocol.RecordPlanRevisionInput{
 		PlanBytes: planBytes,
 		Summary:   "Install the externally published E2E approval.",
 		Detail:    []byte("Test-only authority fixture after protected approval publication."),
@@ -633,14 +633,14 @@ func installApprovedPlan(
 	}
 }
 
-func readBatonState(t *testing.T, repositoryPath, release string) baton.State {
+func readProtocolState(t *testing.T, repositoryPath, release string) protocol.State {
 	t.Helper()
 	repository, err := gitx.Open(repositoryPath, e2eGit)
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := baton.ReadState(
-		baton.UseGitRepository(repository),
+	state, err := protocol.ReadState(
+		protocol.UseGitRepository(repository),
 		release,
 		inertResolver,
 	)
@@ -703,7 +703,7 @@ func assertDispatchOrder(t *testing.T, journalPath, runID string) {
 	want := []string{
 		string(driver.PlannerProposal),
 		string(driver.ImplementerDesign),
-		string(driver.CaptainReview),
+		string(driver.LeadReview),
 		string(driver.ImplementerImplementation),
 		string(driver.WorkVerification),
 		string(driver.AssemblyVerification),
@@ -790,7 +790,7 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 			}
 		}
 		for _, effect := range snapshot.Effects {
-			if effect.Kind == "baton.install" {
+			if effect.Kind == "protocol.install" {
 				installEffects++
 			}
 			if effect.Kind != "driver.dispatch" ||
@@ -876,7 +876,7 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 			if effect.Kind == "approval.admit" && effect.State == journal.Succeeded {
 				admissions++
 			}
-			if effect.Kind == "baton.install" && effect.State == journal.Succeeded {
+			if effect.Kind == "protocol.install" && effect.State == journal.Succeeded {
 				installs++
 			}
 			if effect.Kind == "driver.dispatch" && effect.State == journal.Succeeded {
@@ -969,7 +969,7 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 		if stderr != "" || !strings.Contains(stdout, "  state: complete") {
 			t.Fatalf("resume stdout = %q, stderr = %q", stdout, stderr)
 		}
-		state := readBatonState(t, repository, release)
+		state := readProtocolState(t, repository, release)
 		if state.Assembly.Outcome != "merged" ||
 			state.Assembly.Candidate == nil ||
 			state.Assembly.Pass == nil ||
@@ -996,7 +996,7 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 		crashBinary := filepath.Join(buildRoot, "sworn-crash")
 		buildBinary(t, crashBinary, "./cmd/sworn", hookGateLDFlags)
 		crashEnvironment := map[string]string{
-			"SWORN_TEST_CRASH_AFTER_EFFECT": "baton.merge",
+			"SWORN_TEST_CRASH_AFTER_EFFECT": "protocol.merge",
 			"SWORN_TEST_OWNER_LEASE_MILLIS": testLeaseMillis,
 		}
 		repository := newProductRepository(t)
@@ -1022,7 +1022,7 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 			"resume", "--run", runID, "--journal", journalPath,
 			"--command", "resume-1", "--generation", "0",
 		)
-		stateAfterCrash := readBatonState(t, repository, release)
+		stateAfterCrash := readProtocolState(t, repository, release)
 		if stateAfterCrash.Assembly.Outcome != "merged" ||
 			runGit(t, repository, "rev-parse", "main") != stateAfterCrash.Assembly.ResultCommit {
 			t.Fatal("post-effect crash did not leave exact all-new Git state")
@@ -1034,7 +1034,7 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 		snapshot, snapshotErr := store.Snapshot(context.Background(), runID)
 		var mergeEffect journal.Effect
 		for _, effect := range snapshot.Effects {
-			if effect.Kind == "baton.merge" {
+			if effect.Kind == "protocol.merge" {
 				mergeEffect = effect
 			}
 		}
@@ -1099,12 +1099,12 @@ func runRealBinaryWalkingSkeletonRecoveryAndTransportTruth(t *testing.T) {
 		if !strings.Contains(status, `"state": "parked"`) {
 			t.Fatalf("transport status = %s", status)
 		}
-		state := readBatonState(t, repository, release)
+		state := readProtocolState(t, repository, release)
 		slice, ok := state.Slice("S1")
 		if !ok || slice.Pass != nil || slice.CurrentReceipt == nil ||
 			slice.CurrentReceipt.Receipt.Role != "implementer" ||
 			slice.CurrentReceipt.Receipt.Result != "candidate" {
-			t.Fatalf("transport failure created a Baton verdict: %#v", slice)
+			t.Fatalf("transport failure created a Protocol verdict: %#v", slice)
 		}
 		if state.Assembly.Candidate != nil || state.Assembly.Pass != nil {
 			t.Fatalf("transport failure advanced assembly: %#v", state.Assembly)

@@ -296,7 +296,7 @@ func TestInitA2IdempotenceAndDivergence(t *testing.T) {
 	// (S3-A5): the custom file never answered the telemetry questions, so
 	// they are asked, the declines propose a persistence write (sworn#269) -
 	// the proposal keeps every operator-authored field, never the bare
-	// default (captain F6) - and the confirm-guarded write defaults to
+	// default (lead F6) - and the confirm-guarded write defaults to
 	// keeping the file untouched.
 	var stdout3, stderr3 bytes.Buffer
 	stdin3 := strings.NewReader("\n\n")
@@ -473,7 +473,7 @@ func TestInitA4OperatorConfigScaffolding(t *testing.T) {
 		t.Fatalf("operator.json was modified despite declining: %s", currentBody)
 	}
 
-	// Present-divergent case 2: Non-0600 mode with identical content (Captain Correction 5)
+	// Present-divergent case 2: Non-0600 mode with identical content (Lead Correction 5)
 	if err := os.WriteFile(opPath, buildDefaultOperatorConfig(), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -507,7 +507,7 @@ func TestInitA4OperatorConfigScaffolding(t *testing.T) {
 	}
 }
 
-// Captain Correction 4: Handle no-agent empty project so the walk completes
+// Lead Correction 4: Handle no-agent empty project so the walk completes
 // with driver config reported missing, operator config and surface created,
 // and exit code 1.
 func TestInitNoAgentEmptyProject(t *testing.T) {
@@ -552,7 +552,7 @@ func TestInitNoAgentEmptyProject(t *testing.T) {
 // S6-A1: on a non-Linux host, init states plainly that native dispatch
 // requires Linux instead of tripping the Linux-only runtime-file preflight -
 // even with no agent on PATH at all, since the statement must reach every
-// non-Linux run regardless of agent presence (Captain Correction 1).
+// non-Linux run regardless of agent presence (Lead Correction 1).
 func TestInitDarwinStatesNativeDispatchRequiresLinux(t *testing.T) {
 	oldHostOS := initHostOS
 	initHostOS = "darwin"
@@ -572,7 +572,7 @@ func TestInitDarwinStatesNativeDispatchRequiresLinux(t *testing.T) {
 	}
 	// The old Linux-only runtime-file preflight message must never fire:
 	// the gate gives every non-Linux host the plain statement instead
-	// (Captain Correction 2 - a substring the mocked runtime targets in
+	// (Lead Correction 2 - a substring the mocked runtime targets in
 	// setupMockAgentAndEnvironment cannot make vacuous, unlike "/etc/").
 	if strings.Contains(out, "which the sandboxed agent needs") {
 		t.Fatalf("darwin run tripped the Linux-only runtime-file preflight: %s", out)
@@ -615,7 +615,7 @@ func TestInitDarwinKeepsExistingConnectionFile(t *testing.T) {
 	}
 }
 
-// S6-A2, Captain Correction 3: with a mock codex minted alongside the
+// S6-A2, Lead Correction 3: with a mock codex minted alongside the
 // existing mock claude, the codex-first detection order is exercised
 // directly by codex actually winning, not merely by codex's absence from
 // PATH.
@@ -644,7 +644,7 @@ func TestInitDetectsCodexFirstOverAPresentClaude(t *testing.T) {
 	}
 }
 
-// Reconciled for sworn#265 (supersedes S6-A2 Captain Correction 3's
+// Reconciled for sworn#265 (supersedes S6-A2 Lead Correction 3's
 // no-fallback ruling): an installed agent with no readable credential no
 // longer walls a signed-in later agent. The fallthrough is DISCLOSED, never
 // silent - the skipped agent and the reason are reported before the write -
@@ -729,7 +729,7 @@ func TestInitExcludesTheProjectDirectoryFromGit(t *testing.T) {
 	}
 }
 
-// Reconciled for Captain Correction 1:
+// Reconciled for Lead Correction 1:
 // Run definitions record the exact fingerprint of the connection file, so
 // silently rewriting it would invalidate them. Re-running reports what exists
 // and what would change, and defaults to keeping the existing file untouched.

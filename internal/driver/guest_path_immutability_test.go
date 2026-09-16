@@ -116,7 +116,7 @@ func TestContainmentMaskFollowsConfiguredRoots(t *testing.T) {
 	t.Parallel()
 
 	workspace := t.TempDir()
-	for _, name := range []string{".records", ".journals", ".baton", ".sworn", ".git"} {
+	for _, name := range []string{".records", ".journals", ".protocol", ".sworn", ".git"} {
 		if err := os.MkdirAll(filepath.Join(workspace, name), 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -142,17 +142,17 @@ func TestContainmentMaskFollowsConfiguredRoots(t *testing.T) {
 			t.Fatalf("configured root %s not masked:\n%s", name, joined)
 		}
 	}
-	// The legacy .baton root is always reserved (the historical records
+	// The legacy .protocol root is always reserved (the historical records
 	// fallback must never be forgeable), so it is masked even under a
 	// configured invocation.
-	if !strings.Contains(joined, "--tmpfs /workspace/.baton --remount-ro /workspace/.baton") {
-		t.Fatalf("legacy .baton root not masked in configured invocation:\n%s", joined)
+	if !strings.Contains(joined, "--tmpfs /workspace/.protocol --remount-ro /workspace/.protocol") {
+		t.Fatalf("legacy .protocol root not masked in configured invocation:\n%s", joined)
 	}
 	if strings.Contains(joined, "--tmpfs /workspace/.sworn") {
 		t.Fatalf("default-only .sworn mask leaked into configured invocation:\n%s", joined)
 	}
 
-	// Default config -> .baton and .sworn are masked (today's behaviour).
+	// Default config -> .protocol and .sworn are masked (today's behaviour).
 	defaultInvocation := invocationForMaskTest(t, workspace, gitx.DefaultProjectConfig(), gitx.HostPaths{})
 	defaultArguments, defaultMaskFiles, err := bubblewrapArguments(defaultInvocation)
 	if err != nil {
@@ -162,7 +162,7 @@ func TestContainmentMaskFollowsConfiguredRoots(t *testing.T) {
 		file.Close()
 	}
 	defaultJoined := strings.Join(defaultArguments, " ")
-	for _, name := range []string{".baton", ".sworn", ".git"} {
+	for _, name := range []string{".protocol", ".sworn", ".git"} {
 		if !strings.Contains(defaultJoined, "--tmpfs /workspace/"+name+" --remount-ro /workspace/"+name) {
 			t.Fatalf("default root %s not masked:\n%s", name, defaultJoined)
 		}

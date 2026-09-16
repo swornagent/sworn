@@ -45,7 +45,7 @@ type Adapter interface {
 // continuationAdapter is deliberately opt-in. Existing adapters continue to
 // satisfy Adapter without implementing or changing any continuation behavior.
 // The state is opaque to the dispatcher, immutable while suspended, and owns
-// no permission, workspace lease, Baton decision, or active tool session.
+// no permission, workspace lease, Protocol decision, or active tool session.
 type continuationAdapter interface {
 	invokeContinuation(
 		context.Context,
@@ -152,7 +152,7 @@ type RoleSelection = ModelSelection
 type RoleSelections struct {
 	Planner     RoleSelection `json:"planner"`
 	Implementer RoleSelection `json:"implementer"`
-	Captain     RoleSelection `json:"captain"`
+	Lead        RoleSelection `json:"lead"`
 	Verifier    RoleSelection `json:"verifier"`
 }
 
@@ -188,14 +188,14 @@ func DecodeRoleSelections(body []byte) (RoleSelections, error) {
 	root, err := decodeTyped(
 		body,
 		65_536,
-		[]string{"planner", "implementer", "captain", "verifier"},
+		[]string{"planner", "implementer", "lead", "verifier"},
 		nil,
 		&selections,
 	)
 	if err != nil {
 		return RoleSelections{}, err
 	}
-	for _, name := range []string{"planner", "implementer", "captain", "verifier"} {
+	for _, name := range []string{"planner", "implementer", "lead", "verifier"} {
 		if _, err := closedObject(root[name], []string{"profile", "model"}, nil); err != nil {
 			return RoleSelections{}, err
 		}
@@ -274,8 +274,8 @@ func (registry SelectionRegistry) Resolve(
 		selection = selections.Planner
 	case RoleImplementer:
 		selection = selections.Implementer
-	case RoleCaptain:
-		selection = selections.Captain
+	case RoleLead:
+		selection = selections.Lead
 	case RoleVerifier:
 		selection = selections.Verifier
 	default:
@@ -319,7 +319,7 @@ func ValidateRoleSelections(selections RoleSelections) error {
 	for _, selection := range []ModelSelection{
 		selections.Planner,
 		selections.Implementer,
-		selections.Captain,
+		selections.Lead,
 		selections.Verifier,
 	} {
 		if err := ValidateModelSelection(selection); err != nil {

@@ -105,7 +105,7 @@ func (r *Repository) ReadFirstParentHistory(head OID, maxCount int) ([]HistoryEn
 // FirstParentPathChange returns the newest first-parent commit at or below
 // head that changed one exact repository path. The bounded output proves
 // whether a release record path existed in earlier history without parsing
-// inherited commit messages as current Baton authority.
+// inherited commit messages as current Protocol authority.
 func (r *Repository) FirstParentPathChange(head OID, path string) (OID, bool, error) {
 	if err := r.validateOID(head); err != nil {
 		return OID{}, false, err

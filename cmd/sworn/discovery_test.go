@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 func installProjectPlan(t *testing.T, root, release string) {
@@ -32,12 +32,12 @@ func installProjectPlan(t *testing.T, root, release string) {
 			RecordRoot: request.RecordRoot, Commit: request.Commit, Decision: "inert"}, nil
 	}
 	identity := gitx.Identity{Name: "Test Engine", Email: "engine@example.test"}
-	actions, err := baton.NewActions(baton.UseGitRepository(repoView), inertness, identity)
+	actions, err := protocol.NewActions(protocol.UseGitRepository(repoView), inertness, identity)
 	if err != nil {
 		t.Fatal(err)
 	}
-	planBytes := []byte(fmt.Sprintf("```baton-plan-v2\n{\n  \"schema_version\": \"baton.plan/v2\",\n  \"release\": %q,\n  \"revision\": 1,\n  \"previous_plan\": null,\n  \"repository\": \"acme-repo\",\n  \"target_ref\": \"refs/heads/main\",\n  \"approval_ref\": \"operator://%s/1\",\n  \"tracks\": [\n    {\n      \"id\": \"T1\",\n      \"depends_on\": [],\n      \"slices\": [\n        {\n          \"id\": \"S1\",\n          \"outcome\": \"Deliver S1.\",\n          \"scope\": {\n            \"include\": [\"README.md\"],\n            \"exclude\": []\n          },\n          \"acceptance\": [\n            {\n              \"id\": \"A1\",\n              \"text\": \"S1 is complete.\"\n            }\n          ],\n          \"checks\": [\"true\"],\n          \"constraints\": [\"deterministic\"],\n          \"depends_on\": [],\n          \"consumes\": []\n        }\n      ]\n    }\n  ]\n}\n```\n\nFixture plan.\n", release, release))
-	if _, err := actions.RecordPlanRevision(baton.RecordPlanRevisionInput{
+	planBytes := []byte(fmt.Sprintf("```protocol-plan-v2\n{\n  \"schema_version\": \"protocol.plan/v2\",\n  \"release\": %q,\n  \"revision\": 1,\n  \"previous_plan\": null,\n  \"repository\": \"acme-repo\",\n  \"target_ref\": \"refs/heads/main\",\n  \"approval_ref\": \"operator://%s/1\",\n  \"tracks\": [\n    {\n      \"id\": \"T1\",\n      \"depends_on\": [],\n      \"slices\": [\n        {\n          \"id\": \"S1\",\n          \"outcome\": \"Deliver S1.\",\n          \"scope\": {\n            \"include\": [\"README.md\"],\n            \"exclude\": []\n          },\n          \"acceptance\": [\n            {\n              \"id\": \"A1\",\n              \"text\": \"S1 is complete.\"\n            }\n          ],\n          \"checks\": [\"true\"],\n          \"constraints\": [\"deterministic\"],\n          \"depends_on\": [],\n          \"consumes\": []\n        }\n      ]\n    }\n  ]\n}\n```\n\nFixture plan.\n", release, release))
+	if _, err := actions.RecordPlanRevision(protocol.RecordPlanRevisionInput{
 		PlanBytes: planBytes,
 		Summary:   "Install fixture plan",
 		Detail:    []byte("Fixture detail"),
@@ -226,7 +226,7 @@ func TestBareRunRefusesAmbiguousReleases(t *testing.T) {
 	}
 }
 
-// A1 + Captain Correction 2: Resume refusal when single run has no manifest.
+// A1 + Lead Correction 2: Resume refusal when single run has no manifest.
 func TestBareRunRefusesResumeWhenManifestMissing(t *testing.T) {
 	root, _ := projectRepositoryFixture(t)
 	installProjectPlan(t, root, "delivery")
@@ -265,7 +265,7 @@ func TestBareRunRefusesResumeWhenManifestMissing(t *testing.T) {
 	}
 }
 
-// A1 + Captain Correction 1: Unapproved manifest-only release (BATON_UNAVAILABLE) is refused, never started.
+// A1 + Lead Correction 1: Unapproved manifest-only release (PROTOCOL_UNAVAILABLE) is refused, never started.
 func TestBareRunRefusesUnapprovedManifestOnlyRelease(t *testing.T) {
 	root, _ := projectRepositoryFixture(t)
 	// Do NOT install plan or create release-wt ref.
@@ -286,9 +286,9 @@ func TestBareRunRefusesUnapprovedManifestOnlyRelease(t *testing.T) {
 		t.Fatalf("run bare unapproved = %d, want 1", code)
 	}
 	errStr := stderr.String()
-	if !strings.Contains(errStr, "BATON_UNAVAILABLE") ||
+	if !strings.Contains(errStr, "PROTOCOL_UNAVAILABLE") ||
 		!strings.Contains(errStr, "unapproved") {
-		t.Fatalf("unapproved release refusal missing BATON_UNAVAILABLE: %s", errStr)
+		t.Fatalf("unapproved release refusal missing PROTOCOL_UNAVAILABLE: %s", errStr)
 	}
 }
 
@@ -388,13 +388,13 @@ func TestRunReleasePrecedenceTable(t *testing.T) {
 		t.Fatalf("missing manifest refusal missing names: %s", stderr5.String())
 	}
 
-	// Test 6: Release with BATON_UNAVAILABLE refuses
+	// Test 6: Release with PROTOCOL_UNAVAILABLE refuses
 	projectWriteManifest(t, manifestDir, "unapproved-rel.json", root, "unapproved-rel", "run-unapproved")
 	var stdout6, stderr6 bytes.Buffer
 	if code := run([]string{"run", "unapproved-rel"}, &stdout6, &stderr6); code != 1 {
 		t.Fatalf("run unapproved-rel = %d, want 1", code)
 	}
-	if !strings.Contains(stderr6.String(), "BATON_UNAVAILABLE") ||
+	if !strings.Contains(stderr6.String(), "PROTOCOL_UNAVAILABLE") ||
 		!strings.Contains(stderr6.String(), `release "unapproved-rel" is not recorded and approved`) {
 		t.Fatalf("unapproved release refusal missing details: %s", stderr6.String())
 	}

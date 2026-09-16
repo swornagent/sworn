@@ -318,7 +318,7 @@ func TestBedrockAutomationUsesItsExactRecoveryAndAdvisoryTerminal(
 			input: map[string]any{"decision": RecoveryDecision{
 				SchemaVersion: RecoveryDecisionSchemaVersion,
 				InvocationID:  "recovery-1",
-				Action:        RecoveryAskCaptain,
+				Action:        RecoveryAskLead,
 			}},
 		},
 		{

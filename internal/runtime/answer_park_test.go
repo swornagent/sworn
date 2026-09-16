@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 const answerParkFixtureQuestion = "Which exact approved value should I use?"
@@ -688,7 +688,7 @@ func TestAnswerParkCheckpointRecoversAcrossHostDeath(t *testing.T) {
 	if err != nil || !recovered {
 		t.Fatalf("answer park completion = %t, %v", recovered, err)
 	}
-	recoveredState, err := baton.ReadState(
+	recoveredState, err := protocol.ReadState(
 		restartedEngine.git,
 		fixture.manifest.value.Release,
 		restartedEngine.inertness,

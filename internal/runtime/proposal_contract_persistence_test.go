@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 // proposalContractFixture stages a minimal real git repository and a
@@ -50,12 +50,12 @@ func proposalContractFixture(t *testing.T) (*Service, string, []byte, string) {
 	}
 	runGit("init", "--quiet")
 	runGit("branch", "-M", "main")
-	if err := os.MkdirAll(filepath.Join(repoDir, "internal", "baton"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(repoDir, "internal", "protocol"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(
-		filepath.Join(repoDir, "internal", "baton", "baton.go"),
-		[]byte("package baton\n"), 0o644,
+		filepath.Join(repoDir, "internal", "protocol", "protocol.go"),
+		[]byte("package protocol\n"), 0o644,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func proposalContractFixture(t *testing.T) (*Service, string, []byte, string) {
 
 	contractRaw := []byte(`{
   "outcome": "Deliver S1.",
-  "scope": {"include": ["internal/baton"], "exclude": []},
+  "scope": {"include": ["internal/protocol"], "exclude": []},
   "acceptance": [{"id": "A-S1", "text": "S1 is exact."}],
   "checks": ["check S1"],
   "constraints": ["deterministic"],
@@ -72,7 +72,7 @@ func proposalContractFixture(t *testing.T) (*Service, string, []byte, string) {
   "consumes": []
 }
 `)
-	_, contractDigest, err := baton.ParseSliceContract(contractRaw, "S1", "T1")
+	_, contractDigest, err := protocol.ParseSliceContract(contractRaw, "S1", "T1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func proposalContractFixture(t *testing.T) (*Service, string, []byte, string) {
           "digest": "` + contractDigest + `",
           "depends_on": [],
           "consumes": [],
-          "touchpoints": ["internal/baton"]
+          "touchpoints": ["internal/protocol"]
         }
       ]
     }
@@ -124,8 +124,8 @@ func proposalContractFixture(t *testing.T) (*Service, string, []byte, string) {
 	}
 	manifest.Scripts = []ScriptedAttempt{
 		{
-			Responsibility: driver.PlannerProposal,
-			BatonAttempt:   1, Epoch: 1, Try: 1,
+			Responsibility:  driver.PlannerProposal,
+			ProtocolAttempt: 1, Epoch: 1, Try: 1,
 			Behavior: "submit",
 		},
 	}

@@ -41,20 +41,20 @@ type CatalogEntry struct {
 // Board is the complete presentation snapshot for one selected run. Summary
 // fields are already plain language; the UI must not reinterpret run state.
 type Board struct {
-	Selection        Selection
-	Graph            cockpit.Graph
-	Actions          []cockpit.Action
-	Attentions       []cockpit.AttentionView
-	Diagnostics      []cockpit.Diagnostic
-	Status           string
-	What             string
-	Next             string
-	NeedsYou         string
-	Checked          string
-	CaptainAuthority string
-	Stale            bool
-	ThroughOffset    int64
-	ManifestDir      string
+	Selection     Selection
+	Graph         cockpit.Graph
+	Actions       []cockpit.Action
+	Attentions    []cockpit.AttentionView
+	Diagnostics   []cockpit.Diagnostic
+	Status        string
+	What          string
+	Next          string
+	NeedsYou      string
+	Checked       string
+	LeadAuthority string
+	Stale         bool
+	ThroughOffset int64
+	ManifestDir   string
 }
 
 // ConfigView holds the resolved read-only configuration surfaced to the operator.

@@ -18,10 +18,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 	swornruntime "github.com/swornagent/sworn/internal/runtime"
 )
 
@@ -62,10 +62,10 @@ func recordPlannerProposalFixture(
 	journalPath string,
 	runID string,
 	planBytes []byte,
-	state baton.State,
+	state protocol.State,
 ) {
 	t.Helper()
-	plan, err := baton.ParsePlan(planBytes)
+	plan, err := protocol.ParsePlan(planBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func recordPlannerProposalFixture(
 }
 
 func scriptedSubmission(t *testing.T, runID, slice string, responsibility driver.Responsibility,
-	batonAttempt, epoch, try int64) string {
+	protocolAttempt, epoch, try int64) string {
 	t.Helper()
 	work := slice
 	if work == "" {
@@ -183,11 +183,11 @@ func scriptedSubmission(t *testing.T, runID, slice string, responsibility driver
 	}
 	submission := driver.Submission{SchemaVersion: driver.SubmissionSchemaVersion,
 		InvocationID: fmt.Sprintf("%s/%s/%s/%d/%d/%d",
-			runID, work, responsibility, batonAttempt, epoch, try),
+			runID, work, responsibility, protocolAttempt, epoch, try),
 		Responsibility: responsibility, Summary: "Exact " + string(responsibility) + ".",
 		Detail: "Deterministic topology evidence."}
 	switch responsibility {
-	case driver.CaptainReview:
+	case driver.LeadReview:
 		submission.Decision, _ = driver.NewDecision(driver.DecisionProceed)
 	case driver.ImplementerImplementation:
 		submission.Checks, _ = driver.NewCheckBytes([]byte("implementation checks\n"))
@@ -220,8 +220,8 @@ func exactBlockedSubmission(t *testing.T, runID string, try int64) string {
 	return encodedSubmission(t, submission)
 }
 
-func revisedPlan(t *testing.T, repository string, initialBytes []byte, initial baton.Plan,
-) ([]byte, baton.Plan) {
+func revisedPlan(t *testing.T, repository string, initialBytes []byte, initial protocol.Plan,
+) ([]byte, protocol.Plan) {
 	t.Helper()
 	command := exec.Command(e2eGit, "-C", repository, "hash-object", "--stdin")
 	command.Stdin = bytes.NewReader(initialBytes)
@@ -239,26 +239,26 @@ func revisedPlan(t *testing.T, repository string, initialBytes []byte, initial b
 	if err != nil {
 		t.Fatal(err)
 	}
-	body := []byte("```baton-plan-v2\n" + string(metadataBody) +
+	body := []byte("```protocol-plan-v2\n" + string(metadataBody) +
 		"\n```\n\nReal-binary revision-2 topology plan.\n")
-	plan, err := baton.ParsePlan(body)
+	plan, err := protocol.ParsePlan(body)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return body, plan
 }
 
-func singleTrackPlan(t *testing.T, initial baton.Plan) ([]byte, baton.Plan) {
+func singleTrackPlan(t *testing.T, initial protocol.Plan) ([]byte, protocol.Plan) {
 	t.Helper()
 	metadata := initial.Metadata()
-	metadata.Tracks = append([]baton.Track(nil), metadata.Tracks[:1]...)
+	metadata.Tracks = append([]protocol.Track(nil), metadata.Tracks[:1]...)
 	metadataBody, err := json.MarshalIndent(metadata, "", "  ")
 	if err != nil {
 		t.Fatal(err)
 	}
-	body := []byte("```baton-plan-v2\n" + string(metadataBody) +
+	body := []byte("```protocol-plan-v2\n" + string(metadataBody) +
 		"\n```\n\nSingle-track stale-authority fixture plan.\n")
-	plan, err := baton.ParsePlan(body)
+	plan, err := protocol.ParsePlan(body)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +275,7 @@ func bindInitialPlannerScripts(
 	for index := range manifest.Scripts {
 		script := &manifest.Scripts[index]
 		if script.Responsibility == driver.PlannerProposal &&
-			script.BatonAttempt == 1 {
+			script.ProtocolAttempt == 1 {
 			script.Submission = exactPlannerSubmission(
 				t, runID, 1, script.Try, planBytes)
 		}
@@ -291,21 +291,21 @@ func addRevisionTwoScripts(
 	t.Helper()
 	for try := int64(1); try <= 3; try++ {
 		manifest.Scripts = append(manifest.Scripts, swornruntime.ScriptedAttempt{
-			Responsibility: driver.PlannerProposal, BatonAttempt: 2,
+			Responsibility: driver.PlannerProposal, ProtocolAttempt: 2,
 			Epoch: 1, Try: try, Behavior: "submit",
 			Submission: exactPlannerSubmission(t, runID, 2, try, revisionBytes)})
 		for _, responsibility := range []driver.Responsibility{
-			driver.ImplementerDesign, driver.CaptainReview,
+			driver.ImplementerDesign, driver.LeadReview,
 			driver.ImplementerImplementation, driver.WorkVerification,
 		} {
 			manifest.Scripts = append(manifest.Scripts, swornruntime.ScriptedAttempt{
-				Slice: "S1", Responsibility: responsibility, BatonAttempt: 2,
+				Slice: "S1", Responsibility: responsibility, ProtocolAttempt: 2,
 				Epoch: 1, Try: try, Behavior: "submit",
 				Submission: scriptedSubmission(
 					t, runID, "S1", responsibility, 2, 1, try)})
 		}
 		manifest.Scripts = append(manifest.Scripts, swornruntime.ScriptedAttempt{
-			Responsibility: driver.AssemblyVerification, BatonAttempt: 2,
+			Responsibility: driver.AssemblyVerification, ProtocolAttempt: 2,
 			Epoch: 1, Try: try, Behavior: "submit",
 			Submission: scriptedSubmission(
 				t, runID, "", driver.AssemblyVerification, 2, 1, try)})
@@ -313,11 +313,11 @@ func addRevisionTwoScripts(
 	sort.Slice(manifest.Scripts, func(i, j int) bool {
 		left := fmt.Sprintf("%s/%s/%020d/%020d/%d",
 			manifest.Scripts[i].Responsibility, manifest.Scripts[i].Slice,
-			manifest.Scripts[i].BatonAttempt,
+			manifest.Scripts[i].ProtocolAttempt,
 			manifest.Scripts[i].Epoch, manifest.Scripts[i].Try)
 		right := fmt.Sprintf("%s/%s/%020d/%020d/%d",
 			manifest.Scripts[j].Responsibility, manifest.Scripts[j].Slice,
-			manifest.Scripts[j].BatonAttempt,
+			manifest.Scripts[j].ProtocolAttempt,
 			manifest.Scripts[j].Epoch, manifest.Scripts[j].Try)
 		return left < right
 	})
@@ -327,7 +327,7 @@ func topologyManifest(
 	t *testing.T,
 	runID, repository, release string,
 	fakeBinary, fakeDigest, s1DesignBehavior, s1VerifyBehavior string,
-) ([]byte, []byte, baton.Plan) {
+) ([]byte, []byte, protocol.Plan) {
 	t.Helper()
 	body, planBytes, plan := e2eManifest(t, runID, repository, release,
 		fakeBinary, fakeDigest, "verifier-model")
@@ -351,12 +351,12 @@ func topologyManifest(
 		}
 	}
 	for _, responsibility := range []driver.Responsibility{
-		driver.ImplementerDesign, driver.CaptainReview,
+		driver.ImplementerDesign, driver.LeadReview,
 		driver.ImplementerImplementation, driver.WorkVerification,
 	} {
 		for try := int64(1); try <= 3; try++ {
 			manifest.Scripts = append(manifest.Scripts, swornruntime.ScriptedAttempt{
-				Slice: "S2", Responsibility: responsibility, BatonAttempt: 1,
+				Slice: "S2", Responsibility: responsibility, ProtocolAttempt: 1,
 				Epoch: 1, Try: try, Behavior: "submit",
 				Submission: scriptedSubmission(t, runID, "S2", responsibility, 1, 1, try),
 			})
@@ -365,7 +365,7 @@ func topologyManifest(
 	if s1VerifyBehavior != "submit" {
 		for try := int64(1); try <= 3; try++ {
 			manifest.Scripts = append(manifest.Scripts, swornruntime.ScriptedAttempt{
-				Slice: "S1", Responsibility: driver.WorkVerification, BatonAttempt: 1,
+				Slice: "S1", Responsibility: driver.WorkVerification, ProtocolAttempt: 1,
 				Epoch: 2, Try: try, Behavior: "submit",
 				Submission: scriptedSubmission(t, runID, "S1", driver.WorkVerification, 1, 2, try),
 			})
@@ -373,10 +373,10 @@ func topologyManifest(
 	}
 	sort.Slice(manifest.Scripts, func(i, j int) bool {
 		left := fmt.Sprintf("%s/%s/%020d/%020d/%d", manifest.Scripts[i].Responsibility,
-			manifest.Scripts[i].Slice, manifest.Scripts[i].BatonAttempt,
+			manifest.Scripts[i].Slice, manifest.Scripts[i].ProtocolAttempt,
 			manifest.Scripts[i].Epoch, manifest.Scripts[i].Try)
 		right := fmt.Sprintf("%s/%s/%020d/%020d/%d", manifest.Scripts[j].Responsibility,
-			manifest.Scripts[j].Slice, manifest.Scripts[j].BatonAttempt,
+			manifest.Scripts[j].Slice, manifest.Scripts[j].ProtocolAttempt,
 			manifest.Scripts[j].Epoch, manifest.Scripts[j].Try)
 		return left < right
 	})
@@ -453,7 +453,7 @@ func seedExactClaimedDesignDispatch(
 	t *testing.T,
 	journalPath string,
 	manifest swornruntime.Manifest,
-	state baton.State,
+	state protocol.State,
 	sliceID string,
 ) string {
 	t.Helper()
@@ -484,7 +484,7 @@ func seedExactClaimedDesignDispatch(
 	for _, candidate := range manifest.Scripts {
 		if candidate.Slice == sliceID &&
 			candidate.Responsibility == driver.ImplementerDesign &&
-			candidate.BatonAttempt == slice.Attempt &&
+			candidate.ProtocolAttempt == slice.Attempt &&
 			candidate.Epoch == 1 &&
 			candidate.Try == 1 {
 			script = candidate
@@ -609,7 +609,7 @@ func nonPlannerDriverEffects(
 
 type claimedActionFixture struct {
 	Effect    journal.Effect
-	Input     baton.AppendReceiptInput
+	Input     protocol.AppendReceiptInput
 	Plan      string
 	OwnerRef  string
 	OwnerHead string
@@ -634,7 +634,7 @@ func claimedAppendAction(
 		commands[command.ReplayKey] = command
 	}
 	for _, effect := range snapshot.Effects {
-		if effect.Kind != "baton.append_receipt" || effect.State != journal.Claimed {
+		if effect.Kind != "protocol.append_receipt" || effect.State != journal.Claimed {
 			continue
 		}
 		command, ok := commands[effect.ReplayKey]
@@ -649,7 +649,7 @@ func claimedAppendAction(
 			} `json:"authority"`
 			Input json.RawMessage `json:"input"`
 		}
-		var input baton.AppendReceiptInput
+		var input protocol.AppendReceiptInput
 		if json.Unmarshal(command.Payload, &persisted) != nil ||
 			json.Unmarshal(persisted.Input, &input) != nil ||
 			input.Slice == "" {
@@ -793,12 +793,12 @@ func assertClaimedSealTerminalizedStale(
 	}
 }
 
-func observeBatonState(repositoryPath, release string) (baton.State, error) {
+func observeProtocolState(repositoryPath, release string) (protocol.State, error) {
 	repository, err := gitx.Open(repositoryPath, e2eGit)
 	if err != nil {
-		return baton.State{}, err
+		return protocol.State{}, err
 	}
-	return baton.ReadState(baton.UseGitRepository(repository), release, inertResolver)
+	return protocol.ReadState(protocol.UseGitRepository(repository), release, inertResolver)
 }
 
 func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
@@ -811,7 +811,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 	preActionCrashBinary := filepath.Join(buildRoot, "sworn-before-action")
 	buildBinary(t, preActionCrashBinary, "./cmd/sworn", hookGateLDFlags)
 	preActionCrashEnvironment := map[string]string{
-		"SWORN_TEST_CRASH_BEFORE_EFFECT": "baton.append_receipt",
+		"SWORN_TEST_CRASH_BEFORE_EFFECT": "protocol.append_receipt",
 		"SWORN_TEST_OWNER_LEASE_MILLIS":  testLeaseMillis,
 	}
 
@@ -835,7 +835,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		if !strings.Contains(stdout, "  state: parked") {
 			t.Fatalf("parked status = %q", stdout)
 		}
-		state := readBatonState(t, repository, release)
+		state := readProtocolState(t, repository, release)
 		s1, _ := state.Slice("S1")
 		s2, _ := state.Slice("S2")
 		if s1.Pass != nil || s2.Pass == nil || state.Assembly.Candidate != nil {
@@ -914,7 +914,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 					}
 				}
 				if blockClaimed {
-					state, err := observeBatonState(repository, release)
+					state, err := observeProtocolState(repository, release)
 					if err != nil {
 						time.Sleep(25 * time.Millisecond)
 						continue
@@ -1065,7 +1065,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 				prepared = true
 			}
 		}
-		state := readBatonState(t, repository, release)
+		state := readProtocolState(t, repository, release)
 		for _, slice := range state.Slices {
 			if slice.Candidate != nil {
 				t.Fatalf("scope failure produced candidate for %s", slice.Location.Slice.ID)
@@ -1138,7 +1138,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		if !strings.Contains(stdout, "awaiting_approval") {
 			t.Fatalf("revision proposal = %q", stdout)
 		}
-		before := readBatonState(t, repository, release)
+		before := readProtocolState(t, repository, release)
 		s1Before, _ := before.Slice("S1")
 		s2Before, _ := before.Slice("S2")
 		if s1Before.Outcome != "blocked" || s2Before.Pass == nil {
@@ -1153,7 +1153,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		if !strings.Contains(stderr, "PLAN_AUTHORITY_CONFLICT") {
 			t.Fatalf("revision authority stderr = %q", stderr)
 		}
-		after := readBatonState(t, repository, release)
+		after := readProtocolState(t, repository, release)
 		s1After, _ := after.Slice("S1")
 		s2After, _ := after.Slice("S2")
 		if after.Plan.Metadata.Revision != 1 || len(after.Plan.History) != 1 ||
@@ -1213,7 +1213,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		}
 		assertClaimedActionTerminalizedStale(
 			t, journalPath, runID, claimed)
-		state := readBatonState(t, repository, release)
+		state := readProtocolState(t, repository, release)
 		slice, ok := state.Slice(claimed.Input.Slice)
 		if !ok || state.Plan.TargetStale || state.Plan.Metadata.Revision != 1 {
 			t.Fatalf("target supersession state: plan=%#v slice=%#v",
@@ -1325,18 +1325,18 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 			journalPath,
 			runID,
 			revisionBytes,
-			readBatonState(t, repository, release),
+			readProtocolState(t, repository, release),
 		)
 		gitRepository, err := gitx.Open(repository, e2eGit)
 		if err != nil {
 			t.Fatal(err)
 		}
-		actions, err := baton.NewActions(
-			baton.UseGitRepository(gitRepository), inertResolver, gitx.Identity{Name: "E2E Engine", Email: "engine@example.test"})
+		actions, err := protocol.NewActions(
+			protocol.UseGitRepository(gitRepository), inertResolver, gitx.Identity{Name: "E2E Engine", Email: "engine@example.test"})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := actions.RecordPlanRevision(baton.RecordPlanRevisionInput{
+		if _, err := actions.RecordPlanRevision(protocol.RecordPlanRevisionInput{
 			PlanBytes: revisionBytes,
 			Summary:   "Install externally approved superseding fixture plan.",
 			Detail:    []byte("Fixture authority supersession."),
@@ -1370,13 +1370,13 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 						strings.TrimSpace(string(command.Payload))))
 				}
 			}
-			state, _ := observeBatonState(repository, release)
+			state, _ := observeProtocolState(repository, release)
 			t.Fatalf("plan-supersession recovery = %q effects=%v assembly=%#v",
 				stdout, effects, state.Assembly)
 		}
 		assertClaimedActionTerminalizedStale(
 			t, journalPath, runID, claimed)
-		state := readBatonState(t, repository, release)
+		state := readProtocolState(t, repository, release)
 		slice, ok := state.Slice(claimed.Input.Slice)
 		if !ok || state.Plan.Metadata.Revision != 2 {
 			t.Fatalf("superseding plan state: plan=%#v slice=%#v",
@@ -1396,7 +1396,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		crashBinary := filepath.Join(buildRoot, "sworn-install-all-new-target-move")
 		buildBinary(t, crashBinary, "./cmd/sworn", hookGateLDFlags)
 		crashEnvironment := map[string]string{
-			"SWORN_TEST_CRASH_AFTER_EFFECT": "baton.install",
+			"SWORN_TEST_CRASH_AFTER_EFFECT": "protocol.install",
 			"SWORN_TEST_OWNER_LEASE_MILLIS": testLeaseMillis,
 		}
 		repository, root := newProductRepository(t), t.TempDir()
@@ -1435,7 +1435,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		}
 		var install journal.Effect
 		for _, effect := range snapshot.Effects {
-			if effect.Kind == "baton.install" &&
+			if effect.Kind == "protocol.install" &&
 				effect.State == journal.Claimed {
 				install = effect
 			}
@@ -1479,7 +1479,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 				recovered, err, snapshotErr)
 		}
 		for _, effect := range snapshot.Effects {
-			if effect.Kind == "baton.install" &&
+			if effect.Kind == "protocol.install" &&
 				effect.ID != install.ID {
 				t.Fatalf("all-new recovery replayed install as %#v", effect)
 			}
@@ -1487,7 +1487,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 				t.Fatalf("all-new recovery became uncertain: %#v", effect)
 			}
 		}
-		state := readBatonState(t, repository, release)
+		state := readProtocolState(t, repository, release)
 		if state.Plan.TargetStale ||
 			state.Plan.Metadata.Revision != 1 {
 			t.Fatalf("post-recovery plan = %#v", state.Plan)
@@ -1516,7 +1516,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		for cutIndex, crash := range sealCrashCuts {
 			authorityKind, crash := authorityKind, crash
 			if authorityKind == "plan" && crash.name == "git.seal" {
-				// Baton refuses a plan revision while an unreceipted candidate
+				// Protocol refuses a plan revision while an unreceipted candidate
 				// owns the track, so this all-new plan supersession cannot be
 				// produced through an admitted authority action. The target
 				// case below covers all-new rollback; the prepared case covers
@@ -1587,19 +1587,19 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 							journalPath,
 							runID,
 							revisionBytes,
-							readBatonState(t, repository, release),
+							readProtocolState(t, repository, release),
 						)
 						gitRepository, err := gitx.Open(repository, e2eGit)
 						if err != nil {
 							t.Fatal(err)
 						}
-						actions, err := baton.NewActions(
-							baton.UseGitRepository(gitRepository), inertResolver, gitx.Identity{Name: "E2E Engine", Email: "engine@example.test"})
+						actions, err := protocol.NewActions(
+							protocol.UseGitRepository(gitRepository), inertResolver, gitx.Identity{Name: "E2E Engine", Email: "engine@example.test"})
 						if err != nil {
 							t.Fatal(err)
 						}
 						if _, err := actions.RecordPlanRevision(
-							baton.RecordPlanRevisionInput{
+							protocol.RecordPlanRevisionInput{
 								PlanBytes: revisionBytes,
 								Summary:   "Install externally approved superseding fixture plan.",
 								Detail:    []byte("Fixture seal authority supersession."),
@@ -1630,7 +1630,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 					}
 					assertClaimedSealTerminalizedStale(
 						t, journalPath, runID, claimed)
-					state := readBatonState(t, repository, release)
+					state := readProtocolState(t, repository, release)
 					if authorityKind == "target" && state.Plan.TargetStale {
 						t.Fatal("forward target move staled the installed plan")
 					}
@@ -1645,7 +1645,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 						t.Fatal("S1 missing after seal recovery")
 					}
 					entries := append(
-						[]baton.ReceiptEntry(nil), slice.History.Entries...)
+						[]protocol.ReceiptEntry(nil), slice.History.Entries...)
 					if slice.Candidate != nil {
 						entries = append(entries, *slice.Candidate)
 					}
@@ -1867,7 +1867,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 				)
 			}
 		}
-		state, err := observeBatonState(repository, release)
+		state, err := observeProtocolState(repository, release)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2058,19 +2058,19 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		claimed string
 		before  bool
 	}{
-		{cut: "baton.install", claimed: "baton.install"},
-		{cut: "baton.append_receipt", claimed: "baton.append_receipt"},
+		{cut: "protocol.install", claimed: "protocol.install"},
+		{cut: "protocol.append_receipt", claimed: "protocol.append_receipt"},
 		{cut: "git.seal", claimed: "git.seal.prepared"},
 		{cut: "git.seal.prepared", claimed: "git.seal.prepared"},
 		{cut: "implementation.handoff", claimed: "git.seal"},
-		{cut: "baton.prepare_assembly", claimed: "baton.prepare_assembly"},
-		{cut: "baton.assembly_verdict", claimed: "baton.assembly_verdict"},
-		{cut: "baton.merge", claimed: "baton.merge"},
+		{cut: "protocol.prepare_assembly", claimed: "protocol.prepare_assembly"},
+		{cut: "protocol.assembly_verdict", claimed: "protocol.assembly_verdict"},
+		{cut: "protocol.merge", claimed: "protocol.merge"},
 		{
-			cut: "baton.prepare_assembly", claimed: "baton.prepare_assembly",
+			cut: "protocol.prepare_assembly", claimed: "protocol.prepare_assembly",
 			before: true,
 		},
-		{cut: "baton.merge", claimed: "baton.merge", before: true},
+		{cut: "protocol.merge", claimed: "protocol.merge", before: true},
 	} {
 		cut := crash.cut
 		name := "crash_cut_"
@@ -2140,7 +2140,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 							fmt.Sprintf("%s:%s:%s", effect.Kind, effect.ID, effect.State))
 					}
 				}
-				observed, _ := observeBatonState(repository, release)
+				observed, _ := observeProtocolState(repository, release)
 				if cut == "implementation.handoff" &&
 					strings.Contains(stdout, "  state: parked") &&
 					len(nonterminal) == 0 {
@@ -2149,7 +2149,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 				t.Fatalf("%s recovery = %q; outcome=%s nonterminal=%v",
 					cut, stdout, observed.Assembly.Outcome, nonterminal)
 			}
-			state := readBatonState(t, repository, release)
+			state := readProtocolState(t, repository, release)
 			if state.Assembly.Outcome != "merged" ||
 				runGit(t, repository, "rev-parse", "main") != state.Assembly.ResultCommit {
 				t.Fatalf("%s recovery did not preserve exact target identity", cut)
@@ -2263,8 +2263,8 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		actions, err := baton.NewActions(
-			baton.UseGitRepository(product),
+		actions, err := protocol.NewActions(
+			protocol.UseGitRepository(product),
 			inertResolver,
 			gitx.Identity{Name: "E2E Engine", Email: "engine@example.test"},
 		)
@@ -2272,7 +2272,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 			t.Fatal(err)
 		}
 		if _, err := actions.RecordPlanRevision(
-			baton.RecordPlanRevisionInput{
+			protocol.RecordPlanRevisionInput{
 				PlanBytes: planBytes,
 				Summary:   "Install exact two-track recovery fixture.",
 				Detail: []byte(
@@ -2282,7 +2282,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		); err != nil {
 			t.Fatal(err)
 		}
-		state := readBatonState(t, repository, release)
+		state := readProtocolState(t, repository, release)
 		for _, sliceID := range []string{"S1", "S2"} {
 			slice, ok := state.Slice(sliceID)
 			if !ok ||
@@ -2369,7 +2369,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 				)
 			}
 		}
-		afterState := readBatonState(t, repository, release)
+		afterState := readProtocolState(t, repository, release)
 		s2, _ := afterState.Slice("S2")
 		if s2 == nil ||
 			s2.Stage != "design" ||
@@ -2548,7 +2548,7 @@ func runRealBinaryParallelTracksParkingRetryAndPause(t *testing.T) {
 		if !strings.Contains(stdout, "  state: complete") {
 			t.Fatalf("forward-target driver takeover = %q", stdout)
 		}
-		state := readBatonState(t, repository, release)
+		state := readProtocolState(t, repository, release)
 		if state.Plan.TargetStale || state.Plan.Metadata.Revision != 1 {
 			t.Fatalf("forward-target driver plan = %#v", state.Plan)
 		}

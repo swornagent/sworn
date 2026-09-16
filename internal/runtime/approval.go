@@ -9,19 +9,19 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 const (
-	ApprovalCommandVersion     = "sworn.approval-command/v1"
-	ApprovalResultVersion      = "sworn.approval-result/v1"
-	ApprovalDecision           = "approve"
-	ApprovalActorClass         = "external_authorizer"
-	DelegatedCaptainActorClass = "delegated_captain"
-	PlannerProposalClass       = "planner_proposal"
-	PlannerReplanClass         = "planner_replan"
-	approvalEffectKind         = "approval.admit"
+	ApprovalCommandVersion  = "sworn.approval-command/v1"
+	ApprovalResultVersion   = "sworn.approval-result/v1"
+	ApprovalDecision        = "approve"
+	ApprovalActorClass      = "external_authorizer"
+	DelegatedLeadActorClass = "delegated_lead"
+	PlannerProposalClass    = "planner_proposal"
+	PlannerReplanClass      = "planner_replan"
+	approvalEffectKind      = "approval.admit"
 )
 
 // ApprovalCommand is the sole model shared unchanged by the TUI, product MCP,
@@ -76,7 +76,7 @@ func CanonicalApprovalCommand(command ApprovalCommand) ([]byte, error) {
 		(command.DecisionClass != PlannerProposalClass &&
 			command.DecisionClass != PlannerReplanClass) ||
 		command.Decision != ApprovalDecision ||
-		(command.ActorClass != ApprovalActorClass && command.ActorClass != DelegatedCaptainActorClass) ||
+		(command.ActorClass != ApprovalActorClass && command.ActorClass != DelegatedLeadActorClass) ||
 		command.ActorAuthority == "" {
 		return nil, runtimeFail("APPROVAL_BINDING_MISMATCH", nil)
 	}
@@ -211,13 +211,13 @@ func validateApprovalAuthority(
 func approvalCommandForDelegatedProposal(
 	manifest admittedManifest,
 	proposal admittedPlanProposal,
-	envelope AdmittedCaptainDelegation,
+	envelope AdmittedLeadDelegation,
 ) (ApprovalCommand, error) {
 	command, err := approvalCommandForProposal(manifest, proposal)
 	if err != nil {
 		return ApprovalCommand{}, err
 	}
-	command.ActorClass = DelegatedCaptainActorClass
+	command.ActorClass = DelegatedLeadActorClass
 	command.ActorAuthority = envelope.Digest
 	if _, err := CanonicalApprovalCommand(command); err != nil {
 		return ApprovalCommand{}, err
@@ -232,14 +232,14 @@ func validateDelegatedApprovalAuthority(
 	command ApprovalCommand,
 	requireActive bool,
 ) error {
-	state, err := currentCaptainDelegation(snapshot)
+	state, err := currentLeadDelegation(snapshot)
 	if err != nil {
 		return err
 	}
 	if state.Epoch == 0 || state.Digest != command.ActorAuthority || (requireActive && !state.Active) {
 		return runtimeFail("APPROVAL_AUTHORITY_CONFLICT", nil)
 	}
-	envelope := AdmittedCaptainDelegation{Envelope: state.Envelope, Bytes: state.EnvelopeBytes, Digest: state.Digest}
+	envelope := AdmittedLeadDelegation{Envelope: state.Envelope, Bytes: state.EnvelopeBytes, Digest: state.Digest}
 	expected, err := approvalCommandForDelegatedProposal(manifest, proposal, envelope)
 	if err != nil || !reflect.DeepEqual(command, expected) {
 		return runtimeFail("APPROVAL_BINDING_MISMATCH", err)
@@ -247,7 +247,7 @@ func validateDelegatedApprovalAuthority(
 	metadata := proposal.plan.Metadata()
 	limits := state.Envelope.Limits
 	if metadata.Revision < limits.MinimumPlanRevision || metadata.Revision > limits.MaximumPlanRevision ||
-		state.Decisions > limits.MaximumTotalCaptainDecisions || state.ReplanSpent > limits.ReplanBudget {
+		state.Decisions > limits.MaximumTotalLeadDecisions || state.ReplanSpent > limits.ReplanBudget {
 		return runtimeFail("APPROVAL_AUTHORITY_INSUFFICIENT", nil)
 	}
 	allowed := false
@@ -272,7 +272,7 @@ func validateDelegatedApprovalAuthority(
 	} else if proposal.authority.ReleaseHead == "" || metadata.Revision <= anchor.PlanRevision {
 		return runtimeFail("APPROVAL_BINDING_MISMATCH", nil)
 	}
-	if err := ValidateCaptainPlanPolicy(state.Envelope.PlanRules, proposal.plan, nil); err != nil {
+	if err := ValidateLeadPlanPolicy(state.Envelope.PlanRules, proposal.plan, nil); err != nil {
 		return runtimeFail("APPROVAL_AUTHORITY_INSUFFICIENT", err)
 	}
 	expectedChildReplay, expectedChildEffect, _, identityErr := approvalIdentity(command)
@@ -281,14 +281,14 @@ func validateDelegatedApprovalAuthority(
 	}
 	foundDecisions := 0
 	for _, stored := range snapshot.Commands {
-		if stored.Kind != "captain_decision" {
+		if stored.Kind != "lead_decision" {
 			continue
 		}
-		var decision CaptainDecisionCommand
+		var decision LeadDecisionCommand
 		if json.Unmarshal(stored.Payload, &decision) != nil {
 			continue
 		}
-		canonical, canonicalErr := CanonicalCaptainDecisionCommand(decision)
+		canonical, canonicalErr := CanonicalLeadDecisionCommand(decision)
 		plannerAttempt := proposal.authority.PlannerAttempt
 		if plannerAttempt == 0 {
 			plannerAttempt = 1
@@ -308,8 +308,8 @@ func validateDelegatedApprovalAuthority(
 			continue
 		}
 		for _, effect := range snapshot.Effects {
-			if effect.ReplayKey == stored.ReplayKey && effect.Kind == captainDecisionEffectKind && effect.State == journal.Succeeded {
-				if validateCaptainDecisionDispatch(snapshot, decision, limits.MaximumCaptainAttemptsPerProposal) != nil {
+			if effect.ReplayKey == stored.ReplayKey && effect.Kind == leadDecisionEffectKind && effect.State == journal.Succeeded {
+				if validateLeadDecisionDispatch(snapshot, decision, limits.MaximumLeadAttemptsPerProposal) != nil {
 					return runtimeFail("APPROVAL_AUTHORITY_INSUFFICIENT", nil)
 				}
 				foundDecisions++
@@ -323,7 +323,7 @@ func validateDelegatedApprovalAuthority(
 }
 
 func validateApprovalAuthorityWithSnapshot(manifest admittedManifest, proposal admittedPlanProposal, snapshot journal.Snapshot, command ApprovalCommand, requireActive bool) error {
-	if command.ActorClass == DelegatedCaptainActorClass {
+	if command.ActorClass == DelegatedLeadActorClass {
 		return validateDelegatedApprovalAuthority(manifest, proposal, snapshot, command, requireActive)
 	}
 	return validateApprovalAuthority(manifest, proposal, command)
@@ -348,7 +348,7 @@ func (s *Service) currentApprovalProposal(
 		return admittedManifest{}, admittedPlanProposal{}, journal.Snapshot{}, err
 	}
 	defer engine.Close()
-	state, stateErr := baton.ReadState(engine.git, manifest.value.Release, engine.inertness)
+	state, stateErr := protocol.ReadState(engine.git, manifest.value.Release, engine.inertness)
 	proposal, found, _, err := selectPlanProposal(engine, snapshot, proposals, state, stateErr)
 	if err != nil {
 		if IsCode(err, "AMBIGUOUS_PLAN_PROPOSAL") {
@@ -397,8 +397,8 @@ func (s *Service) completeApprovalAdmission(
 		return ApprovalResult{}, err
 	}
 	manifest, proposal, snapshot, validationErr := s.currentApprovalProposal(ctx, command.RunID)
-	if validationErr == nil && command.ActorClass == DelegatedCaptainActorClass {
-		validationErr = s.validateCaptainReleaseLineage(ctx, manifest, proposal, snapshot)
+	if validationErr == nil && command.ActorClass == DelegatedLeadActorClass {
+		validationErr = s.validateLeadReleaseLineage(ctx, manifest, proposal, snapshot)
 	}
 	if validationErr == nil {
 		validationErr = validateApprovalAuthorityWithSnapshot(manifest, proposal, snapshot, command, true)
@@ -408,7 +408,7 @@ func (s *Service) completeApprovalAdmission(
 		Token: effect.CurrentClaim, At: s.now().UTC(),
 		EventKind: "approval_admitted", EventBody: []byte(command.PlanDigest),
 	}
-	if command.ActorClass == DelegatedCaptainActorClass && validationErr == nil {
+	if command.ActorClass == DelegatedLeadActorClass && validationErr == nil {
 		offset := int64(0)
 		if len(snapshot.Events) > 0 {
 			offset = snapshot.Events[len(snapshot.Events)-1].Offset
@@ -438,7 +438,7 @@ func (s *Service) completeApprovalAdmission(
 			if readErr == nil && current.State == journal.Succeeded {
 				return parseSucceededApproval(command, current)
 			}
-			if command.ActorClass == DelegatedCaptainActorClass && readErr == nil && current.State == journal.Claimed {
+			if command.ActorClass == DelegatedLeadActorClass && readErr == nil && current.State == journal.Claimed {
 				fresh, readSnapshotErr := s.journal.Snapshot(ctx, command.RunID)
 				if readSnapshotErr == nil {
 					offset := int64(0)
@@ -529,8 +529,8 @@ func (s *Service) Approve(
 	if err != nil {
 		return ApprovalResult{}, err
 	}
-	if command.ActorClass == DelegatedCaptainActorClass {
-		if err := s.validateCaptainReleaseLineage(ctx, manifest, proposal, snapshot); err != nil {
+	if command.ActorClass == DelegatedLeadActorClass {
+		if err := s.validateLeadReleaseLineage(ctx, manifest, proposal, snapshot); err != nil {
 			return ApprovalResult{}, err
 		}
 	}
@@ -569,9 +569,9 @@ func (s *Service) Approve(
 	if err != nil {
 		return ApprovalResult{}, err
 	}
-	if testCaptainCrashCut == "approval_admission" ||
-		testCaptainCrashCut == "before_approved_wake" {
-		return ApprovalResult{}, runtimeFail("TEST_CAPTAIN_CRASH_CUT", nil)
+	if testLeadCrashCut == "approval_admission" ||
+		testLeadCrashCut == "before_approved_wake" {
+		return ApprovalResult{}, runtimeFail("TEST_LEAD_CRASH_CUT", nil)
 	}
 	// Admission is already durable. Waking the run is best effort here; exact
 	// replay and operator startup perform the same reconciliation.
@@ -693,7 +693,7 @@ type approvalAdmission struct {
 	contractBytes map[string][]byte
 }
 
-func validateApprovalRef(manifest admittedManifest, plan baton.Plan) error {
+func validateApprovalRef(manifest admittedManifest, plan protocol.Plan) error {
 	metadata := plan.Metadata()
 	expected := manifest.value.Authority.ExternalAuthorizer + "://" +
 		manifest.value.Release + "/" + strconv.FormatInt(metadata.Revision, 10)
@@ -704,10 +704,10 @@ func validateApprovalRef(manifest admittedManifest, plan baton.Plan) error {
 }
 
 type authorityInstaller struct {
-	actions *baton.Actions
+	actions *protocol.Actions
 }
 
-func newAuthorityInstaller(actions *baton.Actions) *authorityInstaller {
+func newAuthorityInstaller(actions *protocol.Actions) *authorityInstaller {
 	return &authorityInstaller{actions: actions}
 }
 
@@ -726,19 +726,19 @@ func installDetail(admission approvalAdmission) []byte {
 // product path rather than inline, so admission has to read those real files
 // from a real tree; the authorized target head is that tree, and it is the
 // same value on the first attempt and on every journal replay because both
-// take it from the recorded action authority. A legacy baton.plan/v2 plan
+// take it from the recorded action authority. A legacy protocol.plan/v2 plan
 // carries its slices inline and never consults it.
 func (i *authorityInstaller) install(
 	admission approvalAdmission,
 	contractTree string,
-) (baton.ActionResult, error) {
+) (protocol.ActionResult, error) {
 	if i == nil || i.actions == nil ||
 		!runtimeDigestPattern.MatchString(admission.planDigest) ||
 		sha256Digest(admission.planBytes) != admission.planDigest ||
 		admission.reference == "" {
-		return baton.ActionResult{}, runtimeFail("APPROVAL_ADMISSION_REQUIRED", nil)
+		return protocol.ActionResult{}, runtimeFail("APPROVAL_ADMISSION_REQUIRED", nil)
 	}
-	return i.actions.RecordPlanRevision(baton.RecordPlanRevisionInput{
+	return i.actions.RecordPlanRevision(protocol.RecordPlanRevisionInput{
 		PlanBytes:       admission.planBytes,
 		Summary:         "Install the exact locally authorized plan.",
 		Detail:          installDetail(admission),

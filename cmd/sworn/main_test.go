@@ -16,15 +16,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/cockpit"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 )
 
-func TestVersionJSONReportsExactBatonAdmission(t *testing.T) {
+func TestVersionJSONReportsExactProtocolAdmission(t *testing.T) {
 	t.Parallel()
 
 	var stdout, stderr bytes.Buffer
@@ -38,11 +38,11 @@ func TestVersionJSONReportsExactBatonAdmission(t *testing.T) {
 	if got.Version != swornVersion || got.State != swornState {
 		t.Fatalf("version identity = %#v", got)
 	}
-	if got.RoleAssets.RoleAssetsVersion != baton.RoleAssetsVersion ||
-		got.RoleAssets.LegacyBatonVersion != baton.LegacyBatonVersion ||
-		got.RoleAssets.ManifestSHA256 != baton.ManifestSHA256 ||
-		got.RoleAssets.AssetCount != baton.AssetCount ||
-		got.RoleAssets.AssetBytes != baton.AssetBytes {
+	if got.RoleAssets.RoleAssetsVersion != protocol.RoleAssetsVersion ||
+		got.RoleAssets.LegacyProtocolVersion != protocol.LegacyProtocolVersion ||
+		got.RoleAssets.ManifestSHA256 != protocol.ManifestSHA256 ||
+		got.RoleAssets.AssetCount != protocol.AssetCount ||
+		got.RoleAssets.AssetBytes != protocol.AssetBytes {
 		t.Fatalf("role-asset identity = %#v", got.RoleAssets)
 	}
 	if strings.Contains(stdout.String(), `"commit":"unknown"`) {
@@ -60,8 +60,8 @@ func TestVersionTextIsSmallAndExplicit(t *testing.T) {
 	want := "Sworn 1.0.0-rc.2-dev\n\n" +
 		"Technical details:\n" +
 		"  state: role-assets-admitted\n" +
-		"  role assets: " + baton.RoleAssetsVersion + "\n" +
-		"  legacy Baton content: " + baton.LegacyBatonVersion + "\n"
+		"  role assets: " + protocol.RoleAssetsVersion + "\n" +
+		"  legacy Protocol content: " + protocol.LegacyProtocolVersion + "\n"
 	if stdout.String() != want {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 	}
@@ -135,7 +135,7 @@ func TestBoardTerminalAndJSONRenderOneReadOnlySnapshot(t *testing.T) {
 		t.Fatalf("snapshot facts = %#v", snapshot)
 	}
 	if len(snapshot.Diagnostics) != 1 ||
-		snapshot.Diagnostics[0].Code != "BATON_UNAVAILABLE" {
+		snapshot.Diagnostics[0].Code != "PROTOCOL_UNAVAILABLE" {
 		t.Fatalf("snapshot diagnostics = %#v", snapshot.Diagnostics)
 	}
 
@@ -371,7 +371,7 @@ func boardJournalFixture(t *testing.T) string {
 		Roles: driver.RoleSelections{
 			Planner:     profile,
 			Implementer: profile,
-			Captain:     profile,
+			Lead:        profile,
 			Verifier:    profile,
 		},
 		Automation: &runtimepkg.AutomationSelections{
@@ -382,11 +382,11 @@ func boardJournalFixture(t *testing.T) string {
 			OutputBytes:   1,
 		},
 		Scripts: []runtimepkg.ScriptedAttempt{{
-			Responsibility: driver.PlannerProposal,
-			BatonAttempt:   1,
-			Epoch:          1,
-			Try:            1,
-			Behavior:       "none",
+			Responsibility:  driver.PlannerProposal,
+			ProtocolAttempt: 1,
+			Epoch:           1,
+			Try:             1,
+			Behavior:        "none",
 		}},
 	}
 	manifestBody, err := json.Marshal(manifest)
@@ -446,18 +446,18 @@ func TestVersionRejectsEveryOtherShape(t *testing.T) {
 	}
 }
 
-func TestCommandErrorCodeResolvesBatonRecordErrorsAndParity(t *testing.T) {
+func TestCommandErrorCodeResolvesProtocolRecordErrorsAndParity(t *testing.T) {
 	t.Parallel()
 
-	// A3: CLI error code resolution covers baton record errors and parity across types
+	// A3: CLI error code resolution covers protocol record errors and parity across types
 	tests := []struct {
 		name string
 		err  error
 		want string
 	}{
 		{
-			name: "baton record error",
-			err:  &baton.RecordError{Code: "TARGET_DIVERGED", Msg: "target diverged"},
+			name: "protocol record error",
+			err:  &protocol.RecordError{Code: "TARGET_DIVERGED", Msg: "target diverged"},
 			want: "TARGET_DIVERGED",
 		},
 		{
@@ -501,9 +501,9 @@ func TestCommandErrorCodeResolvesBatonRecordErrorsAndParity(t *testing.T) {
 		})
 	}
 
-	// Test writeCommandFailure prints technical code for baton record error
+	// Test writeCommandFailure prints technical code for protocol record error
 	var out bytes.Buffer
-	writeCommandFailure(&out, "status", "Could not find that run in the saved record.", &baton.RecordError{Code: "TARGET_DIVERGED"})
+	writeCommandFailure(&out, "status", "Could not find that run in the saved record.", &protocol.RecordError{Code: "TARGET_DIVERGED"})
 	outStr := out.String()
 	if !strings.Contains(outStr, "Technical code: TARGET_DIVERGED") {
 		t.Fatalf("writeCommandFailure output missing technical code: %q", outStr)
@@ -593,10 +593,10 @@ func encodeSubmission(t *testing.T, submission driver.Submission) string {
 	return base64.StdEncoding.EncodeToString(body)
 }
 
-func hostedDrivePlanFixture(t *testing.T, release, repository string) ([]byte, baton.Plan) {
+func hostedDrivePlanFixture(t *testing.T, release, repository string) ([]byte, protocol.Plan) {
 	t.Helper()
-	planBytes := []byte(fmt.Sprintf("```baton-plan-v2\n{\n  \"schema_version\": \"baton.plan/v2\",\n  \"release\": %q,\n  \"revision\": 1,\n  \"previous_plan\": null,\n  \"repository\": \"acme-repo\",\n  \"target_ref\": \"refs/heads/main\",\n  \"approval_ref\": \"operator://%s/1\",\n  \"tracks\": [\n    {\n      \"id\": \"T1\",\n      \"depends_on\": [],\n      \"slices\": [\n        {\n          \"id\": \"S1\",\n          \"outcome\": \"Deliver S1.\",\n          \"scope\": {\n            \"include\": [\"one.txt\"],\n            \"exclude\": []\n          },\n          \"acceptance\": [\n            {\n              \"id\": \"A1\",\n              \"text\": \"S1 is complete.\"\n            }\n          ],\n          \"checks\": [\"true\"],\n          \"constraints\": [\"deterministic\"],\n          \"depends_on\": [],\n          \"consumes\": []\n        }\n      ]\n    }\n  ]\n}\n```\n\nFixture plan.\n", release, release))
-	plan, err := baton.ParsePlan(planBytes)
+	planBytes := []byte(fmt.Sprintf("```protocol-plan-v2\n{\n  \"schema_version\": \"protocol.plan/v2\",\n  \"release\": %q,\n  \"revision\": 1,\n  \"previous_plan\": null,\n  \"repository\": \"acme-repo\",\n  \"target_ref\": \"refs/heads/main\",\n  \"approval_ref\": \"operator://%s/1\",\n  \"tracks\": [\n    {\n      \"id\": \"T1\",\n      \"depends_on\": [],\n      \"slices\": [\n        {\n          \"id\": \"S1\",\n          \"outcome\": \"Deliver S1.\",\n          \"scope\": {\n            \"include\": [\"one.txt\"],\n            \"exclude\": []\n          },\n          \"acceptance\": [\n            {\n              \"id\": \"A1\",\n              \"text\": \"S1 is complete.\"\n            }\n          ],\n          \"checks\": [\"true\"],\n          \"constraints\": [\"deterministic\"],\n          \"depends_on\": [],\n          \"consumes\": []\n        }\n      ]\n    }\n  ]\n}\n```\n\nFixture plan.\n", release, release))
+	plan, err := protocol.ParsePlan(planBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -607,11 +607,11 @@ func writeHostedDriveManifest(
 	t *testing.T,
 	directory, repository, release, runID, fakeExecutable, fakeDigest string,
 	failImplementation bool,
-) (string, baton.Plan) {
+) (string, protocol.Plan) {
 	t.Helper()
 	planBytes, plan := hostedDrivePlanFixture(t, release, repository)
 	var scripts []runtimepkg.ScriptedAttempt
-	add := func(slice string, responsibility driver.Responsibility, batonAttempt int64) {
+	add := func(slice string, responsibility driver.Responsibility, protocolAttempt int64) {
 		for try := int64(1); try <= 3; try++ {
 			work := slice
 			if work == "" {
@@ -620,7 +620,7 @@ func writeHostedDriveManifest(
 			submission := driver.Submission{
 				SchemaVersion: driver.SubmissionSchemaVersion,
 				InvocationID: fmt.Sprintf("%s/%s/%s/%d/1/%d", runID, work,
-					responsibility, batonAttempt, try),
+					responsibility, protocolAttempt, try),
 				Responsibility: responsibility,
 				Summary:        "Exact " + string(responsibility) + ".",
 				Detail:         "Fresh bounded test evidence.",
@@ -628,7 +628,7 @@ func writeHostedDriveManifest(
 			switch responsibility {
 			case driver.PlannerProposal:
 				submission.Plan, _ = driver.NewPlanBytes(planBytes)
-			case driver.CaptainReview:
+			case driver.LeadReview:
 				submission.Decision, _ = driver.NewDecision(driver.DecisionProceed)
 			case driver.ImplementerImplementation:
 				submission.Checks, _ = driver.NewCheckBytes([]byte("implementation checks\n"))
@@ -646,27 +646,27 @@ func writeHostedDriveManifest(
 				subStr = ""
 			}
 			scripts = append(scripts, runtimepkg.ScriptedAttempt{
-				Slice:          slice,
-				Responsibility: responsibility,
-				BatonAttempt:   batonAttempt,
-				Epoch:          1,
-				Try:            try,
-				Behavior:       behavior,
-				Submission:     subStr,
+				Slice:           slice,
+				Responsibility:  responsibility,
+				ProtocolAttempt: protocolAttempt,
+				Epoch:           1,
+				Try:             try,
+				Behavior:        behavior,
+				Submission:      subStr,
 			})
 		}
 	}
 	add("", driver.PlannerProposal, 1)
 	add("S1", driver.ImplementerDesign, 1)
-	add("S1", driver.CaptainReview, 1)
+	add("S1", driver.LeadReview, 1)
 	add("S1", driver.ImplementerImplementation, 1)
 	add("S1", driver.WorkVerification, 1)
 	add("", driver.AssemblyVerification, 1)
 	sort.Slice(scripts, func(i, j int) bool {
 		left := fmt.Sprintf("%s/%s/%020d/%020d/%d", scripts[i].Responsibility,
-			scripts[i].Slice, scripts[i].BatonAttempt, scripts[i].Epoch, scripts[i].Try)
+			scripts[i].Slice, scripts[i].ProtocolAttempt, scripts[i].Epoch, scripts[i].Try)
 		right := fmt.Sprintf("%s/%s/%020d/%020d/%d", scripts[j].Responsibility,
-			scripts[j].Slice, scripts[j].BatonAttempt, scripts[j].Epoch, scripts[j].Try)
+			scripts[j].Slice, scripts[j].ProtocolAttempt, scripts[j].Epoch, scripts[j].Try)
 		return left < right
 	})
 	manifest := runtimepkg.Manifest{
@@ -688,7 +688,7 @@ func writeHostedDriveManifest(
 		Roles: driver.RoleSelections{
 			Planner:     driver.RoleSelection{Profile: "e2e-fake", Model: "planner-model"},
 			Implementer: driver.RoleSelection{Profile: "e2e-fake", Model: "implementer-model"},
-			Captain:     driver.RoleSelection{Profile: "e2e-fake", Model: "captain-model"},
+			Lead:        driver.RoleSelection{Profile: "e2e-fake", Model: "lead-model"},
 			Verifier:    driver.RoleSelection{Profile: "e2e-fake", Model: "verifier-model"},
 		},
 		Automation: &runtimepkg.AutomationSelections{
@@ -888,7 +888,7 @@ func TestHostedDriveResumeAndTakeover(t *testing.T) {
 
 		hasMerge := false
 		for _, effect := range snapshot.Effects {
-			if effect.Kind == "baton.merge" && effect.State == journal.Succeeded {
+			if effect.Kind == "protocol.merge" && effect.State == journal.Succeeded {
 				hasMerge = true
 			}
 		}
@@ -1046,7 +1046,7 @@ func TestHostedDriveResumeAndTakeover(t *testing.T) {
 		}
 		hasMerge := false
 		for _, effect := range snapshot.Effects {
-			if effect.Kind == "baton.merge" && effect.State == journal.Succeeded {
+			if effect.Kind == "protocol.merge" && effect.State == journal.Succeeded {
 				hasMerge = true
 			}
 		}
@@ -1104,10 +1104,10 @@ func TestKilledHostMidDriveRecoversCleanly(t *testing.T) {
 		t.Fatalf("approve stderr = %q, stdout = %q", approveErr, approveOut)
 	}
 
-	// Simulate host death: start resume with short lease and crash cut after baton.append_receipt
+	// Simulate host death: start resume with short lease and crash cut after protocol.append_receipt
 	crashEnv := map[string]string{
 		"SWORN_TEST_UNCONTAINED_DISPATCH": "1",
-		"SWORN_TEST_CRASH_AFTER_EFFECT":   "baton.append_receipt",
+		"SWORN_TEST_CRASH_AFTER_EFFECT":   "protocol.append_receipt",
 		"SWORN_TEST_OWNER_LEASE_MILLIS":   "500",
 	}
 	runBinaryWithEnvironmentTimeout(t, swornBinary, 86, crashEnv, 30*time.Second,
@@ -1147,7 +1147,7 @@ func TestKilledHostMidDriveRecoversCleanly(t *testing.T) {
 	// Assert exactly one merge effect succeeded
 	merges := 0
 	for _, effect := range snapshot.Effects {
-		if effect.Kind == "baton.merge" && effect.State == journal.Succeeded {
+		if effect.Kind == "protocol.merge" && effect.State == journal.Succeeded {
 			merges++
 		}
 	}

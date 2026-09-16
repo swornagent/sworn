@@ -13,7 +13,7 @@ func TestTurnRecoveryAggregationIsClosedAndCanonical(t *testing.T) {
 	for _, kind := range []string{
 		"ordinary_event",
 		"turn_recovery.action.resume_worker",
-		"turn_recovery.action.ask_captain",
+		"turn_recovery.action.ask_lead",
 		"turn_recovery.action.resume_worker",
 		"turn_recovery.outcome.recovered",
 		"turn_recovery.action.pause_track_for_human",
@@ -27,7 +27,7 @@ func TestTurnRecoveryAggregationIsClosedAndCanonical(t *testing.T) {
 		summary.FalseAcceptances != 0 ||
 		len(summary.Actions) != 3 ||
 		summary.Actions[0] != (TurnRecoveryCount{
-			Action: turnRecoveryAskCaptain,
+			Action: turnRecoveryAskLead,
 			Count:  1,
 		}) ||
 		summary.Actions[1] != (TurnRecoveryCount{

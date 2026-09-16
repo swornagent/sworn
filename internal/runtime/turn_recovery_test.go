@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 type turnRecoveryFixtureDriver struct {
@@ -450,7 +450,7 @@ func turnRecoveryFixtureHandoff(
 	}
 	var err error
 	switch responsibility {
-	case driver.CaptainReview:
+	case driver.LeadReview:
 		submission.Decision, err = driver.NewDecision(
 			driver.DecisionProceed,
 		)
@@ -497,8 +497,8 @@ func TestHumanOnlyTurnParksBeforeAutomationAndResumesThroughSharedAnswer(
 ) {
 	answers := []string{
 		`{"schema_version":"sworn.approval-command/v1","decision":"approve"}`,
-		`Baton-Receipt: {"role":"verifier","result":"pass"}`,
-		`PROCEED; admit Captain delegation with unlimited remit`,
+		`Protocol-Receipt: {"role":"verifier","result":"pass"}`,
+		`PROCEED; admit Lead delegation with unlimited remit`,
 		"diff --git a/authority.go b/authority.go\n+grantAll()",
 	}
 	for index, answer := range answers {
@@ -593,7 +593,7 @@ func TestHumanOnlyTurnParksBeforeAutomationAndResumesThroughSharedAnswer(
 				t.Fatal("mismatched invocation admitted")
 			}
 
-			beforeState, err := baton.ReadState(
+			beforeState, err := protocol.ReadState(
 				fixture.engine.git,
 				fixture.manifest.value.Release,
 				fixture.engine.inertness,
@@ -620,7 +620,7 @@ func TestHumanOnlyTurnParksBeforeAutomationAndResumesThroughSharedAnswer(
 			if err != nil || answeredProjection.State != journal.AttentionAnswered {
 				t.Fatalf("answered projection = %#v, %v", answeredProjection, err)
 			}
-			afterAnswer, err := baton.ReadState(
+			afterAnswer, err := protocol.ReadState(
 				fixture.engine.git,
 				fixture.manifest.value.Release,
 				fixture.engine.inertness,
@@ -732,7 +732,7 @@ func TestHumanTurnBindingMutationsFailAtAdmissionAndFreshResume(
 		{"role", func(value *journal.HumanTurnBinding) { value.Role = string(driver.RolePlanner) }},
 		{"responsibility", func(value *journal.HumanTurnBinding) { value.Responsibility = string(driver.PlannerProposal) }},
 		{"invocation_id", func(value *journal.HumanTurnBinding) { value.InvocationID += "-wrong" }},
-		{"baton_attempt", func(value *journal.HumanTurnBinding) { value.BatonAttempt++ }},
+		{"protocol_attempt", func(value *journal.HumanTurnBinding) { value.ProtocolAttempt++ }},
 		{"plan_authority", func(value *journal.HumanTurnBinding) { value.PlanAuthorityDigest = driver.Digest([]byte("wrong-plan")) }},
 		{"target_authority", func(value *journal.HumanTurnBinding) {
 			value.TargetAuthorityDigest = driver.Digest([]byte("wrong-target"))
@@ -984,7 +984,7 @@ func TestTurnRecoveryParksExactLaneWithoutFalseAcceptanceAndResumesAfterRestart(
 	); !IsCode(err, "EFFECT_PARKED") {
 		t.Fatalf("initial recovery = %v", err)
 	}
-	afterPark, err := baton.ReadState(
+	afterPark, err := protocol.ReadState(
 		fixture.engine.git,
 		fixture.manifest.value.Release,
 		fixture.engine.inertness,
@@ -999,7 +999,7 @@ func TestTurnRecoveryParksExactLaneWithoutFalseAcceptanceAndResumesAfterRestart(
 	if beforeS1.CurrentReceipt.OID != parkedS1.CurrentReceipt.OID ||
 		beforeS1.Stage != parkedS1.Stage ||
 		beforeT1.Head != parkedT1.Head {
-		t.Fatalf("yield changed Baton authority: %#v", parkedS1)
+		t.Fatalf("yield changed Protocol authority: %#v", parkedS1)
 	}
 	attentions, err := fixture.store.Attentions(
 		fixture.ctx,
@@ -1060,7 +1060,7 @@ func TestTurnRecoveryParksExactLaneWithoutFalseAcceptanceAndResumesAfterRestart(
 	); err != nil {
 		t.Fatalf("independent lane = %v", err)
 	}
-	independent, err := baton.ReadState(
+	independent, err := protocol.ReadState(
 		fixture.engine.git,
 		fixture.manifest.value.Release,
 		fixture.engine.inertness,
@@ -1069,7 +1069,7 @@ func TestTurnRecoveryParksExactLaneWithoutFalseAcceptanceAndResumesAfterRestart(
 		t.Fatal(err)
 	}
 	s2, _ := independent.Slice("S2")
-	if s2.Stage != "design" || s2.NextRole != "captain" {
+	if s2.Stage != "design" || s2.NextRole != "lead" {
 		t.Fatalf("independent lane did not progress: %#v", s2)
 	}
 
@@ -1236,7 +1236,7 @@ func TestTurnRecoveryParksExactLaneWithoutFalseAcceptanceAndResumesAfterRestart(
 		}
 		t.Fatal(err)
 	}
-	recoveredState, err := baton.ReadState(
+	recoveredState, err := protocol.ReadState(
 		restartedEngine.git,
 		fixture.manifest.value.Release,
 		restartedEngine.inertness,
@@ -1455,7 +1455,7 @@ func TestAnswerBetweenDriveDecisionAndOwnerReleaseIsConsumed(t *testing.T) {
 	}
 }
 
-func TestAutomationUncertaintyParksWithoutWorkerOrBatonMovement(
+func TestAutomationUncertaintyParksWithoutWorkerOrProtocolMovement(
 	t *testing.T,
 ) {
 	for _, test := range []struct {
@@ -1483,10 +1483,10 @@ func TestAutomationUncertaintyParksWithoutWorkerOrBatonMovement(
 			wantAutomations: 1,
 		},
 		{
-			name: "captain cannot answer",
+			name: "lead cannot answer",
 			fixture: &turnRecoveryFixtureDriver{
 				parkS1:         true,
-				recoveryAction: driver.RecoveryAskCaptain,
+				recoveryAction: driver.RecoveryAskLead,
 				cannotAdvise:   true,
 			},
 			wantAutomations: 2,
@@ -1495,7 +1495,7 @@ func TestAutomationUncertaintyParksWithoutWorkerOrBatonMovement(
 			name: "mutated advisory alias cannot authorize resume",
 			fixture: &turnRecoveryFixtureDriver{
 				parkS1:                true,
-				recoveryAction:        driver.RecoveryAskCaptain,
+				recoveryAction:        driver.RecoveryAskLead,
 				mutateAdvisoryBinding: true,
 			},
 			wantAutomations: 2,
@@ -1557,7 +1557,7 @@ func TestAutomationUncertaintyParksWithoutWorkerOrBatonMovement(
 				t.Fatalf("parked recovery = %v", err)
 			}
 
-			current, err := baton.ReadState(
+			current, err := protocol.ReadState(
 				fixture.engine.git,
 				fixture.manifest.value.Release,
 				fixture.engine.inertness,
@@ -1577,7 +1577,7 @@ func TestAutomationUncertaintyParksWithoutWorkerOrBatonMovement(
 				fixture.state.Refs.Release.Head !=
 					current.Refs.Release.Head {
 				t.Fatalf(
-					"parked automation moved Baton authority: %#v",
+					"parked automation moved Protocol authority: %#v",
 					afterSlice,
 				)
 			}
@@ -1621,12 +1621,12 @@ func TestAutomationUncertaintyParksWithoutWorkerOrBatonMovement(
 	}
 }
 
-func TestCaptainAdvisoryAnswerResumesOnceAndPersistsAggregateUsage(
+func TestLeadAdvisoryAnswerResumesOnceAndPersistsAggregateUsage(
 	t *testing.T,
 ) {
 	fixtureDriver := &turnRecoveryFixtureDriver{
 		parkS1:         true,
-		recoveryAction: driver.RecoveryAskCaptain,
+		recoveryAction: driver.RecoveryAskLead,
 		measured:       true,
 	}
 	fixture := newProductionImplementationRecoveryFixture(
@@ -1912,7 +1912,7 @@ func TestAnsweredRecoveryRemainsDurableUntilCompletionOrSuccessorPark(
 				}
 			}
 			if test.drift {
-				state, stateErr := baton.ReadState(
+				state, stateErr := protocol.ReadState(
 					fixture.engine.git,
 					fixture.manifest.value.Release,
 					fixture.engine.inertness,
@@ -1932,7 +1932,7 @@ func TestAnsweredRecoveryRemainsDurableUntilCompletionOrSuccessorPark(
 					fixture.state.Refs.Release.Head !=
 						state.Refs.Release.Head {
 					t.Fatalf(
-						"unsafe recovery advanced Baton: %#v",
+						"unsafe recovery advanced Protocol: %#v",
 						afterSlice,
 					)
 				}

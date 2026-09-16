@@ -13,11 +13,11 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/cockpit"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 )
 
@@ -37,7 +37,7 @@ Commands:
   grant     Admit an explicit bounded capacity grant for a budget-parked work item.
   answer    Answer a saved question that needs human judgment.
   approve   Admit one exact plan approval (low-level recovery/scripting).
-  migrate-records  Move the reserved records root from .baton/releases to .sworn/records (one-time, operator-gated).
+  migrate-records  Move the reserved records root from .protocol/releases to .sworn/records (one-time, operator-gated).
   status    Return the stable machine-readable run record.
   driver    Check configured AI connections.
   skill     Install or upgrade the one supported Sworn agent skill.
@@ -72,9 +72,9 @@ const (
 )
 
 type versionInfo struct {
-	Version    string         `json:"version"`
-	State      string         `json:"state"`
-	RoleAssets baton.Identity `json:"role_assets"`
+	Version    string            `json:"version"`
+	State      string            `json:"state"`
+	RoleAssets protocol.Identity `json:"role_assets"`
 }
 
 func main() {
@@ -230,7 +230,7 @@ func runVersion(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: sworn version [--json]")
 		return 2
 	}
-	pkg, err := baton.Load()
+	pkg, err := protocol.Load()
 	if err != nil {
 		writeCommandFailure(
 			stderr,
@@ -365,12 +365,12 @@ func runStart(args []string, stdout, stderr io.Writer) int {
 			)
 			return 1
 		}
-		if targetRelease.diagnostic == "BATON_UNAVAILABLE" {
+		if targetRelease.diagnostic == "PROTOCOL_UNAVAILABLE" {
 			writeKnownFailure(
 				stderr,
 				"run",
 				fmt.Sprintf("release %q is not recorded and approved (no refs/heads/release-wt/%s found)", targetRelease.name, targetRelease.name),
-				"BATON_UNAVAILABLE",
+				"PROTOCOL_UNAVAILABLE",
 			)
 			return 1
 		}
@@ -502,7 +502,7 @@ func runStart(args []string, stdout, stderr io.Writer) int {
 						stderr,
 						"run",
 						fmt.Sprintf("no startable release found: manifests found for %s, but no matching approved release refs (refs/heads/release-wt/*)", strings.Join(manifestOnly, ", ")),
-						"BATON_UNAVAILABLE",
+						"PROTOCOL_UNAVAILABLE",
 					)
 					return 1
 				}
@@ -1097,7 +1097,7 @@ func writeStatusText(out io.Writer, status runtimepkg.RunStatus) error {
 	return err
 }
 
-func writeVersion(out io.Writer, asJSON bool, roleAssets baton.Identity) error {
+func writeVersion(out io.Writer, asJSON bool, roleAssets protocol.Identity) error {
 	info := versionInfo{
 		Version:    swornVersion,
 		State:      swornState,
@@ -1114,11 +1114,11 @@ func writeVersion(out io.Writer, asJSON bool, roleAssets baton.Identity) error {
 			"Technical details:\n"+
 			"  state: %s\n"+
 			"  role assets: %s\n"+
-			"  legacy Baton content: %s\n",
+			"  legacy Protocol content: %s\n",
 		info.Version,
 		info.State,
 		info.RoleAssets.RoleAssetsVersion,
-		info.RoleAssets.LegacyBatonVersion,
+		info.RoleAssets.LegacyProtocolVersion,
 	)
 	return err
 }
@@ -1174,15 +1174,15 @@ func commandErrorDetail(err error) string {
 	if errors.As(err, &driverErr) {
 		return sanitizeErrorDetail(driverErr.Detail)
 	}
-	var batonErr *baton.RecordError
-	if errors.As(err, &batonErr) {
+	var protocolErr *protocol.RecordError
+	if errors.As(err, &protocolErr) {
 		var raw string
-		if batonErr.Err != nil && batonErr.Msg != "" {
-			raw = batonErr.Msg + ": " + batonErr.Err.Error()
-		} else if batonErr.Msg != "" {
-			raw = batonErr.Msg
-		} else if batonErr.Err != nil {
-			raw = batonErr.Err.Error()
+		if protocolErr.Err != nil && protocolErr.Msg != "" {
+			raw = protocolErr.Msg + ": " + protocolErr.Err.Error()
+		} else if protocolErr.Msg != "" {
+			raw = protocolErr.Msg
+		} else if protocolErr.Err != nil {
+			raw = protocolErr.Err.Error()
 		}
 		return sanitizeErrorDetail(raw)
 	}
@@ -1240,7 +1240,7 @@ func writeCommandFailure(
 		message = "The work stopped after repeated failures. Review the latest board before retrying."
 	case "RUN_NOT_FOUND", "INVALID_RUN":
 		message = "Could not find that run in the saved record."
-	case "BATON_UNAVAILABLE":
+	case "PROTOCOL_UNAVAILABLE":
 		message = "Could not confirm the current release records."
 	case "GIT_UNAVAILABLE":
 		message = "Could not find or use Git."
@@ -1248,7 +1248,7 @@ func writeCommandFailure(
 	var details []string
 	switch code {
 	case "OWNER_TRANSITION_PENDING", "APPROVAL_PENDING", "RECOVERY_UNCERTAIN",
-		"EFFECT_PARKED", "RUN_NOT_FOUND", "INVALID_RUN", "BATON_UNAVAILABLE", "GIT_UNAVAILABLE":
+		"EFFECT_PARKED", "RUN_NOT_FOUND", "INVALID_RUN", "PROTOCOL_UNAVAILABLE", "GIT_UNAVAILABLE":
 		// Custom messages do not append detail.
 	default:
 		if detail := commandErrorDetail(err); detail != "" {
@@ -1279,9 +1279,9 @@ func commandErrorCode(err error) string {
 	if errors.As(err, &cockpitErr) {
 		return cockpitErr.Code
 	}
-	var batonErr *baton.RecordError
-	if errors.As(err, &batonErr) {
-		return batonErr.Code
+	var protocolErr *protocol.RecordError
+	if errors.As(err, &protocolErr) {
+		return protocolErr.Code
 	}
 	return ""
 }

@@ -18,10 +18,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/cockpit"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
+	"github.com/swornagent/sworn/internal/protocol"
 	swornruntime "github.com/swornagent/sworn/internal/runtime"
 )
 
@@ -37,7 +37,7 @@ func manifestTouchpointStrings(values []string) []any {
 }
 
 // manifestTouchpointContractRaw builds one real, self-consistent Sworn slice
-// contract body: the same shape internal/baton's own manifest tests use, so
+// contract body: the same shape internal/protocol's own manifest tests use, so
 // its digest agrees with what a real sworn.release-manifest/v1 manifest can
 // declare.
 func manifestTouchpointContractRaw(t *testing.T, id string, touchpoints []string) []byte {
@@ -62,7 +62,7 @@ func manifestTouchpointContractRaw(t *testing.T, id string, touchpoints []string
 
 // manifestTouchpointSliceEntry builds one compact sworn.release-manifest/v1
 // slice entry: only the fields admission needs to build the dependency graph
-// and touchpoint overlap, matching internal/baton's own manifest slice shape.
+// and touchpoint overlap, matching internal/protocol's own manifest slice shape.
 func manifestTouchpointSliceEntry(id, contractPath, digest string, touchpoints []string) map[string]any {
 	return map[string]any{
 		"id": id, "outcome": "Deliver " + id + ".",
@@ -90,7 +90,7 @@ func manifestTouchpointPlanBytes(
 		t2Depends = []any{"T1"}
 	}
 	value := map[string]any{
-		"schema_version": baton.ManifestVersion, "release": release, "revision": int64(1),
+		"schema_version": protocol.ManifestVersion, "release": release, "revision": int64(1),
 		"previous_plan": nil, "repository": "acme-repo", "target_ref": targetRef,
 		"approval_ref": "operator://" + release + "/1",
 		"tracks": []any{
@@ -125,7 +125,7 @@ func manifestTouchpointPlanBytes(
 // S1 and S2 are admitted directly through production action calls (the same
 // prepared-tree/AppendReceipt pattern installAndPassComponent already uses
 // in walking_skeleton_linux_test.go) before "resume" ever runs, so the real
-// dispatcher never needs a scripted Implementer/Captain/Verifier response
+// dispatcher never needs a scripted Implementer/Lead/Verifier response
 // for either slice.
 func manifestTouchpointRunManifest(
 	t *testing.T,
@@ -135,11 +135,11 @@ func manifestTouchpointRunManifest(
 ) []byte {
 	t.Helper()
 	var scripts []swornruntime.ScriptedAttempt
-	add := func(responsibility driver.Responsibility, batonAttempt int64) {
+	add := func(responsibility driver.Responsibility, protocolAttempt int64) {
 		for try := int64(1); try <= 3; try++ {
 			submission := driver.Submission{
 				SchemaVersion:  driver.SubmissionSchemaVersion,
-				InvocationID:   fmt.Sprintf("%s/release/%s/%d/1/%d", runID, responsibility, batonAttempt, try),
+				InvocationID:   fmt.Sprintf("%s/release/%s/%d/1/%d", runID, responsibility, protocolAttempt, try),
 				Responsibility: responsibility,
 				Summary:        "Exact " + string(responsibility) + ".",
 				Detail:         "Fresh bounded E2E evidence.",
@@ -152,7 +152,7 @@ func manifestTouchpointRunManifest(
 				submission.Decision, _ = driver.NewDecision(driver.DecisionPass)
 			}
 			scripts = append(scripts, swornruntime.ScriptedAttempt{
-				Slice: "", Responsibility: responsibility, BatonAttempt: batonAttempt,
+				Slice: "", Responsibility: responsibility, ProtocolAttempt: protocolAttempt,
 				Epoch: 1, Try: try, Behavior: "submit", Submission: encodedSubmission(t, submission),
 			})
 		}
@@ -161,9 +161,9 @@ func manifestTouchpointRunManifest(
 	add(driver.AssemblyVerification, 1)
 	sort.Slice(scripts, func(i, j int) bool {
 		left := fmt.Sprintf("%s/%s/%020d/%020d/%d", scripts[i].Responsibility,
-			scripts[i].Slice, scripts[i].BatonAttempt, scripts[i].Epoch, scripts[i].Try)
+			scripts[i].Slice, scripts[i].ProtocolAttempt, scripts[i].Epoch, scripts[i].Try)
 		right := fmt.Sprintf("%s/%s/%020d/%020d/%d", scripts[j].Responsibility,
-			scripts[j].Slice, scripts[j].BatonAttempt, scripts[j].Epoch, scripts[j].Try)
+			scripts[j].Slice, scripts[j].ProtocolAttempt, scripts[j].Epoch, scripts[j].Try)
 		return left < right
 	})
 	manifest := swornruntime.Manifest{
@@ -182,7 +182,7 @@ func manifestTouchpointRunManifest(
 		Roles: driver.RoleSelections{
 			Planner:     driver.RoleSelection{Profile: "e2e-fake", Model: "planner-model"},
 			Implementer: driver.RoleSelection{Profile: "e2e-fake", Model: "implementer-model"},
-			Captain:     driver.RoleSelection{Profile: "e2e-fake", Model: "captain-model"},
+			Lead:        driver.RoleSelection{Profile: "e2e-fake", Model: "lead-model"},
 			Verifier:    driver.RoleSelection{Profile: "e2e-fake", Model: "verifier-model"},
 		},
 		Automation: &swornruntime.AutomationSelections{
@@ -210,21 +210,21 @@ func manifestTouchpointRunManifest(
 // declared touchpoints.
 func sealAndPassManifestSlice(
 	t *testing.T,
-	actions *baton.Actions,
+	actions *protocol.Actions,
 	workspaces *gitx.Workspaces,
-	plan baton.Plan,
-	gitRepository baton.GitRepository,
+	plan protocol.Plan,
+	gitRepository protocol.GitRepository,
 	release, track, slice, contentPath, content string,
 ) {
 	t.Helper()
-	for _, input := range []baton.AppendReceiptInput{
+	for _, input := range []protocol.AppendReceiptInput{
 		{
 			Release: release, Slice: slice, Role: "implementer", Result: "designed",
 			Summary: "Design " + slice + ".", Detail: []byte(slice + " design."),
 		},
 		{
-			Release: release, Slice: slice, Role: "captain", Result: "proceed",
-			Summary: "Proceed with " + slice + ".", Detail: []byte(slice + " Captain proceed."),
+			Release: release, Slice: slice, Role: "lead", Result: "proceed",
+			Summary: "Proceed with " + slice + ".", Detail: []byte(slice + " Lead proceed."),
 		},
 	} {
 		if _, err := actions.AppendReceipt(input); err != nil {
@@ -249,13 +249,13 @@ func sealAndPassManifestSlice(
 	if err := workspace.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := baton.ValidateSliceCandidateScope(
+	if err := protocol.ValidateSliceCandidateScope(
 		gitRepository, inertResolver, plan, slice,
 		sealed.Before.String(), sealed.Candidate.String(),
 	); err != nil {
 		t.Fatal(err)
 	}
-	for _, input := range []baton.AppendReceiptInput{
+	for _, input := range []protocol.AppendReceiptInput{
 		{
 			Release: release, Slice: slice, Role: "implementer", Result: "candidate",
 			Summary: "Seal " + slice + ".", Detail: []byte(slice + " implementation."),
@@ -357,10 +357,10 @@ func fetchManifestTouchpointMCPSnapshot(t *testing.T, address, runID string) coc
 // it was obtained -- reports exactly the manifest identity, per-slice
 // contract path/digest, absent evidence, and ordered shared-touchpoint
 // relation that admission actually recorded.
-func assertManifestTouchpointFacts(t *testing.T, snapshot cockpit.Snapshot, plan baton.Plan) {
+func assertManifestTouchpointFacts(t *testing.T, snapshot cockpit.Snapshot, plan protocol.Plan) {
 	t.Helper()
-	if snapshot.Graph.ManifestVersion != baton.ManifestVersion {
-		t.Fatalf("manifest version = %q, want %q", snapshot.Graph.ManifestVersion, baton.ManifestVersion)
+	if snapshot.Graph.ManifestVersion != protocol.ManifestVersion {
+		t.Fatalf("manifest version = %q, want %q", snapshot.Graph.ManifestVersion, protocol.ManifestVersion)
 	}
 	if snapshot.Run.PlanDigest != plan.Digest() {
 		t.Fatalf("plan digest = %q, want %q", snapshot.Run.PlanDigest, plan.Digest())
@@ -415,11 +415,11 @@ func TestRealBinaryManifestTouchpointOrderingGatesParallelConflictAndProjectsMat
 	// documents -- before any plan revision names them.
 	s1ContractRaw := manifestTouchpointContractRaw(t, "S1", []string{"shared/thing.go", "one/only.txt"})
 	s2ContractRaw := manifestTouchpointContractRaw(t, "S2", []string{"shared/thing.go", "two/only.txt"})
-	_, s1Digest, err := baton.ParseSliceContract(s1ContractRaw, "S1", "T1")
+	_, s1Digest, err := protocol.ParseSliceContract(s1ContractRaw, "S1", "T1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, s2Digest, err := baton.ParseSliceContract(s2ContractRaw, "S2", "T2")
+	_, s2Digest, err := protocol.ParseSliceContract(s2ContractRaw, "S2", "T2")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -446,8 +446,8 @@ func TestRealBinaryManifestTouchpointOrderingGatesParallelConflictAndProjectsMat
 	if err != nil {
 		t.Fatal(err)
 	}
-	gitRepository := baton.UseGitRepository(openedRepository)
-	actions, err := baton.NewActions(gitRepository, inertResolver, identity)
+	gitRepository := protocol.UseGitRepository(openedRepository)
+	actions, err := protocol.NewActions(gitRepository, inertResolver, identity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -457,13 +457,13 @@ func TestRealBinaryManifestTouchpointOrderingGatesParallelConflictAndProjectsMat
 	// PARALLEL_TOUCH_CONFLICT and must not move any Git ref.
 	unorderedPlanBytes := manifestTouchpointPlanBytes(t, release, "refs/heads/main", false, s1Digest, s2Digest)
 	beforeMain := runGit(t, repository, "rev-parse", "main")
-	_, rejectErr := actions.RecordPlanRevision(baton.RecordPlanRevisionInput{
+	_, rejectErr := actions.RecordPlanRevision(protocol.RecordPlanRevisionInput{
 		PlanBytes: unorderedPlanBytes, ContractTree: contractTree,
 		Summary: "Attempt unordered shared touchpoint.",
 		Detail:  []byte("Independent tracks may not silently share a touchpoint."),
 	})
-	if baton.ErrorCode(rejectErr) != "PARALLEL_TOUCH_CONFLICT" {
-		t.Fatalf("unordered admission code = %q, err = %v", baton.ErrorCode(rejectErr), rejectErr)
+	if protocol.ErrorCode(rejectErr) != "PARALLEL_TOUCH_CONFLICT" {
+		t.Fatalf("unordered admission code = %q, err = %v", protocol.ErrorCode(rejectErr), rejectErr)
 	}
 	if after := runGit(t, repository, "rev-parse", "main"); after != beforeMain {
 		t.Fatal("rejected admission moved the target ref")
@@ -478,7 +478,7 @@ func TestRealBinaryManifestTouchpointOrderingGatesParallelConflictAndProjectsMat
 	// Ordered: T2's explicit dependency on T1 orders the identical
 	// touchpoint overlap, so real admission must succeed.
 	orderedPlanBytes := manifestTouchpointPlanBytes(t, release, "refs/heads/main", true, s1Digest, s2Digest)
-	orderedPlan, err := baton.ParsePlan(orderedPlanBytes)
+	orderedPlan, err := protocol.ParsePlan(orderedPlanBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -497,7 +497,7 @@ func TestRealBinaryManifestTouchpointOrderingGatesParallelConflictAndProjectsMat
 
 	authorizePlan(t, journalPath, runID, orderedPlan)
 
-	result, err := actions.RecordPlanRevision(baton.RecordPlanRevisionInput{
+	result, err := actions.RecordPlanRevision(protocol.RecordPlanRevisionInput{
 		PlanBytes: orderedPlanBytes, ContractTree: contractTree,
 		Summary: "Admit ordered shared touchpoint.",
 		Detail:  []byte("T2's explicit dependency on T1 orders the shared touchpoint."),

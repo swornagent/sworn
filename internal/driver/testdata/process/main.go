@@ -335,7 +335,7 @@ func isIsolated(request driver.Request) bool {
 		"PWD":                                request.Workspace.Path,
 		driver.SubmissionProtocolEnvironment: driver.SubmissionControlVersion,
 		driver.SubmissionFDEnvironment:       "3",
-		"BATON_FAKE_PROFILE":                 string(driver.FakeCompleted),
+		"PROTOCOL_FAKE_PROFILE":              string(driver.FakeCompleted),
 	}
 	if len(os.Environ()) != len(expectedEnvironment) {
 		return false
@@ -352,12 +352,12 @@ func isIsolated(request driver.Request) bool {
 		bytes.Contains(body, []byte("git-canary")) {
 		return false
 	}
-	// The fake driver verifies the default mask (records .baton and journals
+	// The fake driver verifies the default mask (records .protocol and journals
 	// .sworn) worked inside the guest for the uncontained test harness. The
 	// configured-root mask that follows a relocated records/journals root is
 	// proven by the driver's containment-mask unit test against
 	// bubblewrapArguments; the fake driver runs only the default harness.
-	for _, reserved := range []string{".baton", ".sworn"} {
+	for _, reserved := range []string{".protocol", ".sworn"} {
 		entries, err := os.ReadDir(filepath.Join(request.Workspace.Path, reserved))
 		if err == nil && len(entries) != 0 {
 			return false

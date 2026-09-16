@@ -10,10 +10,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 type currentDriverAuthority struct {
@@ -34,7 +34,7 @@ type activeImplementationCycle struct {
 }
 
 func validateImplementationCyclePlanAuthority(
-	state baton.State,
+	state protocol.State,
 	cycle implementationCycle,
 ) error {
 	if state.Release != cycle.Release ||
@@ -123,7 +123,7 @@ func validateImplementationCyclePlanAuthority(
 	if !bindsFound {
 		return runtimeFail(
 			"CORRUPT_JOURNAL",
-			errors.New("implementation binding is absent from Baton history"),
+			errors.New("implementation binding is absent from Protocol history"),
 		)
 	}
 	return nil
@@ -585,8 +585,8 @@ func validateImplementationCycleObjects(
 }
 
 // recoverStaleClaimedDispatches sweeps historical driver claims after the
-// structured seal and Baton-action recovery passes. A claim is retained only
-// when its exact work identity is still dispatchable from the current Baton
+// structured seal and Protocol-action recovery passes. A claim is retained only
+// when its exact work identity is still dispatchable from the current Protocol
 // projection, or when it is the child of the exact current implementation seal
 // cycle. Everything else is terminally stale; a malformed or substituted
 // command/effect binding fails closed.
@@ -599,7 +599,7 @@ func (s *Service) recoverStaleClaimedDispatches(
 	if err != nil {
 		return true, runtimeFail("JOURNAL_READ_FAILED", err)
 	}
-	state, stateErr := baton.ReadState(
+	state, stateErr := protocol.ReadState(
 		engine.git,
 		engine.manifest.value.Release,
 		engine.inertness,
@@ -673,7 +673,7 @@ func (s *Service) recoverStaleClaimedDispatchesFromSnapshot(
 	engine *engine,
 	owner journal.OwnerLease,
 	snapshot journal.Snapshot,
-	state baton.State,
+	state protocol.State,
 	stateErr error,
 ) (bool, error) {
 	current, err := currentDriverAuthorities(engine, state, stateErr)
@@ -1026,12 +1026,12 @@ func validateCurrentProductionDispatchContext(
 		ctx,
 		engine,
 		dispatchCoordinates{
-			Slice:          persisted.Slice,
-			Responsibility: persisted.Responsibility,
-			BatonAttempt:   persisted.Attempt,
-			Epoch:          persisted.Epoch,
-			Try:            persisted.Try,
-			DispatchWork:   dispatch.dispatchWork,
+			Slice:           persisted.Slice,
+			Responsibility:  persisted.Responsibility,
+			ProtocolAttempt: persisted.Attempt,
+			Epoch:           persisted.Epoch,
+			Try:             persisted.Try,
+			DispatchWork:    dispatch.dispatchWork,
 		},
 		persisted.Before,
 		preparedDriverDispatch{
@@ -1243,7 +1243,7 @@ func (s *Service) retireStaleDriverAttention(
 
 func currentDriverAuthorities(
 	engine *engine,
-	state baton.State,
+	state protocol.State,
 	stateErr error,
 ) (map[string]currentDriverAuthority, error) {
 	current := make(map[string]currentDriverAuthority)
@@ -1273,8 +1273,8 @@ func currentDriverAuthorities(
 		return nil
 	}
 	if stateErr != nil {
-		if baton.ErrorCode(stateErr) != "REF_NOT_FOUND" {
-			return nil, runtimeFail("BATON_UNAVAILABLE", stateErr)
+		if protocol.ErrorCode(stateErr) != "REF_NOT_FOUND" {
+			return nil, runtimeFail("PROTOCOL_UNAVAILABLE", stateErr)
 		}
 		release, target, err := captureProposalRefs(
 			engine.repository,
@@ -1332,10 +1332,10 @@ func currentDriverAuthorities(
 				if err != nil {
 					return nil, err
 				}
-			case slice.NextRole == "captain":
+			case slice.NextRole == "lead":
 				err := add(
 					slice.Location.Slice.ID,
-					driver.CaptainReview,
+					driver.LeadReview,
 					slice.Attempt,
 					before,
 				)
@@ -1394,7 +1394,7 @@ func currentDriverAuthorities(
 
 func currentPlannerAuthority(
 	engine *engine,
-	state baton.State,
+	state protocol.State,
 	current map[string]currentDriverAuthority,
 	add func(string, driver.Responsibility, int64, string) error,
 ) (map[string]currentDriverAuthority, error) {
@@ -1460,7 +1460,7 @@ func implementationDispatchAuthorities(
 }
 
 func implementationDispatchAuthorityCurrent(
-	state baton.State,
+	state protocol.State,
 	cycle implementationCycle,
 ) bool {
 	if !implementationAuthorityCurrent(state, cycle) {

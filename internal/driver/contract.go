@@ -14,15 +14,15 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/gitx"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 const (
 	DriverContractVersion          = "sworn.driver/v1"
 	RequestSchemaVersion           = "sworn.driver-request/v1"
 	ResultSchemaVersion            = "sworn.driver-result/v1"
-	OperationVersion               = "baton.operation/v2"
+	OperationVersion               = "protocol.operation/v2"
 	GuestWorkspacePath             = "/workspace"
 	GuestInputPath                 = "/sworn/inputs"
 	MaxRequestBytes                = 1_048_576
@@ -185,20 +185,20 @@ type Role string
 const (
 	RolePlanner     Role = "planner"
 	RoleImplementer Role = "implementer"
-	RoleCaptain     Role = "captain"
+	RoleLead        Role = "lead"
 	RoleVerifier    Role = "verifier"
 )
 
 func (r Role) valid() bool {
-	return r == RolePlanner || r == RoleImplementer || r == RoleCaptain ||
+	return r == RolePlanner || r == RoleImplementer || r == RoleLead ||
 		r == RoleVerifier
 }
 
 var operationForRole = map[Role]string{
-	RolePlanner:     "baton-plan",
-	RoleImplementer: "baton-implement",
-	RoleCaptain:     "baton-design-review",
-	RoleVerifier:    "baton-verify",
+	RolePlanner:     "protocol-plan",
+	RoleImplementer: "protocol-implement",
+	RoleLead:        "protocol-design-review",
+	RoleVerifier:    "protocol-verify",
 }
 
 type Operation struct {
@@ -439,8 +439,8 @@ func CanonicalOperation(role Role) (Operation, error) {
 
 // RoleAssetAddendumVersion is sworn's own version for the role-asset
 // addendum, distinct from OperationVersion: the addendum is sworn-authored
-// guidance riding beside the vendored Baton operation, not a Baton asset,
-// so a version string that reads like Baton's would blur that provenance
+// guidance riding beside the vendored Protocol operation, not a Protocol asset,
+// so a version string that reads like Protocol's would blur that provenance
 // line.
 const RoleAssetAddendumVersion = "sworn.role-addendum/v1"
 
@@ -453,7 +453,7 @@ const RoleAssetAddendumVersion = "sworn.role-addendum/v1"
 const roleAssetAddendumText = "Contract and receipt digests are digests of canonical content: equivalent content hashes identically regardless of key order or formatting.\nbefore and product_tree are digests of invocation state, the tree identities a verifier checks bindings against rather than reconstructing.\nThe seal epoch moves in lockstep with the try ledger: a retry never crosses epochs, and an epoch never re-admits succeeded work.\n"
 
 // Addendum carries sworn-owned role guidance delivered beside the vendored
-// Baton Operation. Its Digest is independent of Operation.Digest, computed
+// Protocol Operation. Its Digest is independent of Operation.Digest, computed
 // by the same Digest helper over the addendum's own bytes, so the addendum
 // gets its own accounting rather than mutating a pinned vendored digest.
 type Addendum struct {
@@ -463,9 +463,9 @@ type Addendum struct {
 }
 
 // RoleAssetAddendum returns the sworn-owned addendum for roles that
-// dispatch work against a candidate: implementer, captain, and verifier.
+// dispatch work against a candidate: implementer, lead, and verifier.
 // The plan template already states canonical-content digest semantics to
-// the planner (internal/baton/snapshot/assets/templates/plan.md), so
+// the planner (internal/protocol/snapshot/assets/templates/plan.md), so
 // RolePlanner and any other role return nil.
 func RoleAssetAddendum(role Role) *Addendum {
 	if !role.valid() || role == RolePlanner {
@@ -481,17 +481,17 @@ func RoleAssetAddendum(role Role) *Addendum {
 // admittedPackage loads Sworn's own embedded role-asset bundle. Admission is
 // self-consistency only: the compiled bundle must match its own recorded
 // digests. It never requires a separately installed, tagged, checked-out, or
-// certified external Baton release.
-func admittedPackage() (baton.Package, PackageIdentity, error) {
-	pkg, err := baton.Load()
+// certified external Protocol release.
+func admittedPackage() (protocol.Package, PackageIdentity, error) {
+	pkg, err := protocol.Load()
 	if err != nil {
-		return baton.Package{}, PackageIdentity{}, err
+		return protocol.Package{}, PackageIdentity{}, err
 	}
 	identity, err := pkg.Identity()
 	if err != nil ||
-		identity.RoleAssetsVersion != baton.RoleAssetsVersion ||
-		identity.ManifestSHA256 != baton.ManifestSHA256 {
-		return baton.Package{}, PackageIdentity{}, fail("INVALID_PACKAGE")
+		identity.RoleAssetsVersion != protocol.RoleAssetsVersion ||
+		identity.ManifestSHA256 != protocol.ManifestSHA256 {
+		return protocol.Package{}, PackageIdentity{}, fail("INVALID_PACKAGE")
 	}
 	return pkg, PackageIdentity{
 		Version:        identity.RoleAssetsVersion,

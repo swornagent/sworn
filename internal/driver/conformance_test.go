@@ -27,7 +27,7 @@ func runAdapterConformance(t *testing.T, harness adapterTestHarness) {
 	})
 	t.Run("A-W2-four-role-common-process", func(t *testing.T) {
 		for _, role := range []Role{
-			RolePlanner, RoleImplementer, RoleCaptain, RoleVerifier,
+			RolePlanner, RoleImplementer, RoleLead, RoleVerifier,
 		} {
 			request := contractRequest(t, role)
 			request.InvocationID = "conformance-" + string(role)

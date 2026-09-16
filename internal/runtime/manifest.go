@@ -107,19 +107,19 @@ type AutomationSelections struct {
 }
 
 type ScriptedAttempt struct {
-	Slice          string                `json:"slice"`
-	Responsibility driver.Responsibility `json:"responsibility"`
-	BatonAttempt   int64                 `json:"baton_attempt"`
-	Epoch          int64                 `json:"epoch"`
-	Try            int64                 `json:"try"`
-	Behavior       string                `json:"behavior"`
-	Submission     string                `json:"submission,omitempty"`
+	Slice           string                `json:"slice"`
+	Responsibility  driver.Responsibility `json:"responsibility"`
+	ProtocolAttempt int64                 `json:"protocol_attempt"`
+	Epoch           int64                 `json:"epoch"`
+	Try             int64                 `json:"try"`
+	Behavior        string                `json:"behavior"`
+	Submission      string                `json:"submission,omitempty"`
 }
 
-func (m Manifest) script(slice string, responsibility driver.Responsibility, batonAttempt, epoch, try int64) (ScriptedAttempt, bool) {
+func (m Manifest) script(slice string, responsibility driver.Responsibility, protocolAttempt, epoch, try int64) (ScriptedAttempt, bool) {
 	for _, script := range m.Scripts {
 		if script.Slice == slice && script.Responsibility == responsibility &&
-			script.BatonAttempt == batonAttempt && script.Epoch == epoch && script.Try == try {
+			script.ProtocolAttempt == protocolAttempt && script.Epoch == epoch && script.Try == try {
 			return script, true
 		}
 	}
@@ -380,7 +380,7 @@ func validateManifest(manifest Manifest) error {
 		for _, role := range []driver.RoleSelection{
 			manifest.Roles.Planner,
 			manifest.Roles.Implementer,
-			manifest.Roles.Captain,
+			manifest.Roles.Lead,
 			manifest.Roles.Verifier,
 		} {
 			if role.Profile != manifest.Driver.Profile {
@@ -409,19 +409,25 @@ func validateScriptedAttempts(manifest Manifest) error {
 	if len(manifest.Scripts) == 0 || len(manifest.Scripts) > 4096 {
 		return runtimeFail("INVALID_SCRIPTED_SUBMISSION", nil)
 	}
-	previous := ""
+	// Scripted attempts are a fake-lane test facility. Each coordinate
+	// (responsibility, slice, attempt, epoch, try) may appear once; their
+	// order in the manifest carries no meaning. (The list was once required
+	// to be sorted by this key, which the ADR-0014 role rename broke for
+	// every existing fixture, since lead_* no longer sorts where captain_*
+	// did; uniqueness is the invariant that mattered.)
+	seen := make(map[string]struct{}, len(manifest.Scripts))
 	hasInitialPlan := false
 	for _, script := range manifest.Scripts {
 		if script.Slice != "" && !runtimeIdentityPattern.MatchString(script.Slice) ||
-			script.BatonAttempt < 1 || script.Epoch < 1 || script.Try < 1 || script.Try > 3 {
+			script.ProtocolAttempt < 1 || script.Epoch < 1 || script.Try < 1 || script.Try > 3 {
 			return runtimeFail("INVALID_SCRIPTED_SUBMISSION", nil)
 		}
 		key := fmt.Sprintf("%s/%s/%020d/%020d/%d", script.Responsibility,
-			script.Slice, script.BatonAttempt, script.Epoch, script.Try)
-		if key <= previous {
+			script.Slice, script.ProtocolAttempt, script.Epoch, script.Try)
+		if _, duplicate := seen[key]; duplicate {
 			return runtimeFail("INVALID_SCRIPTED_SUBMISSION", nil)
 		}
-		previous = key
+		seen[key] = struct{}{}
 		switch script.Behavior {
 		case "submit":
 			if script.Submission == "" || len(script.Submission) > 3*driver.MaxSubmissionBytes {
@@ -444,7 +450,7 @@ func validateScriptedAttempts(manifest Manifest) error {
 			return runtimeFail("INVALID_SCRIPTED_SUBMISSION", nil)
 		}
 		hasInitialPlan = hasInitialPlan || script.Responsibility == driver.PlannerProposal &&
-			script.BatonAttempt == 1 && script.Epoch == 1 && script.Try == 1
+			script.ProtocolAttempt == 1 && script.Epoch == 1 && script.Try == 1
 	}
 	if !hasInitialPlan {
 		return runtimeFail("INVALID_SCRIPTED_SUBMISSION", nil)
@@ -468,11 +474,11 @@ func validateProjectAuthority(authority ProjectAuthority) error {
 
 func invocationID(runID string, script ScriptedAttempt) string {
 	return dispatchInvocationID(runID, dispatchCoordinates{
-		Slice:          script.Slice,
-		Responsibility: script.Responsibility,
-		BatonAttempt:   script.BatonAttempt,
-		Epoch:          script.Epoch,
-		Try:            script.Try,
+		Slice:           script.Slice,
+		Responsibility:  script.Responsibility,
+		ProtocolAttempt: script.ProtocolAttempt,
+		Epoch:           script.Epoch,
+		Try:             script.Try,
 	})
 }
 

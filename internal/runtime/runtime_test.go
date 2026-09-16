@@ -11,36 +11,36 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 var runtimeTestGitIdentity = gitx.Identity{Name: "Runtime Test Engine", Email: "engine@example.test"}
 
-func runtimePlan(t *testing.T, release, repository, target, marker string) ([]byte, baton.Plan) {
+func runtimePlan(t *testing.T, release, repository, target, marker string) ([]byte, protocol.Plan) {
 	t.Helper()
-	slice := func(id, path string) baton.Slice {
-		return baton.Slice{
+	slice := func(id, path string) protocol.Slice {
+		return protocol.Slice{
 			ID: id, Outcome: "Deliver " + id + ".",
-			Scope:      baton.Scope{Include: []string{path}, Exclude: []string{}},
-			Acceptance: []baton.Criterion{{ID: "A-" + id, Text: id + " is exact."}},
+			Scope:      protocol.Scope{Include: []string{path}, Exclude: []string{}},
+			Acceptance: []protocol.Criterion{{ID: "A-" + id, Text: id + " is exact."}},
 			Checks:     []string{"check " + id}, Constraints: []string{"deterministic"},
 			DependsOn: []string{}, Consumes: []string{},
 		}
 	}
-	metadata := baton.Metadata{
-		SchemaVersion: baton.PlanVersion,
+	metadata := protocol.Metadata{
+		SchemaVersion: protocol.PlanVersion,
 		Release:       release,
 		Revision:      1,
 		PreviousPlan:  nil,
 		Repository:    repository,
 		TargetRef:     target,
 		ApprovalRef:   "operator://" + release + "/1",
-		Tracks: []baton.Track{
-			{ID: "T1", DependsOn: []string{}, Slices: []baton.Slice{slice("S1", "one.txt")}},
-			{ID: "T2", DependsOn: []string{}, Slices: []baton.Slice{slice("S2", "two.txt")}},
+		Tracks: []protocol.Track{
+			{ID: "T1", DependsOn: []string{}, Slices: []protocol.Slice{slice("S1", "one.txt")}},
+			{ID: "T2", DependsOn: []string{}, Slices: []protocol.Slice{slice("S2", "two.txt")}},
 		},
 	}
 	metadataBody, err := json.MarshalIndent(metadata, "", "  ")
@@ -48,10 +48,10 @@ func runtimePlan(t *testing.T, release, repository, target, marker string) ([]by
 		t.Fatal(err)
 	}
 	body := []byte(
-		"```baton-plan-v2\n" + string(metadataBody) +
+		"```protocol-plan-v2\n" + string(metadataBody) +
 			"\n```\n\nFixture plan.\n",
 	)
-	plan, err := baton.ParsePlan(body)
+	plan, err := protocol.ParsePlan(body)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,21 +61,21 @@ func runtimePlan(t *testing.T, release, repository, target, marker string) ([]by
 // runtimeSingleTrackPlan is runtimePlan's one-track sibling: T1/S1 only, no
 // independent T2/S2 lane to keep dispatching alongside a fixture that only
 // sets up guard-mechanism plumbing for the one lane under test.
-func runtimeSingleTrackPlan(t *testing.T, release, repository, target, marker string) ([]byte, baton.Plan) {
+func runtimeSingleTrackPlan(t *testing.T, release, repository, target, marker string) ([]byte, protocol.Plan) {
 	t.Helper()
-	metadata := baton.Metadata{
-		SchemaVersion: baton.PlanVersion,
+	metadata := protocol.Metadata{
+		SchemaVersion: protocol.PlanVersion,
 		Release:       release,
 		Revision:      1,
 		PreviousPlan:  nil,
 		Repository:    repository,
 		TargetRef:     target,
 		ApprovalRef:   "operator://" + release + "/1",
-		Tracks: []baton.Track{
-			{ID: "T1", DependsOn: []string{}, Slices: []baton.Slice{{
+		Tracks: []protocol.Track{
+			{ID: "T1", DependsOn: []string{}, Slices: []protocol.Slice{{
 				ID: "S1", Outcome: "Deliver S1.",
-				Scope:      baton.Scope{Include: []string{"one.txt"}, Exclude: []string{}},
-				Acceptance: []baton.Criterion{{ID: "A-S1", Text: "S1 is exact."}},
+				Scope:      protocol.Scope{Include: []string{"one.txt"}, Exclude: []string{}},
+				Acceptance: []protocol.Criterion{{ID: "A-S1", Text: "S1 is exact."}},
 				Checks:     []string{"check S1"}, Constraints: []string{"deterministic"},
 				DependsOn: []string{}, Consumes: []string{},
 			}}},
@@ -86,10 +86,10 @@ func runtimeSingleTrackPlan(t *testing.T, release, repository, target, marker st
 		t.Fatal(err)
 	}
 	body := []byte(
-		"```baton-plan-v2\n" + string(metadataBody) +
+		"```protocol-plan-v2\n" + string(metadataBody) +
 			"\n```\n\nFixture plan.\n",
 	)
-	plan, err := baton.ParsePlan(body)
+	plan, err := protocol.ParsePlan(body)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func encodeSubmission(t *testing.T, submission driver.Submission) string {
 	return base64.StdEncoding.EncodeToString(body)
 }
 
-func fixtureManifest(t *testing.T) (Manifest, []byte, baton.Plan) {
+func fixtureManifest(t *testing.T) (Manifest, []byte, protocol.Plan) {
 	t.Helper()
 	const (
 		runID      = "run-1"
@@ -118,10 +118,10 @@ func fixtureManifest(t *testing.T) (Manifest, []byte, baton.Plan) {
 	submission := func(
 		slice string,
 		responsibility driver.Responsibility,
-		batonAttempt int64,
+		protocolAttempt int64,
 	) driver.Submission {
 		script := ScriptedAttempt{Slice: slice, Responsibility: responsibility,
-			BatonAttempt: batonAttempt, Epoch: 1, Try: 1}
+			ProtocolAttempt: protocolAttempt, Epoch: 1, Try: 1}
 		return driver.Submission{
 			SchemaVersion:  driver.SubmissionSchemaVersion,
 			InvocationID:   invocationID(runID, script),
@@ -133,8 +133,8 @@ func fixtureManifest(t *testing.T) (Manifest, []byte, baton.Plan) {
 	planner := submission("", driver.PlannerProposal, 1)
 	planner.Plan, _ = driver.NewPlanBytes(planBytes)
 	design := submission("S1", driver.ImplementerDesign, 1)
-	captain := submission("S1", driver.CaptainReview, 1)
-	captain.Decision, _ = driver.NewDecision(driver.DecisionProceed)
+	lead := submission("S1", driver.LeadReview, 1)
+	lead.Decision, _ = driver.NewDecision(driver.DecisionProceed)
 	implementation := submission("S1", driver.ImplementerImplementation, 1)
 	implementation.Checks, _ = driver.NewCheckBytes([]byte("implementation checks\n"))
 	work := submission("S1", driver.WorkVerification, 1)
@@ -164,7 +164,7 @@ func fixtureManifest(t *testing.T) (Manifest, []byte, baton.Plan) {
 		Roles: driver.RoleSelections{
 			Planner:     driver.RoleSelection{Profile: "fixture", Model: "planner-model"},
 			Implementer: driver.RoleSelection{Profile: "fixture", Model: "implementer-model"},
-			Captain:     driver.RoleSelection{Profile: "fixture", Model: "captain-model"},
+			Lead:        driver.RoleSelection{Profile: "fixture", Model: "lead-model"},
 			Verifier:    driver.RoleSelection{Profile: "fixture", Model: "verifier-model"},
 		},
 		Automation: &AutomationSelections{
@@ -175,17 +175,17 @@ func fixtureManifest(t *testing.T) (Manifest, []byte, baton.Plan) {
 		},
 		Limits: driver.Limits{TimeoutMillis: 30_000, OutputBytes: 65_536},
 		Scripts: []ScriptedAttempt{
-			{Responsibility: driver.AssemblyVerification, BatonAttempt: 1, Epoch: 1, Try: 1,
+			{Responsibility: driver.AssemblyVerification, ProtocolAttempt: 1, Epoch: 1, Try: 1,
 				Behavior: "submit", Submission: encodeSubmission(t, assembly)},
-			{Slice: "S1", Responsibility: driver.CaptainReview, BatonAttempt: 1, Epoch: 1, Try: 1,
-				Behavior: "submit", Submission: encodeSubmission(t, captain)},
-			{Slice: "S1", Responsibility: driver.ImplementerDesign, BatonAttempt: 1, Epoch: 1, Try: 1,
+			{Slice: "S1", Responsibility: driver.LeadReview, ProtocolAttempt: 1, Epoch: 1, Try: 1,
+				Behavior: "submit", Submission: encodeSubmission(t, lead)},
+			{Slice: "S1", Responsibility: driver.ImplementerDesign, ProtocolAttempt: 1, Epoch: 1, Try: 1,
 				Behavior: "submit", Submission: encodeSubmission(t, design)},
-			{Slice: "S1", Responsibility: driver.ImplementerImplementation, BatonAttempt: 1, Epoch: 1, Try: 1,
+			{Slice: "S1", Responsibility: driver.ImplementerImplementation, ProtocolAttempt: 1, Epoch: 1, Try: 1,
 				Behavior: "submit", Submission: encodeSubmission(t, implementation)},
-			{Responsibility: driver.PlannerProposal, BatonAttempt: 1, Epoch: 1, Try: 1,
+			{Responsibility: driver.PlannerProposal, ProtocolAttempt: 1, Epoch: 1, Try: 1,
 				Behavior: "submit", Submission: encodeSubmission(t, planner)},
-			{Slice: "S1", Responsibility: driver.WorkVerification, BatonAttempt: 1, Epoch: 1, Try: 1,
+			{Slice: "S1", Responsibility: driver.WorkVerification, ProtocolAttempt: 1, Epoch: 1, Try: 1,
 				Behavior: "submit", Submission: encodeSubmission(t, work)},
 		},
 	}
@@ -282,8 +282,8 @@ func TestManifestIsClosedCanonicalAndBindsEverySubmission(t *testing.T) {
 	}
 }
 
-func TestBatonCommandPersistsIdentityWithoutChangingReplayIdentity(t *testing.T) {
-	authority := batonActionAuthority{
+func TestProtocolCommandPersistsIdentityWithoutChangingReplayIdentity(t *testing.T) {
+	authority := protocolActionAuthority{
 		Release: "release-1", Before: "sha256:" + strings.Repeat("a", 64),
 		OwnerRef: "refs/heads/track/release-1/T1", OwnerHead: strings.Repeat("1", 40),
 		ReleaseHead: strings.Repeat("2", 40), TargetRef: "refs/heads/main",
@@ -302,16 +302,16 @@ func TestBatonCommandPersistsIdentityWithoutChangingReplayIdentity(t *testing.T)
 	}
 	effect := journal.Effect{
 		RunID: "run-1", ID: "effect-1", ReplayKey: "effect-1",
-		Kind: "baton.install", ExpectedDigest: sha256Digest(firstPayload),
+		Kind: "protocol.install", ExpectedDigest: sha256Digest(firstPayload),
 	}
 	changed := journal.Command{
-		RunID: "run-1", ReplayKey: "effect-1", Kind: "baton.install", Payload: secondPayload,
+		RunID: "run-1", ReplayKey: "effect-1", Kind: "protocol.install", Payload: secondPayload,
 	}
 	if err := validateRecoveryCommand(changed, effect, true); !IsCode(err, "CORRUPT_JOURNAL") {
 		t.Fatalf("changed identity for existing work = %v", err)
 	}
 	legacy := append([]byte(nil), firstPayload...)
-	legacy = bytes.Replace(legacy, []byte(batonActionCommandVersion), []byte("sworn.baton-action/v1"), 1)
+	legacy = bytes.Replace(legacy, []byte(protocolActionCommandVersion), []byte("sworn.protocol-action/v1"), 1)
 	if _, err := parseActionCommand(legacy); !IsCode(err, "CORRUPT_JOURNAL") {
 		t.Fatalf("legacy actionable command = %v", err)
 	}
@@ -349,8 +349,8 @@ func TestProductionManifestIsClosedCanonicalAndExclusiveWithFakeMode(t *testing.
 		Implementer: driver.RoleSelection{
 			Profile: "implementer-profile", Model: "implementer-model",
 		},
-		Captain: driver.RoleSelection{
-			Profile: "captain-profile", Model: "captain-model",
+		Lead: driver.RoleSelection{
+			Profile: "lead-profile", Model: "lead-model",
 		},
 		Verifier: driver.RoleSelection{
 			Profile: "verifier-profile", Model: "verifier-model",
@@ -386,11 +386,11 @@ func TestProductionManifestIsClosedCanonicalAndExclusiveWithFakeMode(t *testing.
 		},
 		"production scripts": func(value *Manifest) {
 			value.Scripts = []ScriptedAttempt{{
-				Responsibility: driver.PlannerProposal,
-				BatonAttempt:   1,
-				Epoch:          1,
-				Try:            1,
-				Behavior:       "none",
+				Responsibility:  driver.PlannerProposal,
+				ProtocolAttempt: 1,
+				Epoch:           1,
+				Try:             1,
+				Behavior:        "none",
 			}}
 		},
 	} {
@@ -422,11 +422,11 @@ func TestRecoveryCommandBindingRejectsKindKeyAndPayloadSubstitution(t *testing.T
 	payload := []byte("{\"value\":1}\n")
 	command := journal.Command{
 		RunID: "run-1", ReplayKey: "effect-1",
-		Kind: "baton.install", Payload: payload,
+		Kind: "protocol.install", Payload: payload,
 	}
 	effect := journal.Effect{
 		RunID: "run-1", ID: "effect-1", ReplayKey: "effect-1",
-		Kind: "baton.install", ExpectedDigest: sha256Digest(payload),
+		Kind: "protocol.install", ExpectedDigest: sha256Digest(payload),
 	}
 	if err := validateRecoveryCommand(command, effect, true); err != nil {
 		t.Fatalf("exact binding rejected: %v", err)
@@ -439,7 +439,7 @@ func TestRecoveryCommandBindingRejectsKindKeyAndPayloadSubstitution(t *testing.T
 			command.ReplayKey = "effect-2"
 		},
 		"kind": func(command *journal.Command, _ *journal.Effect) {
-			command.Kind = "baton.merge"
+			command.Kind = "protocol.merge"
 		},
 		"payload": func(command *journal.Command, _ *journal.Effect) {
 			command.Payload = []byte("{\"value\":2}\n")
@@ -473,12 +473,12 @@ func TestProposalAuthorityRequiresFreshSameRevisionAfterRefDrift(t *testing.T) {
 			TargetRef: targetRef, TargetHead: targetOld.String(),
 		},
 	}
-	missing := &baton.RecordError{Code: "REF_NOT_FOUND"}
+	missing := &protocol.RecordError{Code: "REF_NOT_FOUND"}
 	if proposalMatchesPendingAuthority(
 		initial,
 		gitx.RefHead{Ref: releaseRef, State: gitx.RefAbsent},
 		gitx.RefHead{Ref: targetRef, State: gitx.RefDirect, Head: targetNew},
-		baton.State{},
+		protocol.State{},
 		missing,
 	) {
 		t.Fatal("initial proposal survived target drift")
@@ -489,7 +489,7 @@ func TestProposalAuthorityRequiresFreshSameRevisionAfterRefDrift(t *testing.T) {
 		freshInitial,
 		gitx.RefHead{Ref: releaseRef, State: gitx.RefAbsent},
 		gitx.RefHead{Ref: targetRef, State: gitx.RefDirect, Head: targetNew},
-		baton.State{},
+		protocol.State{},
 		missing,
 	) {
 		t.Fatal("fresh initial proposal for the same revision was rejected")
@@ -504,25 +504,25 @@ func TestProposalAuthorityRequiresFreshSameRevisionAfterRefDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	revisionPlan, err := baton.ParsePlan([]byte(
-		"```baton-plan-v2\n" + string(metadataBody) +
+	revisionPlan, err := protocol.ParsePlan([]byte(
+		"```protocol-plan-v2\n" + string(metadataBody) +
 			"\n```\n\nFixture revision.\n",
 	))
 	if err != nil {
 		t.Fatal(err)
 	}
-	state := baton.State{
-		Plan: baton.PlanState{
+	state := protocol.State{
+		Plan: protocol.PlanState{
 			OID: priorPlan,
-			Metadata: baton.Metadata{
+			Metadata: protocol.Metadata{
 				Revision: 1,
 			},
 		},
-		Refs: baton.StateRefs{
-			Release: baton.CapturedRef{
+		Refs: protocol.StateRefs{
+			Release: protocol.CapturedRef{
 				Ref: releaseRef, Head: releaseNew.String(),
 			},
-			Target: baton.CapturedRef{
+			Target: protocol.CapturedRef{
 				Ref: targetRef, Head: targetNew.String(),
 			},
 		},
@@ -567,15 +567,15 @@ func TestProposalAuthorityRequiresFreshSameRevisionAfterRefDrift(t *testing.T) {
 }
 
 func TestTargetStaleRejectsEveryModelDispatchAuthority(t *testing.T) {
-	state := baton.State{
-		Plan: baton.PlanState{TargetStale: true},
+	state := protocol.State{
+		Plan: protocol.PlanState{TargetStale: true},
 	}
 	for _, test := range []struct {
 		responsibility driver.Responsibility
 		slice          string
 	}{
 		{driver.ImplementerDesign, "S1"},
-		{driver.CaptainReview, "S1"},
+		{driver.LeadReview, "S1"},
 		{driver.ImplementerImplementation, "S1"},
 		{driver.WorkVerification, "S1"},
 		{driver.AssemblyVerification, ""},
@@ -594,7 +594,7 @@ func TestTargetStaleRejectsEveryModelDispatchAuthority(t *testing.T) {
 	}
 }
 
-func TestAllNewBatonActionResultsReconstructFromDurableProjection(t *testing.T) {
+func TestAllNewProtocolActionResultsReconstructFromDurableProjection(t *testing.T) {
 	const release = "release-1"
 	candidate := strings.Repeat("c", 40)
 	targetHead := strings.Repeat("d", 40)
@@ -604,9 +604,9 @@ func TestAllNewBatonActionResultsReconstructFromDurableProjection(t *testing.T) 
 	summary := "Exact durable action."
 	target := targetHead
 	candidateValue := candidate
-	receipt := func(role, result string) baton.Receipt {
-		return baton.Receipt{
-			Version: baton.ReceiptVersion,
+	receipt := func(role, result string) protocol.Receipt {
+		return protocol.Receipt{
+			Version: protocol.ReceiptVersion,
 			Release: release,
 			Role:    role, Result: result,
 			Plan: planOID, Binds: binds,
@@ -614,8 +614,8 @@ func TestAllNewBatonActionResultsReconstructFromDurableProjection(t *testing.T) 
 			Candidate: &candidateValue,
 		}
 	}
-	entry := func(oid string, value baton.Receipt) *baton.ReceiptEntry {
-		return &baton.ReceiptEntry{
+	entry := func(oid string, value protocol.Receipt) *protocol.ReceiptEntry {
+		return &protocol.ReceiptEntry{
 			OID: oid, Detail: append([]byte(nil), detail...), Receipt: value,
 		}
 	}
@@ -632,14 +632,14 @@ func TestAllNewBatonActionResultsReconstructFromDurableProjection(t *testing.T) 
 	installReceipt.Plan = planOID
 	installReceipt.Summary = "Install the exact locally authorized plan."
 	installReceipt.Candidate = nil
-	installApproval := baton.ReceiptEntry{
+	installApproval := protocol.ReceiptEntry{
 		OID:     "approval-receipt",
 		Detail:  installDetail(installAdmission),
 		Receipt: installReceipt,
 	}
 	retiredSlice := "S-retired"
-	retirementReceipt := baton.Receipt{
-		Version: baton.ReceiptVersion,
+	retirementReceipt := protocol.Receipt{
+		Version: protocol.ReceiptVersion,
 		Release: release,
 		Slice:   &retiredSlice,
 		Role:    "planner", Result: "retired",
@@ -655,19 +655,19 @@ func TestAllNewBatonActionResultsReconstructFromDurableProjection(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	nextPlan, err := baton.ParsePlan([]byte(
-		"```baton-plan-v2\n" + string(nextMetadataBytes) +
+	nextPlan, err := protocol.ParsePlan([]byte(
+		"```protocol-plan-v2\n" + string(nextMetadataBytes) +
 			"\n```\n\nLater fixture plan.\n",
 	))
 	if err != nil {
 		t.Fatal(err)
 	}
 	nextPlanOID := strings.Repeat("2", 40)
-	nextApproval := baton.ReceiptEntry{
+	nextApproval := protocol.ReceiptEntry{
 		OID:    "later-approval-receipt",
 		Detail: []byte("later authority detail"),
-		Receipt: baton.Receipt{
-			Version: baton.ReceiptVersion,
+		Receipt: protocol.Receipt{
+			Version: protocol.ReceiptVersion,
 			Release: release,
 			Role:    "planner", Result: "approved",
 			Plan:    nextPlanOID,
@@ -675,18 +675,18 @@ func TestAllNewBatonActionResultsReconstructFromDurableProjection(t *testing.T) 
 			Target:  &target,
 		},
 	}
-	installState := baton.State{
+	installState := protocol.State{
 		Release: release,
-		Plan: baton.PlanState{
+		Plan: protocol.PlanState{
 			OID: nextPlanOID, Digest: nextPlan.Digest(),
 			Metadata: nextPlan.Metadata(),
 			Approval: nextApproval,
-			History: []baton.PlanHistory{
+			History: []protocol.PlanHistory{
 				{
 					OID: planOID, Revision: 1,
 					Approval: installApproval, Plan: installedPlan,
 					InstallHead: "retirement-receipt",
-					Retirements: []baton.RetirementResult{{
+					Retirements: []protocol.RetirementResult{{
 						Slice:         retiredSlice,
 						ReceiptCommit: "retirement-receipt",
 						Receipt:       retirementReceipt,
@@ -699,52 +699,52 @@ func TestAllNewBatonActionResultsReconstructFromDurableProjection(t *testing.T) 
 				},
 			},
 		},
-		Refs: baton.StateRefs{
-			Release: baton.CapturedRef{
+		Refs: protocol.StateRefs{
+			Release: protocol.CapturedRef{
 				Ref:  "refs/heads/release-wt/" + release,
 				Head: "later-release-head",
 			},
-			Target: baton.CapturedRef{
+			Target: protocol.CapturedRef{
 				Ref: "refs/heads/main", Head: "later-target-head",
 			},
 		},
 	}
 	sliceID := "S1"
-	sliceReceipt := receipt("captain", "proceed")
+	sliceReceipt := receipt("lead", "proceed")
 	sliceReceipt.Slice = &sliceID
 	sliceEntry := entry("slice-receipt", sliceReceipt)
-	sliceState := &baton.SliceState{
-		Location: baton.SliceLocation{
-			Track: baton.Track{ID: "T1"},
-			Slice: baton.Slice{ID: sliceID},
+	sliceState := &protocol.SliceState{
+		Location: protocol.SliceLocation{
+			Track: protocol.Track{ID: "T1"},
+			Slice: protocol.Slice{ID: sliceID},
 		},
-		History: baton.SliceHistory{
-			Entries: []baton.ReceiptEntry{sliceEntry.Clone()},
+		History: protocol.SliceHistory{
+			Entries: []protocol.ReceiptEntry{sliceEntry.Clone()},
 		},
 		CurrentReceipt: entry(
 			"later-slice-receipt",
 			receipt("implementer", "candidate"),
 		),
 	}
-	appendState := baton.State{
+	appendState := protocol.State{
 		Release: release,
-		Slices:  []*baton.SliceState{sliceState},
-		Tracks: []baton.TrackState{{
+		Slices:  []*protocol.SliceState{sliceState},
+		Tracks: []protocol.TrackState{{
 			ID: "T1", Ref: "refs/heads/track/release-1/T1",
 		}},
 	}
 	assemblyReceipt := receipt("verifier", "pass")
 	assemblyEntry := entry("assembly-verdict", assemblyReceipt)
-	assemblyState := baton.State{
+	assemblyState := protocol.State{
 		Release: release,
-		Refs: baton.StateRefs{
-			Release: baton.CapturedRef{
+		Refs: protocol.StateRefs{
+			Release: protocol.CapturedRef{
 				Ref: "refs/heads/release-wt/" + release,
 			},
-			Target: baton.CapturedRef{Ref: "refs/heads/main"},
+			Target: protocol.CapturedRef{Ref: "refs/heads/main"},
 		},
-		Assembly: baton.AssemblyState{
-			History: []baton.ReceiptEntry{assemblyEntry.Clone()},
+		Assembly: protocol.AssemblyState{
+			History: []protocol.ReceiptEntry{assemblyEntry.Clone()},
 			CurrentReceipt: entry(
 				"later-assembly-verdict",
 				receipt("verifier", "fail"),
@@ -756,10 +756,10 @@ func TestAllNewBatonActionResultsReconstructFromDurableProjection(t *testing.T) 
 	preparedEntry := entry("assembly-candidate", preparedReceipt)
 	laterPreparedReceipt := receipt("implementer", "candidate")
 	laterPreparedReceipt.Summary = "Later assembly candidate."
-	preparedState := baton.State{
+	preparedState := protocol.State{
 		Release: release,
-		Assembly: baton.AssemblyState{
-			History: []baton.ReceiptEntry{preparedEntry.Clone()},
+		Assembly: protocol.AssemblyState{
+			History: []protocol.ReceiptEntry{preparedEntry.Clone()},
 			Candidate: entry(
 				"later-assembly-candidate",
 				laterPreparedReceipt,
@@ -772,13 +772,13 @@ func TestAllNewBatonActionResultsReconstructFromDurableProjection(t *testing.T) 
 	mergedEntry := entry("merge-receipt", mergedReceipt)
 	laterMergedReceipt := receipt("merge", "merged")
 	laterMergedReceipt.Summary = "Later merge."
-	mergedState := baton.State{
+	mergedState := protocol.State{
 		Release: release,
-		Refs: baton.StateRefs{
-			Target: baton.CapturedRef{Ref: "refs/heads/main"},
+		Refs: protocol.StateRefs{
+			Target: protocol.CapturedRef{Ref: "refs/heads/main"},
 		},
-		Assembly: baton.AssemblyState{
-			History: []baton.ReceiptEntry{mergedEntry.Clone()},
+		Assembly: protocol.AssemblyState{
+			History: []protocol.ReceiptEntry{mergedEntry.Clone()},
 			CurrentReceipt: entry(
 				"later-merge-receipt",
 				laterMergedReceipt,
@@ -788,9 +788,9 @@ func TestAllNewBatonActionResultsReconstructFromDurableProjection(t *testing.T) 
 	}
 	tests := []struct {
 		name       string
-		state      baton.State
+		state      protocol.State
 		kind       string
-		command    batonActionCommand
+		command    protocolActionCommand
 		wantAction string
 		wantCommit string
 		wantHead   string
@@ -798,9 +798,9 @@ func TestAllNewBatonActionResultsReconstructFromDurableProjection(t *testing.T) 
 		wantResult string
 	}{
 		{
-			name: "install", state: installState, kind: "baton.install",
-			command: batonActionCommand{
-				Authority: batonActionAuthority{
+			name: "install", state: installState, kind: "protocol.install",
+			command: protocolActionCommand{
+				Authority: protocolActionAuthority{
 					Release: release, TargetHead: targetHead,
 				},
 				Input: mustJSON(installActionInput{
@@ -814,14 +814,14 @@ func TestAllNewBatonActionResultsReconstructFromDurableProjection(t *testing.T) 
 		},
 		{
 			name: "append_receipt", state: appendState,
-			kind: "baton.append_receipt",
-			command: batonActionCommand{
-				Authority: batonActionAuthority{
+			kind: "protocol.append_receipt",
+			command: protocolActionCommand{
+				Authority: protocolActionAuthority{
 					Release: release, Plan: planOID, Binds: binds,
 				},
-				Input: mustJSON(baton.AppendReceiptInput{
+				Input: mustJSON(protocol.AppendReceiptInput{
 					Release: release, Slice: sliceID,
-					Role: "captain", Result: "proceed",
+					Role: "lead", Result: "proceed",
 					Summary: summary, Detail: detail,
 				}),
 			},
@@ -829,12 +829,12 @@ func TestAllNewBatonActionResultsReconstructFromDurableProjection(t *testing.T) 
 		},
 		{
 			name: "assembly_verdict", state: assemblyState,
-			kind: "baton.assembly_verdict",
-			command: batonActionCommand{
-				Authority: batonActionAuthority{
+			kind: "protocol.assembly_verdict",
+			command: protocolActionCommand{
+				Authority: protocolActionAuthority{
 					Release: release, Plan: planOID, Binds: binds,
 				},
-				Input: mustJSON(baton.AppendReceiptInput{
+				Input: mustJSON(protocol.AppendReceiptInput{
 					Release: release, Role: "verifier", Result: "pass",
 					Summary: summary, Detail: detail,
 				}),
@@ -843,26 +843,26 @@ func TestAllNewBatonActionResultsReconstructFromDurableProjection(t *testing.T) 
 		},
 		{
 			name: "prepare_assembly", state: preparedState,
-			kind: "baton.prepare_assembly",
-			command: batonActionCommand{
-				Authority: batonActionAuthority{
+			kind: "protocol.prepare_assembly",
+			command: protocolActionCommand{
+				Authority: protocolActionAuthority{
 					Release: release, Plan: planOID, Binds: binds,
 					TargetHead: targetHead,
 				},
-				Input: mustJSON(baton.PrepareAssemblyInput{
+				Input: mustJSON(protocol.PrepareAssemblyInput{
 					Release: release, Summary: summary, Detail: detail,
 				}),
 			},
 			wantAction: "prepareAssembly", wantCommit: "assembly-candidate",
 		},
 		{
-			name: "merge", state: mergedState, kind: "baton.merge",
-			command: batonActionCommand{
-				Authority: batonActionAuthority{
+			name: "merge", state: mergedState, kind: "protocol.merge",
+			command: protocolActionCommand{
+				Authority: protocolActionAuthority{
 					Release: release, Plan: planOID, Binds: binds,
 					Candidate: candidate, TargetHead: targetHead,
 				},
-				Input: mustJSON(baton.MergePassedCandidateInput{
+				Input: mustJSON(protocol.MergePassedCandidateInput{
 					Release: release, Summary: summary, Detail: detail,
 				}),
 			},
@@ -872,12 +872,12 @@ func TestAllNewBatonActionResultsReconstructFromDurableProjection(t *testing.T) 
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			result, err := reconstructAllNewBatonAction(
+			result, err := reconstructAllNewProtocolAction(
 				test.state, test.kind, test.command)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if result.Kind != "baton.action-result/v2" ||
+			if result.Kind != "protocol.action-result/v2" ||
 				result.Action != test.wantAction ||
 				result.Changed ||
 				result.ReceiptCommit != test.wantCommit ||
@@ -912,28 +912,28 @@ func TestAllNewBatonActionResultsReconstructFromDurableProjection(t *testing.T) 
 		retired := appendState
 		retired.Slices = nil
 		retired.Tracks = nil
-		retired.SliceHistories = []baton.SliceHistoryState{{
+		retired.SliceHistories = []protocol.SliceHistoryState{{
 			Slice: sliceID, Track: "T1",
 			Ref: "refs/heads/track/" + release + "/T1",
-			History: baton.SliceHistory{
-				Entries: []baton.ReceiptEntry{
+			History: protocol.SliceHistory{
+				Entries: []protocol.ReceiptEntry{
 					sliceEntry.Clone(),
 				},
 			},
 		}}
-		command := batonActionCommand{
-			Authority: batonActionAuthority{
+		command := protocolActionCommand{
+			Authority: protocolActionAuthority{
 				Release: release, Plan: planOID, Binds: binds,
 			},
-			Input: mustJSON(baton.AppendReceiptInput{
+			Input: mustJSON(protocol.AppendReceiptInput{
 				Release: release, Slice: sliceID,
-				Role: "captain", Result: "proceed",
+				Role: "lead", Result: "proceed",
 				Summary: summary, Detail: detail,
 			}),
 		}
-		result, err := reconstructAllNewBatonAction(
+		result, err := reconstructAllNewProtocolAction(
 			retired,
-			"baton.append_receipt",
+			"protocol.append_receipt",
 			command,
 		)
 		if err != nil {
@@ -949,13 +949,13 @@ func TestAllNewBatonActionResultsReconstructFromDurableProjection(t *testing.T) 
 	t.Run("install authority detail substitution is not applied", func(t *testing.T) {
 		substituted := installState
 		substituted.Plan.History = append(
-			[]baton.PlanHistory(nil), installState.Plan.History...)
+			[]protocol.PlanHistory(nil), installState.Plan.History...)
 		substituted.Plan.History[0].Approval =
 			substituted.Plan.History[0].Approval.Clone()
 		substituted.Plan.History[0].Approval.Detail = []byte("other authority\n")
 
-		command := batonActionCommand{
-			Authority: batonActionAuthority{
+		command := protocolActionCommand{
+			Authority: protocolActionAuthority{
 				Release: release, TargetHead: targetHead,
 			},
 			Input: mustJSON(installActionInput{
@@ -965,7 +965,7 @@ func TestAllNewBatonActionResultsReconstructFromDurableProjection(t *testing.T) 
 			}),
 		}
 		applied, applyErr := actionAlreadyApplied(
-			substituted, "baton.install", command)
+			substituted, "protocol.install", command)
 		if applyErr != nil {
 			t.Fatal(applyErr)
 		}
@@ -979,23 +979,23 @@ func TestAllNewBatonActionResultsReconstructFromDurableProjection(t *testing.T) 
 		externalApproval.Detail = []byte("external authority\n")
 		releaseRef := "refs/heads/release-wt/" + release
 		targetRef := "refs/heads/main"
-		external := baton.State{
+		external := protocol.State{
 			Release: release,
-			Plan: baton.PlanState{
+			Plan: protocol.PlanState{
 				OID: planOID, Digest: installedPlan.Digest(),
 				Metadata: planMetadata, Approval: externalApproval,
 			},
-			Refs: baton.StateRefs{
-				Release: baton.CapturedRef{
+			Refs: protocol.StateRefs{
+				Release: protocol.CapturedRef{
 					Ref: releaseRef, Head: "external-release-head",
 				},
-				Target: baton.CapturedRef{
+				Target: protocol.CapturedRef{
 					Ref: targetRef, Head: targetHead,
 				},
 			},
 		}
-		command := batonActionCommand{
-			Authority: batonActionAuthority{
+		command := protocolActionCommand{
+			Authority: protocolActionAuthority{
 				Release:   release,
 				TargetRef: targetRef, TargetHead: targetHead,
 				OwnerRef: releaseRef,
@@ -1007,12 +1007,12 @@ func TestAllNewBatonActionResultsReconstructFromDurableProjection(t *testing.T) 
 			}),
 		}
 		applied, applyErr := actionAlreadyApplied(
-			external, "baton.install", command)
+			external, "protocol.install", command)
 		if applyErr != nil {
 			t.Fatal(applyErr)
 		}
 		if applied {
-			t.Fatal("external Baton approval inferred a Sworn effect")
+			t.Fatal("external Protocol approval inferred a Sworn effect")
 		}
 		if !installActionIdempotentlyCallable(external, command) {
 			t.Fatal("exact external plan rejected a fresh idempotent call")
@@ -1029,22 +1029,22 @@ func TestActionResultAttestationAllowsOnlyChangedBitVariance(t *testing.T) {
 	candidate := strings.Repeat("2", 40)
 	receiptCommit := strings.Repeat("3", 40)
 	retired := "S-retired"
-	expected := baton.ActionResult{
-		Kind: "baton.action-result/v2", Action: "recordPlanRevision",
+	expected := protocol.ActionResult{
+		Kind: "protocol.action-result/v2", Action: "recordPlanRevision",
 		Release: "release-1", Revision: 2,
 		Plan: strings.Repeat("4", 40),
 		Ref:  "refs/heads/release-wt/release-1",
 		Head: strings.Repeat("5", 40), Target: target,
 		ReceiptCommit: receiptCommit,
-		Receipt: &baton.Receipt{
-			Version: baton.ReceiptVersion,
+		Receipt: &protocol.Receipt{
+			Version: protocol.ReceiptVersion,
 			Release: "release-1", Role: "planner", Result: "approved",
 			Plan: strings.Repeat("4", 40), Target: &target,
 		},
-		Retirements: []baton.RetirementResult{{
+		Retirements: []protocol.RetirementResult{{
 			Slice: retired, ReceiptCommit: strings.Repeat("6", 40),
-			Receipt: baton.Receipt{
-				Version: baton.ReceiptVersion,
+			Receipt: protocol.Receipt{
+				Version: protocol.ReceiptVersion,
 				Release: "release-1", Slice: &retired,
 				Role: "planner", Result: "retired",
 				Candidate: &candidate,
@@ -1056,17 +1056,17 @@ func TestActionResultAttestationAllowsOnlyChangedBitVariance(t *testing.T) {
 	if !actionResultMatchesDurableTruth(actual, expected) {
 		t.Fatal("live changed result did not match reconstructed truth")
 	}
-	for name, mutate := range map[string]func(*baton.ActionResult){
-		"plan": func(value *baton.ActionResult) {
+	for name, mutate := range map[string]func(*protocol.ActionResult){
+		"plan": func(value *protocol.ActionResult) {
 			value.Plan = strings.Repeat("7", 40)
 		},
-		"head": func(value *baton.ActionResult) {
+		"head": func(value *protocol.ActionResult) {
 			value.Head = strings.Repeat("7", 40)
 		},
-		"receipt": func(value *baton.ActionResult) {
+		"receipt": func(value *protocol.ActionResult) {
 			value.ReceiptCommit = strings.Repeat("7", 40)
 		},
-		"retirement": func(value *baton.ActionResult) {
+		"retirement": func(value *protocol.ActionResult) {
 			value.Retirements = cloneRuntimeRetirements(
 				value.Retirements)
 			value.Retirements[0].ReceiptCommit =
@@ -1094,29 +1094,29 @@ func TestHistoricalExhaustionOnlyParksCurrentlyApplicableWork(t *testing.T) {
 	}
 	metadata := plan.Metadata()
 	sliceDefinition := metadata.Tracks[0].Slices[0]
-	receipt := &baton.ReceiptEntry{OID: "receipt-current"}
-	currentSlice := &baton.SliceState{
-		Location: baton.SliceLocation{
+	receipt := &protocol.ReceiptEntry{OID: "receipt-current"}
+	currentSlice := &protocol.SliceState{
+		Location: protocol.SliceLocation{
 			Track: metadata.Tracks[0],
 			Slice: sliceDefinition,
 		},
 		Stage: "design", Status: "ready", NextRole: "implementer",
 		Attempt: 1, CurrentReceipt: receipt, InputPins: map[string]string{},
 	}
-	state := baton.State{
+	state := protocol.State{
 		Release: metadata.Release,
-		Plan: baton.PlanState{
+		Plan: protocol.PlanState{
 			OID: "plan-v2", Digest: plan.Digest(), Metadata: metadata,
 		},
-		Refs: baton.StateRefs{
-			Release: baton.CapturedRef{Head: "release-v2"},
-			Target:  baton.CapturedRef{Head: "target-v1"},
+		Refs: protocol.StateRefs{
+			Release: protocol.CapturedRef{Head: "release-v2"},
+			Target:  protocol.CapturedRef{Head: "target-v1"},
 		},
-		Tracks: []baton.TrackState{{
+		Tracks: []protocol.TrackState{{
 			ID: metadata.Tracks[0].ID, Ref: "refs/heads/track/release-1/T1",
-			Head: "track-v1", Slices: []*baton.SliceState{currentSlice},
+			Head: "track-v1", Slices: []*protocol.SliceState{currentSlice},
 		}},
-		Slices: []*baton.SliceState{currentSlice},
+		Slices: []*protocol.SliceState{currentSlice},
 	}
 	old := state
 	old.Plan.OID = "plan-v1"
@@ -1163,13 +1163,13 @@ func TestInvocationIdentityIsStableAcrossResume(t *testing.T) {
 	for _, responsibility := range []driver.Responsibility{
 		driver.PlannerProposal,
 		driver.ImplementerDesign,
-		driver.CaptainReview,
+		driver.LeadReview,
 		driver.ImplementerImplementation,
 		driver.WorkVerification,
 		driver.AssemblyVerification,
 	} {
 		script := ScriptedAttempt{Slice: "S1", Responsibility: responsibility,
-			BatonAttempt: 2, Epoch: 3, Try: 1}
+			ProtocolAttempt: 2, Epoch: 3, Try: 1}
 		got := invocationID("run-1", script)
 		want := "run-1/S1/" + string(responsibility) + "/2/3/1"
 		if got != want {
@@ -1210,7 +1210,7 @@ func TestStatusReadPathExcludesDerivedWorksFromExhaustionAndMarksParked(t *testi
 		return gitx.RecordRootDecision{Kind: request.Kind, Repository: request.Repository,
 			RecordRoot: request.RecordRoot, Commit: request.Commit, Decision: "inert"}, nil
 	}
-	actions, err := baton.NewActions(baton.UseGitRepository(repoView), inertness, manifest.value.GitIdentity)
+	actions, err := protocol.NewActions(protocol.UseGitRepository(repoView), inertness, manifest.value.GitIdentity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1226,9 +1226,9 @@ func TestStatusReadPathExcludesDerivedWorksFromExhaustionAndMarksParked(t *testi
 		t.Fatal(err)
 	}
 	singleTrackPlanBytes := []byte(
-		"```baton-plan-v2\n" + string(singleTrackBody) + "\n```\n\nFixture plan.\n",
+		"```protocol-plan-v2\n" + string(singleTrackBody) + "\n```\n\nFixture plan.\n",
 	)
-	singleTrackPlan, err := baton.ParsePlan(singleTrackPlanBytes)
+	singleTrackPlan, err := protocol.ParsePlan(singleTrackPlanBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1242,16 +1242,16 @@ func TestStatusReadPathExcludesDerivedWorksFromExhaustionAndMarksParked(t *testi
 	}
 
 	sliceDefinition := plan.Metadata().Tracks[0].Slices[0]
-	if _, err := actions.AppendReceipt(baton.AppendReceiptInput{
+	if _, err := actions.AppendReceipt(protocol.AppendReceiptInput{
 		Release: manifest.value.Release, Slice: sliceDefinition.ID,
 		Role: "implementer", Result: "designed",
 		Summary: "Designed S1", Detail: []byte("Design detail"),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := actions.AppendReceipt(baton.AppendReceiptInput{
+	if _, err := actions.AppendReceipt(protocol.AppendReceiptInput{
 		Release: manifest.value.Release, Slice: sliceDefinition.ID,
-		Role: "captain", Result: "proceed",
+		Role: "lead", Result: "proceed",
 		Summary: "Proceed S1", Detail: []byte("Proceed detail"),
 	}); err != nil {
 		t.Fatal(err)
@@ -1281,7 +1281,7 @@ func TestStatusReadPathExcludesDerivedWorksFromExhaustionAndMarksParked(t *testi
 		t.Fatal(err)
 	}
 
-	state, err := baton.ReadState(baton.UseGitRepository(repoView), manifest.value.Release, inertness)
+	state, err := protocol.ReadState(protocol.UseGitRepository(repoView), manifest.value.Release, inertness)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1395,8 +1395,8 @@ func TestRuntimeJournalEventsCarryStructuredAssociation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	planBytes := []byte("```baton-plan-v2\n" + string(metadataBody) + "\n```\n\nFixture plan.\n")
-	plan, err = baton.ParsePlan(planBytes)
+	planBytes := []byte("```protocol-plan-v2\n" + string(metadataBody) + "\n```\n\nFixture plan.\n")
+	plan, err = protocol.ParsePlan(planBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1559,7 +1559,7 @@ func TestRuntimeJournalEventsCarryStructuredAssociation(t *testing.T) {
 	}
 
 	for _, requiredKind := range []string{
-		"candidate_sealed", "candidate_prepared", "dispatch_completed", "baton_action_completed",
+		"candidate_sealed", "candidate_prepared", "dispatch_completed", "protocol_action_completed",
 	} {
 		if observedKinds[requiredKind] == 0 {
 			t.Fatalf("required event kind %s was not observed (observed: %v)", requiredKind, observedKinds)
@@ -1583,8 +1583,8 @@ func TestRuntimeUsageFallbackNamesSurfaceAndReason(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	planBytes := []byte("```baton-plan-v2\n" + string(metadataBody) + "\n```\n\nFixture plan.\n")
-	plan, err = baton.ParsePlan(planBytes)
+	planBytes := []byte("```protocol-plan-v2\n" + string(metadataBody) + "\n```\n\nFixture plan.\n")
+	plan, err = protocol.ParsePlan(planBytes)
 	if err != nil {
 		t.Fatal(err)
 	}

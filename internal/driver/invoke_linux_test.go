@@ -34,7 +34,7 @@ func buildFakeExecutable(t *testing.T) string {
 			testBuildError = err
 			return
 		}
-		testFakeBinary = filepath.Join(directory, "baton-fake")
+		testFakeBinary = filepath.Join(directory, "protocol-fake")
 		command := exec.Command("go", "build", "-o", testFakeBinary, "./testdata/fake")
 		command.Env = append(os.Environ(), "GOFLAGS=-buildvcs=false")
 		output, err := command.CombinedOutput()
@@ -373,7 +373,7 @@ func TestConfiguredRecordsRootMaskedFromWorker(t *testing.T) {
 		DocumentsRoot: "docs/sworn",
 	}
 	reserved := gitx.ReservedNames(configured)
-	for _, name := range []string{".secret-records", ".secret-journals", ".baton", ".git"} {
+	for _, name := range []string{".secret-records", ".secret-journals", ".protocol", ".git"} {
 		found := false
 		for _, candidate := range reserved {
 			if candidate == name {
@@ -1066,7 +1066,7 @@ func TestLinuxBoundaryExposesOnlyFixedEnvironmentWorkspaceAndInputOverlay(t *tes
 	if err := os.WriteFile(filepath.Join(workspace, ".git"), []byte("git-canary\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, reserved := range []string{".baton/releases", ".sworn"} {
+	for _, reserved := range []string{".protocol/releases", ".sworn"} {
 		if err := os.MkdirAll(filepath.Join(workspace, reserved), 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -1125,7 +1125,7 @@ func TestFakeCommandHasExactCommandsAndBoundedDiagnostics(t *testing.T) {
 		&stderr,
 		FakeCompleted,
 	); exit != 0 || stderr.Len() != 0 ||
-		stdout.String() != `{"contract_version":"sworn.driver/v1","adapter_id":"baton.fake","adapter_version":"1.0.0"}`+"\n" {
+		stdout.String() != `{"contract_version":"sworn.driver/v1","adapter_id":"protocol.fake","adapter_version":"1.0.0"}`+"\n" {
 		t.Fatalf("info exit=%d stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
 	}
 	stdout.Reset()

@@ -160,7 +160,7 @@ func TestLoadProjectConfigRejectsMalformedAndUnsafeFiles(t *testing.T) {
 		code string
 	}{
 		"unknown field": {
-			body: `{"records_root": ".baton/releases", "containment_binary": "/usr/bin/bwrap"}`,
+			body: `{"records_root": ".protocol/releases", "containment_binary": "/usr/bin/bwrap"}`,
 			code: "PROJECT_CONFIG_INVALID",
 		},
 		"invalid json": {
@@ -447,24 +447,24 @@ func TestLoadProjectConfigRefusesEnvironmentOverride(t *testing.T) {
 
 func TestReservedNamesFollowConfiguredRoots(t *testing.T) {
 	t.Parallel()
-	// The legacy .baton top segment is always reserved so the historical
+	// The legacy .protocol top segment is always reserved so the historical
 	// records fallback can never be forged, and the configured roots are
 	// masked wherever they are configured.
 	defaults := ReservedNames(DefaultProjectConfig())
-	if !reflect.DeepEqual(defaults, []string{".baton", ".git", ".sworn"}) {
-		t.Fatalf("default reserved names = %v, want [.baton .git .sworn]", defaults)
+	if !reflect.DeepEqual(defaults, []string{".git", ".protocol", ".sworn"}) {
+		t.Fatalf("default reserved names = %v, want [.protocol .git .sworn]", defaults)
 	}
 	configured := ReservedNames(ProjectConfig{
 		RecordsRoot: ".sworn/records", JournalsRoot: ".sworn/state",
 		ContractsRoot: "docs/specs", CommitPrefix: "sworn", DocumentsRoot: "docs/sworn",
 	})
-	if !reflect.DeepEqual(configured, []string{".baton", ".git", ".sworn"}) {
-		t.Fatalf("configured reserved names = %v, want [.baton .git .sworn]", configured)
+	if !reflect.DeepEqual(configured, []string{".git", ".protocol", ".sworn"}) {
+		t.Fatalf("configured reserved names = %v, want [.protocol .git .sworn]", configured)
 	}
 	distinct := ReservedNames(ProjectConfig{
 		RecordsRoot: ".records", JournalsRoot: ".journals", ContractsRoot: "contracts",
 	})
-	if !reflect.DeepEqual(distinct, []string{".baton", ".git", ".journals", ".records"}) {
+	if !reflect.DeepEqual(distinct, []string{".git", ".journals", ".protocol", ".records"}) {
 		t.Fatalf("distinct reserved names = %v", distinct)
 	}
 }
@@ -526,7 +526,7 @@ func TestOpenResolvesConfiguredRecordRootThroughAdmission(t *testing.T) {
 	if admission.Root() != ".sworn/records" {
 		t.Fatalf("admission root = %q, want configured root", admission.Root())
 	}
-	if !reflect.DeepEqual(repository.ReservedNames(), []string{".baton", ".git", ".sworn"}) {
+	if !reflect.DeepEqual(repository.ReservedNames(), []string{".git", ".protocol", ".sworn"}) {
 		t.Fatalf("reserved names = %v", repository.ReservedNames())
 	}
 	if repository.DocumentsRoot() != DefaultDocumentsRoot {
@@ -547,7 +547,7 @@ func TestNoProductionTempLiteralsOutsideConfig(t *testing.T) {
 		filepath.Join("internal", "gitx"),
 		filepath.Join("internal", "driver"),
 		filepath.Join("internal", "runtime"),
-		filepath.Join("internal", "baton"),
+		filepath.Join("internal", "protocol"),
 		filepath.Join("internal", "skill"),
 		filepath.Join("cmd", "sworn"),
 	} {

@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 type continuationFixtureDriver struct {
@@ -127,7 +127,7 @@ func continuationTestObservationWithOutcome(
 		Summary:        "Exact continuation fixture submission.",
 		Detail:         "Bound to the current durable authority.",
 	}
-	if responsibility == driver.CaptainReview ||
+	if responsibility == driver.LeadReview ||
 		responsibility == driver.WorkVerification {
 		var err error
 		outcome := driver.DecisionProceed
@@ -224,14 +224,14 @@ func TestRoleContinuationsPromoteAcrossReviewAndCandidateRefresh(
 			invocation driver.Invocation,
 		) (driver.Observation, error) {
 			freshCalls++
-			responsibility := driver.CaptainReview
+			responsibility := driver.LeadReview
 			switch invocation.Request.Role {
-			case driver.RoleCaptain:
+			case driver.RoleLead:
 				if !invocation.Request.FreshContext ||
 					invocation.Request.Workspace.Access !=
 						driver.ReadOnly {
 					t.Fatalf(
-						"fresh Captain invocation = %#v",
+						"fresh Lead invocation = %#v",
 						invocation.Request,
 					)
 				}
@@ -417,9 +417,9 @@ func TestRoleContinuationsPromoteAcrossReviewAndCandidateRefresh(
 						invocation.Request,
 					)
 				}
-				responsibility := driver.CaptainReview
+				responsibility := driver.LeadReview
 				switch invocation.Request.Role {
-				case driver.RoleCaptain:
+				case driver.RoleLead:
 					// Selected above.
 				case driver.RoleVerifier:
 					responsibility = driver.WorkVerification
@@ -503,7 +503,7 @@ func TestRoleContinuationsPromoteAcrossReviewAndCandidateRefresh(
 						RecoveryDecisionSchemaVersion,
 					InvocationID: invocation.Recovery.
 						InvocationID,
-					Action: driver.RecoveryAskCaptain,
+					Action: driver.RecoveryAskLead,
 				}
 			} else {
 				answer :=
@@ -538,9 +538,9 @@ func TestRoleContinuationsPromoteAcrossReviewAndCandidateRefresh(
 			t.Fatal(err)
 		}
 	}
-	readState := func() baton.State {
+	readState := func() protocol.State {
 		t.Helper()
-		state, err := baton.ReadState(
+		state, err := protocol.ReadState(
 			engine.git, manifest.value.Release, engine.inertness,
 		)
 		if err != nil {
@@ -548,11 +548,11 @@ func TestRoleContinuationsPromoteAcrossReviewAndCandidateRefresh(
 		}
 		return state
 	}
-	readSlice := func() *baton.SliceState {
+	readSlice := func() *protocol.SliceState {
 		t.Helper()
 		slice, ok := readState().Slice("S1")
 		if !ok {
-			t.Fatal("S1 missing from Baton state")
+			t.Fatal("S1 missing from Protocol state")
 		}
 		return slice
 	}
@@ -564,7 +564,7 @@ func TestRoleContinuationsPromoteAcrossReviewAndCandidateRefresh(
 		"approval-release-1-v1",
 	)
 	if _, err := engine.actions.RecordPlanRevision(
-		baton.RecordPlanRevisionInput{
+		protocol.RecordPlanRevisionInput{
 			PlanBytes: planBytes,
 			Summary:   "Install continuation scheduler fixture.",
 			Detail:    []byte("Exact plan."),
@@ -644,13 +644,13 @@ func TestRoleContinuationsPromoteAcrossReviewAndCandidateRefresh(
 	slice := readSlice()
 	if entry == nil || entry.handle == nil ||
 		slice.CurrentReceipt == nil ||
-		slice.CurrentReceipt.Receipt.Role != "captain" ||
+		slice.CurrentReceipt.Receipt.Role != "lead" ||
 		slice.CurrentReceipt.Receipt.Result != "proceed" ||
 		slice.CurrentReceipt.Receipt.Binds != entry.designReceipt ||
 		turnCalls != 1 || recoveryCalls != 1 ||
 		automationCalls != 0 || freshCalls != 1 {
 		t.Fatalf(
-			"post-Captain state=%#v entry=%#v turns=%d recovery=%d automation=%d fresh=%d",
+			"post-Lead state=%#v entry=%#v turns=%d recovery=%d automation=%d fresh=%d",
 			slice,
 			entry,
 			turnCalls,
@@ -1155,7 +1155,7 @@ func TestFreshOnlyRepairBypassesContinuationAndFallbackMetrics(
 	if err := fixture.workspace.Close(); err != nil {
 		t.Fatal(err)
 	}
-	for _, receipt := range []baton.AppendReceiptInput{
+	for _, receipt := range []protocol.AppendReceiptInput{
 		{
 			Release:      fixture.state.Release,
 			Slice:        fixture.slice.Location.Slice.ID,
@@ -1183,7 +1183,7 @@ func TestFreshOnlyRepairBypassesContinuationAndFallbackMetrics(
 			t.Fatal(err)
 		}
 	}
-	state, err := baton.ReadState(
+	state, err := protocol.ReadState(
 		fixture.engine.git,
 		fixture.state.Release,
 		fixture.engine.inertness,
@@ -1209,11 +1209,11 @@ func TestFreshOnlyRepairBypassesContinuationAndFallbackMetrics(
 	}
 	t.Cleanup(func() { _ = workspace.Close() })
 	coordinates := dispatchCoordinates{
-		Slice:          slice.Location.Slice.ID,
-		Responsibility: driver.ImplementerImplementation,
-		BatonAttempt:   slice.Attempt,
-		Epoch:          1,
-		Try:            1,
+		Slice:           slice.Location.Slice.ID,
+		Responsibility:  driver.ImplementerImplementation,
+		ProtocolAttempt: slice.Attempt,
+		Epoch:           1,
+		Try:             1,
 	}
 	before := sliceFingerprint(state, coordinates.Slice)
 	prepared, err := fixture.service.prepareDriverDispatch(
@@ -1417,7 +1417,7 @@ func TestPendingV1ImplementationDispatchReplaysWithoutConflict(
 	}
 }
 
-func TestContinuationBindingSurvivesOnlyExpectedCaptainTransition(
+func TestContinuationBindingSurvivesOnlyExpectedLeadTransition(
 	t *testing.T,
 ) {
 	fixture := newProductionImplementationRecoveryFixture(t, nil)
@@ -1459,7 +1459,7 @@ func TestContinuationBindingSurvivesOnlyExpectedCaptainTransition(
 	if designBinding != implementationBinding ||
 		designSelection != implementationSelection {
 		t.Fatalf(
-			"Captain-only transition changed binding: design=%#v implementation=%#v",
+			"Lead-only transition changed binding: design=%#v implementation=%#v",
 			designBinding,
 			implementationBinding,
 		)
@@ -1532,7 +1532,7 @@ func TestVerifierRepairContinuationIgnoresPreparedBaseButNotAuthorityDrift(
 	}}
 	coordinates := fixture.coordinates
 	coordinates.Responsibility = driver.WorkVerification
-	coordinates.BatonAttempt = 1
+	coordinates.ProtocolAttempt = 1
 	sourcePrepared := implementation
 	sourcePrepared.productionContext = &source
 	sourcePrepared.request, err = productionRequestForContext(
@@ -1565,11 +1565,11 @@ func TestVerifierRepairContinuationIgnoresPreparedBaseButNotAuthorityDrift(
 	candidate, productTree := repair.Candidate.Commit, repair.Candidate.ProductTree
 	checks := driver.Digest([]byte("repair-checks"))
 	base := repair.PreparedBase
-	receipt := baton.Receipt{
-		Version: baton.ReceiptVersion, Release: repair.Release,
+	receipt := protocol.Receipt{
+		Version: protocol.ReceiptVersion, Release: repair.Release,
 		Slice: &sliceID, Role: "implementer", Result: "candidate",
 		Attempt: &attempt, Plan: repair.Plan.OID, Contract: &contract,
-		Binds: failReceipt, Detail: baton.DigestBytes([]byte("repair")),
+		Binds: failReceipt, Detail: protocol.DigestBytes([]byte("repair")),
 		Summary: "Direct repair candidate.", Base: &base,
 		Candidate: &candidate, ProductTree: &productTree,
 		Inputs: map[string]string{"S0": source.Evidence[0].ProductTree},
@@ -1580,7 +1580,7 @@ func TestVerifierRepairContinuationIgnoresPreparedBaseButNotAuthorityDrift(
 		t.Fatal(err)
 	}
 	repair.Receipt.BodyInput.Digest = driver.Digest(repair.Receipt.body)
-	coordinates.BatonAttempt = repair.Attempt
+	coordinates.ProtocolAttempt = repair.Attempt
 	repairPrepared := implementation
 	repairPrepared.productionContext = &repair
 	repairPrepared.request, err = productionRequestForContext(
@@ -1600,13 +1600,13 @@ func TestVerifierRepairContinuationIgnoresPreparedBaseButNotAuthorityDrift(
 		verifierFailReceipt: failReceipt,
 	}
 	failAttempt := entry.binding.Attempt
-	history := baton.SliceHistory{
+	history := protocol.SliceHistory{
 		MaximumAttempt: repair.Attempt,
-		Entries: []baton.ReceiptEntry{
+		Entries: []protocol.ReceiptEntry{
 			{
 				OID: failReceipt,
-				Receipt: baton.Receipt{
-					Version: baton.ReceiptVersion,
+				Receipt: protocol.Receipt{
+					Version: protocol.ReceiptVersion,
 					Release: repair.Release,
 					Slice:   &sliceID,
 					Role:    "verifier",
@@ -1651,7 +1651,7 @@ func TestVerifierRepairContinuationIgnoresPreparedBaseButNotAuthorityDrift(
 	}
 	refresh.Receipt.BodyInput.Digest = driver.Digest(refresh.Receipt.body)
 	refreshCoordinates := coordinates
-	refreshCoordinates.BatonAttempt = refresh.Attempt
+	refreshCoordinates.ProtocolAttempt = refresh.Attempt
 	refreshPrepared := implementation
 	refreshPrepared.productionContext = &refresh
 	refreshPrepared.request, err = productionRequestForContext(
@@ -1672,7 +1672,7 @@ func TestVerifierRepairContinuationIgnoresPreparedBaseButNotAuthorityDrift(
 	history.MaximumAttempt = refresh.Attempt
 	history.Entries = append(
 		history.Entries,
-		baton.ReceiptEntry{
+		protocol.ReceiptEntry{
 			OID:     refresh.Receipt.OID,
 			Receipt: refreshReceipt,
 		},
@@ -1688,7 +1688,7 @@ func TestVerifierRepairContinuationIgnoresPreparedBaseButNotAuthorityDrift(
 	}
 	broken := history
 	broken.Entries = append(
-		[]baton.ReceiptEntry(nil),
+		[]protocol.ReceiptEntry(nil),
 		history.Entries...,
 	)
 	broken.Entries[len(broken.Entries)-1].Receipt.Binds =
@@ -1793,7 +1793,7 @@ func TestVerifierRepairContinuationIgnoresPreparedBaseButNotAuthorityDrift(
 	}
 }
 
-func TestImplementationContextRequiresExactCaptainAndDesignReceipts(
+func TestImplementationContextRequiresExactLeadAndDesignReceipts(
 	t *testing.T,
 ) {
 	fixture := newProductionImplementationRecoveryFixture(t, nil)
@@ -1808,7 +1808,7 @@ func TestImplementationContextRequiresExactCaptainAndDesignReceipts(
 	}
 	if design.OID != fixture.slice.CurrentReceipt.Receipt.Binds {
 		t.Fatalf(
-			"design receipt = %s, Captain binds = %s",
+			"design receipt = %s, Lead binds = %s",
 			design.OID,
 			fixture.slice.CurrentReceipt.Receipt.Binds,
 		)
@@ -1821,7 +1821,7 @@ func TestImplementationContextRequiresExactCaptainAndDesignReceipts(
 		fixture.slice,
 		fixture.track,
 	); !IsCode(err, "INVALID_AUTHORITY_STATE") {
-		t.Fatalf("substituted Captain binding = %v", err)
+		t.Fatalf("substituted Lead binding = %v", err)
 	}
 	fixture.slice.CurrentReceipt.Receipt.Binds = original
 	fixture.slice.CurrentReceipt.Receipt.Role = "verifier"

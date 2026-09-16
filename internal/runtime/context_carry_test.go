@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 func TestRetryDispatchCarriesPriorSubmissionSummaryAndDetail(t *testing.T) {
@@ -171,27 +171,27 @@ func TestRepairDispatchCarriesPriorAttemptSubmissionSummaryAndDetail(t *testing.
 	t.Cleanup(func() { _ = engine.Close() })
 
 	planBytes, _ := runtimePlan(t, manifest.value.Release, manifest.value.Authority.Project, manifest.value.TargetRef, "approval-release-1-v1")
-	if _, err := engine.actions.RecordPlanRevision(baton.RecordPlanRevisionInput{
+	if _, err := engine.actions.RecordPlanRevision(protocol.RecordPlanRevisionInput{
 		PlanBytes: planBytes,
 		Summary:   "Install exact plan",
 		Detail:    []byte("detail"),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := engine.actions.AppendReceipt(baton.AppendReceiptInput{
+	if _, err := engine.actions.AppendReceipt(protocol.AppendReceiptInput{
 		Release: manifest.value.Release, Slice: "S1", Role: "implementer", Result: "designed",
 		Summary: "designed S1", Detail: []byte("detail"),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := engine.actions.AppendReceipt(baton.AppendReceiptInput{
-		Release: manifest.value.Release, Slice: "S1", Role: "captain", Result: "proceed",
+	if _, err := engine.actions.AppendReceipt(protocol.AppendReceiptInput{
+		Release: manifest.value.Release, Slice: "S1", Role: "lead", Result: "proceed",
 		Summary: "approved", Detail: []byte("detail"),
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	state, err := baton.ReadState(engine.git, manifest.value.Release, engine.inertness)
+	state, err := protocol.ReadState(engine.git, manifest.value.Release, engine.inertness)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,11 +203,11 @@ func TestRepairDispatchCarriesPriorAttemptSubmissionSummaryAndDetail(t *testing.
 
 	// Simulate Attempt 1 driver dispatch completed with submission
 	attempt1Coords := dispatchCoordinates{
-		Slice:          "S1",
-		Responsibility: driver.ImplementerImplementation,
-		BatonAttempt:   1,
-		Epoch:          1,
-		Try:            1,
+		Slice:           "S1",
+		Responsibility:  driver.ImplementerImplementation,
+		ProtocolAttempt: 1,
+		Epoch:           1,
+		Try:             1,
 	}
 	attempt1Work := driverWorkIdentity(
 		manifest.digest,
@@ -318,14 +318,14 @@ func TestRepairDispatchCarriesPriorAttemptSubmissionSummaryAndDetail(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := engine.actions.AppendReceipt(baton.AppendReceiptInput{
+	if _, err := engine.actions.AppendReceipt(protocol.AppendReceiptInput{
 		Release: manifest.value.Release, Slice: "S1", Role: "implementer", Result: "candidate",
 		Candidate: candidate.Candidate.String(), CheckResults: []byte("checks\n"),
 		Summary: "cand", Detail: []byte("detail"),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := engine.actions.AppendReceipt(baton.AppendReceiptInput{
+	if _, err := engine.actions.AppendReceipt(protocol.AppendReceiptInput{
 		Release: manifest.value.Release, Slice: "S1", Role: "verifier", Result: "fail",
 		Candidate: candidate.Candidate.String(), CheckResults: []byte("fail checks\n"),
 		Summary: "failed check", Detail: []byte("detail"),
@@ -333,7 +333,7 @@ func TestRepairDispatchCarriesPriorAttemptSubmissionSummaryAndDetail(t *testing.
 		t.Fatal(err)
 	}
 
-	state2, err := baton.ReadState(engine.git, manifest.value.Release, engine.inertness)
+	state2, err := protocol.ReadState(engine.git, manifest.value.Release, engine.inertness)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,11 +345,11 @@ func TestRepairDispatchCarriesPriorAttemptSubmissionSummaryAndDetail(t *testing.
 
 	// Capture Attempt 2 Try 1 work context
 	attempt2Coords := dispatchCoordinates{
-		Slice:          "S1",
-		Responsibility: driver.ImplementerImplementation,
-		BatonAttempt:   2,
-		Epoch:          1,
-		Try:            1,
+		Slice:           "S1",
+		Responsibility:  driver.ImplementerImplementation,
+		ProtocolAttempt: 2,
+		Epoch:           1,
+		Try:             1,
 	}
 	repairWorkContext, repairBytes, err := captureProductionWorkContext(
 		ctx,
@@ -463,11 +463,11 @@ func TestPriorSubmissionValidation(t *testing.T) {
 	try2WithPrior := baseContext
 	try2WithPrior.Try = 2
 	try2WithPrior.InvocationID = dispatchInvocationID(fixture.manifest.value.RunID, dispatchCoordinates{
-		Slice:          baseContext.Slice,
-		Responsibility: baseContext.Responsibility,
-		BatonAttempt:   baseContext.Attempt,
-		Epoch:          baseContext.Epoch,
-		Try:            2,
+		Slice:           baseContext.Slice,
+		Responsibility:  baseContext.Responsibility,
+		ProtocolAttempt: baseContext.Attempt,
+		Epoch:           baseContext.Epoch,
+		Try:             2,
 	})
 	try2WithPrior.PriorSubmission = &productionPriorSubmissionBinding{
 		Summary:    "valid summary",
@@ -489,15 +489,15 @@ func TestPriorSubmissionValidation(t *testing.T) {
 		t.Fatal("expected validation failure for empty summary")
 	}
 
-	// 4. Invalid Detail (containing Baton marker) is rejected
+	// 4. Invalid Detail (containing Protocol marker) is rejected
 	invalidDetail := try2WithPrior
 	invalidDetail.PriorSubmission = &productionPriorSubmissionBinding{
 		Summary:    "valid summary",
-		Detail:     "contains Baton-Detail-Begin marker",
+		Detail:     "contains Protocol-Detail-Begin marker",
 		Provenance: "try 1",
 	}
 	if err := validateProductionWorkContext(fixture.manifest, invalidDetail); err == nil {
-		t.Fatal("expected validation failure for detail with Baton marker")
+		t.Fatal("expected validation failure for detail with Protocol marker")
 	}
 
 	// 5. Invalid Provenance (empty) is rejected

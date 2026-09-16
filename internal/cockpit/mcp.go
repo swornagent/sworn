@@ -13,15 +13,15 @@ import (
 )
 
 const (
-	mcpProtocolVersion       = "2025-03-26"
-	mcpApprovalTool          = "sworn_approve"
-	mcpCaptainDelegationTool = "sworn_captain_delegation"
-	mcpStartTool             = "sworn_start"
-	mcpStartDelegatedTool    = "sworn_start_delegated"
-	mcpControlTool           = "sworn_control"
-	mcpStatusTool            = "sworn_status"
-	mcpAttentionsTool        = "sworn_attentions"
-	mcpAnswerAttentionTool   = "sworn_answer_attention"
+	mcpProtocolVersion     = "2025-03-26"
+	mcpApprovalTool        = "sworn_approve"
+	mcpLeadDelegationTool  = "sworn_lead_delegation"
+	mcpStartTool           = "sworn_start"
+	mcpStartDelegatedTool  = "sworn_start_delegated"
+	mcpControlTool         = "sworn_control"
+	mcpStatusTool          = "sworn_status"
+	mcpAttentionsTool      = "sworn_attentions"
+	mcpAnswerAttentionTool = "sworn_answer_attention"
 )
 
 type mcpRequest struct {
@@ -106,7 +106,7 @@ func (h *HTTPHandler) serveMCP(w http.ResponseWriter, r *http.Request) {
 func mcpToolDescriptors() []any {
 	return []any{
 		approvalMCPTool(),
-		captainDelegationMCPTool(),
+		leadDelegationMCPTool(),
 		startMCPTool(),
 		startDelegatedMCPTool(),
 		controlMCPTool(),
@@ -200,7 +200,7 @@ func (h *HTTPHandler) callMCPControl(
 }
 
 func startDelegatedMCPTool() map[string]any {
-	return map[string]any{"name": mcpStartDelegatedTool, "description": "Start an admitted manifest with one exact Captain delegation before Planner dispatch.", "inputSchema": map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"manifest_digest": map[string]any{"type": "string"}, "envelope_bytes": map[string]any{"type": "string"}}, "required": []string{"manifest_digest", "envelope_bytes"}}}
+	return map[string]any{"name": mcpStartDelegatedTool, "description": "Start an admitted manifest with one exact Lead delegation before Planner dispatch.", "inputSchema": map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"manifest_digest": map[string]any{"type": "string"}, "envelope_bytes": map[string]any{"type": "string"}}, "required": []string{"manifest_digest", "envelope_bytes"}}}
 }
 
 // statusMCPTool describes the one read-only MCP capability: it returns
@@ -326,7 +326,7 @@ func mcpStructuredResult(response mcpResponse, result any) mcpResponse {
 	return response
 }
 
-func captainDelegationMCPTool() map[string]any {
+func leadDelegationMCPTool() map[string]any {
 	properties := map[string]any{}
 	for _, name := range []string{"schema_version", "action", "run_id", "manifest_digest", "actor_class", "actor_authority", "current_digest", "envelope_digest", "envelope_bytes"} {
 		properties[name] = map[string]any{"type": "string"}
@@ -334,8 +334,8 @@ func captainDelegationMCPTool() map[string]any {
 	properties["action"] = map[string]any{"type": "string", "enum": []string{"admit", "revoke", "replace"}}
 	properties["current_epoch"] = map[string]any{"type": "integer", "minimum": 0}
 	return map[string]any{
-		"name":        mcpCaptainDelegationTool,
-		"description": "Admit, revoke, or replace one exact externally authorized Captain delegation envelope.",
+		"name":        mcpLeadDelegationTool,
+		"description": "Admit, revoke, or replace one exact externally authorized Lead delegation envelope.",
 		"inputSchema": map[string]any{
 			"type": "object", "additionalProperties": false,
 			"properties": properties,
@@ -344,8 +344,8 @@ func captainDelegationMCPTool() map[string]any {
 	}
 }
 
-type mcpCaptainDelegationCommands interface {
-	CaptainDelegation(context.Context, runtimepkg.CaptainDelegationCommand) (runtimepkg.CaptainDelegationResult, error)
+type mcpLeadDelegationCommands interface {
+	LeadDelegation(context.Context, runtimepkg.LeadDelegationCommand) (runtimepkg.LeadDelegationResult, error)
 }
 type mcpDelegatedStarter interface {
 	StartDelegated(context.Context, StartDelegatedCommand) (runtimepkg.RunStatus, error)
@@ -399,21 +399,21 @@ func (h *HTTPHandler) callMCPTool(r *http.Request, request mcpRequest) mcpRespon
 		return response
 	}
 	response := mcpResponse{JSONRPC: "2.0", ID: request.ID}
-	if call.Name != mcpCaptainDelegationTool {
+	if call.Name != mcpLeadDelegationTool {
 		response.Error = &mcpError{Code: -32602, Message: "Invalid params"}
 		return response
 	}
-	commands, ok := h.commands.(mcpCaptainDelegationCommands)
+	commands, ok := h.commands.(mcpLeadDelegationCommands)
 	if !ok {
 		response.Error = &mcpError{Code: -32601, Message: "Method not found"}
 		return response
 	}
-	var command runtimepkg.CaptainDelegationCommand
+	var command runtimepkg.LeadDelegationCommand
 	if strictJSON(call.Arguments, &command) != nil {
 		response.Error = &mcpError{Code: -32602, Message: "Invalid params"}
 		return response
 	}
-	result, err := commands.CaptainDelegation(r.Context(), command)
+	result, err := commands.LeadDelegation(r.Context(), command)
 	if err != nil {
 		response.Result = map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": errorCode(err)}}}
 		return response

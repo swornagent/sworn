@@ -292,7 +292,7 @@ func TestResponsesReplaysEncryptedReasoningAndExactToolCorrelation(t *testing.T)
 }
 
 // TestResponsesToolCallDecodeFailureNeverCommitsPartialCorrelation pins the
-// fix for the Captain's attempt-1 REVISE: a turn whose output has a
+// fix for the Lead's attempt-1 REVISE: a turn whose output has a
 // well-formed function_call followed by a malformed one must fail without
 // committing the well-formed call's id, so a corrected retry may reuse both
 // call ids - and once that retry actually succeeds, a later genuine reuse of

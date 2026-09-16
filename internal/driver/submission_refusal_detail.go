@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/swornagent/sworn/internal/baton"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 // maxSubmissionScopeLintDetailBytes bounds the engine-derived package-path
@@ -134,7 +134,7 @@ func submitExactBytesPathError(code, field string) error {
 // validated this exact, unmutated submission moments earlier, so the only
 // errors EncodeSubmission's own two RESOURCE_LIMIT sites (json.Marshal
 // failure, len(body)+1 > MaxSubmissionBytes) can newly raise here name the
-// max_submission_bytes bound. Per Captain correction C2, the bound is
+// max_submission_bytes bound. Per Lead correction C2, the bound is
 // attached only when the wrapped code is actually RESOURCE_LIMIT, so no
 // other error reaching this call site is misnamed with a bound it did not
 // trip.
@@ -153,11 +153,11 @@ func submitEncodeDetail(err error) error {
 // submitPlanScopeLintError builds the submit.plan_scope_lint refusal (fixes
 // finding 4): Detail carries only Check plus the engine-derived package
 // import paths LintSlice's own graph walk found under-scoped
-// (baton.RecordError.Paths, bounded by maxSubmissionScopeLintDetailBytes) -
+// (protocol.RecordError.Paths, bounded by maxSubmissionScopeLintDetailBytes) -
 // never the worker's own submitted slice.ID or the joined Msg text, both of
-// which the prior design carried and the Captain's finding removed.
+// which the prior design carried and the Lead's finding removed.
 func submitPlanScopeLintError(code string, lintErr error) error {
-	var recordErr *baton.RecordError
+	var recordErr *protocol.RecordError
 	var paths []string
 	if errors.As(lintErr, &recordErr) {
 		paths = recordErr.Paths
@@ -383,7 +383,7 @@ func submissionValidateWrap(err error, field string) error {
 
 // submissionShapeMismatch builds one SUBMISSION_SHAPE_MISMATCH refusal
 // naming the first violated member (plan, checks, decision, or contracts)
-// per Captain correction C3's ordered per-member reading.
+// per Lead correction C3's ordered per-member reading.
 func submissionShapeMismatch(field string) error {
 	return submissionValidateError("SUBMISSION_SHAPE_MISMATCH", field)
 }
@@ -435,14 +435,14 @@ func normalizeSubmissionField(field string) string {
 // that are a single bare word: matched only by whole-field equality, never
 // as a prefix, since honest work routinely opens with "Test coverage ..."
 // or "Probe ordering ..." and anchoring either as a prefix would re-open the
-// over-match finding A2 fixed. "probe" is the 2026-09-12 Captain receipt
+// over-match finding A2 fixed. "probe" is the 2026-09-12 Lead receipt
 // (run 2026-09-11-phased-evidence-r7, S2 design t1) whose whole detail body
 // was that one word, accepted as an authority decision (#300 escalation).
 var submissionProbeKnownExacts = []string{"test", "probe"}
 
 // submissionProbeKnownPrefixes are the two observed sentence-length probe
 // declarations, matched as the field's whole normalized content or its
-// leading content (Captain correction C1): a probe that pads past A3's
+// leading content (Lead correction C1): a probe that pads past A3's
 // floor by appending text after either sentence still self-declares.
 var submissionProbeKnownPrefixes = []string{
 	"probe: minimal submission to isolate field validation",
@@ -506,7 +506,7 @@ func submissionDeclaresProbe(field string) (bool, string) {
 // file I wrote" detail body opens with (#307): run 2026-09-11-phased-evidence
 // -r3 S1 design attempts 4 and 7 submitted "See detail file: ..." and "See
 // attached detail: ..." as the whole design, and both were accepted and then
-// judged "contains no design" by the Captain. Matched on normalized leading
+// judged "contains no design" by the Lead. Matched on normalized leading
 // content only, like submissionDeclaresProbe.
 var submissionPointerPrefixes = []string{
 	"see attached",
@@ -560,13 +560,13 @@ func submissionPointerError(field, bound string) error {
 
 // detailRequiredResponsibility reports whether responsibility is one of the
 // five responsibilities (planner_proposal, implementer_design,
-// implementer_implementation, captain_review, work_verification) whose
-// Detail must be non-empty. captain_plan_review and assembly_verification
+// implementer_implementation, lead_review, work_verification) whose
+// Detail must be non-empty. lead_plan_review and assembly_verification
 // are both exempt, per the contract's own list.
 func detailRequiredResponsibility(responsibility Responsibility) bool {
 	switch responsibility {
 	case PlannerProposal, ImplementerDesign, ImplementerImplementation,
-		CaptainReview, WorkVerification:
+		LeadReview, WorkVerification:
 		return true
 	default:
 		return false

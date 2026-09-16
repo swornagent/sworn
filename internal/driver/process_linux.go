@@ -521,7 +521,7 @@ func bubblewrapArguments(invocation Invocation) ([]string, []*os.File, error) {
 	)
 	if invocation.Selected.Adapter.ID == FakeDriverID {
 		arguments = append(arguments,
-			"--setenv", "BATON_FAKE_PROFILE", string(invocation.FakeProfile),
+			"--setenv", "PROTOCOL_FAKE_PROFILE", string(invocation.FakeProfile),
 		)
 	}
 	arguments = append(arguments,
@@ -562,7 +562,7 @@ func uncontainedCommand(
 		"PWD=" + invocation.HostWorkspace,
 		SubmissionProtocolEnvironment + "=" + SubmissionControlVersion,
 		SubmissionFDEnvironment + "=3",
-		"BATON_FAKE_PROFILE=" + string(invocation.FakeProfile),
+		"PROTOCOL_FAKE_PROFILE=" + string(invocation.FakeProfile),
 		testUncontainedDispatchEnv + "=1",
 		testUncontainedGuestWorkspaceEnv + "=" + invocation.HostWorkspace,
 		testUncontainedGuestInputsEnv + "=" + projection.Root(),

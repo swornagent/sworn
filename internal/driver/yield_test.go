@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestYieldCodecIsClosedBoundedAndBindsOneNonBatonTerminal(t *testing.T) {
+func TestYieldCodecIsClosedBoundedAndBindsOneNonProtocolTerminal(t *testing.T) {
 	t.Parallel()
 	value := Yield{
 		SchemaVersion: YieldSchemaVersion,
@@ -25,7 +25,7 @@ func TestYieldCodecIsClosedBoundedAndBindsOneNonBatonTerminal(t *testing.T) {
 	unknown := []byte(strings.Replace(
 		string(body),
 		`"message":`,
-		`"responsibility":"captain_review","message":`,
+		`"responsibility":"lead_review","message":`,
 		1,
 	))
 	if _, err := DecodeYield(unknown); !IsCode(err, "UNKNOWN_FIELD") {

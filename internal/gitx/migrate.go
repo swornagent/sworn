@@ -11,10 +11,10 @@ import (
 // MigrationMarkerSubject is the exact commit subject the operator-gated
 // reserved-records migration writes, so the one-time relocation is visible
 // and attributable in the git log.
-const MigrationMarkerSubject = "sworn(records): migrate reserved records root from .baton/releases to .sworn/records"
+const MigrationMarkerSubject = "sworn(records): migrate reserved records root from .protocol/releases to .sworn/records"
 
 // RecordsMigration describes one exact operator-gated relocation of the
-// reserved records root from the historical .baton/releases location to the
+// reserved records root from the historical .protocol/releases location to the
 // configured .sworn/records root.
 type RecordsMigration struct {
 	// Releases are the release identities whose plan records were relocated.
@@ -39,7 +39,7 @@ type legacyPlan struct {
 }
 
 // MigrateLegacyRecords relocates every recorded plan from the historical
-// .baton/releases root to the configured .sworn/records root. It is an
+// .protocol/releases root to the configured .sworn/records root. It is an
 // explicit operator-gated engine pathway, never a silent side effect of
 // ordinary model-directed work: it refuses a dirty tree or index, requires
 // Confirmed, refuses when there is nothing to migrate, refuses to overwrite
@@ -116,7 +116,7 @@ func (r *Repository) MigrateLegacyRecords(request MigrateRecordsRequest) (Record
 		return RecordsMigration{}, fail(
 			"NOTHING_TO_MIGRATE",
 			"migrate reserved records",
-			errors.New("no records remain under .baton/releases"),
+			errors.New("no records remain under .protocol/releases"),
 		)
 	}
 	sort.Slice(legacy, func(i, j int) bool { return legacy[i].release < legacy[j].release })
@@ -231,7 +231,7 @@ func recordPlanPath(recordRoot, release string) string {
 }
 
 // buildRecordsMigrationCommit builds one migration commit on parent: every
-// .baton/** path present at parent is removed and the given relocated plans
+// .protocol/** path present at parent is removed and the given relocated plans
 // are written under the configured records root. The commit carries the
 // fixed marker subject and the explicit engine identity.
 func (r *Repository) buildRecordsMigrationCommit(

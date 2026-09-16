@@ -40,9 +40,9 @@ func TestWebValidatorStaticContractAllowsParallelResponsibilities(
 		t.Fatal("browser validator still assumes one responsibility per node")
 	}
 	for _, required := range []string{
-		"const batonResponsibilities = [];",
+		"const protocolResponsibilities = [];",
 		"new Set(handoff.responsibilities).size",
-		"batonResponsibilities.length !== handoff.responsibilities.length",
+		"protocolResponsibilities.length !== handoff.responsibilities.length",
 		"responsibility !== handoff.responsibilities[index]",
 	} {
 		if !strings.Contains(javascript, required) {
@@ -148,12 +148,12 @@ func parallelSameRoleSnapshot() Snapshot {
 			{
 				ID: "slice:S1", Kind: "slice", Label: "S1",
 				Track: "T1", State: "ready",
-				NextResponsibility: "implementer", HasBaton: true,
+				NextResponsibility: "implementer", HasProtocol: true,
 			},
 			{
 				ID: "slice:S2", Kind: "slice", Label: "S2",
 				Track: "T2", State: "ready",
-				NextResponsibility: "implementer", HasBaton: true,
+				NextResponsibility: "implementer", HasProtocol: true,
 			},
 			{
 				ID: "assembly:release-1", Kind: "assembly",
@@ -291,14 +291,14 @@ add("reordered responsibilities", (snapshot) => {
 add("duplicate graph node identity", (snapshot) => {
   snapshot.graph.nodes[2].id = "slice:S1";
 }, false);
-add("baton node without responsibility", (snapshot) => {
+add("protocol node without responsibility", (snapshot) => {
   delete snapshot.graph.nodes[1].next_responsibility;
 }, false);
-add("baton node with none responsibility", (snapshot) => {
+add("protocol node with none responsibility", (snapshot) => {
   snapshot.graph.nodes[1].next_responsibility = "none";
 }, false);
-add("handoff node without baton", (snapshot) => {
-  snapshot.graph.nodes[2].has_baton = false;
+add("handoff node without protocol", (snapshot) => {
+  snapshot.graph.nodes[2].has_protocol = false;
 }, false);
 add("ready mismatch", (snapshot) => {
   snapshot.handoff.ready = false;

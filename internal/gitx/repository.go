@@ -616,7 +616,7 @@ func (r *Repository) requireProductAdmission(commit OID, admission *ProductExclu
 	decision, ok := admission.decisions[commit.String()]
 	if !ok {
 		request := RecordRootRequest{
-			Kind: "baton.record-root-inertness/v1", Repository: r.root,
+			Kind: "protocol.record-root-inertness/v1", Repository: r.root,
 			RecordRoot: r.recordRoot, Commit: commit.String(),
 		}
 		var err error

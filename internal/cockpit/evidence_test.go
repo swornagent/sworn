@@ -7,33 +7,33 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/swornagent/sworn/internal/baton"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
-// evidenceBoundStateFixture hand-builds one baton.State whose slice history
+// evidenceBoundStateFixture hand-builds one protocol.State whose slice history
 // contains exactly one real, well-formed verifier PASS receipt, without any
 // Git backing: HistoryForSlice and Resolve only ever read these in-memory
 // fields, so this is sufficient to prove binding behavior.
-func evidenceBoundStateFixture() (baton.State, baton.ReceiptEntry) {
+func evidenceBoundStateFixture() (protocol.State, protocol.ReceiptEntry) {
 	attempt := int64(2)
 	candidate := strings.Repeat("c", 40)
 	productTree := "sha256:" + strings.Repeat("d", 64)
 	checks := "sha256:" + strings.Repeat("e", 64)
 	receiptOID := strings.Repeat("f", 40)
-	pass := baton.ReceiptEntry{
+	pass := protocol.ReceiptEntry{
 		OID: receiptOID,
-		Receipt: baton.Receipt{
+		Receipt: protocol.Receipt{
 			Role: "verifier", Result: "pass", Release: "release-1",
 			Attempt: &attempt, Candidate: &candidate,
 			ProductTree: &productTree, Checks: &checks,
 		},
 	}
-	state := baton.State{
+	state := protocol.State{
 		Release: "release-1",
-		SliceHistories: []baton.SliceHistoryState{
+		SliceHistories: []protocol.SliceHistoryState{
 			{
 				Slice: "S1", Track: "T1",
-				History: baton.SliceHistory{Entries: []baton.ReceiptEntry{pass}},
+				History: protocol.SliceHistory{Entries: []protocol.ReceiptEntry{pass}},
 			},
 		},
 	}
@@ -42,7 +42,7 @@ func evidenceBoundStateFixture() (baton.State, baton.ReceiptEntry) {
 
 func writeEvidenceBundleFixture(
 	t *testing.T, root, release, sliceID, bundleName string,
-	pass baton.ReceiptEntry, itemPath string, itemBody []byte, mutate func(map[string]any),
+	pass protocol.ReceiptEntry, itemPath string, itemBody []byte, mutate func(map[string]any),
 ) {
 	t.Helper()
 	dir := filepath.Join(root, evidenceRoot, release, sliceID)
@@ -50,7 +50,7 @@ func writeEvidenceBundleFixture(
 		t.Fatal(err)
 	}
 	value := map[string]any{
-		"schema_version": baton.EvidenceBundleVersion,
+		"schema_version": protocol.EvidenceBundleVersion,
 		"release":        release, "slice": sliceID,
 		"attempt": *pass.Receipt.Attempt, "candidate": *pass.Receipt.Candidate,
 		"product_tree": *pass.Receipt.ProductTree, "checks": *pass.Receipt.Checks,
@@ -58,7 +58,7 @@ func writeEvidenceBundleFixture(
 		"items": []any{
 			map[string]any{
 				"path": itemPath, "kind": "screenshot",
-				"digest": baton.DigestBytes(itemBody), "bytes": int64(len(itemBody)),
+				"digest": protocol.DigestBytes(itemBody), "bytes": int64(len(itemBody)),
 			},
 		},
 	}
@@ -111,7 +111,7 @@ func TestDiscoverBoundEvidenceListsValidBundleMetadataOnly(t *testing.T) {
 	}
 	item := items[0]
 	if item.Bundle != "attempt-2.json" || item.Path != "shot.png" ||
-		item.Kind != "screenshot" || item.Digest != baton.DigestBytes(itemBody) ||
+		item.Kind != "screenshot" || item.Digest != protocol.DigestBytes(itemBody) ||
 		item.Bytes != int64(len(itemBody)) {
 		t.Fatalf("item = %#v", item)
 	}
@@ -170,8 +170,8 @@ func TestReadBoundEvidenceRejectsTamperedBundleOnExplicitRead(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected explicit read of a tampered bundle to fail closed")
 	}
-	if baton.ErrorCode(err) != "STALE_BINDING" {
-		t.Fatalf("code = %q, want STALE_BINDING", baton.ErrorCode(err))
+	if protocol.ErrorCode(err) != "STALE_BINDING" {
+		t.Fatalf("code = %q, want STALE_BINDING", protocol.ErrorCode(err))
 	}
 	if before.Release != state.Release || len(before.SliceHistories) != len(state.SliceHistories) {
 		t.Fatal("explicit read mutated state")
@@ -193,8 +193,8 @@ func TestReadBoundEvidenceRejectsStaleBinding(t *testing.T) {
 	)
 
 	_, err := ReadBoundEvidence(root, state, "S1", "stale.json")
-	if baton.ErrorCode(err) != "STALE_BINDING" {
-		t.Fatalf("code = %q (%v), want STALE_BINDING", baton.ErrorCode(err), err)
+	if protocol.ErrorCode(err) != "STALE_BINDING" {
+		t.Fatalf("code = %q (%v), want STALE_BINDING", protocol.ErrorCode(err), err)
 	}
 }
 
@@ -204,16 +204,16 @@ func TestReadBoundEvidenceRejectsStaleBinding(t *testing.T) {
 // without evidence ever being consulted.
 func TestEvidenceAbsenceDoesNotAffectGraphControlsOrStatus(t *testing.T) {
 	t.Parallel()
-	state := baton.State{
+	state := protocol.State{
 		Release: "release-1",
-		Tracks: []baton.TrackState{
+		Tracks: []protocol.TrackState{
 			{
 				ID: "T1",
-				Slices: []*baton.SliceState{
+				Slices: []*protocol.SliceState{
 					{
-						Location: baton.SliceLocation{
-							Track: baton.Track{ID: "T1"},
-							Slice: baton.Slice{ID: "S1"},
+						Location: protocol.SliceLocation{
+							Track: protocol.Track{ID: "T1"},
+							Slice: protocol.Slice{ID: "S1"},
 						},
 						Stage: "implement", Status: "ready", NextRole: "implementer",
 						Outcome: "none",
@@ -221,7 +221,7 @@ func TestEvidenceAbsenceDoesNotAffectGraphControlsOrStatus(t *testing.T) {
 				},
 			},
 		},
-		Assembly: baton.AssemblyState{Stage: "verify", Status: "waiting", NextRole: "none", Outcome: "none"},
+		Assembly: protocol.AssemblyState{Stage: "verify", Status: "waiting", NextRole: "none", Outcome: "none"},
 	}
 	graph := projectGraph(state, "running", nil)
 	var slice *Node
@@ -236,7 +236,7 @@ func TestEvidenceAbsenceDoesNotAffectGraphControlsOrStatus(t *testing.T) {
 	if len(slice.BoundEvidence) != 0 {
 		t.Fatalf("bound_evidence = %#v, want none (no evidence directory exists)", slice.BoundEvidence)
 	}
-	if slice.State != "ready" || !slice.HasBaton || slice.NextResponsibility != "implementer" {
+	if slice.State != "ready" || !slice.HasProtocol || slice.NextResponsibility != "implementer" {
 		t.Fatalf("evidence absence altered slice projection: %#v", slice)
 	}
 }

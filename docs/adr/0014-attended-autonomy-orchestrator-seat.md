@@ -57,7 +57,7 @@ plan digest, `sworn_status`, the pinned work with its typed cause and
 detail, open attention text, and the seat's own short decision log.
 
 - Sworn owes the seat **"why" as typed facts**: park cause, refusal code
-  and detail, check output excerpt, the real Captain receipt. Every time
+  and detail, check output excerpt, the real Lead receipt. Every time
   the seat must open a raw journal to learn why, that is an engine
   legibility gap and is filed as one (sworn#306, #307, #310 are this class).
 - **Deep dives are delegated.** A subagent reads the journal and returns a
@@ -77,7 +77,7 @@ bypasses human authority.
    home operator-log.md plus the operator's memory file; it becomes a
    first-class record so any fresh seat resumes from it, and so outcomes
    can be joined back to decisions.
-2. **Policy distillation (rules the seat loads).** The coach-approvable
+2. **Policy distillation (rules the seat loads).** The principal-approvable
    decisions catalogue becomes a versioned, project-scoped policy file:
    "in situation X, decide Y, because Z, evidence: decisions a,b,c". The
    seat loads it every tick. New entries are proposed from the decision
@@ -95,22 +95,25 @@ bypasses human authority.
 ## Vocabulary
 
 Ratified 2026-09-16, with the principle that names are descriptive and
-instantly recognisable; generic is fine. Baton, the former public protocol
+instantly recognisable; generic is fine. Protocol, the former public protocol
 repo, is retired and decommissioned, so this is a Sworn-internal rename.
 
 | Seat | Was | Does |
 |---|---|---|
-| Principal | Coach | The accountable human: approves plans, answers Type-1 escalations, ratifies policy. |
+| Principal | Principal | The accountable human: approves plans, answers Type-1 escalations, ratifies policy. |
 | Director | (new) | Portfolio seat over several releases: priorities, budgets, results, escalations. Delegated authority only. |
 | Manager | (new) | Release seat: runs one release, sets the roster, routine calls within policy, keeps the decision journal. Delegated authority only. |
-| Lead | Captain | Per-slice design authority in the run: reviews designs, adjudicates scope, unblocks. `captain_review` becomes `lead_review`, `captain_plan_review` becomes `lead_plan_review`. |
+| Lead | Lead | Per-slice design authority in the run: reviews designs, adjudicates scope, unblocks. `lead_review` becomes `lead_review`, `lead_plan_review` becomes `lead_plan_review`. |
 | Planner, Implementer, Verifier | same | Unchanged. |
 | Scout | (later) | Learning advisor over outcomes: recommends rosters and priors, never selects. |
 
 "Orchestrator" describes the Manager and Director tier; it is not a role.
-The package `internal/baton` becomes `internal/authority` (plans, contracts,
-receipts, state and record actions), and action names follow
-(`baton.merge` becomes `authority.merge`). ADRs 0001 to 0010 stay as
+The package formerly named after the retired protocol becomes
+`internal/protocol` (plans, contracts, receipts, state and record actions),
+and action names follow (`protocol.merge`, `protocol.install`). "Authority"
+was the first choice and was rejected because it is already a local
+variable name throughout the engine and would shadow the package.
+ADRs 0001 to 0010 stay as
 written and read through this table. Journals recorded under the old
 vocabulary are not migrated. The rename is one focused pass ahead of
 Track A, done by hand.
@@ -143,6 +146,6 @@ Promoted, in order:
   (seal-time gates, sworn#300/#301) alone; re-scope S2-S4 under this ADR
   rather than resuming run r8.
 
-Not changed: the Baton protocol boundary (ADR-0010), capability-based
+Not changed: the Protocol protocol boundary (ADR-0010), capability-based
 selection (ADR-0013), the human-scoped release trigger, and every
 attestation seam.

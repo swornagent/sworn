@@ -7,9 +7,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 const trackBaseCommandVersion = "sworn.git-prepare-track-base/v4"
@@ -57,7 +57,7 @@ type trackBaseResultWire struct {
 	Inputs         []trackBaseInputWire `json:"inputs"`
 }
 
-func trackBaseBefore(state baton.State, slice *baton.SliceState) string {
+func trackBaseBefore(state protocol.State, slice *protocol.SliceState) string {
 	if slice == nil {
 		return ""
 	}
@@ -83,8 +83,8 @@ func trackBaseBefore(state baton.State, slice *baton.SliceState) string {
 }
 
 func candidateHeadRefresh(
-	state baton.State,
-	slice *baton.SliceState,
+	state protocol.State,
+	slice *protocol.SliceState,
 ) bool {
 	if slice == nil ||
 		slice.Stage != "implement" ||
@@ -112,7 +112,7 @@ func candidateHeadRefresh(
 // slice.CurrentReceipt.OID == slice.Candidate.OID, which never holds for a
 // verifier/fail state (CurrentReceipt is the fail receipt; Candidate is the
 // implementer/candidate receipt it bound).
-func evidenceOnlyReseal(state baton.State, slice *baton.SliceState) bool {
+func evidenceOnlyReseal(state protocol.State, slice *protocol.SliceState) bool {
 	if slice == nil ||
 		slice.Stage != "implement" ||
 		slice.Status != "ready" ||
@@ -138,11 +138,11 @@ func evidenceOnlyReseal(state baton.State, slice *baton.SliceState) bool {
 // content commit of its own) to find it. Both the writer (implementSlice)
 // and the checker (implementationRefreshBase) call this same helper so the
 // derivation can never diverge between what was sealed and what is verified.
-func evidenceResealBase(engine *engine, slice *baton.SliceState) (gitx.OID, error) {
+func evidenceResealBase(engine *engine, slice *protocol.SliceState) (gitx.OID, error) {
 	if engine == nil || engine.repository == nil || slice == nil || slice.Candidate == nil {
 		return gitx.OID{}, runtimeFail("STALE_DISPATCH", nil)
 	}
-	byOID := make(map[string]baton.ReceiptEntry, len(slice.History.Entries))
+	byOID := make(map[string]protocol.ReceiptEntry, len(slice.History.Entries))
 	for _, entry := range slice.History.Entries {
 		byOID[entry.OID] = entry
 	}
@@ -185,7 +185,7 @@ func trackBaseRequestFromWire(
 	engine *engine,
 	identity gitx.Identity,
 	wire trackBaseRequestWire,
-	snapshot *baton.State,
+	snapshot *protocol.State,
 ) (gitx.PrepareTrackBaseRequest, error) {
 	if engine == nil || engine.repository == nil || engine.product == nil ||
 		wire.Release != engine.manifest.value.Release ||
@@ -296,14 +296,14 @@ func trackBaseRequestFromWire(
 	}
 	state := snapshot
 	if state == nil {
-		fresh, err := baton.ReadState(
+		fresh, err := protocol.ReadState(
 			engine.git,
 			wire.Release,
 			engine.inertness,
 		)
 		if err != nil {
 			return gitx.PrepareTrackBaseRequest{},
-				runtimeFail("BATON_UNAVAILABLE", err)
+				runtimeFail("PROTOCOL_UNAVAILABLE", err)
 		}
 		state = &fresh
 	}
@@ -337,8 +337,8 @@ func trackBaseRequestFromWire(
 
 func trackBaseRequestForSlice(
 	engine *engine,
-	state baton.State,
-	slice *baton.SliceState,
+	state protocol.State,
+	slice *protocol.SliceState,
 ) (trackBaseCommand, gitx.PrepareTrackBaseRequest, error) {
 	if engine == nil || engine.repository == nil || engine.product == nil ||
 		slice == nil {
@@ -437,7 +437,7 @@ func trackBaseResultEqual(
 
 func currentConsumedInputsMatch(
 	release string,
-	current []baton.ConsumedInput,
+	current []protocol.ConsumedInput,
 	prepared []gitx.TrackBaseInput,
 ) bool {
 	if len(current) != len(prepared) {
@@ -459,8 +459,8 @@ func currentConsumedInputsMatch(
 }
 
 func sameCurrentReceipt(
-	left *baton.ReceiptEntry,
-	right *baton.ReceiptEntry,
+	left *protocol.ReceiptEntry,
+	right *protocol.ReceiptEntry,
 ) bool {
 	return (left == nil && right == nil) ||
 		(left != nil && right != nil && left.OID == right.OID)
@@ -863,23 +863,23 @@ func (s *Service) prepareTrackBaseForSlice(
 	ctx context.Context,
 	engine *engine,
 	owner journal.OwnerLease,
-	state baton.State,
-	slice *baton.SliceState,
-) (baton.State, *baton.SliceState, error) {
+	state protocol.State,
+	slice *protocol.SliceState,
+) (protocol.State, *protocol.SliceState, error) {
 	if slice == nil {
 		return state, slice, nil
 	}
 	if state.Plan.TargetStale || slice.Status != "ready" ||
 		slice.NextRole != "implementer" ||
 		(slice.Stage != "design" && slice.Stage != "implement") {
-		return baton.State{}, nil, runtimeFail("STALE_DISPATCH", nil)
+		return protocol.State{}, nil, runtimeFail("STALE_DISPATCH", nil)
 	}
 	if candidateHeadRefresh(state, slice) || evidenceOnlyReseal(state, slice) {
 		return state, slice, nil
 	}
 	command, request, err := trackBaseRequestForSlice(engine, state, slice)
 	if err != nil {
-		return baton.State{}, nil, err
+		return protocol.State{}, nil, err
 	}
 	result, err := s.runTrackBaseEffect(
 		ctx,
@@ -889,15 +889,15 @@ func (s *Service) prepareTrackBaseForSlice(
 		request,
 	)
 	if err != nil {
-		return baton.State{}, nil, err
+		return protocol.State{}, nil, err
 	}
-	fresh, err := baton.ReadState(
+	fresh, err := protocol.ReadState(
 		engine.git,
 		state.Release,
 		engine.inertness,
 	)
 	if err != nil {
-		return baton.State{}, nil, runtimeFail("BATON_UNAVAILABLE", err)
+		return protocol.State{}, nil, runtimeFail("PROTOCOL_UNAVAILABLE", err)
 	}
 	current, ok := fresh.Slice(slice.Location.Slice.ID)
 	track, trackOK := fresh.Track(slice.Location.Track.ID)
@@ -922,7 +922,7 @@ func (s *Service) prepareTrackBaseForSlice(
 			current.ConsumedInputs,
 			result.Inputs,
 		) {
-		return baton.State{}, nil, runtimeFail("STALE_DISPATCH", nil)
+		return protocol.State{}, nil, runtimeFail("STALE_DISPATCH", nil)
 	}
 	return fresh, current, nil
 }

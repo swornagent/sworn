@@ -106,9 +106,9 @@ func TestPlanPinRewritesDriftedManifestFromContractBytes(t *testing.T) {
 	contractPath := "contracts/S1.json"
 	contractRaw := planContractRaw(t, planContractBody("S1", "one/file.go"))
 
-	// Compute the real digest by importing the baton package's logic
+	// Compute the real digest by importing the protocol package's logic
 	// indirectly: we use a second manifest that carries the real digest.
-	// ParseSliceContract is in internal/baton; we replicate the digest
+	// ParseSliceContract is in internal/protocol; we replicate the digest
 	// computation by using sworn plan pin itself: write the contract and
 	// a manifest with a placeholder digest, run pin, and verify the output
 	// carries the correct digest and facts.

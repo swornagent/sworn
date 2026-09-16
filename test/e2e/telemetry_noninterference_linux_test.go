@@ -24,10 +24,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/cockpit"
 	"github.com/swornagent/sworn/internal/journal"
 	"github.com/swornagent/sworn/internal/observe"
+	"github.com/swornagent/sworn/internal/protocol"
 	swornruntime "github.com/swornagent/sworn/internal/runtime"
 )
 
@@ -298,7 +298,7 @@ func telemetryParityDelivery(
 		t.Fatalf("final run status = %#v", finalStatus.Run)
 	}
 
-	snapshot := telemetryParityBatonSnapshot(t, repository, release)
+	snapshot := telemetryParityProtocolSnapshot(t, repository, release)
 	snapshot.States = [2]string{start.State, finalStatus.Run.State}
 	assertDispatchOrder(t, journalPath, runID)
 	if mode.name == "exporter_backpressured" {
@@ -667,12 +667,12 @@ func telemetryParityWaitHealth(
 	return cockpit.TelemetryHealth{}
 }
 
-func telemetryParityBatonSnapshot(
+func telemetryParityProtocolSnapshot(
 	t *testing.T,
 	repository, release string,
 ) telemetryParitySnapshot {
 	t.Helper()
-	state := readBatonState(t, repository, release)
+	state := readProtocolState(t, repository, release)
 	if state.Assembly.Outcome != "merged" ||
 		state.Assembly.Candidate == nil ||
 		state.Assembly.Pass == nil ||
@@ -683,7 +683,7 @@ func telemetryParityBatonSnapshot(
 	result := telemetryParitySnapshot{
 		Plan: telemetryParityReceipt(t, "plan", state.Plan.Approval),
 	}
-	histories := append([]baton.SliceHistoryState(nil), state.SliceHistories...)
+	histories := append([]protocol.SliceHistoryState(nil), state.SliceHistories...)
 	sort.Slice(histories, func(left, right int) bool {
 		return histories[left].Slice < histories[right].Slice
 	})
@@ -788,7 +788,7 @@ func telemetryParityBatonSnapshot(
 func telemetryParityReceipt(
 	t *testing.T,
 	location string,
-	entry baton.ReceiptEntry,
+	entry protocol.ReceiptEntry,
 ) string {
 	t.Helper()
 	canonical, err := entry.Receipt.CanonicalBytes()

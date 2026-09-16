@@ -1130,7 +1130,7 @@ func submissionResultFields(responsibility Responsibility) []string {
 		return append(fields, "plan")
 	case ImplementerImplementation:
 		return append(fields, "checks")
-	case CaptainReview, CaptainPlanReview:
+	case LeadReview, LeadPlanReview:
 		return append(fields, "decision")
 	case WorkVerification, AssemblyVerification:
 		return append(fields, "checks", "decision")

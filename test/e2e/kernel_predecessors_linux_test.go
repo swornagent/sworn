@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/swornagent/sworn/internal/baton"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 // A1(i). Each preceding slice must have an independently verified
@@ -29,7 +29,7 @@ import (
 // kernelReleaseName is the release whose predecessor chain this file binds.
 const kernelReleaseName = "2026-08-07-sworn-native-delivery-kernel"
 
-// kernelReceipt is the machine-readable half of one Baton-Receipt trailer.
+// kernelReceipt is the machine-readable half of one Protocol-Receipt trailer.
 type kernelReceipt struct {
 	Commit      string
 	Release     string            `json:"release"`
@@ -59,7 +59,7 @@ func hostGit(t *testing.T, args ...string) (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
-// kernelReceiptsFromHistory reads every Baton-Receipt trailer reachable from
+// kernelReceiptsFromHistory reads every Protocol-Receipt trailer reachable from
 // HEAD for one release, newest last.
 func kernelReceiptsFromHistory(t *testing.T, release string) []kernelReceipt {
 	t.Helper()
@@ -83,12 +83,12 @@ func kernelReceiptsFromHistory(t *testing.T, release string) []kernelReceipt {
 		commit := strings.TrimSpace(block[:newline])
 		for _, line := range strings.Split(block[newline+1:], "\n") {
 			line = strings.TrimSpace(line)
-			if !strings.HasPrefix(line, "Baton-Receipt: ") {
+			if !strings.HasPrefix(line, "Protocol-Receipt: ") {
 				continue
 			}
 			var receipt kernelReceipt
 			if json.Unmarshal(
-				[]byte(strings.TrimPrefix(line, "Baton-Receipt: ")), &receipt,
+				[]byte(strings.TrimPrefix(line, "Protocol-Receipt: ")), &receipt,
 			) != nil {
 				continue
 			}
@@ -127,10 +127,10 @@ func kernelProductTree(t *testing.T, commit string) string {
 		if len(fields) != 3 {
 			t.Fatalf("ls-tree metadata = %q", metadata)
 		}
-		if path == baton.RecordRoot ||
-			strings.HasPrefix(path, baton.RecordRoot+"/") ||
-			path == baton.LegacyRecordRoot ||
-			strings.HasPrefix(path, baton.LegacyRecordRoot+"/") {
+		if path == protocol.RecordRoot ||
+			strings.HasPrefix(path, protocol.RecordRoot+"/") ||
+			path == protocol.LegacyRecordRoot ||
+			strings.HasPrefix(path, protocol.LegacyRecordRoot+"/") {
 			continue
 		}
 		entries = append(entries, entry{path, fields[0], fields[1], fields[2]})

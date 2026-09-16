@@ -9,12 +9,12 @@ import (
 	"testing"
 )
 
-// TestOfflineBuildAndFirstRunNeedsNoBatonInstallation is the acceptance-linked
-// A1 proof: an ordinary offline build, with a PATH that contains no "baton"
+// TestOfflineBuildAndFirstRunNeedsNoProtocolInstallation is the acceptance-linked
+// A1 proof: an ordinary offline build, with a PATH that contains no "protocol"
 // executable and network module fetches disabled, still builds Sworn and
 // completes its first responsibilities (version and init) using only its own
 // embedded, self-consistent role assets.
-func TestOfflineBuildAndFirstRunNeedsNoBatonInstallation(t *testing.T) {
+func TestOfflineBuildAndFirstRunNeedsNoProtocolInstallation(t *testing.T) {
 	binary := filepath.Join(t.TempDir(), "sworn")
 	command := exec.Command(
 		"go", "build", "-mod=readonly", "-buildvcs=false", "-trimpath",
@@ -32,7 +32,7 @@ func TestOfflineBuildAndFirstRunNeedsNoBatonInstallation(t *testing.T) {
 		t.Fatalf("offline build failed: %v: %s", err, output)
 	}
 
-	offlinePath := offlinePathWithoutBaton(t)
+	offlinePath := offlinePathWithoutProtocol(t)
 
 	var version bytes.Buffer
 	versionCmd := exec.Command(binary, "version", "--json")
@@ -54,7 +54,7 @@ func TestOfflineBuildAndFirstRunNeedsNoBatonInstallation(t *testing.T) {
 
 	// init also requires a native coding-agent CLI (codex or claude) on PATH;
 	// that is a driver concern independent of this slice. The offline,
-	// Baton-free proof is that init never fails for a Baton reason even when
+	// Protocol-free proof is that init never fails for a Protocol reason even when
 	// no such agent is present.
 	var initOut, initErr bytes.Buffer
 	initCmd := exec.Command(binary, "init", "--project", projectDir)
@@ -64,10 +64,10 @@ func TestOfflineBuildAndFirstRunNeedsNoBatonInstallation(t *testing.T) {
 	err := initCmd.Run()
 	combined := strings.ToLower(initOut.String() + initErr.String())
 	for _, phrase := range []string{
-		"install baton", "restore baton", "upgrade baton", "certify baton", "baton package",
+		"install protocol", "restore protocol", "upgrade protocol", "certify protocol", "protocol package",
 	} {
 		if strings.Contains(combined, phrase) {
-			t.Fatalf("offline init asked the operator about a separate Baton product: %q", combined)
+			t.Fatalf("offline init asked the operator about a separate Protocol product: %q", combined)
 		}
 	}
 	if err == nil && !strings.Contains(initOut.String(), "Project: ") {
@@ -78,11 +78,11 @@ func TestOfflineBuildAndFirstRunNeedsNoBatonInstallation(t *testing.T) {
 	}
 }
 
-// offlinePathWithoutBaton returns a PATH containing only the real
+// offlinePathWithoutProtocol returns a PATH containing only the real
 // directories that hold git, sh, and core utilities Sworn's own commands may
 // invoke, asserting none of them is named or contains an executable named
-// "baton".
-func offlinePathWithoutBaton(t *testing.T) string {
+// "protocol".
+func offlinePathWithoutProtocol(t *testing.T) string {
 	t.Helper()
 	seen := make(map[string]bool)
 	var dirs []string
@@ -97,13 +97,13 @@ func offlinePathWithoutBaton(t *testing.T) string {
 		}
 		seen[dir] = true
 		dirs = append(dirs, dir)
-		if _, err := exec.LookPath(filepath.Join(dir, "baton")); err == nil {
-			t.Fatalf("required tool directory %q also contains a baton executable", dir)
+		if _, err := exec.LookPath(filepath.Join(dir, "protocol")); err == nil {
+			t.Fatalf("required tool directory %q also contains a protocol executable", dir)
 		}
 		if entries, err := os.ReadDir(dir); err == nil {
 			for _, entry := range entries {
-				if entry.Name() == "baton" {
-					t.Fatalf("tool directory %q contains a baton executable", dir)
+				if entry.Name() == "protocol" {
+					t.Fatalf("tool directory %q contains a protocol executable", dir)
 				}
 			}
 		}

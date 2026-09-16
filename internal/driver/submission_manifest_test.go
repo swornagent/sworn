@@ -9,7 +9,7 @@ import (
 // validManifestPlanBytes returns one complete, canonically admissible
 // sworn.release-manifest/v1 body with a real slice contract digest, proving
 // the driver's plan admission accepts both canonical schemas through the
-// same baton.ParsePlan delegate.
+// same protocol.ParsePlan delegate.
 func validManifestPlanBytes() []byte {
 	return []byte("```sworn-release-manifest-v1\n" + `{
   "schema_version": "sworn.release-manifest/v1",
@@ -42,7 +42,7 @@ func validManifestPlanBytes() []byte {
 func TestNewPlanBytesAcceptsBothCanonicalSchemasAndDelegatesRejection(t *testing.T) {
 	t.Parallel()
 	for name, body := range map[string][]byte{
-		"legacy baton.plan/v2":      validPlanBytes(),
+		"legacy protocol.plan/v2":   validPlanBytes(),
 		"sworn.release-manifest/v1": validManifestPlanBytes(),
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -54,10 +54,10 @@ func TestNewPlanBytesAcceptsBothCanonicalSchemasAndDelegatesRejection(t *testing
 	}
 
 	for name, body := range map[string][]byte{
-		"unknown fence":  []byte("```baton-plan-v3\n{}\n```\n# Plan\n"),
-		"malformed json": []byte("```baton-plan-v2\nnot json\n```\n# Plan\n"),
+		"unknown fence":  []byte("```protocol-plan-v3\n{}\n```\n# Plan\n"),
+		"malformed json": []byte("```protocol-plan-v2\nnot json\n```\n# Plan\n"),
 		"minimal object missing required fields": []byte(
-			"```baton-plan-v2\n{\"schema_version\":\"baton.plan/v2\"}\n```\n# Plan\n",
+			"```protocol-plan-v2\n{\"schema_version\":\"protocol.plan/v2\"}\n```\n# Plan\n",
 		),
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -98,7 +98,7 @@ func TestPlannerProposalSubmissionAcceptsManifestFormat(t *testing.T) {
 	}
 }
 
-// TestSubmissionWireEnvelopeIsClosedAndSingleFile guards the Captain
+// TestSubmissionWireEnvelopeIsClosedAndSingleFile guards the Lead
 // correction that phase 2 must not add a second Plan-shaped field or any
 // archive/envelope to Submission beyond the one sanctioned exception: the
 // planner_proposal-only Contracts map that lets a proposal carry new

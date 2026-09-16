@@ -14,7 +14,7 @@ routing. Existing `*-v1` schemas and reference identifiers remain unchanged.
 - [x] Start from a fresh clone on the disconnected construction branch
   `release/v1.0.0`; package its first release as v0.2.0.
 - [x] Preserve and restoration-test v0 archaeology.
-- [x] Embed and checksum the admitted Baton snapshot.
+- [x] Embed and checksum the admitted protocol snapshot.
 - [x] Install v1-specific CI before any kernel implementation.
 
 ## 1. Transactional control core
@@ -44,7 +44,7 @@ state machine and Store rather than changing that historical boundary.
   keep it inside the same executor boundary.
 - [x] Prepare canonical submission bytes from measured Git facts and
   content-addressed local check evidence.
-- [x] Parse and persist exact canonical Baton plans and work-contract digests.
+- [x] Parse and persist exact canonical protocol plans and work-contract digests.
 - [x] Authenticate exact plan approval with a pinned Ed25519 root and persist
   its complete source/proof/receipt closure atomically.
 - [x] Derive Standard submission facts from the exact plan and its strict,
@@ -215,7 +215,7 @@ external effects and transitions which grant effectful capabilities.
 - [ ] Compose the future public loop with an external interactive or remote
   authorizer transport while keeping signing capability outside Sworn.
 - [ ] Add manual latch release and compare-and-swap fast-forward integration.
-- [ ] Pass the 18 Baton real-boundary cases through the built binary.
+- [ ] Pass the 18 protocol real-boundary cases through the built binary.
 
 Recovery proof is necessary but not sufficient for unattended use. Native
 builder and local-check recovery, exclusive ownership, current execution
@@ -225,6 +225,6 @@ second engine. The token-free real-Codex boundary proof and the separate live
 and then converged on a second invocation without another model turn.
 
 v0.2.0 deliberately stops at `reviewable`. Independent verification, bounded
-repair policy, integration, the 18 Baton real-boundary cases, and the public
+repair policy, integration, the 18 protocol real-boundary cases, and the public
 loop remain later gates. v0.3.0 starts with the memoryless verifier and exact
 verdict binding rather than widening the builder path.

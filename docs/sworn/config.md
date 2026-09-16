@@ -48,7 +48,7 @@ as if the defaults had been written.
 | Field           | Default          | Meaning                                                             |
 |-----------------|------------------|---------------------------------------------------------------------|
 | `schema_version`| `sworn.project-config/v1` | Schema identity; any other value is refused.             |
-| `records_root`  | `.sworn/records` | Where machine-written receipts, plans and control records live. The historical `.baton/releases` root remains readable (legacy fallback) and stays reserved. |
+| `records_root`  | `.sworn/records` | Where machine-written receipts, plans and control records live. The historical `.protocol/releases` root remains readable (legacy fallback) and stays reserved. |
 | `journals_root` | `.sworn`         | Where the run journal, driver config and run manifests live.       |
 | `contracts_root`| `contracts`      | Where declared slice contract files must live (enforced).          |
 | `commit_prefix` | `sworn`          | The prefix of engine commit-message subjects.                      |
@@ -66,7 +66,7 @@ no `.git` first segment). The four roots must be distinct.
   reserved-record admission, product-tree exclusion and candidate-scope check
   reads it. The containment mask follows its top segment, so a configured
   records root is masked inside containment exactly like the default. The
-  historical `.baton/releases` root stays reserved and masked for as long as
+  historical `.protocol/releases` root stays reserved and masked for as long as
   the legacy fallback can read it, so a model-directed worker can never forge
   a pre-move record.
 - **Journals root**: the TUI, init and runtime derive `sworn.db`,
@@ -76,7 +76,7 @@ no `.git` first segment). The four roots must be distinct.
   write-time and read-time contract resolution.
 - **Commit prefix**: plan, approval, retirement, receipt and candidate commit
   subjects use it. An unconfigured repository writes `sworn(...)` subjects
-  for every engine commit. Historical `baton(` and `sworn(` subjects are
+  for every engine commit. Historical `protocol(` and `sworn(` subjects are
   always recognised as engine-owned regardless of configuration.
 - **Documents root**: every plan install publishes the authored plan and the
   authored slice contracts under `<documents_root>/<release>/` in the same
@@ -87,9 +87,9 @@ no `.git` first segment). The four roots must be distinct.
 ### The one-time records-root migration
 
 Releases recorded before this relocation live under the historical
-`.baton/releases` root. They stay readable through an automatic legacy
+`.protocol/releases` root. They stay readable through an automatic legacy
 fallback: state reading resolves the configured root first and falls back to
-`.baton/releases` only when the configured root holds no record for that
+`.protocol/releases` only when the configured root holds no record for that
 release, and a release present under both roots resolves to the configured
 root. Recorded plans carry their contract paths, so contracts need no
 fallback.
@@ -104,9 +104,9 @@ sworn migrate-records --project ABS --confirm
 The command refuses a dirty tree or index, requires `--confirm`, refuses when
 nothing remains to migrate, refuses to overwrite an already-relocated record,
 and is idempotent (a second run refuses). It moves each recorded plan to
-`.sworn/records/<release>/plan.md`, removes the `.baton` tree, and commits
+`.sworn/records/<release>/plan.md`, removes the `.protocol` tree, and commits
 with the marker subject
-`sworn(records): migrate reserved records root from .baton/releases to
+`sworn(records): migrate reserved records root from .protocol/releases to
 .sworn/records`. It is an explicit engine pathway, never a silent side effect
 of ordinary model-directed work.
 

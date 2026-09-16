@@ -15,10 +15,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 func workIdentity(values ...any) string { return sha256Digest(mustJSON(values)) }
@@ -40,9 +40,9 @@ func validateRecoveryCommand(
 	return nil
 }
 
-const batonActionCommandVersion = "sworn.baton-action/v2"
+const protocolActionCommandVersion = "sworn.protocol-action/v2"
 
-type batonActionAuthority struct {
+type protocolActionAuthority struct {
 	Release     string `json:"release"`
 	Plan        string `json:"plan,omitempty"`
 	ReleaseHead string `json:"release_head,omitempty"`
@@ -56,11 +56,11 @@ type batonActionAuthority struct {
 	Attempt     int64  `json:"attempt,omitempty"`
 }
 
-type batonActionCommand struct {
-	Version     string               `json:"version"`
-	GitIdentity gitx.Identity        `json:"git_identity"`
-	Authority   batonActionAuthority `json:"authority"`
-	Input       json.RawMessage      `json:"input"`
+type protocolActionCommand struct {
+	Version     string                  `json:"version"`
+	GitIdentity gitx.Identity           `json:"git_identity"`
+	Authority   protocolActionAuthority `json:"authority"`
+	Input       json.RawMessage         `json:"input"`
 }
 
 type installActionInput struct {
@@ -83,16 +83,16 @@ const (
 	actionAmbiguous actionTruth = "ambiguous"
 )
 
-func marshalActionCommand(identity gitx.Identity, authority batonActionAuthority, input any) []byte {
-	return mustJSON(batonActionCommand{
-		Version: batonActionCommandVersion, GitIdentity: identity, Authority: authority,
+func marshalActionCommand(identity gitx.Identity, authority protocolActionAuthority, input any) []byte {
+	return mustJSON(protocolActionCommand{
+		Version: protocolActionCommandVersion, GitIdentity: identity, Authority: authority,
 		Input: append(json.RawMessage(nil), mustJSON(input)...),
 	})
 }
 
-func stateActionAuthority(state baton.State, ownerRef, ownerHead, before,
-	binds, candidate string, attempt int64) batonActionAuthority {
-	return batonActionAuthority{
+func stateActionAuthority(state protocol.State, ownerRef, ownerHead, before,
+	binds, candidate string, attempt int64) protocolActionAuthority {
+	return protocolActionAuthority{
 		Release: state.Release, Plan: state.Plan.OID,
 		ReleaseHead: state.Refs.Release.Head,
 		TargetRef:   state.Refs.Target.Ref,
@@ -106,18 +106,18 @@ func stateActionAuthority(state baton.State, ownerRef, ownerHead, before,
 	}
 }
 
-func parseActionCommand(raw []byte) (batonActionCommand, error) {
-	var command batonActionCommand
+func parseActionCommand(raw []byte) (protocolActionCommand, error) {
+	var command protocolActionCommand
 	if json.Unmarshal(raw, &command) != nil ||
 		!bytesEqualCanonicalJSON(raw, command) ||
-		command.Version != batonActionCommandVersion ||
+		command.Version != protocolActionCommandVersion ||
 		command.Authority.Release == "" || command.Authority.TargetRef == "" ||
 		command.Authority.TargetHead == "" || command.Authority.OwnerRef == "" ||
 		command.Authority.Before == "" || len(command.Input) == 0 {
-		return batonActionCommand{}, runtimeFail("CORRUPT_JOURNAL", nil)
+		return protocolActionCommand{}, runtimeFail("CORRUPT_JOURNAL", nil)
 	}
 	if err := gitx.ValidateIdentity(command.GitIdentity); err != nil {
-		return batonActionCommand{}, runtimeFail("CORRUPT_JOURNAL", err)
+		return protocolActionCommand{}, runtimeFail("CORRUPT_JOURNAL", err)
 	}
 	return command, nil
 }
@@ -135,23 +135,23 @@ func parseCanonicalActionInput(raw []byte, value any) error {
 	return nil
 }
 
-func batonActionWorkIdentity(
+func protocolActionWorkIdentity(
 	kind string,
-	command batonActionCommand,
+	command protocolActionCommand,
 ) (string, error) {
 	authority := command.Authority
 	if !runtimeDigestPattern.MatchString(authority.Before) {
 		return "", runtimeFail("CORRUPT_JOURNAL", nil)
 	}
 	switch kind {
-	case "baton.install":
+	case "protocol.install":
 		var input installActionInput
 		if parseCanonicalActionInput(command.Input, &input) != nil {
 			return "", runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 		return authority.Before, nil
-	case "baton.append_receipt":
-		var input baton.AppendReceiptInput
+	case "protocol.append_receipt":
+		var input protocol.AppendReceiptInput
 		if parseCanonicalActionInput(command.Input, &input) != nil ||
 			input.Slice == "" {
 			return "", runtimeFail("CORRUPT_JOURNAL", nil)
@@ -163,21 +163,21 @@ func batonActionWorkIdentity(
 			input.Result,
 			input.Candidate,
 		), nil
-	case "baton.assembly_verdict":
-		var input baton.AppendReceiptInput
+	case "protocol.assembly_verdict":
+		var input protocol.AppendReceiptInput
 		if parseCanonicalActionInput(command.Input, &input) != nil ||
 			input.Slice != "" {
 			return "", runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 		return workIdentity(authority.Before, "assembly_verdict"), nil
-	case "baton.prepare_assembly":
-		var input baton.PrepareAssemblyInput
+	case "protocol.prepare_assembly":
+		var input protocol.PrepareAssemblyInput
 		if parseCanonicalActionInput(command.Input, &input) != nil {
 			return "", runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 		return workIdentity(authority.Before, "prepare"), nil
-	case "baton.merge":
-		var input baton.MergePassedCandidateInput
+	case "protocol.merge":
+		var input protocol.MergePassedCandidateInput
 		if parseCanonicalActionInput(command.Input, &input) != nil {
 			return "", runtimeFail("CORRUPT_JOURNAL", nil)
 		}
@@ -187,18 +187,18 @@ func batonActionWorkIdentity(
 	}
 }
 
-func validateBatonActionEnvelope(
+func validateProtocolActionEnvelope(
 	engine *engine,
 	command journal.Command,
 	effect journal.Effect,
-	persisted batonActionCommand,
+	persisted protocolActionCommand,
 ) error {
 	if engine == nil ||
 		persisted.Authority.Release != engine.manifest.value.Release ||
 		persisted.Authority.TargetRef != engine.manifest.value.TargetRef {
 		return runtimeFail(
 			"CORRUPT_JOURNAL",
-			errors.New("baton action manifest authority mismatch"),
+			errors.New("protocol action manifest authority mismatch"),
 		)
 	}
 	if err := validateRecoveryCommand(command, effect, true); err != nil {
@@ -206,17 +206,17 @@ func validateBatonActionEnvelope(
 			"CORRUPT_JOURNAL",
 			errors.Join(
 				err,
-				errors.New("baton action command/effect binding mismatch"),
+				errors.New("protocol action command/effect binding mismatch"),
 			),
 		)
 	}
-	work, err := batonActionWorkIdentity(effect.Kind, persisted)
+	work, err := protocolActionWorkIdentity(effect.Kind, persisted)
 	if err != nil {
 		return runtimeFail(
 			"CORRUPT_JOURNAL",
 			errors.Join(
 				err,
-				errors.New("baton action work identity is invalid"),
+				errors.New("protocol action work identity is invalid"),
 			),
 		)
 	}
@@ -228,13 +228,13 @@ func validateBatonActionEnvelope(
 			"CORRUPT_JOURNAL",
 			errors.Join(
 				err,
-				errors.New("baton action attempt authority mismatch"),
+				errors.New("protocol action attempt authority mismatch"),
 			),
 		)
 	}
 	releaseRef := "refs/heads/release-wt/" +
 		engine.manifest.value.Release
-	if effect.Kind == "baton.append_receipt" {
+	if effect.Kind == "protocol.append_receipt" {
 		prefix := "refs/heads/track/" +
 			engine.manifest.value.Release + "/"
 		track := strings.TrimPrefix(
@@ -243,30 +243,30 @@ func validateBatonActionEnvelope(
 			!runtimeIdentityPattern.MatchString(track) {
 			return runtimeFail(
 				"CORRUPT_JOURNAL",
-				errors.New("baton action track authority mismatch"),
+				errors.New("protocol action track authority mismatch"),
 			)
 		}
 	} else if persisted.Authority.OwnerRef != releaseRef {
 		return runtimeFail(
 			"CORRUPT_JOURNAL",
-			errors.New("baton action release authority mismatch"),
+			errors.New("protocol action release authority mismatch"),
 		)
 	}
-	if effect.Kind != "baton.install" &&
+	if effect.Kind != "protocol.install" &&
 		(persisted.Authority.Plan == "" ||
 			persisted.Authority.ReleaseHead == "" ||
 			persisted.Authority.Binds == "") {
 		return runtimeFail(
 			"CORRUPT_JOURNAL",
-			errors.New("baton action required authority is absent"),
+			errors.New("protocol action required authority is absent"),
 		)
 	}
-	if effect.Kind != "baton.install" &&
-		effect.Kind != "baton.append_receipt" &&
+	if effect.Kind != "protocol.install" &&
+		effect.Kind != "protocol.append_receipt" &&
 		persisted.Authority.OwnerHead == "" {
 		return runtimeFail(
 			"CORRUPT_JOURNAL",
-			errors.New("baton action owner head is absent"),
+			errors.New("protocol action owner head is absent"),
 		)
 	}
 	authority := persisted.Authority
@@ -286,7 +286,7 @@ func validateBatonActionEnvelope(
 		return err
 	}
 	switch effect.Kind {
-	case "baton.install":
+	case "protocol.install":
 		var input installActionInput
 		if parseCanonicalActionInput(persisted.Input, &input) != nil {
 			return runtimeFail(
@@ -324,8 +324,8 @@ func validateBatonActionEnvelope(
 		if err := parseOID(authority.ReleaseHead, true); err != nil {
 			return err
 		}
-	case "baton.append_receipt":
-		var input baton.AppendReceiptInput
+	case "protocol.append_receipt":
+		var input protocol.AppendReceiptInput
 		if parseCanonicalActionInput(persisted.Input, &input) != nil ||
 			input.Release != authority.Release ||
 			input.Slice == "" ||
@@ -348,8 +348,8 @@ func validateBatonActionEnvelope(
 		if err := parseOID(authority.Candidate, true); err != nil {
 			return err
 		}
-	case "baton.assembly_verdict":
-		var input baton.AppendReceiptInput
+	case "protocol.assembly_verdict":
+		var input protocol.AppendReceiptInput
 		if parseCanonicalActionInput(persisted.Input, &input) != nil ||
 			input.Release != authority.Release ||
 			input.Slice != "" ||
@@ -369,8 +369,8 @@ func validateBatonActionEnvelope(
 				return err
 			}
 		}
-	case "baton.prepare_assembly":
-		var input baton.PrepareAssemblyInput
+	case "protocol.prepare_assembly":
+		var input protocol.PrepareAssemblyInput
 		if parseCanonicalActionInput(persisted.Input, &input) != nil ||
 			input.Release != authority.Release ||
 			authority.OwnerHead != authority.ReleaseHead ||
@@ -387,8 +387,8 @@ func validateBatonActionEnvelope(
 				return err
 			}
 		}
-	case "baton.merge":
-		var input baton.MergePassedCandidateInput
+	case "protocol.merge":
+		var input protocol.MergePassedCandidateInput
 		if parseCanonicalActionInput(persisted.Input, &input) != nil ||
 			input.Release != authority.Release ||
 			authority.OwnerHead != authority.ReleaseHead ||
@@ -413,9 +413,9 @@ func validateBatonActionEnvelope(
 }
 
 func planMetadataForOID(
-	state baton.State,
+	state protocol.State,
 	oid string,
-) (baton.Metadata, bool) {
+) (protocol.Metadata, bool) {
 	for _, history := range state.Plan.History {
 		if history.OID == oid {
 			return history.Plan.Metadata(), true
@@ -424,18 +424,18 @@ func planMetadataForOID(
 	if state.Plan.OID == oid {
 		return state.Plan.Metadata, true
 	}
-	return baton.Metadata{}, false
+	return protocol.Metadata{}, false
 }
 
-func validateBatonActionStateAuthority(
-	state baton.State,
+func validateProtocolActionStateAuthority(
+	state protocol.State,
 	kind string,
-	command batonActionCommand,
+	command protocolActionCommand,
 ) error {
-	if kind != "baton.append_receipt" {
+	if kind != "protocol.append_receipt" {
 		return nil
 	}
-	var input baton.AppendReceiptInput
+	var input protocol.AppendReceiptInput
 	if parseCanonicalActionInput(command.Input, &input) != nil {
 		return runtimeFail("CORRUPT_JOURNAL", nil)
 	}
@@ -463,7 +463,7 @@ func validateBatonActionStateAuthority(
 	return nil
 }
 
-func ownerHead(state baton.State, ref string) (string, bool) {
+func ownerHead(state protocol.State, ref string) (string, bool) {
 	if state.Refs.Release.Ref == ref {
 		return state.Refs.Release.Head, true
 	}
@@ -475,8 +475,8 @@ func ownerHead(state baton.State, ref string) (string, bool) {
 	return "", false
 }
 
-func actionReceiptMatches(entry *baton.ReceiptEntry, authority batonActionAuthority,
-	input baton.AppendReceiptInput) bool {
+func actionReceiptMatches(entry *protocol.ReceiptEntry, authority protocolActionAuthority,
+	input protocol.AppendReceiptInput) bool {
 	if entry == nil {
 		return false
 	}
@@ -495,7 +495,7 @@ func actionReceiptMatches(entry *baton.ReceiptEntry, authority batonActionAuthor
 		return false
 	}
 	if input.CheckResults != nil {
-		expected := baton.DigestBytes(input.CheckResults)
+		expected := protocol.DigestBytes(input.CheckResults)
 		if receipt.Checks == nil || *receipt.Checks != expected {
 			return false
 		}
@@ -504,17 +504,17 @@ func actionReceiptMatches(entry *baton.ReceiptEntry, authority batonActionAuthor
 }
 
 type appliedActionEvidence struct {
-	receipt    baton.ReceiptEntry
-	plan       baton.PlanHistory
+	receipt    protocol.ReceiptEntry
+	plan       protocol.PlanHistory
 	ref        string
 	hasReceipt bool
 	hasPlan    bool
 }
 
 func appendUniqueReceipt(
-	values []baton.ReceiptEntry,
-	entry *baton.ReceiptEntry,
-) []baton.ReceiptEntry {
+	values []protocol.ReceiptEntry,
+	entry *protocol.ReceiptEntry,
+) []protocol.ReceiptEntry {
 	if entry == nil {
 		return values
 	}
@@ -527,16 +527,16 @@ func appendUniqueReceipt(
 }
 
 func matchingReceipt(
-	values []baton.ReceiptEntry,
-	matches func(*baton.ReceiptEntry) bool,
-) (baton.ReceiptEntry, bool, error) {
-	var found baton.ReceiptEntry
+	values []protocol.ReceiptEntry,
+	matches func(*protocol.ReceiptEntry) bool,
+) (protocol.ReceiptEntry, bool, error) {
+	var found protocol.ReceiptEntry
 	for index := range values {
 		if !matches(&values[index]) {
 			continue
 		}
 		if found.OID != "" && found.OID != values[index].OID {
-			return baton.ReceiptEntry{}, false,
+			return protocol.ReceiptEntry{}, false,
 				runtimeFail("AMBIGUOUS_ACTION_HISTORY", nil)
 		}
 		found = values[index].Clone()
@@ -546,20 +546,20 @@ func matchingReceipt(
 
 func validateInstallActionInput(
 	input installActionInput,
-) (baton.Plan, error) {
+) (protocol.Plan, error) {
 	if input.PlanDigest == "" ||
 		sha256Digest(input.PlanBytes) != input.PlanDigest ||
 		input.Reference == "" {
-		return baton.Plan{}, runtimeFail("CORRUPT_JOURNAL", nil)
+		return protocol.Plan{}, runtimeFail("CORRUPT_JOURNAL", nil)
 	}
-	plan, err := baton.ParsePlan(input.PlanBytes)
+	plan, err := protocol.ParsePlan(input.PlanBytes)
 	if err != nil ||
 		plan.Digest() != input.PlanDigest ||
 		plan.Metadata().ApprovalRef != input.Reference {
-		return baton.Plan{}, runtimeFail("CORRUPT_JOURNAL", err)
+		return protocol.Plan{}, runtimeFail("CORRUPT_JOURNAL", err)
 	}
 	if err := validateProposalContracts(plan, input.ContractBytes); err != nil {
-		return baton.Plan{}, runtimeFail("CORRUPT_JOURNAL", err)
+		return protocol.Plan{}, runtimeFail("CORRUPT_JOURNAL", err)
 	}
 	return plan, nil
 }
@@ -567,35 +567,35 @@ func validateInstallActionInput(
 func validateInstallActionPolicy(
 	manifest admittedManifest,
 	input installActionInput,
-) (baton.Plan, error) {
+) (protocol.Plan, error) {
 	plan, err := validateInstallActionInput(input)
 	if err != nil {
-		return baton.Plan{}, err
+		return protocol.Plan{}, err
 	}
 	if plan.Metadata().Repository != manifest.value.Authority.Project ||
 		plan.Metadata().Release != manifest.value.Release ||
 		plan.Metadata().TargetRef != manifest.value.TargetRef ||
 		validateApprovalRef(manifest, plan) != nil {
-		return baton.Plan{}, runtimeFail("CORRUPT_JOURNAL", nil)
+		return protocol.Plan{}, runtimeFail("CORRUPT_JOURNAL", nil)
 	}
 	return plan, nil
 }
 
-func appliedBatonAction(
-	state baton.State,
+func appliedProtocolAction(
+	state protocol.State,
 	kind string,
-	command batonActionCommand,
+	command protocolActionCommand,
 ) (appliedActionEvidence, bool, error) {
 	authority := command.Authority
 	switch kind {
-	case "baton.append_receipt", "baton.assembly_verdict":
-		var input baton.AppendReceiptInput
+	case "protocol.append_receipt", "protocol.assembly_verdict":
+		var input protocol.AppendReceiptInput
 		if parseCanonicalActionInput(command.Input, &input) != nil ||
 			input.Release != authority.Release {
 			return appliedActionEvidence{}, false,
 				runtimeFail("CORRUPT_JOURNAL", nil)
 		}
-		var entries []baton.ReceiptEntry
+		var entries []protocol.ReceiptEntry
 		ref := state.Refs.Release.Ref
 		if input.Slice == "" {
 			entries = append(entries, state.Assembly.History...)
@@ -630,26 +630,26 @@ func appliedBatonAction(
 		}
 		entry, found, err := matchingReceipt(
 			entries,
-			func(entry *baton.ReceiptEntry) bool {
+			func(entry *protocol.ReceiptEntry) bool {
 				return actionReceiptMatches(entry, authority, input)
 			},
 		)
 		return appliedActionEvidence{
 			receipt: entry, ref: ref, hasReceipt: found,
 		}, found, err
-	case "baton.prepare_assembly":
-		var input baton.PrepareAssemblyInput
+	case "protocol.prepare_assembly":
+		var input protocol.PrepareAssemblyInput
 		if parseCanonicalActionInput(command.Input, &input) != nil ||
 			input.Release != authority.Release {
 			return appliedActionEvidence{}, false,
 				runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 		entries := append(
-			[]baton.ReceiptEntry(nil), state.Assembly.History...)
+			[]protocol.ReceiptEntry(nil), state.Assembly.History...)
 		entries = appendUniqueReceipt(entries, state.Assembly.Candidate)
 		entry, found, err := matchingReceipt(
 			entries,
-			func(entry *baton.ReceiptEntry) bool {
+			func(entry *protocol.ReceiptEntry) bool {
 				receipt := entry.Receipt
 				return receipt.Plan == authority.Plan &&
 					receipt.Binds == authority.Binds &&
@@ -665,20 +665,20 @@ func appliedBatonAction(
 			receipt: entry, ref: state.Refs.Release.Ref,
 			hasReceipt: found,
 		}, found, err
-	case "baton.merge":
-		var input baton.MergePassedCandidateInput
+	case "protocol.merge":
+		var input protocol.MergePassedCandidateInput
 		if parseCanonicalActionInput(command.Input, &input) != nil ||
 			input.Release != authority.Release {
 			return appliedActionEvidence{}, false,
 				runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 		entries := append(
-			[]baton.ReceiptEntry(nil), state.Assembly.History...)
+			[]protocol.ReceiptEntry(nil), state.Assembly.History...)
 		entries = appendUniqueReceipt(
 			entries, state.Assembly.CurrentReceipt)
 		entry, found, err := matchingReceipt(
 			entries,
-			func(entry *baton.ReceiptEntry) bool {
+			func(entry *protocol.ReceiptEntry) bool {
 				receipt := entry.Receipt
 				return receipt.Plan == authority.Plan &&
 					receipt.Binds == authority.Binds &&
@@ -696,7 +696,7 @@ func appliedBatonAction(
 			receipt: entry, ref: state.Refs.Target.Ref,
 			hasReceipt: found,
 		}, found, err
-	case "baton.install":
+	case "protocol.install":
 		var input installActionInput
 		if parseCanonicalActionInput(command.Input, &input) != nil {
 			return appliedActionEvidence{}, false,
@@ -707,9 +707,9 @@ func appliedBatonAction(
 			return appliedActionEvidence{}, false, err
 		}
 		history := append(
-			[]baton.PlanHistory(nil), state.Plan.History...)
+			[]protocol.PlanHistory(nil), state.Plan.History...)
 		if len(history) == 0 {
-			history = append(history, baton.PlanHistory{
+			history = append(history, protocol.PlanHistory{
 				OID:         state.Plan.OID,
 				Revision:    state.Plan.Metadata.Revision,
 				Approval:    state.Plan.Approval.Clone(),
@@ -717,7 +717,7 @@ func appliedBatonAction(
 				InstallHead: state.Plan.Approval.OID,
 			})
 		}
-		var found baton.PlanHistory
+		var found protocol.PlanHistory
 		for _, candidate := range history {
 			metadata := candidate.Plan.Metadata()
 			previousMatches := authority.Plan == "" &&
@@ -762,34 +762,34 @@ func appliedBatonAction(
 	}
 }
 
-func actionAlreadyApplied(state baton.State, kind string,
-	command batonActionCommand) (bool, error) {
-	_, applied, err := appliedBatonAction(state, kind, command)
+func actionAlreadyApplied(state protocol.State, kind string,
+	command protocolActionCommand) (bool, error) {
+	_, applied, err := appliedProtocolAction(state, kind, command)
 	return applied, err
 }
 
-func actionBeforeMatches(state baton.State, kind string,
-	command batonActionCommand) bool {
+func actionBeforeMatches(state protocol.State, kind string,
+	command protocolActionCommand) bool {
 	authority := command.Authority
 	switch kind {
-	case "baton.append_receipt":
-		var input baton.AppendReceiptInput
+	case "protocol.append_receipt":
+		var input protocol.AppendReceiptInput
 		if parseCanonicalActionInput(command.Input, &input) != nil {
 			return false
 		}
 		return input.Slice != "" &&
 			sliceFingerprint(state, input.Slice) == authority.Before
-	case "baton.assembly_verdict":
+	case "protocol.assembly_verdict":
 		return workIdentity(
 			state.Plan.OID, state.Refs.Release.Head,
 			state.Refs.Target.Head, authority.Candidate,
 		) == authority.Before
-	case "baton.prepare_assembly":
+	case "protocol.prepare_assembly":
 		return workIdentity(
 			state.Plan.OID, state.Refs.Release.Head, state.Refs.Target.Head,
 			state.Assembly.Outcome, state.Assembly.InputPins,
 		) == authority.Before
-	case "baton.merge":
+	case "protocol.merge":
 		return state.Assembly.Pass != nil && workIdentity(
 			state.Plan.OID, state.Refs.Release.Head,
 			state.Refs.Target.Head, state.Assembly.Pass.OID,
@@ -799,20 +799,20 @@ func actionBeforeMatches(state baton.State, kind string,
 	}
 }
 
-func validateBatonAllOldStateAuthority(
-	state baton.State,
+func validateProtocolAllOldStateAuthority(
+	state protocol.State,
 	kind string,
-	command batonActionCommand,
+	command protocolActionCommand,
 ) error {
 	authority := command.Authority
 	switch kind {
-	case "baton.install":
-		// First installation has no Baton state. Its exact release/target/ref
+	case "protocol.install":
+		// First installation has no Protocol state. Its exact release/target/ref
 		// vector and prior-plan relationship are admitted by the install
-		// envelope and classifyBatonAction.
+		// envelope and classifyProtocolAction.
 		return nil
-	case "baton.append_receipt":
-		var input baton.AppendReceiptInput
+	case "protocol.append_receipt":
+		var input protocol.AppendReceiptInput
 		if parseCanonicalActionInput(command.Input, &input) != nil {
 			return runtimeFail("CORRUPT_JOURNAL", nil)
 		}
@@ -829,11 +829,11 @@ func validateBatonAllOldStateAuthority(
 				input.Candidate != "" {
 				return runtimeFail("CORRUPT_JOURNAL", nil)
 			}
-		case input.Role == "captain" &&
+		case input.Role == "lead" &&
 			(input.Result == "proceed" ||
 				input.Result == "revise" ||
 				input.Result == "escalate"):
-			if slice.NextRole != "captain" || input.Candidate != "" {
+			if slice.NextRole != "lead" || input.Candidate != "" {
 				return runtimeFail("CORRUPT_JOURNAL", nil)
 			}
 		case input.Role == "implementer" && input.Result == "candidate":
@@ -858,8 +858,8 @@ func validateBatonAllOldStateAuthority(
 		default:
 			return runtimeFail("CORRUPT_JOURNAL", nil)
 		}
-	case "baton.assembly_verdict":
-		var input baton.AppendReceiptInput
+	case "protocol.assembly_verdict":
+		var input protocol.AppendReceiptInput
 		if parseCanonicalActionInput(command.Input, &input) != nil ||
 			state.Assembly.NextRole != "verifier" ||
 			state.Assembly.Candidate == nil ||
@@ -869,7 +869,7 @@ func validateBatonAllOldStateAuthority(
 			input.Candidate != *state.Assembly.Candidate.Receipt.Candidate {
 			return runtimeFail("CORRUPT_JOURNAL", nil)
 		}
-	case "baton.prepare_assembly":
+	case "protocol.prepare_assembly":
 		expectedBinds := state.Plan.ApprovalOID
 		if state.Assembly.CurrentReceipt != nil {
 			expectedBinds = state.Assembly.CurrentReceipt.OID
@@ -880,7 +880,7 @@ func validateBatonAllOldStateAuthority(
 			authority.Candidate != "" {
 			return runtimeFail("CORRUPT_JOURNAL", nil)
 		}
-	case "baton.merge":
+	case "protocol.merge":
 		if state.Assembly.NextRole != "merge" ||
 			state.Assembly.Outcome != "pass" ||
 			state.Assembly.Pass == nil ||
@@ -898,14 +898,14 @@ func validateBatonAllOldStateAuthority(
 }
 
 // installActionIdempotentlyCallable recognizes an exact plan that another
-// Baton client already installed under the same still-current target
+// Protocol client already installed under the same still-current target
 // authority. This is not proof that a previously claimed Sworn effect ran:
 // Recovery must still classify different persisted authority as stale. This
-// only permits a new live invocation to call Baton's idempotent
+// only permits a new live invocation to call Protocol's idempotent
 // RecordPlanRevision and journal the actual no-change result.
 func installActionIdempotentlyCallable(
-	state baton.State,
-	command batonActionCommand,
+	state protocol.State,
+	command protocolActionCommand,
 ) bool {
 	var input installActionInput
 	if parseCanonicalActionInput(command.Input, &input) != nil {
@@ -936,11 +936,11 @@ func installActionIdempotentlyCallable(
 		*state.Plan.Approval.Receipt.Target == authority.TargetHead
 }
 
-func classifyBatonAction(engine *engine, kind string,
-	command batonActionCommand) (actionTruth, baton.State, error) {
+func classifyProtocolAction(engine *engine, kind string,
+	command protocolActionCommand) (actionTruth, protocol.State, error) {
 	authority := command.Authority
-	state, err := baton.ReadState(engine.git, authority.Release, engine.inertness)
-	if kind == "baton.install" {
+	state, err := protocol.ReadState(engine.git, authority.Release, engine.inertness)
+	if kind == "protocol.install" {
 		if err == nil {
 			applied, matchErr := actionAlreadyApplied(state, kind, command)
 			if matchErr != nil {
@@ -1002,7 +1002,7 @@ func classifyBatonAction(engine *engine, kind string,
 	if err != nil {
 		return actionAmbiguous, state, err
 	}
-	if err := validateBatonActionStateAuthority(
+	if err := validateProtocolActionStateAuthority(
 		state,
 		kind,
 		command,
@@ -1046,27 +1046,27 @@ func cloneRuntimeInputs(source map[string]string) map[string]string {
 	return result
 }
 
-func reconstructAllNewBatonAction(
-	state baton.State,
+func reconstructAllNewProtocolAction(
+	state protocol.State,
 	kind string,
-	command batonActionCommand,
-) (baton.ActionResult, error) {
-	evidence, applied, err := appliedBatonAction(state, kind, command)
+	command protocolActionCommand,
+) (protocol.ActionResult, error) {
+	evidence, applied, err := appliedProtocolAction(state, kind, command)
 	if err != nil || !applied {
-		return baton.ActionResult{}, runtimeFail("CORRUPT_JOURNAL", err)
+		return protocol.ActionResult{}, runtimeFail("CORRUPT_JOURNAL", err)
 	}
-	result := baton.ActionResult{
-		Kind: "baton.action-result/v2", Changed: false, Release: state.Release,
+	result := protocol.ActionResult{
+		Kind: "protocol.action-result/v2", Changed: false, Release: state.Release,
 	}
 	switch kind {
-	case "baton.install":
+	case "protocol.install":
 		if !evidence.hasPlan ||
 			evidence.plan.OID == "" ||
 			evidence.plan.Revision <= 0 ||
 			evidence.plan.Approval.OID == "" ||
 			evidence.plan.InstallHead == "" ||
 			evidence.plan.Approval.Receipt.Target == nil {
-			return baton.ActionResult{},
+			return protocol.ActionResult{},
 				runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 		receipt := evidence.plan.Approval.Receipt.Clone()
@@ -1080,13 +1080,13 @@ func reconstructAllNewBatonAction(
 		result.Receipt = &receipt
 		result.Retirements = cloneRuntimeRetirements(
 			evidence.plan.Retirements)
-	case "baton.append_receipt", "baton.assembly_verdict":
-		var input baton.AppendReceiptInput
+	case "protocol.append_receipt", "protocol.assembly_verdict":
+		var input protocol.AppendReceiptInput
 		if parseCanonicalActionInput(command.Input, &input) != nil {
-			return baton.ActionResult{}, runtimeFail("CORRUPT_JOURNAL", nil)
+			return protocol.ActionResult{}, runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 		if !evidence.hasReceipt || evidence.receipt.OID == "" {
-			return baton.ActionResult{}, runtimeFail("CORRUPT_JOURNAL", nil)
+			return protocol.ActionResult{}, runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 		receipt := evidence.receipt.Receipt.Clone()
 		result.Action = "appendReceipt"
@@ -1094,11 +1094,11 @@ func reconstructAllNewBatonAction(
 		result.Slice = input.Slice
 		result.ReceiptCommit = evidence.receipt.OID
 		result.Receipt = &receipt
-	case "baton.prepare_assembly":
+	case "protocol.prepare_assembly":
 		if !evidence.hasReceipt ||
 			evidence.receipt.OID == "" ||
 			evidence.receipt.Receipt.Candidate == nil {
-			return baton.ActionResult{}, runtimeFail("CORRUPT_JOURNAL", nil)
+			return protocol.ActionResult{}, runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 		receipt := evidence.receipt.Receipt.Clone()
 		result.Action = "prepareAssembly"
@@ -1107,12 +1107,12 @@ func reconstructAllNewBatonAction(
 		result.Inputs = cloneRuntimeInputs(receipt.Inputs)
 		result.ReceiptCommit = evidence.receipt.OID
 		result.Receipt = &receipt
-	case "baton.merge":
+	case "protocol.merge":
 		if !evidence.hasReceipt ||
 			evidence.receipt.OID == "" ||
 			evidence.receipt.Receipt.Candidate == nil ||
 			evidence.receipt.Receipt.ResultCommit == nil {
-			return baton.ActionResult{}, runtimeFail("CORRUPT_JOURNAL", nil)
+			return protocol.ActionResult{}, runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 		receipt := evidence.receipt.Receipt.Clone()
 		result.Action = "mergePassedCandidate"
@@ -1122,15 +1122,15 @@ func reconstructAllNewBatonAction(
 		result.ReceiptCommit = evidence.receipt.OID
 		result.Receipt = &receipt
 	default:
-		return baton.ActionResult{}, runtimeFail("CORRUPT_JOURNAL", nil)
+		return protocol.ActionResult{}, runtimeFail("CORRUPT_JOURNAL", nil)
 	}
 	return result, nil
 }
 
 func installEvidenceFromHistory(
 	engine *engine,
-	state baton.State,
-	command batonActionCommand,
+	state protocol.State,
+	command protocolActionCommand,
 ) (appliedActionEvidence, error) {
 	var input installActionInput
 	if parseCanonicalActionInput(command.Input, &input) != nil {
@@ -1142,7 +1142,7 @@ func installEvidenceFromHistory(
 		return appliedActionEvidence{}, err
 	}
 	metadata := plan.Metadata()
-	var found baton.PlanHistory
+	var found protocol.PlanHistory
 	for _, candidate := range state.Plan.History {
 		candidateMetadata := candidate.Plan.Metadata()
 		previousMatches := command.Authority.Plan == "" &&
@@ -1188,19 +1188,19 @@ func installEvidenceFromHistory(
 	}, nil
 }
 
-func reconstructSucceededBatonAction(
+func reconstructSucceededProtocolAction(
 	engine *engine,
 	kind string,
-	command batonActionCommand,
-) (baton.ActionResult, error) {
-	if kind == "baton.install" {
-		state, err := baton.ReadState(
+	command protocolActionCommand,
+) (protocol.ActionResult, error) {
+	if kind == "protocol.install" {
+		state, err := protocol.ReadState(
 			engine.git,
 			engine.manifest.value.Release,
 			engine.inertness,
 		)
 		if err != nil {
-			return baton.ActionResult{},
+			return protocol.ActionResult{},
 				runtimeFail("RECOVERY_UNCERTAIN", err)
 		}
 		evidence, err := installEvidenceFromHistory(
@@ -1209,10 +1209,10 @@ func reconstructSucceededBatonAction(
 			command,
 		)
 		if err != nil {
-			return baton.ActionResult{}, err
+			return protocol.ActionResult{}, err
 		}
-		result := baton.ActionResult{
-			Kind: "baton.action-result/v2", Changed: false,
+		result := protocol.ActionResult{
+			Kind: "protocol.action-result/v2", Changed: false,
 			Release: state.Release, Action: "recordPlanRevision",
 			Revision: evidence.plan.Revision, Plan: evidence.plan.OID,
 			Ref: evidence.ref, Head: evidence.plan.InstallHead,
@@ -1222,80 +1222,80 @@ func reconstructSucceededBatonAction(
 		}
 		receipt := evidence.plan.Approval.Receipt.Clone()
 		if receipt.Target == nil {
-			return baton.ActionResult{},
+			return protocol.ActionResult{},
 				runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 		result.Target = *receipt.Target
 		result.Receipt = &receipt
 		return result, nil
 	}
-	truth, state, err := classifyBatonAction(engine, kind, command)
+	truth, state, err := classifyProtocolAction(engine, kind, command)
 	if err != nil || truth != actionAllNew {
-		return baton.ActionResult{},
+		return protocol.ActionResult{},
 			runtimeFail("RECOVERY_UNCERTAIN", err)
 	}
-	return reconstructAllNewBatonAction(state, kind, command)
+	return reconstructAllNewProtocolAction(state, kind, command)
 }
 
-func canonicalActionResult(raw []byte) (baton.ActionResult, error) {
-	var result baton.ActionResult
+func canonicalActionResult(raw []byte) (protocol.ActionResult, error) {
+	var result protocol.ActionResult
 	if json.Unmarshal(raw, &result) != nil ||
 		!bytesEqualCanonicalJSON(raw, result) {
-		return baton.ActionResult{},
+		return protocol.ActionResult{},
 			runtimeFail("CORRUPT_JOURNAL", nil)
 	}
 	return result, nil
 }
 
 func actionResultMatchesDurableTruth(
-	actual baton.ActionResult,
-	expected baton.ActionResult,
+	actual protocol.ActionResult,
+	expected protocol.ActionResult,
 ) bool {
 	actual.Changed = false
 	expected.Changed = false
 	return bytes.Equal(mustJSON(actual), mustJSON(expected))
 }
 
-func validateSucceededBatonAction(
+func validateSucceededProtocolAction(
 	engine *engine,
 	command journal.Command,
 	effect journal.Effect,
-	persisted batonActionCommand,
-) (baton.ActionResult, error) {
-	if err := validateBatonActionEnvelope(
+	persisted protocolActionCommand,
+) (protocol.ActionResult, error) {
+	if err := validateProtocolActionEnvelope(
 		engine,
 		command,
 		effect,
 		persisted,
 	); err != nil {
-		return baton.ActionResult{}, err
+		return protocol.ActionResult{}, err
 	}
 	stored, err := canonicalActionResult(effect.Result)
 	if err != nil {
-		return baton.ActionResult{}, err
+		return protocol.ActionResult{}, err
 	}
-	expected, err := reconstructSucceededBatonAction(
+	expected, err := reconstructSucceededProtocolAction(
 		engine,
 		effect.Kind,
 		persisted,
 	)
 	if err != nil {
-		return baton.ActionResult{}, err
+		return protocol.ActionResult{}, err
 	}
 	if !actionResultMatchesDurableTruth(stored, expected) {
-		return baton.ActionResult{},
+		return protocol.ActionResult{},
 			runtimeFail("RECOVERY_UNCERTAIN", nil)
 	}
 	return stored, nil
 }
 
 func cloneRuntimeRetirements(
-	source []baton.RetirementResult,
-) []baton.RetirementResult {
+	source []protocol.RetirementResult,
+) []protocol.RetirementResult {
 	if source == nil {
 		return nil
 	}
-	result := make([]baton.RetirementResult, len(source))
+	result := make([]protocol.RetirementResult, len(source))
 	for index, value := range source {
 		result[index] = value
 		result[index].Receipt = value.Receipt.Clone()
@@ -1304,12 +1304,12 @@ func cloneRuntimeRetirements(
 }
 
 func driverWorkIdentity(manifestDigest, slice string,
-	responsibility driver.Responsibility, batonAttempt int64, before string) string {
-	return workIdentity(manifestDigest, slice, responsibility, batonAttempt, before)
+	responsibility driver.Responsibility, protocolAttempt int64, before string) string {
+	return workIdentity(manifestDigest, slice, responsibility, protocolAttempt, before)
 }
 
 func dispatchAuthorityCurrent(
-	state baton.State,
+	state protocol.State,
 	slice string,
 	responsibility driver.Responsibility,
 	before string,
@@ -1336,25 +1336,25 @@ func dispatchAuthorityCurrent(
 }
 
 func (s *Service) dispatchRole(ctx context.Context, engine *engine, workspace *gitx.WorkspaceLease,
-	role driver.Role, slice string, responsibility driver.Responsibility, batonAttempt int64,
+	role driver.Role, slice string, responsibility driver.Responsibility, protocolAttempt int64,
 	before string, owner journal.OwnerLease) (driver.Submission, error) {
-	return s.dispatchRoleWithScope(ctx, engine, workspace, role, slice, responsibility, batonAttempt, before, owner, "")
+	return s.dispatchRoleWithScope(ctx, engine, workspace, role, slice, responsibility, protocolAttempt, before, owner, "")
 }
 
 func (s *Service) dispatchRoleWithScope(ctx context.Context, engine *engine, workspace *gitx.WorkspaceLease,
-	role driver.Role, slice string, responsibility driver.Responsibility, batonAttempt int64,
+	role driver.Role, slice string, responsibility driver.Responsibility, protocolAttempt int64,
 	before string, owner journal.OwnerLease, invocationScope string) (driver.Submission, error) {
-	if responsibility != driver.PlannerProposal && responsibility != driver.CaptainPlanReview {
-		fresh, err := baton.ReadState(engine.git, engine.manifest.value.Release, engine.inertness)
+	if responsibility != driver.PlannerProposal && responsibility != driver.LeadPlanReview {
+		fresh, err := protocol.ReadState(engine.git, engine.manifest.value.Release, engine.inertness)
 		if err != nil {
-			return driver.Submission{}, runtimeFail("BATON_UNAVAILABLE", err)
+			return driver.Submission{}, runtimeFail("PROTOCOL_UNAVAILABLE", err)
 		}
 		if !dispatchAuthorityCurrent(fresh, slice, responsibility, before) {
 			return driver.Submission{}, runtimeFail("STALE_DISPATCH", nil)
 		}
 	}
 	workID := driverWorkIdentity(
-		engine.manifest.digest, slice, responsibility, batonAttempt, before)
+		engine.manifest.digest, slice, responsibility, protocolAttempt, before)
 	projection, err := s.journal.ControlProjection(ctx, engine.manifest.value.RunID)
 	if err != nil {
 		return driver.Submission{}, runtimeFail("JOURNAL_READ_FAILED", err)
@@ -1364,19 +1364,19 @@ func (s *Service) dispatchRoleWithScope(ctx context.Context, engine *engine, wor
 		epoch = 1
 	}
 	maximumAttempts := int64(3)
-	if responsibility == driver.CaptainPlanReview {
+	if responsibility == driver.LeadPlanReview {
 		snapshot, snapshotErr := s.journal.Snapshot(ctx, engine.manifest.value.RunID)
 		if snapshotErr != nil {
 			return driver.Submission{}, runtimeFail("JOURNAL_READ_FAILED", snapshotErr)
 		}
-		delegation, delegationErr := currentCaptainDelegation(snapshot)
+		delegation, delegationErr := currentLeadDelegation(snapshot)
 		if delegationErr != nil || !delegation.Active {
-			return driver.Submission{}, runtimeFail("CAPTAIN_DECISION_STALE", delegationErr)
+			return driver.Submission{}, runtimeFail("LEAD_DECISION_STALE", delegationErr)
 		}
-		maximumAttempts = delegation.Envelope.Limits.MaximumCaptainAttemptsPerProposal
+		maximumAttempts = delegation.Envelope.Limits.MaximumLeadAttemptsPerProposal
 	}
 	for try := int64(1); try <= 3; try++ {
-		if responsibility == driver.CaptainPlanReview {
+		if responsibility == driver.LeadPlanReview {
 			attemptID := journal.AttemptEffectID(workID, epoch, try)
 			_, existingErr := s.journal.Effect(ctx, engine.manifest.value.RunID, attemptID)
 			if journal.IsCode(existingErr, "EFFECT_NOT_FOUND") {
@@ -1384,12 +1384,12 @@ func (s *Service) dispatchRoleWithScope(ctx context.Context, engine *engine, wor
 				if snapshotErr != nil {
 					return driver.Submission{}, runtimeFail("JOURNAL_READ_FAILED", snapshotErr)
 				}
-				count, countErr := captainDispatchAttemptCount(snapshot, workID)
+				count, countErr := leadDispatchAttemptCount(snapshot, workID)
 				if countErr != nil {
 					return driver.Submission{}, countErr
 				}
 				if count >= maximumAttempts {
-					return driver.Submission{}, runtimeFail("CAPTAIN_ATTEMPTS_EXHAUSTED", nil)
+					return driver.Submission{}, runtimeFail("LEAD_ATTEMPTS_EXHAUSTED", nil)
 				}
 			} else if existingErr != nil {
 				return driver.Submission{}, runtimeFail("JOURNAL_READ_FAILED", existingErr)
@@ -1403,7 +1403,7 @@ func (s *Service) dispatchRoleWithScope(ctx context.Context, engine *engine, wor
 			dispatchCoordinates{
 				Slice:           slice,
 				Responsibility:  responsibility,
-				BatonAttempt:    batonAttempt,
+				ProtocolAttempt: protocolAttempt,
 				Epoch:           epoch,
 				Try:             try,
 				InvocationScope: invocationScope,
@@ -1446,10 +1446,10 @@ func (s *Service) dispatchRoleWithScope(ctx context.Context, engine *engine, wor
 	return driver.Submission{}, runtimeFail("EFFECT_PARKED", nil)
 }
 
-func persistedBatonAction(engine *engine, kind string,
-	command batonActionCommand,
+func persistedProtocolAction(engine *engine, kind string,
+	command protocolActionCommand,
 ) (
-	func() (baton.ActionResult, error),
+	func() (protocol.ActionResult, error),
 	func() error,
 	error,
 ) {
@@ -1457,35 +1457,35 @@ func persistedBatonAction(engine *engine, kind string,
 	installer := engine.installer
 	if command.GitIdentity != engine.manifest.value.GitIdentity {
 		var err error
-		actions, err = baton.NewActions(engine.git, engine.inertness, command.GitIdentity)
+		actions, err = protocol.NewActions(engine.git, engine.inertness, command.GitIdentity)
 		if err != nil {
 			return nil, nil, runtimeFail("CORRUPT_JOURNAL", err)
 		}
 		installer = newAuthorityInstaller(actions)
 	}
 	switch kind {
-	case "baton.append_receipt", "baton.assembly_verdict":
-		var input baton.AppendReceiptInput
+	case "protocol.append_receipt", "protocol.assembly_verdict":
+		var input protocol.AppendReceiptInput
 		if parseCanonicalActionInput(command.Input, &input) != nil ||
 			input.Release != command.Authority.Release {
 			return nil, nil, runtimeFail("CORRUPT_JOURNAL", nil)
 		}
-		return func() (baton.ActionResult, error) {
+		return func() (protocol.ActionResult, error) {
 			return actions.AppendReceipt(input)
 		}, nil, nil
-	case "baton.prepare_assembly":
-		var input baton.PrepareAssemblyInput
+	case "protocol.prepare_assembly":
+		var input protocol.PrepareAssemblyInput
 		if parseCanonicalActionInput(command.Input, &input) != nil ||
 			input.Release != command.Authority.Release {
 			return nil, nil, runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 		var cleanupErr error
-		return func() (baton.ActionResult, error) {
+		return func() (protocol.ActionResult, error) {
 				result, actionErr, closeErr := withReleaseAssemblyAuthority(
 					engine,
 					command.Authority.Release,
 					command.Authority.ReleaseHead,
-					func() (baton.ActionResult, error) {
+					func() (protocol.ActionResult, error) {
 						return actions.PrepareAssembly(input)
 					},
 				)
@@ -1494,19 +1494,19 @@ func persistedBatonAction(engine *engine, kind string,
 			}, func() error {
 				return cleanupErr
 			}, nil
-	case "baton.merge":
-		var input baton.MergePassedCandidateInput
+	case "protocol.merge":
+		var input protocol.MergePassedCandidateInput
 		if parseCanonicalActionInput(command.Input, &input) != nil ||
 			input.Release != command.Authority.Release {
 			return nil, nil, runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 		var cleanupErr error
-		return func() (baton.ActionResult, error) {
+		return func() (protocol.ActionResult, error) {
 				result, actionErr, closeErr := withReleaseAssemblyAuthority(
 					engine,
 					command.Authority.Release,
 					command.Authority.ReleaseHead,
-					func() (baton.ActionResult, error) {
+					func() (protocol.ActionResult, error) {
 						return actions.MergePassedCandidate(input)
 					},
 				)
@@ -1515,7 +1515,7 @@ func persistedBatonAction(engine *engine, kind string,
 			}, func() error {
 				return cleanupErr
 			}, nil
-	case "baton.install":
+	case "protocol.install":
 		var input installActionInput
 		if parseCanonicalActionInput(command.Input, &input) != nil {
 			return nil, nil, runtimeFail("CORRUPT_JOURNAL", nil)
@@ -1527,7 +1527,7 @@ func persistedBatonAction(engine *engine, kind string,
 			planBytes: input.PlanBytes, planDigest: input.PlanDigest,
 			reference: input.Reference, contractBytes: input.ContractBytes,
 		}
-		return func() (baton.ActionResult, error) {
+		return func() (protocol.ActionResult, error) {
 			return installer.install(admission, command.Authority.TargetHead)
 		}, nil, nil
 	default:
@@ -1536,7 +1536,7 @@ func persistedBatonAction(engine *engine, kind string,
 }
 
 func (s *Service) finishClaimedAction(ctx context.Context, owner journal.OwnerLease,
-	effect journal.Effect, result baton.ActionResult, fresh bool) error {
+	effect journal.Effect, result protocol.ActionResult, fresh bool) error {
 	body := mustJSON(result)
 	assocBody := MarshalAssociation(EventAssociation{
 		EffectID: effect.ID,
@@ -1545,12 +1545,12 @@ func (s *Service) finishClaimedAction(ctx context.Context, owner journal.OwnerLe
 	completion := journal.Completion{
 		RunID: owner.RunID, EffectID: effect.ID, Token: effect.CurrentClaim,
 		State: journal.Succeeded, Result: body,
-		Receipts:  []journal.Receipt{{Kind: "baton_action_result", Body: body}},
-		EventKind: "baton_action_recovered", EventBody: assocBody,
+		Receipts:  []journal.Receipt{{Kind: "protocol_action_result", Body: body}},
+		EventKind: "protocol_action_recovered", EventBody: assocBody,
 		At: s.now().UTC(),
 	}
 	if fresh {
-		completion.EventKind = "baton_action_completed"
+		completion.EventKind = "protocol_action_completed"
 		if err := s.journal.CompleteOwned(
 			context.WithoutCancel(ctx), owner, completion); err != nil {
 			return runtimeFail("JOURNAL_WRITE_FAILED", err)
@@ -1583,21 +1583,21 @@ func (s *Service) finishClaimedFailure(ctx context.Context, owner journal.OwnerL
 	return nil
 }
 
-func (s *Service) reconcileClaimedBatonAction(ctx context.Context, engine *engine,
-	owner journal.OwnerLease, effect journal.Effect, command batonActionCommand,
-	action func() (baton.ActionResult, error), fresh, allowCrash bool,
-) (actionTruth, baton.ActionResult, error) {
-	batonUncertainBody := MarshalAssociation(EventAssociation{
+func (s *Service) reconcileClaimedProtocolAction(ctx context.Context, engine *engine,
+	owner journal.OwnerLease, effect journal.Effect, command protocolActionCommand,
+	action func() (protocol.ActionResult, error), fresh, allowCrash bool,
+) (actionTruth, protocol.ActionResult, error) {
+	protocolUncertainBody := MarshalAssociation(EventAssociation{
 		EffectID: effect.ID,
 		WorkID:   effect.BeforeDigest,
 	})
-	truth, observed, err := classifyBatonAction(engine, effect.Kind, command)
+	truth, observed, err := classifyProtocolAction(engine, effect.Kind, command)
 	if err != nil && truth != actionAmbiguous {
-		return truth, baton.ActionResult{}, err
+		return truth, protocol.ActionResult{}, err
 	}
 	if truth == actionStale &&
 		fresh &&
-		effect.Kind == "baton.install" &&
+		effect.Kind == "protocol.install" &&
 		installActionIdempotentlyCallable(observed, command) {
 		truth = actionAllOld
 	}
@@ -1605,72 +1605,72 @@ func (s *Service) reconcileClaimedBatonAction(ctx context.Context, engine *engin
 	case actionStale:
 		if err := s.finishClaimedFailure(
 			ctx, owner, effect, "stale_authority"); err != nil {
-			return truth, baton.ActionResult{}, err
+			return truth, protocol.ActionResult{}, err
 		}
-		return truth, baton.ActionResult{}, nil
+		return truth, protocol.ActionResult{}, nil
 	case actionAmbiguous:
 		_ = s.journal.ReconcileOwned(context.WithoutCancel(ctx), owner,
 			journal.Completion{
 				RunID: owner.RunID, EffectID: effect.ID, Token: effect.CurrentClaim,
-				EventKind: "baton_action_uncertain", EventBody: batonUncertainBody,
+				EventKind: "protocol_action_uncertain", EventBody: protocolUncertainBody,
 				At: s.now().UTC(),
 			}, journal.RecoveryAmbiguous)
-		return truth, baton.ActionResult{}, runtimeFail("RECOVERY_UNCERTAIN", err)
+		return truth, protocol.ActionResult{}, runtimeFail("RECOVERY_UNCERTAIN", err)
 	case actionAllNew:
-		result, err := reconstructAllNewBatonAction(
+		result, err := reconstructAllNewProtocolAction(
 			observed, effect.Kind, command)
 		if err != nil {
 			_ = s.journal.ReconcileOwned(context.WithoutCancel(ctx), owner,
 				journal.Completion{
 					RunID: owner.RunID, EffectID: effect.ID,
-					Token: effect.CurrentClaim, EventKind: "baton_action_uncertain",
-					EventBody: batonUncertainBody, At: s.now().UTC(),
+					Token: effect.CurrentClaim, EventKind: "protocol_action_uncertain",
+					EventBody: protocolUncertainBody, At: s.now().UTC(),
 				}, journal.RecoveryAmbiguous)
-			return actionAmbiguous, baton.ActionResult{},
+			return actionAmbiguous, protocol.ActionResult{},
 				runtimeFail("RECOVERY_UNCERTAIN", err)
 		}
 		if err := s.finishClaimedAction(
 			ctx, owner, effect, result, false); err != nil {
-			return truth, baton.ActionResult{}, err
+			return truth, protocol.ActionResult{}, err
 		}
 		return actionAllNew, result, nil
 	case actionAllOld:
 		// Only an exact all-old authority may invoke the persisted mutation.
-		if err := validateBatonAllOldStateAuthority(
+		if err := validateProtocolAllOldStateAuthority(
 			observed,
 			effect.Kind,
 			command,
 		); err != nil {
-			return actionAmbiguous, baton.ActionResult{}, err
+			return actionAmbiguous, protocol.ActionResult{}, err
 		}
 	default:
-		return actionAmbiguous, baton.ActionResult{},
+		return actionAmbiguous, protocol.ActionResult{},
 			runtimeFail("CORRUPT_JOURNAL", nil)
 	}
 	engine.actionMu.Lock()
 	result, actionErr := action()
 	engine.actionMu.Unlock()
 	if actionErr != nil {
-		after, afterState, classifyErr := classifyBatonAction(
+		after, afterState, classifyErr := classifyProtocolAction(
 			engine, effect.Kind, command)
 		switch after {
 		case actionStale:
 			if err := s.finishClaimedFailure(
 				ctx, owner, effect, "stale_authority"); err != nil {
-				return after, baton.ActionResult{}, err
+				return after, protocol.ActionResult{}, err
 			}
-			return after, baton.ActionResult{}, nil
+			return after, protocol.ActionResult{}, nil
 		case actionAllNew:
-			recovered, recoverErr := reconstructAllNewBatonAction(
+			recovered, recoverErr := reconstructAllNewProtocolAction(
 				afterState, effect.Kind, command)
 			if recoverErr != nil {
 				_ = s.journal.ReconcileOwned(context.WithoutCancel(ctx), owner,
 					journal.Completion{
 						RunID: owner.RunID, EffectID: effect.ID,
-						Token: effect.CurrentClaim, EventKind: "baton_action_uncertain",
-						EventBody: batonUncertainBody, At: s.now().UTC(),
+						Token: effect.CurrentClaim, EventKind: "protocol_action_uncertain",
+						EventBody: protocolUncertainBody, At: s.now().UTC(),
 					}, journal.RecoveryAmbiguous)
-				return actionAmbiguous, baton.ActionResult{},
+				return actionAmbiguous, protocol.ActionResult{},
 					runtimeFail(
 						"RECOVERY_UNCERTAIN",
 						errors.Join(actionErr, classifyErr, recoverErr),
@@ -1678,27 +1678,27 @@ func (s *Service) reconcileClaimedBatonAction(ctx context.Context, engine *engin
 			}
 			if err := s.finishClaimedAction(
 				ctx, owner, effect, recovered, false); err != nil {
-				return after, baton.ActionResult{}, err
+				return after, protocol.ActionResult{}, err
 			}
 			return actionAllNew, recovered, nil
 		case actionAmbiguous:
 			_ = s.journal.ReconcileOwned(context.WithoutCancel(ctx), owner,
 				journal.Completion{
 					RunID: owner.RunID, EffectID: effect.ID,
-					Token: effect.CurrentClaim, EventKind: "baton_action_uncertain",
-					EventBody: batonUncertainBody, At: s.now().UTC(),
+					Token: effect.CurrentClaim, EventKind: "protocol_action_uncertain",
+					EventBody: protocolUncertainBody, At: s.now().UTC(),
 				}, journal.RecoveryAmbiguous)
-			return actionAmbiguous, baton.ActionResult{},
+			return actionAmbiguous, protocol.ActionResult{},
 				runtimeFail("RECOVERY_UNCERTAIN", errors.Join(actionErr, classifyErr))
 		default:
 			if err := s.finishClaimedFailure(
 				ctx, owner, effect, stableErrorCode(actionErr)); err != nil {
-				return after, baton.ActionResult{}, err
+				return after, protocol.ActionResult{}, err
 			}
-			return after, baton.ActionResult{}, actionErr
+			return after, protocol.ActionResult{}, actionErr
 		}
 	}
-	expected, attestErr := reconstructSucceededBatonAction(
+	expected, attestErr := reconstructSucceededProtocolAction(
 		engine,
 		effect.Kind,
 		command,
@@ -1709,7 +1709,7 @@ func (s *Service) reconcileClaimedBatonAction(ctx context.Context, engine *engin
 			attestErr = errors.Join(
 				attestErr,
 				errors.New(
-					"baton callback result does not match durable truth for "+
+					"protocol callback result does not match durable truth for "+
 						effect.Kind,
 				),
 			)
@@ -1720,49 +1720,49 @@ func (s *Service) reconcileClaimedBatonAction(ctx context.Context, engine *engin
 			journal.Completion{
 				RunID: owner.RunID, EffectID: effect.ID,
 				Token:     effect.CurrentClaim,
-				EventKind: "baton_action_uncertain",
-				EventBody: batonUncertainBody,
+				EventKind: "protocol_action_uncertain",
+				EventBody: protocolUncertainBody,
 				At:        s.now().UTC(),
 			},
 			journal.RecoveryAmbiguous,
 		)
-		return actionAmbiguous, baton.ActionResult{},
+		return actionAmbiguous, protocol.ActionResult{},
 			runtimeFail(
 				"RECOVERY_UNCERTAIN",
 				errors.Join(
 					attestErr,
-					errors.New("baton callback attestation failed"),
+					errors.New("protocol callback attestation failed"),
 				),
 			)
 	}
 	if allowCrash && testCrashAfterEffect == effect.Kind {
 		os.Exit(86)
 	}
-	if effect.Kind == "baton.install" && testCaptainCrashCut == "baton_mutation" {
-		return actionAllNew, result, runtimeFail("TEST_CAPTAIN_CRASH_CUT", nil)
+	if effect.Kind == "protocol.install" && testLeadCrashCut == "protocol_mutation" {
+		return actionAllNew, result, runtimeFail("TEST_LEAD_CRASH_CUT", nil)
 	}
 	if err := s.finishClaimedAction(ctx, owner, effect, result, fresh); err != nil {
-		return truth, baton.ActionResult{}, err
+		return truth, protocol.ActionResult{}, err
 	}
 	return actionAllNew, result, nil
 }
 
 func (s *Service) runAction(ctx context.Context, engine *engine, owner journal.OwnerLease,
 	workID, kind string, payload []byte,
-	_ func() (baton.ActionResult, error)) (result baton.ActionResult, resultErr error) {
+	_ func() (protocol.ActionResult, error)) (result protocol.ActionResult, resultErr error) {
 	persisted, err := parseActionCommand(payload)
 	if err != nil {
-		return baton.ActionResult{}, runtimeFail(
+		return protocol.ActionResult{}, runtimeFail(
 			"CORRUPT_JOURNAL",
 			errors.Join(
 				err,
-				errors.New("baton action command admission failed"),
+				errors.New("protocol action command admission failed"),
 			),
 		)
 	}
-	action, cleanup, err := persistedBatonAction(engine, kind, persisted)
+	action, cleanup, err := persistedProtocolAction(engine, kind, persisted)
 	if err != nil {
-		return baton.ActionResult{}, err
+		return protocol.ActionResult{}, err
 	}
 	defer func() {
 		if cleanup != nil {
@@ -1771,7 +1771,7 @@ func (s *Service) runAction(ctx context.Context, engine *engine, owner journal.O
 	}()
 	projection, err := s.journal.ControlProjection(ctx, engine.manifest.value.RunID)
 	if err != nil {
-		return baton.ActionResult{}, runtimeFail("JOURNAL_READ_FAILED", err)
+		return protocol.ActionResult{}, runtimeFail("JOURNAL_READ_FAILED", err)
 	}
 	epoch := projection.RetryEpochs[workID]
 	if epoch == 0 {
@@ -1786,28 +1786,28 @@ func (s *Service) runAction(ctx context.Context, engine *engine, owner journal.O
 			Kind: kind, BeforeDigest: workID, ExpectedDigest: sha256Digest(payload), UpdatedAt: now}
 		if err := s.journal.EnsureAttempt(ctx, command, effectInput,
 			journal.EffectAttempt{WorkID: workID, Epoch: epoch, Try: try}); err != nil {
-			return baton.ActionResult{}, runtimeFail("JOURNAL_WRITE_FAILED", err)
+			return protocol.ActionResult{}, runtimeFail("JOURNAL_WRITE_FAILED", err)
 		}
 		effect, err := s.journal.Effect(ctx, command.RunID, id)
 		if err != nil {
-			return baton.ActionResult{}, runtimeFail("JOURNAL_READ_FAILED", err)
+			return protocol.ActionResult{}, runtimeFail("JOURNAL_READ_FAILED", err)
 		}
-		if err := validateBatonActionEnvelope(
+		if err := validateProtocolActionEnvelope(
 			engine,
 			command,
 			effect,
 			persisted,
 		); err != nil {
-			return baton.ActionResult{}, runtimeFail(
+			return protocol.ActionResult{}, runtimeFail(
 				stableErrorCode(err),
 				errors.Join(
 					err,
-					errors.New("baton action envelope admission failed"),
+					errors.New("protocol action envelope admission failed"),
 				),
 			)
 		}
 		if effect.State == journal.Succeeded {
-			return validateSucceededBatonAction(
+			return validateSucceededProtocolAction(
 				engine,
 				command,
 				effect,
@@ -1815,16 +1815,16 @@ func (s *Service) runAction(ctx context.Context, engine *engine, owner journal.O
 			)
 		}
 		if effect.State == journal.Claimed {
-			truth, recovered, recoverErr := s.reconcileClaimedBatonAction(
+			truth, recovered, recoverErr := s.reconcileClaimedProtocolAction(
 				ctx, engine, owner, effect, persisted, action, false, false)
 			if recoverErr != nil {
 				if truth == actionAllOld {
 					continue
 				}
-				return baton.ActionResult{}, recoverErr
+				return protocol.ActionResult{}, recoverErr
 			}
 			if truth == actionStale {
-				return baton.ActionResult{}, runtimeFail("STALE_DISPATCH", nil)
+				return protocol.ActionResult{}, runtimeFail("STALE_DISPATCH", nil)
 			}
 			return recovered, nil
 		}
@@ -1832,34 +1832,34 @@ func (s *Service) runAction(ctx context.Context, engine *engine, owner journal.O
 			if effect.State == journal.OperationalFailed {
 				continue
 			}
-			return baton.ActionResult{}, runtimeFail("RECOVERY_UNCERTAIN", nil)
+			return protocol.ActionResult{}, runtimeFail("RECOVERY_UNCERTAIN", nil)
 		}
 		claim, err := s.journal.ClaimOwned(ctx, owner, id, now, effectLease)
 		if err != nil {
-			return baton.ActionResult{}, runtimeFail("EFFECT_CLAIM_FAILED", err)
+			return protocol.ActionResult{}, runtimeFail("EFFECT_CLAIM_FAILED", err)
 		}
 		effect.State, effect.CurrentClaim = journal.Claimed, claim.Token
 		if testCrashBeforeEffect == kind {
 			os.Exit(86)
 		}
-		truth, result, actionErr := s.reconcileClaimedBatonAction(
+		truth, result, actionErr := s.reconcileClaimedProtocolAction(
 			ctx, engine, owner, effect, persisted, action, true, true)
 		if actionErr != nil {
 			if truth == actionAllOld &&
 				!IsCode(actionErr, "RECOVERY_UNCERTAIN") {
 				continue
 			}
-			return baton.ActionResult{}, actionErr
+			return protocol.ActionResult{}, actionErr
 		}
 		if truth == actionStale {
-			return baton.ActionResult{}, runtimeFail("STALE_DISPATCH", nil)
+			return protocol.ActionResult{}, runtimeFail("STALE_DISPATCH", nil)
 		}
 		return result, nil
 	}
-	return baton.ActionResult{}, runtimeFail("EFFECT_PARKED", nil)
+	return protocol.ActionResult{}, runtimeFail("EFFECT_PARKED", nil)
 }
 
-func sliceAttempt(state baton.State, sliceID string) int64 {
+func sliceAttempt(state protocol.State, sliceID string) int64 {
 	slice, ok := state.Slice(sliceID)
 	if !ok || slice.Attempt < 1 {
 		return 0
@@ -1867,17 +1867,17 @@ func sliceAttempt(state baton.State, sliceID string) int64 {
 	return slice.Attempt
 }
 
-func planFromState(state baton.State) (baton.Plan, error) {
+func planFromState(state protocol.State) (protocol.Plan, error) {
 	for _, history := range state.Plan.History {
 		if history.OID != state.Plan.OID {
 			continue
 		}
 		return history.Plan, nil
 	}
-	return baton.Plan{}, runtimeFail("CORRUPT_JOURNAL", nil)
+	return protocol.Plan{}, runtimeFail("CORRUPT_JOURNAL", nil)
 }
 
-func sliceFingerprint(state baton.State, sliceID string) string {
+func sliceFingerprint(state protocol.State, sliceID string) string {
 	slice, ok := state.Slice(sliceID)
 	if !ok {
 		return ""
@@ -1890,7 +1890,7 @@ func sliceFingerprint(state baton.State, sliceID string) string {
 }
 
 func sliceFingerprintAtTrackHead(
-	state baton.State,
+	state protocol.State,
 	sliceID string,
 	trackHead string,
 ) string {
@@ -1903,7 +1903,7 @@ func sliceFingerprintAtTrackHead(
 }
 
 func sliceFingerprintAtAuthority(
-	state baton.State,
+	state protocol.State,
 	sliceID string,
 	targetHead string,
 	trackHead string,
@@ -1921,10 +1921,10 @@ func sliceFingerprintAtAuthority(
 }
 
 func (s *Service) appendReceipt(ctx context.Context, engine *engine, owner journal.OwnerLease,
-	state baton.State, expectedBefore string, input baton.AppendReceiptInput) error {
-	fresh, err := baton.ReadState(engine.git, state.Release, engine.inertness)
+	state protocol.State, expectedBefore string, input protocol.AppendReceiptInput) error {
+	fresh, err := protocol.ReadState(engine.git, state.Release, engine.inertness)
 	if err != nil {
-		return runtimeFail("BATON_UNAVAILABLE", err)
+		return runtimeFail("PROTOCOL_UNAVAILABLE", err)
 	}
 	if fresh.Plan.TargetStale {
 		return runtimeFail("STALE_DISPATCH", nil)
@@ -1935,7 +1935,7 @@ func (s *Service) appendReceipt(ctx context.Context, engine *engine, owner journ
 		return runtimeFail("STALE_DISPATCH", nil)
 	}
 	workID := workIdentity(before, "append", input.Role, input.Result, input.Candidate)
-	action := func() (baton.ActionResult, error) { return engine.actions.AppendReceipt(input) }
+	action := func() (protocol.ActionResult, error) { return engine.actions.AppendReceipt(input) }
 	slice, ok := state.Slice(input.Slice)
 	if !ok || slice.CurrentReceipt == nil {
 		return runtimeFail("STALE_DISPATCH", nil)
@@ -1947,7 +1947,7 @@ func (s *Service) appendReceipt(ctx context.Context, engine *engine, owner journ
 	authority := stateActionAuthority(
 		state, track.Ref, track.Head, before, slice.CurrentReceipt.OID,
 		input.Candidate, slice.Attempt)
-	_, err = s.runAction(ctx, engine, owner, workID, "baton.append_receipt",
+	_, err = s.runAction(ctx, engine, owner, workID, "protocol.append_receipt",
 		marshalActionCommand(engine.manifest.value.GitIdentity, authority, input), action)
 	return err
 }
@@ -1955,9 +1955,9 @@ func (s *Service) appendReceipt(ctx context.Context, engine *engine, owner journ
 func exactDesignContinuationPromotion(
 	entry *retainedContinuation,
 	runID string,
-	state baton.State,
-	slice *baton.SliceState,
-	track *baton.TrackState,
+	state protocol.State,
+	slice *protocol.SliceState,
+	track *protocol.TrackState,
 ) bool {
 	if entry == nil || entry.handle == nil ||
 		entry.designReceipt != "" ||
@@ -2023,7 +2023,7 @@ func (s *Service) promoteDesignContinuation(
 	if entry == nil {
 		return nil
 	}
-	state, err := baton.ReadState(
+	state, err := protocol.ReadState(
 		engine.git,
 		engine.manifest.value.Release,
 		engine.inertness,
@@ -2061,7 +2061,7 @@ func (s *Service) promoteVerifierContinuation(
 	if entry == nil {
 		return nil
 	}
-	state, err := baton.ReadState(
+	state, err := protocol.ReadState(
 		engine.git,
 		engine.manifest.value.Release,
 		engine.inertness,
@@ -2109,9 +2109,9 @@ func (s *Service) promoteVerifierContinuation(
 
 func (s *Service) advanceSlice(ctx context.Context, engine *engine, owner journal.OwnerLease,
 	sliceID string) error {
-	state, err := baton.ReadState(engine.git, engine.manifest.value.Release, engine.inertness)
+	state, err := protocol.ReadState(engine.git, engine.manifest.value.Release, engine.inertness)
 	if err != nil {
-		return runtimeFail("BATON_UNAVAILABLE", err)
+		return runtimeFail("PROTOCOL_UNAVAILABLE", err)
 	}
 	if state.Plan.TargetStale {
 		return runtimeFail("STALE_DISPATCH", nil)
@@ -2167,7 +2167,7 @@ func (s *Service) advanceSlice(ctx context.Context, engine *engine, owner journa
 			owner,
 			state,
 			before,
-			baton.AppendReceiptInput{
+			protocol.AppendReceiptInput{
 				Release: state.Release, Slice: sliceID,
 				Role: "implementer", Result: "designed",
 				Summary: submission.Summary,
@@ -2184,13 +2184,13 @@ func (s *Service) advanceSlice(ctx context.Context, engine *engine, owner journa
 			return appendErr
 		}
 		return s.promoteDesignContinuation(ctx, engine, sliceID)
-	case slice.NextRole == "captain":
-		workspace, err := engine.workspaces.OpenTrack(key, gitx.CaptainView)
+	case slice.NextRole == "lead":
+		workspace, err := engine.workspaces.OpenTrack(key, gitx.LeadView)
 		if err != nil {
 			return runtimeFail("WORKSPACE_UNAVAILABLE", err)
 		}
-		submission, runErr := s.dispatchRole(ctx, engine, workspace, driver.RoleCaptain,
-			sliceID, driver.CaptainReview, slice.Attempt, before, owner)
+		submission, runErr := s.dispatchRole(ctx, engine, workspace, driver.RoleLead,
+			sliceID, driver.LeadReview, slice.Attempt, before, owner)
 		closeErr := workspace.Close()
 		if runErr != nil {
 			return runErr
@@ -2204,9 +2204,9 @@ func (s *Service) advanceSlice(ctx context.Context, engine *engine, owner journa
 			owner,
 			state,
 			before,
-			baton.AppendReceiptInput{
+			protocol.AppendReceiptInput{
 				Release: state.Release, Slice: sliceID,
-				Role:    "captain",
+				Role:    "lead",
 				Result:  string(submission.Decision.Outcome),
 				Summary: submission.Summary,
 				Detail:  []byte(submission.Detail),
@@ -2287,13 +2287,13 @@ func (s *Service) advanceSlice(ctx context.Context, engine *engine, owner journa
 			}
 			manifest, buildErr := buildHostCheckResultsManifest(
 				state.Release, sliceID, slice.Attempt, candidate,
-				contractDigest, hostResults, baton.DigestBytes(checks))
+				contractDigest, hostResults, protocol.DigestBytes(checks))
 			if buildErr != nil {
 				return discardVerifier(buildErr)
 			}
 			checks = manifest
 		}
-		appendErr := s.appendReceipt(ctx, engine, owner, state, before, baton.AppendReceiptInput{
+		appendErr := s.appendReceipt(ctx, engine, owner, state, before, protocol.AppendReceiptInput{
 			Release: state.Release, Slice: sliceID, Role: "verifier",
 			Result: string(submission.Decision.Outcome), Summary: submission.Summary,
 			Detail: []byte(submission.Detail), Candidate: candidate, CheckResults: checks,
@@ -2359,7 +2359,7 @@ func (s *Service) scopeRefusalEscaped(
 }
 
 func (s *Service) implementSlice(ctx context.Context, engine *engine, owner journal.OwnerLease,
-	state baton.State, slice *baton.SliceState) error {
+	state protocol.State, slice *protocol.SliceState) error {
 	sliceID := slice.Location.Slice.ID
 	if recovered, err := s.recoverPendingImplementationForSlice(
 		ctx, engine, owner, state, slice); recovered {
@@ -2541,12 +2541,12 @@ func (s *Service) implementSlice(ctx context.Context, engine *engine, owner jour
 			key,
 			cycle,
 			dispatchCoordinates{
-				Slice:          sliceID,
-				Responsibility: driver.ImplementerImplementation,
-				BatonAttempt:   slice.Attempt,
-				Epoch:          epoch,
-				Try:            try,
-				DispatchWork:   dispatchWork,
+				Slice:           sliceID,
+				Responsibility:  driver.ImplementerImplementation,
+				ProtocolAttempt: slice.Attempt,
+				Epoch:           epoch,
+				Try:             try,
+				DispatchWork:    dispatchWork,
 			},
 			journal.Effect{
 				RunID: owner.RunID, ID: effectID,
@@ -2618,8 +2618,8 @@ func (s *Service) executeClaimedImplementationCycle(
 	ctx context.Context,
 	engine *engine,
 	owner journal.OwnerLease,
-	state baton.State,
-	slice *baton.SliceState,
+	state protocol.State,
+	slice *protocol.SliceState,
 	active activeImplementationCycle,
 ) error {
 	if slice == nil ||
@@ -2645,12 +2645,12 @@ func (s *Service) executeClaimedImplementationCycle(
 		},
 		active.cycle,
 		dispatchCoordinates{
-			Slice:          active.cycle.Slice,
-			Responsibility: driver.ImplementerImplementation,
-			BatonAttempt:   slice.Attempt,
-			Epoch:          epoch,
-			Try:            try,
-			DispatchWork:   active.cycle.DispatchWork,
+			Slice:           active.cycle.Slice,
+			Responsibility:  driver.ImplementerImplementation,
+			ProtocolAttempt: slice.Attempt,
+			Epoch:           epoch,
+			Try:             try,
+			DispatchWork:    active.cycle.DispatchWork,
 		},
 		active.outer,
 	)
@@ -2771,8 +2771,8 @@ func (s *Service) retireStaleImplementationCycle(
 }
 
 func (s *Service) recoverPendingImplementationForSlice(ctx context.Context,
-	engine *engine, owner journal.OwnerLease, state baton.State,
-	slice *baton.SliceState) (bool, error) {
+	engine *engine, owner journal.OwnerLease, state protocol.State,
+	slice *protocol.SliceState) (bool, error) {
 	if slice == nil || slice.CurrentReceipt == nil {
 		return false, nil
 	}
@@ -3081,7 +3081,7 @@ func validateSealedRecordCandidate(
 			),
 		)
 	}
-	state, err := baton.ReadState(
+	state, err := protocol.ReadState(
 		engine.git,
 		engine.manifest.value.Release,
 		engine.inertness,
@@ -3095,7 +3095,7 @@ func validateSealedRecordCandidate(
 	); err != nil {
 		return err
 	}
-	var plan baton.Plan
+	var plan protocol.Plan
 	for _, history := range state.Plan.History {
 		if history.OID == cycle.Plan {
 			plan = history.Plan
@@ -3105,7 +3105,7 @@ func validateSealedRecordCandidate(
 	if plan.Digest() == "" {
 		return runtimeFail("RECOVERY_UNCERTAIN", nil)
 	}
-	if err := baton.ValidateSliceCandidateScope(
+	if err := protocol.ValidateSliceCandidateScope(
 		engine.git,
 		engine.inertness,
 		plan,
@@ -3147,24 +3147,24 @@ func (s *Service) completeImplementationFailure(ctx context.Context, owner journ
 func currentImplementationState(
 	engine *engine,
 	cycle implementationCycle,
-) (baton.State, error) {
-	fresh, err := baton.ReadState(
+) (protocol.State, error) {
+	fresh, err := protocol.ReadState(
 		engine.git,
 		engine.manifest.value.Release,
 		engine.inertness,
 	)
 	if err != nil {
-		return baton.State{}, runtimeFail("BATON_UNAVAILABLE", err)
+		return protocol.State{}, runtimeFail("PROTOCOL_UNAVAILABLE", err)
 	}
 	if !implementationAuthorityCurrent(fresh, cycle) {
-		return baton.State{}, runtimeFail("STALE_DISPATCH", nil)
+		return protocol.State{}, runtimeFail("STALE_DISPATCH", nil)
 	}
 	return fresh, nil
 }
 
 func implementationRefreshBase(
 	engine *engine,
-	state baton.State,
+	state protocol.State,
 	cycle implementationCycle,
 ) (gitx.OID, bool, error) {
 	if cycle.RefreshFrom == "" {
@@ -3211,13 +3211,13 @@ func (s *Service) claimPreparedImplementation(
 	ctx context.Context,
 	engine *engine,
 	owner journal.OwnerLease,
-	state baton.State,
+	state protocol.State,
 	cycle implementationCycle,
 	submission driver.Submission,
 	prepared gitx.SealedCandidate,
 	requireDispatchProof bool,
 ) (sealedRecord, journal.Claim, error) {
-	var plan baton.Plan
+	var plan protocol.Plan
 	for _, history := range state.Plan.History {
 		if history.OID == cycle.Plan {
 			plan = history.Plan
@@ -3245,7 +3245,7 @@ func (s *Service) claimPreparedImplementation(
 		return sealedRecord{}, journal.Claim{},
 			runtimeFail("STALE_DISPATCH", nil)
 	}
-	if err := baton.ValidateSliceCandidateScope(
+	if err := protocol.ValidateSliceCandidateScope(
 		engine.git,
 		engine.inertness,
 		plan,
@@ -3271,7 +3271,7 @@ func (s *Service) claimPreparedImplementation(
 			runtimeFail("CANDIDATE_SCOPE_FAILED", err)
 	}
 	record.ProductTree = productIdentity.ProductTree
-	record.Receipt = baton.AppendReceiptInput{
+	record.Receipt = protocol.AppendReceiptInput{
 		Release: state.Release, Slice: cycle.Slice, Role: "implementer",
 		Result: "candidate", Summary: submission.Summary,
 		Detail: []byte(submission.Detail), Candidate: record.Candidate,
@@ -3311,7 +3311,7 @@ func (s *Service) claimPreparedImplementation(
 		manifest, buildErr := buildHostCheckResultsManifest(
 			state.Release, cycle.Slice, sliceAttempt(state, cycle.Slice),
 			record.Candidate, contractDigest, hostResults,
-			baton.DigestBytes(checks))
+			protocol.DigestBytes(checks))
 		if buildErr != nil {
 			return sealedRecord{}, journal.Claim{}, buildErr
 		}
@@ -3630,9 +3630,9 @@ func (s *Service) captureImplementationCheckpoint(
 		_ = workspace.Fence("CHECKPOINT_STATE_LOOKUP_FAILED", "attemptCoordinates: "+err.Error(), cycle.Slice)
 		return runtimeFail("CHECKPOINT_STATE_LOOKUP_FAILED", err)
 	}
-	fresh, readErr := baton.ReadState(engine.git, cycle.Release, engine.inertness)
+	fresh, readErr := protocol.ReadState(engine.git, cycle.Release, engine.inertness)
 	if readErr != nil {
-		_ = workspace.Fence("CHECKPOINT_STATE_LOOKUP_FAILED", "baton.ReadState: "+readErr.Error(), cycle.Slice)
+		_ = workspace.Fence("CHECKPOINT_STATE_LOOKUP_FAILED", "protocol.ReadState: "+readErr.Error(), cycle.Slice)
 		return runtimeFail("CHECKPOINT_STATE_LOOKUP_FAILED", readErr)
 	}
 	plan, planErr := planFromState(fresh)
@@ -3736,12 +3736,12 @@ func (s *Service) captureImplementationCheckpoint(
 }
 
 func (s *Service) runImplementationCycle(ctx context.Context, engine *engine,
-	owner journal.OwnerLease, state baton.State, slice *baton.SliceState,
+	owner journal.OwnerLease, state protocol.State, slice *protocol.SliceState,
 	key gitx.TrackKey, cycle implementationCycle, coordinates dispatchCoordinates,
 	outer journal.Effect) (sealedRecord, error) {
-	fresh, err := baton.ReadState(engine.git, state.Release, engine.inertness)
+	fresh, err := protocol.ReadState(engine.git, state.Release, engine.inertness)
 	if err != nil {
-		return sealedRecord{}, runtimeFail("BATON_UNAVAILABLE", err)
+		return sealedRecord{}, runtimeFail("PROTOCOL_UNAVAILABLE", err)
 	}
 	if fresh.Plan.TargetStale || sliceFingerprint(fresh, cycle.Slice) != cycle.Before {
 		return sealedRecord{}, runtimeFail("STALE_DISPATCH", nil)
@@ -3897,7 +3897,7 @@ func (s *Service) runImplementationCycle(ctx context.Context, engine *engine,
 	if testCrashAfterEffect == "implementation.handoff" {
 		os.Exit(86)
 	}
-	fresh, err = baton.ReadState(engine.git, state.Release, engine.inertness)
+	fresh, err = protocol.ReadState(engine.git, state.Release, engine.inertness)
 	if err != nil || sliceFingerprint(fresh, cycle.Slice) != cycle.Before {
 		_ = workspace.Close()
 		return sealedRecord{}, runtimeFail("STALE_DISPATCH", err)
@@ -4354,7 +4354,7 @@ func (s *Service) interruptImplementationCycle(ctx context.Context, engine *engi
 		"implementation_interrupted"); err != nil {
 		return sealedRecord{}, false, err
 	}
-	fresh, err := baton.ReadState(engine.git, engine.manifest.value.Release, engine.inertness)
+	fresh, err := protocol.ReadState(engine.git, engine.manifest.value.Release, engine.inertness)
 	if err != nil || sliceFingerprint(fresh, cycle.Slice) != cycle.Before {
 		return sealedRecord{}, false, runtimeFail("STALE_DISPATCH", err)
 	}
@@ -4366,10 +4366,10 @@ func (s *Service) validateSealedCycle(engine *engine, cycle implementationCycle,
 	if !sealedRecordMatchesCycle(record, cycle) {
 		return runtimeFail("CORRUPT_JOURNAL", nil)
 	}
-	state, err := baton.ReadState(
+	state, err := protocol.ReadState(
 		engine.git, engine.manifest.value.Release, engine.inertness)
 	if err != nil {
-		return runtimeFail("BATON_UNAVAILABLE", err)
+		return runtimeFail("PROTOCOL_UNAVAILABLE", err)
 	}
 	if err := validateImplementationCyclePlanAuthority(
 		state,
@@ -4394,7 +4394,7 @@ func (s *Service) validateSealedCycle(engine *engine, cycle implementationCycle,
 	return nil
 }
 
-func implementationAuthorityCurrent(state baton.State, cycle implementationCycle) bool {
+func implementationAuthorityCurrent(state protocol.State, cycle implementationCycle) bool {
 	current, ok := state.Slice(cycle.Slice)
 	track, trackOK := state.Track(cycle.Track)
 	return validateImplementationCyclePlanAuthority(state, cycle) == nil &&
@@ -4415,11 +4415,11 @@ func implementationAuthorityCurrent(state baton.State, cycle implementationCycle
 }
 
 func implementationReceiptApplied(
-	state baton.State,
+	state protocol.State,
 	cycle implementationCycle,
 	record sealedRecord,
 ) (bool, error) {
-	var entries []baton.ReceiptEntry
+	var entries []protocol.ReceiptEntry
 	if historical, ok := state.HistoryForSlice(cycle.Slice); ok {
 		entries = append(entries, historical.History.Entries...)
 	}
@@ -4453,7 +4453,7 @@ func implementationReceiptApplied(
 		}
 		attempt := *bound.Attempt
 		switch {
-		case bound.Role == "captain" && bound.Result == "proceed":
+		case bound.Role == "lead" && bound.Result == "proceed":
 		case bound.Role == "implementer" &&
 			bound.Result == "candidate":
 			attempt++
@@ -4472,12 +4472,12 @@ func implementationReceiptApplied(
 	if expectedAttempt == nil {
 		return false, runtimeFail("CORRUPT_JOURNAL", nil)
 	}
-	expectedChecks := baton.DigestBytes(record.Receipt.CheckResults)
-	expectedDetail := baton.DigestBytes(record.Receipt.Detail)
+	expectedChecks := protocol.DigestBytes(record.Receipt.CheckResults)
+	expectedDetail := protocol.DigestBytes(record.Receipt.Detail)
 	found := ""
 	for _, entry := range entries {
 		receipt := entry.Receipt
-		if receipt.Version == baton.ReceiptVersion &&
+		if receipt.Version == protocol.ReceiptVersion &&
 			receipt.Release == cycle.Release &&
 			receipt.Slice != nil &&
 			*receipt.Slice == cycle.Slice &&
@@ -4658,10 +4658,10 @@ func (s *Service) reconcilePreparedSeal(ctx context.Context, engine *engine,
 		return sealedRecord{}, runtimeFail(
 			"CORRUPT_JOURNAL", errors.Join(beforeErr, candidateErr))
 	}
-	state, stateErr := baton.ReadState(
+	state, stateErr := protocol.ReadState(
 		engine.git, engine.manifest.value.Release, engine.inertness)
 	if stateErr != nil {
-		return sealedRecord{}, runtimeFail("BATON_UNAVAILABLE", stateErr)
+		return sealedRecord{}, runtimeFail("PROTOCOL_UNAVAILABLE", stateErr)
 	}
 	if !implementationAuthorityCurrent(state, cycle) {
 		return s.rejectStalePreparedSeal(
@@ -4751,7 +4751,7 @@ func (s *Service) reconcilePreparedSeal(ctx context.Context, engine *engine,
 				}
 			}
 			if !authorityExact || len(refs) != 3 {
-				fresh, freshErr := baton.ReadState(
+				fresh, freshErr := protocol.ReadState(
 					engine.git, engine.manifest.value.Release, engine.inertness)
 				if freshErr == nil &&
 					!implementationAuthorityCurrent(fresh, cycle) {
@@ -4780,7 +4780,7 @@ func (s *Service) reconcilePreparedSeal(ctx context.Context, engine *engine,
 		}
 		disposition, _ = engine.workspaces.ReconcileSeal(key, before, candidate)
 		if err != nil && disposition != gitx.SealAllNew {
-			fresh, freshErr := baton.ReadState(
+			fresh, freshErr := protocol.ReadState(
 				engine.git, engine.manifest.value.Release, engine.inertness)
 			if freshErr == nil &&
 				!implementationAuthorityCurrent(fresh, cycle) {
@@ -4796,7 +4796,7 @@ func (s *Service) reconcilePreparedSeal(ctx context.Context, engine *engine,
 			ctx, owner, cycle, outer, prepared, nil)
 	}
 	if err := s.validateSealedCycle(engine, cycle, record, true); err != nil {
-		fresh, freshErr := baton.ReadState(
+		fresh, freshErr := protocol.ReadState(
 			engine.git, engine.manifest.value.Release, engine.inertness)
 		if freshErr == nil && !implementationAuthorityCurrent(fresh, cycle) {
 			return s.rejectStalePreparedSeal(
@@ -4883,10 +4883,10 @@ func (s *Service) appendImplementationReceipt(ctx context.Context, engine *engin
 	if err := s.validateSealedCycle(engine, cycle, record, true); err != nil {
 		return err
 	}
-	state, err := baton.ReadState(
+	state, err := protocol.ReadState(
 		engine.git, engine.manifest.value.Release, engine.inertness)
 	if err != nil {
-		return runtimeFail("BATON_UNAVAILABLE", err)
+		return runtimeFail("PROTOCOL_UNAVAILABLE", err)
 	}
 	before := sliceFingerprint(state, cycle.Slice)
 	return s.appendReceipt(ctx, engine, owner, state, before, record.Receipt)
@@ -5381,10 +5381,10 @@ func (s *Service) recoverImplementationClaims(ctx context.Context, engine *engin
 			// The exact parent cycle below owns this child reconciliation.
 			continue
 		case journal.Pending:
-			state, stateErr := baton.ReadState(
+			state, stateErr := protocol.ReadState(
 				engine.git, cycle.Release, engine.inertness)
 			if stateErr != nil {
-				return true, runtimeFail("BATON_UNAVAILABLE", stateErr)
+				return true, runtimeFail("PROTOCOL_UNAVAILABLE", stateErr)
 			}
 			applied, applyErr := implementationReceiptApplied(
 				state,
@@ -5421,10 +5421,10 @@ func (s *Service) recoverImplementationClaims(ctx context.Context, engine *engin
 			return true, s.appendImplementationReceipt(
 				ctx, engine, owner, cycle, recovered)
 		case journal.OperationalFailed:
-			state, stateErr := baton.ReadState(
+			state, stateErr := protocol.ReadState(
 				engine.git, cycle.Release, engine.inertness)
 			if stateErr != nil {
-				return true, runtimeFail("BATON_UNAVAILABLE", stateErr)
+				return true, runtimeFail("PROTOCOL_UNAVAILABLE", stateErr)
 			}
 			applied, applyErr := implementationReceiptApplied(
 				state,
@@ -5451,7 +5451,7 @@ func (s *Service) recoverImplementationClaims(ctx context.Context, engine *engin
 			// a journal-supplied candidate, so fail before any ref mutation.
 			return true, runtimeFail("CORRUPT_JOURNAL", nil)
 		case journal.Uncertain:
-			state, stateErr := baton.ReadState(
+			state, stateErr := protocol.ReadState(
 				engine.git, cycle.Release, engine.inertness)
 			applied := false
 			if stateErr == nil {
@@ -5498,14 +5498,14 @@ func (s *Service) recoverImplementationClaims(ctx context.Context, engine *engin
 			return true, fmt.Errorf("recover terminal seal objects: %w", err)
 		}
 		if active, parked := activeCycles[outer.ID]; parked {
-			state, stateErr := baton.ReadState(
+			state, stateErr := protocol.ReadState(
 				engine.git,
 				cycle.Release,
 				engine.inertness,
 			)
 			if stateErr != nil {
 				return true,
-					runtimeFail("BATON_UNAVAILABLE", stateErr)
+					runtimeFail("PROTOCOL_UNAVAILABLE", stateErr)
 			}
 			slice, present := state.Slice(cycle.Slice)
 			current := present &&
@@ -5641,10 +5641,10 @@ func (s *Service) recoverImplementationClaims(ctx context.Context, engine *engin
 		} else if outer.State == journal.Succeeded {
 			return true, runtimeFail("CORRUPT_JOURNAL", nil)
 		}
-		state, err := baton.ReadState(engine.git, cycle.Release, engine.inertness)
+		state, err := protocol.ReadState(engine.git, cycle.Release, engine.inertness)
 		if err != nil {
-			if baton.ErrorCode(err) != "CHANGED_OWNER_HEAD" || !hasRecord {
-				return true, runtimeFail("BATON_UNAVAILABLE", err)
+			if protocol.ErrorCode(err) != "CHANGED_OWNER_HEAD" || !hasRecord {
+				return true, runtimeFail("PROTOCOL_UNAVAILABLE", err)
 			}
 			rollbackErr := s.rollbackCycleCandidate(
 				engine, cycle, &record)
@@ -5653,10 +5653,10 @@ func (s *Service) recoverImplementationClaims(ctx context.Context, engine *engin
 					ctx, owner, cycle, outer,
 					effects[cycle.PreparedEffect], rollbackErr)
 			}
-			state, err = baton.ReadState(
+			state, err = protocol.ReadState(
 				engine.git, cycle.Release, engine.inertness)
 			if err != nil {
-				return true, runtimeFail("BATON_UNAVAILABLE", err)
+				return true, runtimeFail("PROTOCOL_UNAVAILABLE", err)
 			}
 		}
 		applied := false
@@ -5762,7 +5762,7 @@ func (s *Service) recoverClaimedEffects(
 		if recovered {
 			continue
 		}
-		recovered, err = s.recoverClaimedBatonAction(ctx, engine, owner)
+		recovered, err = s.recoverClaimedProtocolAction(ctx, engine, owner)
 		if err != nil {
 			return err
 		}
@@ -5811,7 +5811,7 @@ func formatBootstrapParkReason(summary string) string {
 	return summary + suffix
 }
 
-func triggeringPlannerReceipt(state baton.State) *baton.ReceiptEntry {
+func triggeringPlannerReceipt(state protocol.State) *protocol.ReceiptEntry {
 	for _, slice := range state.Slices {
 		if slice.NextRole == "planner" {
 			return slice.CurrentReceipt
@@ -5823,7 +5823,7 @@ func triggeringPlannerReceipt(state baton.State) *baton.ReceiptEntry {
 	return nil
 }
 
-func bootstrapParkReasonForState(state baton.State) string {
+func bootstrapParkReasonForState(state protocol.State) string {
 	receipt := triggeringPlannerReceipt(state)
 	summary := ""
 	if receipt != nil {
@@ -5832,7 +5832,7 @@ func bootstrapParkReasonForState(state baton.State) string {
 	return formatBootstrapParkReason(summary)
 }
 
-func isPlannerNeeded(state baton.State) bool {
+func isPlannerNeeded(state protocol.State) bool {
 	for _, slice := range state.Slices {
 		if slice.NextRole == "planner" {
 			return true
@@ -5857,7 +5857,7 @@ func (s *Service) parkBootstrapAuthority(
 	ctx context.Context,
 	owner journal.OwnerLease,
 	snapshot journal.Snapshot,
-	state baton.State,
+	state protocol.State,
 ) error {
 	if hasParkEventForCause(snapshot, ParkCauseBootstrapAuthority, "") {
 		return nil
@@ -5923,9 +5923,9 @@ func (s *Service) driveLoop(ctx context.Context, engine *engine, owner journal.O
 			}
 			return nil
 		}
-		state, err := baton.ReadState(engine.git, engine.manifest.value.Release, engine.inertness)
+		state, err := protocol.ReadState(engine.git, engine.manifest.value.Release, engine.inertness)
 		if err != nil {
-			return runtimeFail("BATON_UNAVAILABLE", err)
+			return runtimeFail("PROTOCOL_UNAVAILABLE", err)
 		}
 		if state.Plan.TargetStale {
 			return nil
@@ -6077,7 +6077,7 @@ func (s *Service) pinCrossingLanes(
 	snapshot journal.Snapshot,
 	control journal.ControlProjection,
 	lanes []laneCandidates,
-	state baton.State,
+	state protocol.State,
 ) (map[string]struct{}, error) {
 	pinned := make(map[string]struct{})
 	laneFor := func(work string) (string, bool) {
@@ -6166,7 +6166,7 @@ func laneNames(lanes []laneCandidates) map[string]struct{} {
 	return names
 }
 
-func (s *Service) recoverClaimedBatonAction(ctx context.Context, engine *engine,
+func (s *Service) recoverClaimedProtocolAction(ctx context.Context, engine *engine,
 	owner journal.OwnerLease) (bool, error) {
 	snapshot, err := s.journal.Snapshot(ctx, owner.RunID)
 	if err != nil {
@@ -6186,8 +6186,8 @@ func (s *Service) recoverClaimedBatonAction(ctx context.Context, engine *engine,
 			continue
 		}
 		switch effect.Kind {
-		case "baton.install", "baton.append_receipt", "baton.assembly_verdict",
-			"baton.prepare_assembly", "baton.merge":
+		case "protocol.install", "protocol.append_receipt", "protocol.assembly_verdict",
+			"protocol.prepare_assembly", "protocol.merge":
 			// Reconciled below.
 		default:
 			continue
@@ -6200,7 +6200,7 @@ func (s *Service) recoverClaimedBatonAction(ctx context.Context, engine *engine,
 		if err != nil {
 			return true, err
 		}
-		if err := validateBatonActionEnvelope(
+		if err := validateProtocolActionEnvelope(
 			engine, command, effect, persisted); err != nil {
 			return true, err
 		}
@@ -6214,7 +6214,7 @@ func (s *Service) recoverClaimedBatonAction(ctx context.Context, engine *engine,
 			effect.CurrentClaim = claim.Token
 		}
 		if effect.State == journal.Uncertain {
-			truth, _, classifyErr := classifyBatonAction(
+			truth, _, classifyErr := classifyProtocolAction(
 				engine,
 				effect.Kind,
 				persisted,
@@ -6268,7 +6268,7 @@ func (s *Service) recoverClaimedBatonAction(ctx context.Context, engine *engine,
 				return true, runtimeFail("CORRUPT_JOURNAL", nil)
 			}
 		}
-		action, cleanup, err := persistedBatonAction(
+		action, cleanup, err := persistedProtocolAction(
 			engine,
 			effect.Kind,
 			persisted,
@@ -6276,7 +6276,7 @@ func (s *Service) recoverClaimedBatonAction(ctx context.Context, engine *engine,
 		if err != nil {
 			return true, err
 		}
-		truth, _, err := s.reconcileClaimedBatonAction(
+		truth, _, err := s.reconcileClaimedProtocolAction(
 			ctx, engine, owner, effect, persisted, action, false, false)
 		var cleanupErr error
 		if cleanup != nil {
@@ -6417,7 +6417,7 @@ func validateInstallEffectPrecedence(
 		commands[command.ReplayKey] = command
 	}
 	for _, effect := range snapshot.Effects {
-		if effect.Kind != "baton.install" {
+		if effect.Kind != "protocol.install" {
 			continue
 		}
 		command, ok := commands[effect.ReplayKey]
@@ -6425,7 +6425,7 @@ func validateInstallEffectPrecedence(
 			return runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 		persisted, err := parseActionCommand(command.Payload)
-		if err != nil || validateBatonActionEnvelope(
+		if err != nil || validateProtocolActionEnvelope(
 			engine, command, effect, persisted) != nil {
 			return runtimeFail("CORRUPT_JOURNAL", err)
 		}
@@ -6434,7 +6434,7 @@ func validateInstallEffectPrecedence(
 			return precedenceErr
 		}
 		if validateSucceeded {
-			if _, err := validateSucceededBatonAction(
+			if _, err := validateSucceededProtocolAction(
 				engine, command, effect, persisted); err != nil {
 				return err
 			}
@@ -6458,7 +6458,7 @@ func installEffectPrecedence(state journal.EffectState) (bool, error) {
 
 func validateSavedPlanAdoption(
 	engine *engine,
-	state baton.State,
+	state protocol.State,
 	authorityDigest string,
 ) (bool, error) {
 	if authorityDigest == "" {
@@ -6503,7 +6503,7 @@ func validateSavedPlanAdoption(
 		return false, runtimeFail("INVALID_AUTHORITY", nil)
 	}
 	found := false
-	var saved baton.Plan
+	var saved protocol.Plan
 	for _, historical := range state.Plan.History {
 		if historical.OID != state.Plan.OID {
 			continue
@@ -6553,7 +6553,7 @@ func proposalMatchesPendingAuthority(
 	proposal admittedPlanProposal,
 	release gitx.RefHead,
 	target gitx.RefHead,
-	state baton.State,
+	state protocol.State,
 	stateErr error,
 ) bool {
 	metadata := proposal.plan.Metadata()
@@ -6565,7 +6565,7 @@ func proposalMatchesPendingAuthority(
 	}
 	if metadata.Revision == 1 {
 		return stateErr != nil &&
-			baton.ErrorCode(stateErr) == "REF_NOT_FOUND" &&
+			protocol.ErrorCode(stateErr) == "REF_NOT_FOUND" &&
 			release.State == gitx.RefAbsent &&
 			authority.ReleaseHead == "" &&
 			authority.PriorPlan == ""
@@ -6596,7 +6596,7 @@ func proposalHasInstalledEffect(
 	}
 	found := false
 	for _, effect := range snapshot.Effects {
-		if effect.Kind != "baton.install" ||
+		if effect.Kind != "protocol.install" ||
 			effect.State != journal.Succeeded ||
 			effect.BeforeDigest != work {
 			continue
@@ -6634,7 +6634,7 @@ func proposalHasInstalledEffect(
 			persisted.Authority.Before != work {
 			return false, runtimeFail("CORRUPT_JOURNAL", nil)
 		}
-		if _, err := validateSucceededBatonAction(
+		if _, err := validateSucceededProtocolAction(
 			engine,
 			command,
 			effect,
@@ -6649,7 +6649,7 @@ func proposalHasInstalledEffect(
 
 func proposalMatchesAppliedPlan(
 	proposal admittedPlanProposal,
-	state baton.State,
+	state protocol.State,
 	stateErr error,
 ) bool {
 	if stateErr != nil ||
@@ -6666,8 +6666,8 @@ func planExecutionEffectRecorded(snapshot journal.Snapshot) bool {
 	for _, effect := range snapshot.Effects {
 		switch effect.Kind {
 		case "git.prepare_track_base", "git.seal.prepared", "git.seal",
-			"baton.append_receipt", "baton.prepare_assembly",
-			"baton.assembly_verdict", "baton.merge":
+			"protocol.append_receipt", "protocol.prepare_assembly",
+			"protocol.assembly_verdict", "protocol.merge":
 			return true
 		}
 	}
@@ -6678,7 +6678,7 @@ func proposalActivationRecorded(
 	proposal admittedPlanProposal,
 	found bool,
 	installed bool,
-	state baton.State,
+	state protocol.State,
 	stateErr error,
 	authorityDigest string,
 	snapshot journal.Snapshot,
@@ -6694,7 +6694,7 @@ func proposalActivationRecorded(
 func proposalAwaitsExactAuthority(
 	proposal admittedPlanProposal,
 	found bool,
-	state baton.State,
+	state protocol.State,
 	stateErr error,
 	authorityDigest string,
 ) bool {
@@ -6706,7 +6706,7 @@ func selectPlanProposal(
 	engine *engine,
 	snapshot journal.Snapshot,
 	proposals []admittedPlanProposal,
-	state baton.State,
+	state protocol.State,
 	stateErr error,
 ) (admittedPlanProposal, bool, bool, error) {
 	if engine == nil {
@@ -6764,7 +6764,7 @@ func (s *Service) proposePlan(
 	ctx context.Context,
 	engine *engine,
 	owner journal.OwnerLease,
-	current *baton.State,
+	current *protocol.State,
 	revision int64,
 ) error {
 	return s.proposePlanAttempt(ctx, engine, owner, current, revision, 1, "")
@@ -6774,7 +6774,7 @@ func (s *Service) proposePlanAttempt(
 	ctx context.Context,
 	engine *engine,
 	owner journal.OwnerLease,
-	current *baton.State,
+	current *protocol.State,
 	revision int64,
 	plannerAttempt int64,
 	replanDecision string,
@@ -6783,7 +6783,7 @@ func (s *Service) proposePlanAttempt(
 	if snapshotErr != nil {
 		return runtimeFail("JOURNAL_READ_FAILED", snapshotErr)
 	}
-	delegation, delegationErr := currentCaptainDelegation(delegationSnapshot)
+	delegation, delegationErr := currentLeadDelegation(delegationSnapshot)
 	if delegationErr != nil {
 		return delegationErr
 	}
@@ -6791,9 +6791,9 @@ func (s *Service) proposePlanAttempt(
 		limits := delegation.Envelope.Limits
 		if !delegation.Active || revision < limits.MinimumPlanRevision || revision > limits.MaximumPlanRevision ||
 			plannerAttempt < 1 || plannerAttempt > limits.MaximumPlannerAttemptsPerRevision ||
-			delegation.Decisions >= limits.MaximumTotalCaptainDecisions ||
+			delegation.Decisions >= limits.MaximumTotalLeadDecisions ||
 			(plannerAttempt > 1 && (delegation.ReplanSpent < 1 || delegation.ReplanSpent > limits.ReplanBudget)) {
-			return runtimeFail("CAPTAIN_PLAN_POLICY_REFUSED", nil)
+			return runtimeFail("LEAD_PLAN_POLICY_REFUSED", nil)
 		}
 	}
 	releaseRef := "refs/heads/release-wt/" + engine.manifest.value.Release
@@ -6874,12 +6874,12 @@ func (s *Service) proposePlanAttempt(
 	if err != nil {
 		return err
 	}
-	plan, err := baton.ParsePlan(body)
+	plan, err := protocol.ParsePlan(body)
 	if err != nil || validatePlanBinding(engine.manifest, plan, current) != nil {
 		return runtimeFail("INVALID_PLAN", err)
 	}
-	if err := baton.ValidatePlanScopeLintAt(engine.git, plan, snapshotHead.String()); err != nil {
-		return runtimeFail(baton.ErrorCode(err), err)
+	if err := protocol.ValidatePlanScopeLintAt(engine.git, plan, snapshotHead.String()); err != nil {
+		return runtimeFail(protocol.ErrorCode(err), err)
 	}
 	contractBytes, err := exactBytesMap(submission.Contracts)
 	if err != nil {
@@ -6895,7 +6895,7 @@ func (s *Service) proposeRevision(
 	ctx context.Context,
 	engine *engine,
 	owner journal.OwnerLease,
-	state baton.State,
+	state protocol.State,
 ) error {
 	return s.proposePlan(
 		ctx, engine, owner, &state, state.Plan.Metadata.Revision+1)
@@ -6908,7 +6908,7 @@ func (s *Service) reviewDelegatedProposal(
 	proposal admittedPlanProposal,
 	snapshot journal.Snapshot,
 ) (string, bool, error) {
-	delegation, err := currentCaptainDelegation(snapshot)
+	delegation, err := currentLeadDelegation(snapshot)
 	if err != nil {
 		return "", false, err
 	}
@@ -6916,21 +6916,21 @@ func (s *Service) reviewDelegatedProposal(
 		return "", false, nil
 	}
 	refuse := func(code string) (string, bool, error) {
-		return "", true, s.appendCaptainRefusal(
+		return "", true, s.appendLeadRefusal(
 			ctx, engine.manifest, proposal, delegation, code)
 	}
 	if !delegation.Active {
-		return refuse("CAPTAIN_DELEGATION_REVOKED")
+		return refuse("LEAD_DELEGATION_REVOKED")
 	}
 	envelope := delegation.Envelope
 	metadata := proposal.plan.Metadata()
 	class, classErr := approvalDecisionClass(proposal)
-	var prior *baton.Plan
-	var lineageState *baton.State
+	var prior *protocol.Plan
+	var lineageState *protocol.State
 	if metadata.Revision > 1 {
-		state, stateErr := baton.ReadState(engine.git, engine.manifest.value.Release, engine.inertness)
+		state, stateErr := protocol.ReadState(engine.git, engine.manifest.value.Release, engine.inertness)
 		if stateErr != nil {
-			return "", true, runtimeFail("BATON_UNAVAILABLE", stateErr)
+			return "", true, runtimeFail("PROTOCOL_UNAVAILABLE", stateErr)
 		}
 		for _, history := range state.Plan.History {
 			if history.OID == proposal.authority.PriorPlan {
@@ -6939,7 +6939,7 @@ func (s *Service) reviewDelegatedProposal(
 			}
 		}
 		if prior == nil {
-			return "", true, runtimeFail("CAPTAIN_DECISION_STALE", nil)
+			return "", true, runtimeFail("LEAD_DECISION_STALE", nil)
 		}
 		lineageState = &state
 	}
@@ -6956,38 +6956,38 @@ func (s *Service) reviewDelegatedProposal(
 			}
 		}
 	}
-	if classErr != nil || !lineageOK || envelope.RunID != engine.manifest.value.RunID || envelope.ManifestDigest != engine.manifest.digest || envelope.Project != engine.manifest.value.Authority.Project || envelope.Release != engine.manifest.value.Release || envelope.ReleaseRef != proposal.authority.ReleaseRef || envelope.TargetRef != proposal.authority.TargetRef || envelope.TargetHead != proposal.authority.TargetHead || metadata.Revision < envelope.Limits.MinimumPlanRevision || metadata.Revision > envelope.Limits.MaximumPlanRevision || plannerAttempt > envelope.Limits.MaximumPlannerAttemptsPerRevision || delegation.Decisions >= envelope.Limits.MaximumTotalCaptainDecisions || delegation.ReplanSpent > envelope.Limits.ReplanBudget || ValidateCaptainPlanPolicy(envelope.PlanRules, proposal.plan, prior) != nil {
-		return refuse("CAPTAIN_PLAN_POLICY_REFUSED")
+	if classErr != nil || !lineageOK || envelope.RunID != engine.manifest.value.RunID || envelope.ManifestDigest != engine.manifest.digest || envelope.Project != engine.manifest.value.Authority.Project || envelope.Release != engine.manifest.value.Release || envelope.ReleaseRef != proposal.authority.ReleaseRef || envelope.TargetRef != proposal.authority.TargetRef || envelope.TargetHead != proposal.authority.TargetHead || metadata.Revision < envelope.Limits.MinimumPlanRevision || metadata.Revision > envelope.Limits.MaximumPlanRevision || plannerAttempt > envelope.Limits.MaximumPlannerAttemptsPerRevision || delegation.Decisions >= envelope.Limits.MaximumTotalLeadDecisions || delegation.ReplanSpent > envelope.Limits.ReplanBudget || ValidateLeadPlanPolicy(envelope.PlanRules, proposal.plan, prior) != nil {
+		return refuse("LEAD_PLAN_POLICY_REFUSED")
 	}
-	if err := validateCaptainReleaseLineageWithEngine(engine, engine.manifest, proposal, snapshot, delegation); err != nil {
-		return refuse("CAPTAIN_RELEASE_LINEAGE_REFUSED")
+	if err := validateLeadReleaseLineageWithEngine(engine, engine.manifest, proposal, snapshot, delegation); err != nil {
+		return refuse("LEAD_RELEASE_LINEAGE_REFUSED")
 	}
 	classAllowed := false
 	for _, rule := range envelope.DecisionRules {
 		classAllowed = classAllowed || rule.DecisionClass == class
 	}
 	if !classAllowed {
-		return refuse("CAPTAIN_DECISION_CLASS_REFUSED")
+		return refuse("LEAD_DECISION_CLASS_REFUSED")
 	}
-	before := captainReviewBefore(proposal, delegation)
+	before := leadReviewBefore(proposal, delegation)
 	_, target, err := captureProposalRefs(engine.repository, engine.manifest)
 	if err != nil || target.Head.String() != proposal.authority.TargetHead {
-		return refuse("CAPTAIN_TARGET_DRIFT")
+		return refuse("LEAD_TARGET_DRIFT")
 	}
 	workspace, err := engine.workspaces.OpenSnapshot(target.Head)
 	if err != nil {
 		return "", true, runtimeFail("WORKSPACE_UNAVAILABLE", err)
 	}
-	workID := driverWorkIdentity(engine.manifest.digest, "", driver.CaptainPlanReview, metadata.Revision, before)
+	workID := driverWorkIdentity(engine.manifest.digest, "", driver.LeadPlanReview, metadata.Revision, before)
 	invocationScope := ""
 	if plannerAttempt > 1 {
 		invocationScope = strings.TrimPrefix(workID, "sha256:")[:12]
 	}
-	submission, runErr := s.dispatchRoleWithScope(ctx, engine, workspace, driver.RoleCaptain, "", driver.CaptainPlanReview, metadata.Revision, before, owner, invocationScope)
+	submission, runErr := s.dispatchRoleWithScope(ctx, engine, workspace, driver.RoleLead, "", driver.LeadPlanReview, metadata.Revision, before, owner, invocationScope)
 	closeErr := workspace.Close()
 	if runErr != nil {
-		if IsCode(runErr, "CAPTAIN_ATTEMPTS_EXHAUSTED") || IsCode(runErr, "EFFECT_PARKED") || IsCode(runErr, "RECOVERY_UNCERTAIN") {
-			return refuse("CAPTAIN_ATTEMPTS_EXHAUSTED")
+		if IsCode(runErr, "LEAD_ATTEMPTS_EXHAUSTED") || IsCode(runErr, "EFFECT_PARKED") || IsCode(runErr, "RECOVERY_UNCERTAIN") {
+			return refuse("LEAD_ATTEMPTS_EXHAUSTED")
 		}
 		return "", true, runErr
 	}
@@ -6998,14 +6998,14 @@ func (s *Service) reviewDelegatedProposal(
 	if snapshotErr != nil {
 		return "", true, runtimeFail("JOURNAL_READ_FAILED", snapshotErr)
 	}
-	if testCaptainCrashCut == "sealed_submission" {
-		return "", true, runtimeFail("TEST_CAPTAIN_CRASH_CUT", nil)
+	if testLeadCrashCut == "sealed_submission" {
+		return "", true, runtimeFail("TEST_LEAD_CRASH_CUT", nil)
 	}
-	captainAttempt, attemptErr := captainDispatchAttemptForSubmission(decisionSnapshot, workID, submission)
+	leadAttempt, attemptErr := leadDispatchAttemptForSubmission(decisionSnapshot, workID, submission)
 	if attemptErr != nil {
 		return "", true, attemptErr
 	}
-	command, err := newCaptainDecisionCommand(engine.manifest, proposal, delegation, submission, workID, captainAttempt)
+	command, err := newLeadDecisionCommand(engine.manifest, proposal, delegation, submission, workID, leadAttempt)
 	if err != nil {
 		return "", true, err
 	}
@@ -7016,7 +7016,7 @@ func (s *Service) reviewDelegatedProposal(
 		return "", true, runtimeFail("WORKSPACE_CLEANUP_FAILED", err)
 	}
 	engine.workspaces = nil
-	_, decisionErr := s.CaptainDecide(ctx, command)
+	_, decisionErr := s.LeadDecide(ctx, command)
 	workspaces, reopenErr := gitx.NewRunWorkspaces(engine.repository, engine.manifest.value.RunID, engine.manifest.value.GitIdentity)
 	if reopenErr != nil {
 		return "", true, runtimeFail("WORKSPACE_UNAVAILABLE", reopenErr)
@@ -7026,7 +7026,7 @@ func (s *Service) reviewDelegatedProposal(
 		return "", true, decisionErr
 	}
 	if command.Outcome == "revise" {
-		if err := s.processCaptainPlannerContinuations(ctx, engine, owner); err != nil {
+		if err := s.processLeadPlannerContinuations(ctx, engine, owner); err != nil {
 			return "", true, err
 		}
 		freshSnapshot, err := s.journal.Snapshot(ctx, owner.RunID)
@@ -7037,10 +7037,10 @@ func (s *Service) reviewDelegatedProposal(
 		if err != nil {
 			return "", true, err
 		}
-		state, stateErr := baton.ReadState(engine.git, engine.manifest.value.Release, engine.inertness)
+		state, stateErr := protocol.ReadState(engine.git, engine.manifest.value.Release, engine.inertness)
 		replacement, found, _, err := selectPlanProposal(engine, freshSnapshot, proposals, state, stateErr)
 		if err != nil || !found || replacement.replayKey == proposal.replayKey || replacement.plan.Digest() == proposal.plan.Digest() {
-			return refuse("CAPTAIN_REPLAN_RECOVERY_REFUSED")
+			return refuse("LEAD_REPLAN_RECOVERY_REFUSED")
 		}
 		return s.reviewDelegatedProposal(ctx, engine, owner, replacement, freshSnapshot)
 	}
@@ -7051,23 +7051,23 @@ func (s *Service) refreshPlanProposal(
 	ctx context.Context,
 	engine *engine,
 	owner journal.OwnerLease,
-	state baton.State,
+	state protocol.State,
 	stateErr error,
 ) error {
 	if stateErr == nil {
 		return s.proposeRevision(ctx, engine, owner, state)
 	}
-	if baton.ErrorCode(stateErr) == "REF_NOT_FOUND" {
+	if protocol.ErrorCode(stateErr) == "REF_NOT_FOUND" {
 		return s.proposePlan(ctx, engine, owner, nil, 1)
 	}
-	return runtimeFail("BATON_UNAVAILABLE", stateErr)
+	return runtimeFail("PROTOCOL_UNAVAILABLE", stateErr)
 }
 
 func proposalPendingAuthorityCurrent(
 	repository *gitx.Repository,
 	manifest admittedManifest,
 	proposal admittedPlanProposal,
-	state baton.State,
+	state protocol.State,
 	stateErr error,
 ) (bool, error) {
 	release, target, err := captureProposalRefs(repository, manifest)
@@ -7083,19 +7083,19 @@ func withReleaseAssemblyAuthority(
 	engine *engine,
 	release string,
 	releaseHead string,
-	action func() (baton.ActionResult, error),
-) (baton.ActionResult, error, error) {
+	action func() (protocol.ActionResult, error),
+) (protocol.ActionResult, error, error) {
 	head, err := gitx.ParseOID(
 		engine.repository.ObjectFormat(),
 		releaseHead,
 	)
 	if err != nil {
-		return baton.ActionResult{},
+		return protocol.ActionResult{},
 			runtimeFail("INVALID_AUTHORITY_STATE", err), nil
 	}
 	lease, err := engine.workspaces.OpenReleaseAssembly(release, head)
 	if err != nil {
-		return baton.ActionResult{},
+		return protocol.ActionResult{},
 			runtimeFail("WORKSPACE_UNAVAILABLE", err), nil
 	}
 	result, actionErr := action()
@@ -7108,9 +7108,9 @@ func withReleaseAssemblyAuthority(
 
 func withReleaseAssembly(
 	engine *engine,
-	state baton.State,
-	action func() (baton.ActionResult, error),
-) (baton.ActionResult, error, error) {
+	state protocol.State,
+	action func() (protocol.ActionResult, error),
+) (protocol.ActionResult, error, error) {
 	return withReleaseAssemblyAuthority(
 		engine,
 		state.Release,
@@ -7119,8 +7119,8 @@ func withReleaseAssembly(
 	)
 }
 
-func (s *Service) prepareAssembly(ctx context.Context, engine *engine, owner journal.OwnerLease, state baton.State) error {
-	input := baton.PrepareAssemblyInput{Release: state.Release,
+func (s *Service) prepareAssembly(ctx context.Context, engine *engine, owner journal.OwnerLease, state protocol.State) error {
+	input := protocol.PrepareAssemblyInput{Release: state.Release,
 		Summary: "Compose all exact passed track candidates.",
 		Detail:  []byte("Deterministic engine-owned plan-ordered composition.")}
 	before := workIdentity(state.Plan.OID, state.Refs.Release.Head, state.Refs.Target.Head,
@@ -7133,11 +7133,11 @@ func (s *Service) prepareAssembly(ctx context.Context, engine *engine, owner jou
 		state, state.Refs.Release.Ref, state.Refs.Release.Head,
 		before, binds, "", 0)
 	var cleanupErr error
-	action := func() (baton.ActionResult, error) {
+	action := func() (protocol.ActionResult, error) {
 		result, actionErr, closeErr := withReleaseAssembly(
 			engine,
 			state,
-			func() (baton.ActionResult, error) {
+			func() (protocol.ActionResult, error) {
 				return engine.actions.PrepareAssembly(input)
 			},
 		)
@@ -7145,7 +7145,7 @@ func (s *Service) prepareAssembly(ctx context.Context, engine *engine, owner jou
 		return result, actionErr
 	}
 	result, err := s.runAction(ctx, engine, owner, workIdentity(before, "prepare"),
-		"baton.prepare_assembly", marshalActionCommand(engine.manifest.value.GitIdentity, authority, input), action)
+		"protocol.prepare_assembly", marshalActionCommand(engine.manifest.value.GitIdentity, authority, input), action)
 	err = errors.Join(err, cleanupErr)
 	if err == nil && result.Direct {
 		return runtimeFail("DISTINCT_ASSEMBLY_VERIFICATION_REQUIRED", nil)
@@ -7153,7 +7153,7 @@ func (s *Service) prepareAssembly(ctx context.Context, engine *engine, owner jou
 	return err
 }
 
-func (s *Service) verifyAssembly(ctx context.Context, engine *engine, owner journal.OwnerLease, state baton.State) error {
+func (s *Service) verifyAssembly(ctx context.Context, engine *engine, owner journal.OwnerLease, state protocol.State) error {
 	candidate := *state.Assembly.Candidate.Receipt.Candidate
 	oid, err := gitx.ParseOID(engine.repository.ObjectFormat(), candidate)
 	if err != nil {
@@ -7174,9 +7174,9 @@ func (s *Service) verifyAssembly(ctx context.Context, engine *engine, owner jour
 	if closeErr != nil {
 		return runtimeFail("WORKSPACE_CLEANUP_FAILED", closeErr)
 	}
-	fresh, err := baton.ReadState(engine.git, state.Release, engine.inertness)
+	fresh, err := protocol.ReadState(engine.git, state.Release, engine.inertness)
 	if err != nil {
-		return runtimeFail("BATON_UNAVAILABLE", err)
+		return runtimeFail("PROTOCOL_UNAVAILABLE", err)
 	}
 	if fresh.Assembly.Candidate == nil ||
 		fresh.Assembly.Candidate.Receipt.Candidate == nil ||
@@ -7189,20 +7189,20 @@ func (s *Service) verifyAssembly(ctx context.Context, engine *engine, owner jour
 	if err != nil {
 		return err
 	}
-	input := baton.AppendReceiptInput{Release: state.Release, Role: "verifier",
+	input := protocol.AppendReceiptInput{Release: state.Release, Role: "verifier",
 		Result: string(submission.Decision.Outcome), Summary: submission.Summary,
 		Detail: []byte(submission.Detail), Candidate: candidate, CheckResults: checks}
-	action := func() (baton.ActionResult, error) { return engine.actions.AppendReceipt(input) }
+	action := func() (protocol.ActionResult, error) { return engine.actions.AppendReceipt(input) }
 	authority := stateActionAuthority(
 		state, state.Refs.Release.Ref, state.Refs.Release.Head,
 		before, state.Assembly.Candidate.OID, candidate, 0)
 	_, err = s.runAction(ctx, engine, owner, workIdentity(before, "assembly_verdict"),
-		"baton.assembly_verdict", marshalActionCommand(engine.manifest.value.GitIdentity, authority, input), action)
+		"protocol.assembly_verdict", marshalActionCommand(engine.manifest.value.GitIdentity, authority, input), action)
 	return err
 }
 
-func (s *Service) mergeAssembly(ctx context.Context, engine *engine, owner journal.OwnerLease, state baton.State) error {
-	input := baton.MergePassedCandidateInput{Release: state.Release,
+func (s *Service) mergeAssembly(ctx context.Context, engine *engine, owner journal.OwnerLease, state protocol.State) error {
+	input := protocol.MergePassedCandidateInput{Release: state.Release,
 		Summary: "Merge the exact independently verified assembly candidate.",
 		Detail:  []byte("Deterministic Merge; no model dispatch.")}
 	before := workIdentity(state.Plan.OID, state.Refs.Release.Head, state.Refs.Target.Head,
@@ -7215,11 +7215,11 @@ func (s *Service) mergeAssembly(ctx context.Context, engine *engine, owner journ
 		state, state.Refs.Release.Ref, state.Refs.Release.Head,
 		before, state.Assembly.Pass.OID, candidate, 0)
 	var cleanupErr error
-	action := func() (baton.ActionResult, error) {
+	action := func() (protocol.ActionResult, error) {
 		result, actionErr, closeErr := withReleaseAssembly(
 			engine,
 			state,
-			func() (baton.ActionResult, error) {
+			func() (protocol.ActionResult, error) {
 				return engine.actions.MergePassedCandidate(input)
 			},
 		)
@@ -7227,7 +7227,7 @@ func (s *Service) mergeAssembly(ctx context.Context, engine *engine, owner journ
 		return result, actionErr
 	}
 	_, err := s.runAction(ctx, engine, owner, workIdentity(before, "merge"),
-		"baton.merge", marshalActionCommand(engine.manifest.value.GitIdentity, authority, input), action)
+		"protocol.merge", marshalActionCommand(engine.manifest.value.GitIdentity, authority, input), action)
 	return errors.Join(err, cleanupErr)
 }
 
@@ -7328,7 +7328,7 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 	if err := s.reconcileInterruptedWorkspaces(ownedCtx, engine, owner); err != nil {
 		return RunStatus{}, err
 	}
-	if err := s.processCaptainPlannerContinuations(ownedCtx, engine, owner); err != nil {
+	if err := s.processLeadPlannerContinuations(ownedCtx, engine, owner); err != nil {
 		return RunStatus{}, err
 	}
 	if err := s.recoverClaimedEffects(ownedCtx, engine, owner); err != nil {
@@ -7349,7 +7349,7 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 	if err != nil || loadedManifest.digest != manifest.digest {
 		return RunStatus{}, runtimeFail("RUN_BINDING_MISMATCH", err)
 	}
-	state, stateErr := baton.ReadState(
+	state, stateErr := protocol.ReadState(
 		engine.git, manifest.value.Release, engine.inertness)
 	if err := validateInstallEffectPrecedence(engine, snapshot); err != nil {
 		return RunStatus{}, err
@@ -7375,8 +7375,8 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 		if !found && stateErr == nil {
 			return s.Status(context.Background(), runID)
 		}
-		if !found && baton.ErrorCode(stateErr) != "REF_NOT_FOUND" {
-			return RunStatus{}, runtimeFail("BATON_UNAVAILABLE", stateErr)
+		if !found && protocol.ErrorCode(stateErr) != "REF_NOT_FOUND" {
+			return RunStatus{}, runtimeFail("PROTOCOL_UNAVAILABLE", stateErr)
 		}
 	}
 	if !found && stateErr != nil && authorityDigest == "" {
@@ -7418,7 +7418,7 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 			if err != nil {
 				return RunStatus{}, err
 			}
-			state, stateErr = baton.ReadState(
+			state, stateErr = protocol.ReadState(
 				engine.git, manifest.value.Release, engine.inertness)
 			proposal, found, installed, err = selectPlanProposal(
 				engine, snapshot, proposals, state, stateErr)
@@ -7478,7 +7478,7 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 			}
 			return s.Status(context.Background(), runID)
 		}
-		freshState, freshStateErr := baton.ReadState(
+		freshState, freshStateErr := protocol.ReadState(
 			engine.git, manifest.value.Release, engine.inertness)
 		current, err = proposalPendingAuthorityCurrent(
 			engine.repository, manifest, proposal, freshState, freshStateErr)
@@ -7503,7 +7503,7 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 			PlanBytes: admission.planBytes, PlanDigest: admission.planDigest,
 			Reference: admission.reference, ContractBytes: admission.contractBytes,
 		}
-		authority := batonActionAuthority{
+		authority := protocolActionAuthority{
 			Release:     manifest.value.Release,
 			Plan:        proposal.authority.PriorPlan,
 			ReleaseHead: proposal.authority.ReleaseHead,
@@ -7513,22 +7513,22 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 			OwnerHead:   proposal.authority.ReleaseHead,
 			Before:      installWork,
 		}
-		action := func() (baton.ActionResult, error) {
+		action := func() (protocol.ActionResult, error) {
 			return engine.installer.install(
 				admission, proposal.authority.TargetHead,
 			)
 		}
 		if _, err := s.runAction(
-			ownedCtx, engine, owner, installWork, "baton.install",
+			ownedCtx, engine, owner, installWork, "protocol.install",
 			marshalActionCommand(engine.manifest.value.GitIdentity, authority, installInput), action,
 		); err != nil {
 			return RunStatus{}, err
 		}
-		state, stateErr = baton.ReadState(
+		state, stateErr = protocol.ReadState(
 			engine.git, manifest.value.Release, engine.inertness)
 	}
 	if stateErr != nil {
-		return RunStatus{}, runtimeFail("BATON_UNAVAILABLE", stateErr)
+		return RunStatus{}, runtimeFail("PROTOCOL_UNAVAILABLE", stateErr)
 	}
 	runErr := s.driveLoop(ownedCtx, engine, owner, false)
 	if runErr != nil && !errors.Is(runErr, context.Canceled) {
@@ -7537,7 +7537,7 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 	return s.Status(context.Background(), runID)
 }
 
-func (s *Service) processCaptainPlannerContinuations(ctx context.Context, engine *engine, owner journal.OwnerLease) error {
+func (s *Service) processLeadPlannerContinuations(ctx context.Context, engine *engine, owner journal.OwnerLease) error {
 	snapshot, err := s.journal.Snapshot(ctx, owner.RunID)
 	if err != nil {
 		return runtimeFail("JOURNAL_READ_FAILED", err)
@@ -7554,30 +7554,30 @@ func (s *Service) processCaptainPlannerContinuations(ctx context.Context, engine
 		if !ok || stored.Kind != "planner_continuation" {
 			return runtimeFail("CORRUPT_JOURNAL", nil)
 		}
-		var continuation CaptainPlannerContinuationCommand
+		var continuation LeadPlannerContinuationCommand
 		if json.Unmarshal(stored.Payload, &continuation) != nil || continuation.RunID != owner.RunID {
 			return runtimeFail("CORRUPT_JOURNAL", nil)
 		}
-		delegation, err := currentCaptainDelegation(snapshot)
+		delegation, err := currentLeadDelegation(snapshot)
 		if err != nil || !delegation.Active || delegation.Digest != continuation.EnvelopeDigest || delegation.Epoch != continuation.EnvelopeEpoch {
-			return runtimeFail("CAPTAIN_DECISION_STALE", err)
+			return runtimeFail("LEAD_DECISION_STALE", err)
 		}
 		if effect.State == journal.Pending {
-			if testCaptainCrashCut == "before_planner_continuation" {
-				return runtimeFail("TEST_CAPTAIN_CRASH_CUT", nil)
+			if testLeadCrashCut == "before_planner_continuation" {
+				return runtimeFail("TEST_LEAD_CRASH_CUT", nil)
 			}
 			claim, claimErr := s.journal.ClaimOwned(ctx, owner, effect.ID, s.now().UTC(), effectLease)
 			if claimErr != nil {
-				return runtimeFail("CAPTAIN_DECISION_RECOVERY_PENDING", claimErr)
+				return runtimeFail("LEAD_DECISION_RECOVERY_PENDING", claimErr)
 			}
 			effect.CurrentClaim = claim.Token
 		}
-		state, stateErr := baton.ReadState(engine.git, engine.manifest.value.Release, engine.inertness)
-		var current *baton.State
+		state, stateErr := protocol.ReadState(engine.git, engine.manifest.value.Release, engine.inertness)
+		var current *protocol.State
 		if stateErr == nil {
 			current = &state
-		} else if baton.ErrorCode(stateErr) != "REF_NOT_FOUND" {
-			return runtimeFail("BATON_UNAVAILABLE", stateErr)
+		} else if protocol.ErrorCode(stateErr) != "REF_NOT_FOUND" {
+			return runtimeFail("PROTOCOL_UNAVAILABLE", stateErr)
 		}
 		if err := s.proposePlanAttempt(ctx, engine, owner, current, continuation.PlanRevision, continuation.PlannerAttempt, continuation.DecisionReplayKey); err != nil {
 			return err

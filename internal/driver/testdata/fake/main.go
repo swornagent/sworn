@@ -7,7 +7,7 @@ import (
 )
 
 func main() {
-	profile := driver.FakeProfile(os.Getenv("BATON_FAKE_PROFILE"))
+	profile := driver.FakeProfile(os.Getenv("PROTOCOL_FAKE_PROFILE"))
 	if profile == "" {
 		profile = driver.FakeCompleted
 	}

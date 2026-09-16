@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 )
 
-// ReleaseSnapshot is the Baton view shown before a Sworn run exists.
+// ReleaseSnapshot is the Protocol view shown before a Sworn run exists.
 type ReleaseSnapshot struct {
 	Graph        Graph
 	Diagnostics  []Diagnostic
@@ -32,8 +32,8 @@ type ProjectReleaseInfo struct {
 	Diagnostic string
 }
 
-// ReleaseStateAndStatus returns the lifecycle state and presentation status for a Baton release.
-func ReleaseStateAndStatus(state baton.State) (string, string) {
+// ReleaseStateAndStatus returns the lifecycle state and presentation status for a Protocol release.
+func ReleaseStateAndStatus(state protocol.State) (string, string) {
 	snapshot := ProjectRelease(state)
 	if len(snapshot.Diagnostics) > 0 {
 		return "needs_confirmation", snapshot.Presentation.Status
@@ -233,9 +233,9 @@ func ProjectNeedsYou(runs []DiscoveredRunStatus) []NeedsYouItem {
 	return items
 }
 
-// ProjectRelease builds the same Baton graph used by a live run without
+// ProjectRelease builds the same Protocol graph used by a live run without
 // inventing a journal, run ID, runtime state, or eligible control.
-func ProjectRelease(state baton.State) ReleaseSnapshot {
+func ProjectRelease(state protocol.State) ReleaseSnapshot {
 	graph := projectGraph(state, "not_started", nil)
 	handoff := projectHandoff(graph)
 	diagnostics := make([]Diagnostic, 0, len(state.Diagnostics))
@@ -254,7 +254,7 @@ func ProjectRelease(state baton.State) ReleaseSnapshot {
 }
 
 func presentRelease(
-	state baton.State,
+	state protocol.State,
 	handoff Handoff,
 	diagnostics []Diagnostic,
 ) RunPresentation {

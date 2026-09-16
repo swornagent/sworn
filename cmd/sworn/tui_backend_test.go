@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/cockpit"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 	"github.com/swornagent/sworn/internal/tui"
 )
@@ -51,12 +51,12 @@ func TestParseGrantAnswerAcceptsOnlyAmountAndOptionalAck(t *testing.T) {
 	}
 }
 
-func TestCaptainDelegationTUILabelProjectsHumanAndDelegatedAuthority(t *testing.T) {
-	if got := captainDelegationTUILabel(nil); got != "External human approval" {
+func TestLeadDelegationTUILabelProjectsHumanAndDelegatedAuthority(t *testing.T) {
+	if got := leadDelegationTUILabel(nil); got != "External human approval" {
 		t.Fatalf("human label = %q", got)
 	}
-	view := &runtimepkg.CaptainDelegationView{Epoch: 3, State: "revoked", Decisions: 4, ReplanSpent: 2, ReplanBudget: 5}
-	if got := captainDelegationTUILabel(view); got != "captain_plan_review epoch 3 revoked · decisions 4 · replans 2/5" {
+	view := &runtimepkg.LeadDelegationView{Epoch: 3, State: "revoked", Decisions: 4, ReplanSpent: 2, ReplanBudget: 5}
+	if got := leadDelegationTUILabel(view); got != "lead_plan_review epoch 3 revoked · decisions 4 · replans 2/5" {
 		t.Fatalf("delegated label = %q", got)
 	}
 }
@@ -172,8 +172,8 @@ func TestProjectDiagnosticsDisableSynthesizedStart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	actions, err := baton.NewActions(
-		baton.UseGitRepository(repository),
+	actions, err := protocol.NewActions(
+		protocol.UseGitRepository(repository),
 		func(request gitx.RecordRootRequest) (gitx.RecordRootDecision, error) {
 			return gitx.RecordRootDecision{
 				Kind: request.Kind, Repository: request.Repository,
@@ -186,7 +186,7 @@ func TestProjectDiagnosticsDisableSynthesizedStart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := actions.RecordPlanRevision(baton.RecordPlanRevisionInput{
+	if _, err := actions.RecordPlanRevision(protocol.RecordPlanRevisionInput{
 		PlanBytes: projectTUIPlan(t, "delivery"),
 		Summary:   "Approve the TUI fixture.",
 	}); err != nil {
@@ -245,11 +245,11 @@ func TestProjectDiagnosticsDisableSynthesizedStart(t *testing.T) {
 	}
 	delegated := false
 	for _, action := range board.Actions {
-		if action.Kind == "start_delegated" && action.CaptainDelegation != nil &&
-			action.CaptainDelegation.Action == "admit" &&
-			action.CaptainDelegation.ActorClass == runtimepkg.CaptainDelegationActorClass &&
-			action.CaptainDelegation.RunID == "run-1" &&
-			strings.HasPrefix(action.CaptainDelegation.ManifestDigest, "sha256:") {
+		if action.Kind == "start_delegated" && action.LeadDelegation != nil &&
+			action.LeadDelegation.Action == "admit" &&
+			action.LeadDelegation.ActorClass == runtimepkg.LeadDelegationActorClass &&
+			action.LeadDelegation.RunID == "run-1" &&
+			strings.HasPrefix(action.LeadDelegation.ManifestDigest, "sha256:") {
 			delegated = true
 		}
 	}
@@ -284,8 +284,8 @@ func TestMissingReleaseCatalogAndBoardUseSwornOwnedLanguage(t *testing.T) {
 	}
 	entry := catalog.Entries[0]
 	for _, field := range []string{entry.Status, entry.NeedsYou, entry.Checked} {
-		if strings.Contains(field, "Baton") {
-			t.Fatalf("catalog entry names Baton as active authority: %#v", entry)
+		if strings.Contains(field, "Protocol") {
+			t.Fatalf("catalog entry names Protocol as active authority: %#v", entry)
 		}
 	}
 	if entry.Status != "Sworn release needs attention" ||
@@ -297,12 +297,12 @@ func TestMissingReleaseCatalogAndBoardUseSwornOwnedLanguage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !hasTUIDiagnostic(board.Diagnostics, "BATON_UNAVAILABLE") {
+	if !hasTUIDiagnostic(board.Diagnostics, "PROTOCOL_UNAVAILABLE") {
 		t.Fatalf("board diagnostics = %#v", board.Diagnostics)
 	}
 	for _, field := range []string{board.What, board.Next, board.NeedsYou, board.Checked} {
-		if strings.Contains(field, "Baton") {
-			t.Fatalf("board names Baton as active authority: %#v", board)
+		if strings.Contains(field, "Protocol") {
+			t.Fatalf("board names Protocol as active authority: %#v", board)
 		}
 		lower := strings.ToLower(field)
 		if strings.Contains(lower, "restore") || strings.Contains(lower, "prepare") {
@@ -494,8 +494,8 @@ func TestTUIReattachesToBackgroundDrivenRun(t *testing.T) {
 	}
 }
 
-// A3: Baton unreadable codes propagate from Board with diagnostics and searched manifest location.
-func TestBoardPropagatesBatonDiagnosticsAndSearchedManifestDir(t *testing.T) {
+// A3: Protocol unreadable codes propagate from Board with diagnostics and searched manifest location.
+func TestBoardPropagatesProtocolDiagnosticsAndSearchedManifestDir(t *testing.T) {
 	t.Parallel()
 
 	root, head := projectRepositoryFixture(t)
@@ -551,7 +551,7 @@ func TestBackendConfigResolvesMatrixAndSourceFiles(t *testing.T) {
 	}
 	projectConfigJSON := `{
   "schema_version": "sworn.project-config/v1",
-  "records_root": ".baton/records",
+  "records_root": ".protocol/records",
   "journals_root": ".sworn"
 }`
 	if err := os.WriteFile(filepath.Join(projectConfigDir, "sworn.json"), []byte(projectConfigJSON), 0o600); err != nil {
@@ -619,7 +619,7 @@ func TestBackendConfigResolvesMatrixAndSourceFiles(t *testing.T) {
 	}
 
 	// Records & paths
-	if cfg.RecordsRoot.Value != ".baton/records" || cfg.RecordsRoot.Source != filepath.Join("docs", "sworn", "sworn.json") {
+	if cfg.RecordsRoot.Value != ".protocol/records" || cfg.RecordsRoot.Source != filepath.Join("docs", "sworn", "sworn.json") {
 		t.Fatalf("RecordsRoot = %#v", cfg.RecordsRoot)
 	}
 	if cfg.JournalsRoot.Value != ".sworn" || cfg.JournalsRoot.Source != filepath.Join("docs", "sworn", "sworn.json") {
@@ -651,16 +651,16 @@ func TestBackendConfigResolvesMatrixAndSourceFiles(t *testing.T) {
 
 func projectTUIPlan(t *testing.T, release string) []byte {
 	t.Helper()
-	metadata := baton.Metadata{
-		SchemaVersion: baton.PlanVersion,
+	metadata := protocol.Metadata{
+		SchemaVersion: protocol.PlanVersion,
 		Release:       release, Revision: 1, Repository: "fixture/sworn",
 		TargetRef: "refs/heads/main", ApprovalRef: "fixture://approval/1",
-		Tracks: []baton.Track{{
+		Tracks: []protocol.Track{{
 			ID: "T1", DependsOn: []string{},
-			Slices: []baton.Slice{{
+			Slices: []protocol.Slice{{
 				ID: "S1", Outcome: "Prove project diagnostics close controls.",
-				Scope:      baton.Scope{Include: []string{"README.md"}, Exclude: []string{}},
-				Acceptance: []baton.Criterion{{ID: "AC-1", Text: "Start is unavailable."}},
+				Scope:      protocol.Scope{Include: []string{"README.md"}, Exclude: []string{}},
+				Acceptance: []protocol.Criterion{{ID: "AC-1", Text: "Start is unavailable."}},
 				Checks:     []string{"go test ./cmd/sworn"}, Constraints: []string{},
 				DependsOn: []string{}, Consumes: []string{},
 			}},
@@ -670,7 +670,7 @@ func projectTUIPlan(t *testing.T, release string) []byte {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return append(append([]byte("```baton-plan-v2\n"), body...), []byte("\n```\nFixture plan.\n")...)
+	return append(append([]byte("```protocol-plan-v2\n"), body...), []byte("\n```\nFixture plan.\n")...)
 }
 
 func hasTUIDiagnostic(diagnostics []cockpit.Diagnostic, code string) bool {

@@ -5,18 +5,18 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 // designDispatchWork returns the exact work identity readyLaneCandidates
-// derives for the fixture's ready S1 design dispatch, with the Baton attempt
+// derives for the fixture's ready S1 design dispatch, with the Protocol attempt
 // that dispatch carries. A test that exhausts this work exhausts the lane's
 // own candidate work, exactly as a real dispatch does.
 func (f *economyGuardFixture) designDispatchWork(t *testing.T) (string, int64) {
 	t.Helper()
-	state, err := baton.ReadState(
+	state, err := protocol.ReadState(
 		f.engine.git, f.manifest.value.Release, f.engine.inertness)
 	if err != nil {
 		t.Fatal(err)

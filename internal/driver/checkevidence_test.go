@@ -8,10 +8,10 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/swornagent/sworn/internal/baton"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
-// checkEvidencePlanFixture builds one legacy inline baton.plan/v2 body
+// checkEvidencePlanFixture builds one legacy inline protocol.plan/v2 body
 // (declared.ContractPath == "", so resolveVerifierContractBinding reads
 // declared.Checks directly, no contract file needed) declaring exactly
 // checks for slice S1.
@@ -24,8 +24,8 @@ func checkEvidencePlanFixture(checks []string) []byte {
 		encoded += `"` + check + `"`
 	}
 	encoded += "]"
-	return []byte("```baton-plan-v2\n" + `{
-  "schema_version": "baton.plan/v2",
+	return []byte("```protocol-plan-v2\n" + `{
+  "schema_version": "protocol.plan/v2",
   "release": "fixture",
   "revision": 1,
   "previous_plan": null,
@@ -65,7 +65,7 @@ func checkEvidenceInvocationFixture(t *testing.T, declaredChecks []string) Invoc
 	workContextInput := Input{
 		Name: "work-context", Path: "work-context.json", Digest: Digest(contextBody),
 	}
-	planInput := Input{Name: "plan", Path: "baton/plan.md", Digest: Digest(planBody)}
+	planInput := Input{Name: "plan", Path: "protocol/plan.md", Digest: Digest(planBody)}
 	request, err := NewRequest(
 		"invocation-check-evidence",
 		RoleVerifier,
@@ -148,7 +148,7 @@ func workVerificationSubmitArguments(
 // including one without a trusted containment binary. One recorded call
 // covers the declared check (wrapped in an ordinary redirect-and-tail form
 // the real sandbox pushes workers toward) and one is arbitrary; the sealed
-// submission's Checks, decoded through baton.ParseCheckResults, shows the
+// submission's Checks, decoded through protocol.ParseCheckResults, shows the
 // wrapped call covering the declared check with outcome pass and the
 // arbitrary call recorded verbatim - never the placeholder bytes
 // {0x00, 0xff, '\n'} the model itself submitted.
@@ -183,7 +183,7 @@ func TestWorkVerificationCheckEvidenceIsDriverAuthored(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	results, err := baton.ParseCheckResults(raw)
+	results, err := protocol.ParseCheckResults(raw)
 	if err != nil {
 		t.Fatalf("driver-built manifest does not parse: %v", err)
 	}
@@ -193,14 +193,14 @@ func TestWorkVerificationCheckEvidenceIsDriverAuthored(t *testing.T) {
 	var sawCovering, sawArbitrary bool
 	for _, entry := range results.Entries {
 		if entry.Check == wrapped {
-			if entry.Outcome != baton.CheckOutcomePass ||
-				!baton.CheckCommandCovers(declared, entry.Check) {
+			if entry.Outcome != protocol.CheckOutcomePass ||
+				!protocol.CheckCommandCovers(declared, entry.Check) {
 				t.Fatalf("covering entry = %#v", entry)
 			}
 			sawCovering = true
 		}
 		if entry.Check == arbitrary {
-			if entry.Outcome != baton.CheckOutcomePass {
+			if entry.Outcome != protocol.CheckOutcomePass {
 				t.Fatalf("arbitrary entry = %#v", entry)
 			}
 			sawArbitrary = true
@@ -275,35 +275,35 @@ func TestWorkVerificationCheckEvidenceIncompleteRefusesPassInTurn(t *testing.T) 
 // For PROCESS_START_FAILED carrying a valid sandbox_start.* Detail envelope,
 // it preserves the key=value structured diagnostic.
 func TestCheckResultOutcomeClassifiesExactlyWhatWasObserved(t *testing.T) {
-	if outcome, diagnostic := checkResultOutcome(0, nil); outcome != baton.CheckOutcomePass || diagnostic != "" {
+	if outcome, diagnostic := checkResultOutcome(0, nil); outcome != protocol.CheckOutcomePass || diagnostic != "" {
 		t.Fatalf("pass = (%q, %q)", outcome, diagnostic)
 	}
-	if outcome, diagnostic := checkResultOutcome(3, nil); outcome != baton.CheckOutcomeFail || diagnostic == "" {
+	if outcome, diagnostic := checkResultOutcome(3, nil); outcome != protocol.CheckOutcomeFail || diagnostic == "" {
 		t.Fatalf("nonzero exit = (%q, %q)", outcome, diagnostic)
 	}
-	if outcome, _ := checkResultOutcome(0, context.DeadlineExceeded); outcome != baton.CheckOutcomeTimeout {
+	if outcome, _ := checkResultOutcome(0, context.DeadlineExceeded); outcome != protocol.CheckOutcomeTimeout {
 		t.Fatalf("deadline exceeded outcome = %q", outcome)
 	}
-	if outcome, diagnostic := checkResultOutcome(0, fail("OUTPUT_OVERFLOW")); outcome != baton.CheckOutcomeOverflow ||
+	if outcome, diagnostic := checkResultOutcome(0, fail("OUTPUT_OVERFLOW")); outcome != protocol.CheckOutcomeOverflow ||
 		diagnostic != "OUTPUT_OVERFLOW" {
 		t.Fatalf("overflow = (%q, %q)", outcome, diagnostic)
 	}
-	if outcome, diagnostic := checkResultOutcome(0, fail("PROCESS_TREE_NOT_QUIESCENT")); outcome != baton.CheckOutcomeFail ||
+	if outcome, diagnostic := checkResultOutcome(0, fail("PROCESS_TREE_NOT_QUIESCENT")); outcome != protocol.CheckOutcomeFail ||
 		diagnostic != "PROCESS_TREE_NOT_QUIESCENT" {
 		t.Fatalf("harness error = (%q, %q)", outcome, diagnostic)
 	}
-	if outcome, diagnostic := checkResultOutcome(0, fail("PROCESS_START_FAILED")); outcome != baton.CheckOutcomeFail ||
+	if outcome, diagnostic := checkResultOutcome(0, fail("PROCESS_START_FAILED")); outcome != protocol.CheckOutcomeFail ||
 		diagnostic != "PROCESS_START_FAILED" {
 		t.Fatalf("bare PROCESS_START_FAILED = (%q, %q)", outcome, diagnostic)
 	}
 	startErr := failSandboxStart("sandbox_start.bwrap_exec_start", syscall.EACCES)
 	wantDiag := `PROCESS_START_FAILED detail={"check":"sandbox_start.bwrap_exec_start","cause":"permission denied"}`
-	if outcome, diagnostic := checkResultOutcome(0, startErr); outcome != baton.CheckOutcomeFail ||
+	if outcome, diagnostic := checkResultOutcome(0, startErr); outcome != protocol.CheckOutcomeFail ||
 		diagnostic != wantDiag {
-		t.Fatalf("sandbox start failure = (%q, %q), want (%q, %q)", outcome, diagnostic, baton.CheckOutcomeFail, wantDiag)
+		t.Fatalf("sandbox start failure = (%q, %q), want (%q, %q)", outcome, diagnostic, protocol.CheckOutcomeFail, wantDiag)
 	}
 	invalidDetailErr := &ContractError{Code: "PROCESS_START_FAILED", Detail: `{"unknown":"field"}`}
-	if outcome, diagnostic := checkResultOutcome(0, invalidDetailErr); outcome != baton.CheckOutcomeFail ||
+	if outcome, diagnostic := checkResultOutcome(0, invalidDetailErr); outcome != protocol.CheckOutcomeFail ||
 		diagnostic != "PROCESS_START_FAILED" {
 		t.Fatalf("invalid detail PROCESS_START_FAILED = (%q, %q)", outcome, diagnostic)
 	}
@@ -430,7 +430,7 @@ func TestWorkVerificationCheckEvidenceIncompleteCarriesSandboxDetail(t *testing.
 }
 
 // TestTruncateCheckCommandKeepsTheHeadAndStaysWithinBound pins correction 1:
-// a script longer than baton.MaxCheckCommandBytes is truncated (never left
+// a script longer than protocol.MaxCheckCommandBytes is truncated (never left
 // to poison EncodeCheckResults with an opaque failure), keeping the head so
 // CheckCommandCovers's prefix match still holds against a short declared
 // check.
@@ -438,13 +438,13 @@ func TestTruncateCheckCommandKeepsTheHeadAndStaysWithinBound(t *testing.T) {
 	declared := "echo covered-check"
 	long := declared + strings.Repeat(" x", 2_000)
 	truncated := truncateCheckCommand(long)
-	if len(truncated) > baton.MaxCheckCommandBytes {
-		t.Fatalf("truncated length = %d, want <= %d", len(truncated), baton.MaxCheckCommandBytes)
+	if len(truncated) > protocol.MaxCheckCommandBytes {
+		t.Fatalf("truncated length = %d, want <= %d", len(truncated), protocol.MaxCheckCommandBytes)
 	}
 	if !strings.HasSuffix(truncated, checkCommandTruncationMarker) {
 		t.Fatalf("truncated = %q, want the truncation marker", truncated)
 	}
-	if !baton.CheckCommandCovers(declared, truncated) {
+	if !protocol.CheckCommandCovers(declared, truncated) {
 		t.Fatalf("truncated command %q no longer covers %q", truncated, declared)
 	}
 }

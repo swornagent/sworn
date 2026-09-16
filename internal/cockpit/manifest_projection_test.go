@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/swornagent/sworn/internal/baton"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 // manifestProjectionFixture returns one Snapshot carrying real canonical
@@ -27,7 +27,7 @@ func manifestProjectionFixture() Snapshot {
 				},
 				{
 					ID: "slice:S1", Kind: "slice", Label: "S1", Track: "T1",
-					State: "ready", HasBaton: true, NextResponsibility: "implementer",
+					State: "ready", HasProtocol: true, NextResponsibility: "implementer",
 					ContractPath:   "contracts/S1.json",
 					ContractDigest: "sha256:" + strings.Repeat("a", 64),
 				},
@@ -138,7 +138,7 @@ func TestManifestFactsAreIdenticalAcrossTerminalHTTPAndMCP(t *testing.T) {
 	// command: every command counter stays at zero after this read.
 	if commands.startCalls != 0 || commands.controlCalls != 0 ||
 		commands.answerCalls != 0 || commands.redeliveries != 0 ||
-		commands.approveCalls != 0 || commands.captainCalls != 0 {
+		commands.approveCalls != 0 || commands.leadCalls != 0 {
 		t.Fatalf("MCP status call invoked write authority: %#v", commands)
 	}
 }
@@ -161,35 +161,35 @@ func TestMCPStatusToolCannotMutateRefsOrInvokeWriteAuthority(t *testing.T) {
 	}
 	if commands.startCalls != 0 || commands.controlCalls != 0 ||
 		commands.answerCalls != 0 || commands.redeliveries != 0 ||
-		commands.approveCalls != 0 || commands.captainCalls != 0 {
+		commands.approveCalls != 0 || commands.leadCalls != 0 {
 		t.Fatalf("repeated MCP status calls invoked write authority: %#v", commands)
 	}
 }
 
 // TestLegacyPlanV2GraphProjectionHasNoContractPathOrManifestDrift proves a
-// legacy baton.plan/v2 release's projection stays truthful and unchanged:
+// legacy protocol.plan/v2 release's projection stays truthful and unchanged:
 // its manifest identity reports the real legacy schema, its slices carry no
 // contract_path (v2 has none), and its per-slice contract digest -- which
 // already existed as retained-work identity before this phase -- is
 // unaffected.
 func TestLegacyPlanV2GraphProjectionHasNoContractPathOrManifestDrift(t *testing.T) {
 	t.Parallel()
-	state := baton.State{
+	state := protocol.State{
 		Release: "legacy-release",
-		Plan: baton.PlanState{
-			Metadata: baton.Metadata{
-				SchemaVersion: baton.PlanVersion,
+		Plan: protocol.PlanState{
+			Metadata: protocol.Metadata{
+				SchemaVersion: protocol.PlanVersion,
 				Contracts:     map[string]string{"S1": "sha256:" + strings.Repeat("b", 64)},
 			},
 		},
-		Tracks: []baton.TrackState{
+		Tracks: []protocol.TrackState{
 			{
 				ID: "T1",
-				Slices: []*baton.SliceState{
+				Slices: []*protocol.SliceState{
 					{
-						Location: baton.SliceLocation{
-							Track: baton.Track{ID: "T1"},
-							Slice: baton.Slice{ID: "S1"},
+						Location: protocol.SliceLocation{
+							Track: protocol.Track{ID: "T1"},
+							Slice: protocol.Slice{ID: "S1"},
 						},
 						Stage: "implement", Status: "ready", NextRole: "implementer",
 						Outcome: "none",
@@ -197,11 +197,11 @@ func TestLegacyPlanV2GraphProjectionHasNoContractPathOrManifestDrift(t *testing.
 				},
 			},
 		},
-		Assembly: baton.AssemblyState{Stage: "verify", Status: "waiting", NextRole: "none", Outcome: "none"},
+		Assembly: protocol.AssemblyState{Stage: "verify", Status: "waiting", NextRole: "none", Outcome: "none"},
 	}
 	graph := projectGraph(state, "running", nil)
-	if graph.ManifestVersion != baton.PlanVersion {
-		t.Fatalf("manifest_version = %q, want %q", graph.ManifestVersion, baton.PlanVersion)
+	if graph.ManifestVersion != protocol.PlanVersion {
+		t.Fatalf("manifest_version = %q, want %q", graph.ManifestVersion, protocol.PlanVersion)
 	}
 	var slice *Node
 	for index := range graph.Nodes {
@@ -229,7 +229,7 @@ func TestLegacyPlanV2GraphProjectionHasNoContractPathOrManifestDrift(t *testing.
 // panicking or inventing facts.
 func TestEmptyPlanHistoryDegradesWithoutPanicOrFabrication(t *testing.T) {
 	t.Parallel()
-	state := baton.State{Release: "empty-history"}
+	state := protocol.State{Release: "empty-history"}
 	graph := projectGraph(state, "not_started", nil)
 	if graph.Touchpoints != nil {
 		t.Fatalf("touchpoints = %#v, want nil", graph.Touchpoints)

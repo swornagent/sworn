@@ -51,12 +51,12 @@ const (
 
 	// DefaultRecordsRoot is the unconfigured records root where the engine
 	// writes machine authority. S2 relocates it from the historical
-	// .baton/releases location to the project's .sworn surface.
+	// .protocol/releases location to the project's .sworn surface.
 	DefaultRecordsRoot = ".sworn/records"
 	// LegacyRecordsRoot is the historical records root kept readable for
 	// releases recorded before the relocation. It stays reserved and masked
 	// for as long as the legacy fallback can read it.
-	LegacyRecordsRoot = ".baton/releases"
+	LegacyRecordsRoot = ".protocol/releases"
 	// DefaultJournalsRoot is the unconfigured journals root.
 	DefaultJournalsRoot = ".sworn"
 	// DefaultContractsRoot is the unconfigured contracts root.
@@ -575,7 +575,7 @@ func canonicalExecutable(value string) (string, error) {
 // project-scoped root (records and journals), and the historical records
 // root's top segment. The mask follows the configured roots so a relocated
 // records or journals root is never left unprotected; .git is always
-// reserved; and the legacy .baton top segment stays reserved for as long as
+// reserved; and the legacy .protocol top segment stays reserved for as long as
 // the historical records fallback can read it. The result is sorted and
 // de-duplicated for a stable argument list.
 func ReservedNames(project ProjectConfig) []string {

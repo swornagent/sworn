@@ -33,7 +33,7 @@ func TestRenderTerminalPresentsTheTruthfulSnapshot(t *testing.T) {
 		`control_generation=4 through_offset=17`,
 		`GRAPH nodes=3 edges=2`,
 		`id="slice:S1" label="S1" state="ready"`,
-		`baton=true`,
+		`protocol=true`,
 		`next="implementer"`,
 		`kind="depends_on" to="assembly:release-1"`,
 		`HANDOFF`,
@@ -204,7 +204,7 @@ func terminalFixture() Snapshot {
 					ID: "slice:S1", Kind: "slice", Label: "S1",
 					Track: "T1", State: "ready", Stage: "implementation",
 					Outcome: "none", NextResponsibility: "implementer",
-					Attempt: 2, HasBaton: true,
+					Attempt: 2, HasProtocol: true,
 				},
 				{
 					ID: "assembly:release-1", Kind: "assembly",

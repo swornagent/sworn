@@ -15,11 +15,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/cockpit"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 	"github.com/swornagent/sworn/internal/tui"
 )
@@ -55,7 +55,7 @@ type tuiResidentHost struct {
 
 	// telemetry holds one silently-fail-open run-side export host per run
 	// this resident host started (C3: sworn tui hosts delivery in-process
-	// via StartDetached/StartWithCaptainDelegationDetached, so its runs must
+	// via StartDetached/StartWithLeadDelegationDetached, so its runs must
 	// export exactly as run's do). Teardown is bound to the resident host's
 	// close path.
 	telemetryMu sync.Mutex
@@ -305,10 +305,10 @@ func (b *projectTUIBackend) Board(
 			Diagnostics: snapshot.Diagnostics,
 			Status:      presentation.Status, What: presentation.What,
 			Next: presentation.Next, NeedsYou: presentation.NeedsYou,
-			Checked:          presentation.Checked,
-			CaptainAuthority: captainDelegationTUILabel(snapshot.CaptainDelegation),
-			ThroughOffset:    snapshot.ThroughOffset,
-			ManifestDir:      project.paths.manifestDir,
+			Checked:       presentation.Checked,
+			LeadAuthority: leadDelegationTUILabel(snapshot.LeadDelegation),
+			ThroughOffset: snapshot.ThroughOffset,
+			ManifestDir:   project.paths.manifestDir,
 		}, nil
 	}
 	if release.diagnostic != "" {
@@ -335,7 +335,7 @@ func (b *projectTUIBackend) Board(
 		Release:    release.name,
 	})
 	if err != nil {
-		code := baton.ErrorCode(err)
+		code := protocol.ErrorCode(err)
 		if code != "" {
 			return tui.Board{
 				Selection: selection,
@@ -370,10 +370,10 @@ func (b *projectTUIBackend) Board(
 			if manifest, parseErr := runtimepkg.ParseManifest(body); parseErr == nil {
 				actions = append(actions, cockpit.Action{
 					Kind: "start_delegated",
-					CaptainDelegation: &cockpit.CaptainDelegationAction{
+					LeadDelegation: &cockpit.LeadDelegationAction{
 						Action: "admit", RunID: manifest.RunID,
 						ManifestDigest: sha256Digest(body),
-						ActorClass:     runtimepkg.CaptainDelegationActorClass,
+						ActorClass:     runtimepkg.LeadDelegationActorClass,
 						ActorAuthority: manifest.Authority.ExternalAuthorizer,
 					},
 				})
@@ -523,7 +523,7 @@ func (b *projectTUIBackend) Config(
 		configView.Roles = []tui.RoleMatrixEntry{
 			{Role: "planner", Profile: manifest.Roles.Planner.Profile, Model: manifest.Roles.Planner.Model, Source: manifestSource},
 			{Role: "implementer", Profile: manifest.Roles.Implementer.Profile, Model: manifest.Roles.Implementer.Model, Source: manifestSource},
-			{Role: "captain", Profile: manifest.Roles.Captain.Profile, Model: manifest.Roles.Captain.Model, Source: manifestSource},
+			{Role: "lead", Profile: manifest.Roles.Lead.Profile, Model: manifest.Roles.Lead.Model, Source: manifestSource},
 			{Role: "verifier", Profile: manifest.Roles.Verifier.Profile, Model: manifest.Roles.Verifier.Model, Source: manifestSource},
 		}
 		if manifest.Automation != nil && manifest.Automation.Recovery.Profile != "" {
@@ -616,11 +616,11 @@ func (b *projectTUIBackend) Events(
 	return projector.Events(ctx, run.binding.ID, after, limit, trackArgs...)
 }
 
-func captainDelegationTUILabel(value *runtimepkg.CaptainDelegationView) string {
+func leadDelegationTUILabel(value *runtimepkg.LeadDelegationView) string {
 	if value == nil {
 		return "External human approval"
 	}
-	return "captain_plan_review epoch " + strconv.FormatInt(value.Epoch, 10) + " " + value.State +
+	return "lead_plan_review epoch " + strconv.FormatInt(value.Epoch, 10) + " " + value.State +
 		" · decisions " + strconv.FormatInt(value.Decisions, 10) +
 		" · replans " + strconv.FormatInt(value.ReplanSpent, 10) + "/" + strconv.FormatInt(value.ReplanBudget, 10)
 }
@@ -670,7 +670,7 @@ func (b *projectTUIBackend) Execute(
 		)
 	}
 	if action.Kind == "start_delegated" {
-		if hasRun || release.manifest == "" || action.CaptainDelegation == nil ||
+		if hasRun || release.manifest == "" || action.LeadDelegation == nil ||
 			strings.TrimSpace(answer) == "" {
 			return errors.New("the current board does not allow that action")
 		}
@@ -738,14 +738,14 @@ func (b *projectTUIBackend) executeRunAction(
 		if answer != "" {
 			return errors.New("the current board does not allow that action")
 		}
-	case "captain_delegation_revoke":
-		if answer != "" || action.CaptainDelegation == nil ||
-			action.CaptainDelegation.Action != "revoke" {
+	case "lead_delegation_revoke":
+		if answer != "" || action.LeadDelegation == nil ||
+			action.LeadDelegation.Action != "revoke" {
 			return errors.New("the current board does not allow that action")
 		}
-	case "captain_delegation_replace":
-		if strings.TrimSpace(answer) == "" || action.CaptainDelegation == nil ||
-			action.CaptainDelegation.Action != "replace" {
+	case "lead_delegation_replace":
+		if strings.TrimSpace(answer) == "" || action.LeadDelegation == nil ||
+			action.LeadDelegation.Action != "replace" {
 			return errors.New("the current board does not allow that action")
 		}
 	default:
@@ -790,24 +790,24 @@ func (b *projectTUIBackend) executeRunAction(
 			RunID: run.binding.ID, DestinationID: action.DestinationID,
 			MessageID: action.MessageID,
 		})
-	case "captain_delegation_revoke", "captain_delegation_replace":
-		binding := action.CaptainDelegation
-		command := runtimepkg.CaptainDelegationCommand{
-			SchemaVersion: runtimepkg.CaptainDelegationCommandVersion,
+	case "lead_delegation_revoke", "lead_delegation_replace":
+		binding := action.LeadDelegation
+		command := runtimepkg.LeadDelegationCommand{
+			SchemaVersion: runtimepkg.LeadDelegationCommandVersion,
 			Action:        binding.Action, RunID: binding.RunID,
 			ManifestDigest: binding.ManifestDigest,
 			ActorClass:     binding.ActorClass, ActorAuthority: binding.ActorAuthority,
 			CurrentEpoch: binding.CurrentEpoch, CurrentDigest: binding.CurrentDigest,
 		}
 		if binding.Action == "replace" {
-			admitted, parseErr := runtimepkg.ParseCaptainDelegation([]byte(answer))
+			admitted, parseErr := runtimepkg.ParseLeadDelegation([]byte(answer))
 			if parseErr != nil {
 				return errors.New("the replacement envelope is invalid")
 			}
 			command.EnvelopeBytes = admitted.Bytes
 			command.EnvelopeDigest = admitted.Digest
 		}
-		_, err = commands.CaptainDelegation(ctx, command)
+		_, err = commands.LeadDelegation(ctx, command)
 	}
 	if err != nil {
 		return errors.New("the current board rejected that action")
@@ -927,11 +927,11 @@ func (b *projectTUIBackend) startTUIDelegatedRun(
 		return errors.New("the run definition is unavailable")
 	}
 	manifest, err := runtimepkg.ParseManifest(body)
-	binding := action.CaptainDelegation
+	binding := action.LeadDelegation
 	if err != nil || binding == nil || binding.Action != "admit" ||
 		manifest.Repository != project.paths.root || manifest.Release != release.name ||
 		binding.RunID != manifest.RunID || binding.ManifestDigest != sha256Digest(body) ||
-		binding.ActorClass != runtimepkg.CaptainDelegationActorClass ||
+		binding.ActorClass != runtimepkg.LeadDelegationActorClass ||
 		binding.ActorAuthority != manifest.Authority.ExternalAuthorizer ||
 		tuiSelectionWithManifest(project, release, "", sha256Digest(body)) != selection {
 		return errors.New("the delegated run authority changed; refresh before starting")
@@ -940,7 +940,7 @@ func (b *projectTUIBackend) startTUIDelegatedRun(
 	if err != nil {
 		return errors.New("project control is unavailable")
 	}
-	status, err := host.service.StartWithCaptainDelegationDetached(ctx, body, envelope)
+	status, err := host.service.StartWithLeadDelegationDetached(ctx, body, envelope)
 	if err != nil {
 		return errors.New("the delegated run could not be started")
 	}

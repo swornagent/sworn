@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 	swornruntime "github.com/swornagent/sworn/internal/runtime"
 )
 
@@ -23,7 +23,7 @@ import (
 //
 // The seams below are the real effect boundaries the serial loop crosses --
 // preparing a track base (target advance), dispatching role work, appending a
-// Captain decision or a Verifier verdict, publishing a candidate in both of
+// Lead decision or a Verifier verdict, publishing a candidate in both of
 // its halves, and Merge. Each one is cut with the product's own ldflags crash
 // seam after the effect has really happened but before it was recorded, which
 // is the hardest case: the world moved and the journal does not know it yet.
@@ -46,10 +46,10 @@ type exactlyOnceCut struct {
 func exactlyOnceCuts() []exactlyOnceCut {
 	return []exactlyOnceCut{
 		{effect: "git.prepare_track_base", phase: "target advance"},
-		{effect: "baton.append_receipt", phase: "decision and verdict records"},
+		{effect: "protocol.append_receipt", phase: "decision and verdict records"},
 		{effect: "git.seal.prepared", phase: "candidate publication (prepared)"},
 		{effect: "git.seal", phase: "candidate publication"},
-		{effect: "baton.merge", phase: "merge"},
+		{effect: "protocol.merge", phase: "merge"},
 	}
 }
 
@@ -110,7 +110,7 @@ func assertExactlyOnce(
 			}
 			succeededByReplayKey[effect.ReplayKey] = effect.ID
 			switch effect.Kind {
-			case "baton.merge":
+			case "protocol.merge":
 				merges++
 			case "git.seal":
 				seals++
@@ -152,7 +152,7 @@ func assertExactlyOnce(
 	}
 
 	// One receipt per slice, role and attempt.
-	state := readBatonState(t, repository, release)
+	state := readProtocolState(t, repository, release)
 	if state.Assembly.Outcome != "merged" || state.Assembly.ResultCommit == "" {
 		t.Fatalf("recovered assembly = %#v", state.Assembly)
 	}
@@ -336,7 +336,7 @@ func recordedEffectStates(t *testing.T, journalPath, runID string) map[string]in
 // to state the same exactly-once claim about a direct repair after a Verifier
 // FAIL: the failed attempt and the repaired attempt are each recorded once,
 // and the passed attempt is the one that merged.
-func assertNoDuplicateVerdicts(t *testing.T, state baton.State, slice string) {
+func assertNoDuplicateVerdicts(t *testing.T, state protocol.State, slice string) {
 	t.Helper()
 	record, ok := state.Slice(slice)
 	if !ok {

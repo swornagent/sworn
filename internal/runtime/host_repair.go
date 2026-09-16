@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 const hostRepairVersion = "sworn.host-check-repair/v1"
@@ -131,7 +131,7 @@ func captureHostRepair(ctx context.Context, engine *engine, coordinates dispatch
 		return nil, err
 	}
 	check := repair.FailedCheck
-	parsed, err := baton.ParsePlan(plan.body)
+	parsed, err := protocol.ParsePlan(plan.body)
 	if err != nil {
 		return nil, runtimeFail("HOST_REPAIR_BINDING_FAILED", err)
 	}
@@ -178,7 +178,7 @@ func validateHostRepair(repair productionHostRepair, invocation, slice string) e
 		return runtimeFail("HOST_REPAIR_BINDING_FAILED", nil)
 	}
 	check := repair.FailedCheck
-	if repair.SchemaVersion != hostRepairVersion || !runtimeDigestPattern.MatchString(repair.Before) || !validGitObjectID(repair.Plan) || !validGitObjectID(repair.PreparedBase) || !runtimeDigestPattern.MatchString(repair.ProductTree) || repair.Submission.InvocationID != invocation || repair.Submission.Responsibility != driver.ImplementerImplementation || check.Slice != slice || !validGitObjectID(check.Candidate) || !runtimeDigestPattern.MatchString(check.ContractDigest) || check.Check == "" || (check.Outcome != baton.CheckOutcomeFail && check.Outcome != baton.CheckOutcomeTimeout && check.Outcome != baton.CheckOutcomeOverflow) || !isHostCheckEffectID(check.EffectID, hostCheckWork(slice, check.Candidate, check.ContractDigest, check.Check)) || len(check.Output) > hostCheckOutputBytes+1024 || baton.DigestBytes([]byte(check.Output)) != check.OutputDigest {
+	if repair.SchemaVersion != hostRepairVersion || !runtimeDigestPattern.MatchString(repair.Before) || !validGitObjectID(repair.Plan) || !validGitObjectID(repair.PreparedBase) || !runtimeDigestPattern.MatchString(repair.ProductTree) || repair.Submission.InvocationID != invocation || repair.Submission.Responsibility != driver.ImplementerImplementation || check.Slice != slice || !validGitObjectID(check.Candidate) || !runtimeDigestPattern.MatchString(check.ContractDigest) || check.Check == "" || (check.Outcome != protocol.CheckOutcomeFail && check.Outcome != protocol.CheckOutcomeTimeout && check.Outcome != protocol.CheckOutcomeOverflow) || !isHostCheckEffectID(check.EffectID, hostCheckWork(slice, check.Candidate, check.ContractDigest, check.Check)) || len(check.Output) > hostCheckOutputBytes+1024 || protocol.DigestBytes([]byte(check.Output)) != check.OutputDigest {
 		return runtimeFail("HOST_REPAIR_BINDING_FAILED", nil)
 	}
 	if _, err := driver.EncodeSubmission(repair.Submission); err != nil {

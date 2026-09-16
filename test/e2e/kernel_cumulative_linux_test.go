@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 	swornruntime "github.com/swornagent/sworn/internal/runtime"
 )
 
@@ -25,7 +25,7 @@ import (
 // slices at once:
 //
 //	S1  the authority the run installs and the receipts it appends are
-//	    Sworn's own, with no external Baton product involved;
+//	    Sworn's own, with no external Protocol product involved;
 //	S2  the plan is a sworn.release-manifest/v1 manifest whose slice contracts
 //	    are separate committed files, admitted by digest;
 //	S3  the Planner reads the repository, presents a summary as a human-only
@@ -62,7 +62,7 @@ func cumulativeContracts(t *testing.T, repository string) (string, map[string]st
 		raw := manifestTouchpointContractRaw(
 			t, slice, []string{cumulativeSlicePaths()[slice]},
 		)
-		_, digest, err := baton.ParseSliceContract(raw, slice, "T1")
+		_, digest, err := protocol.ParseSliceContract(raw, slice, "T1")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -89,7 +89,7 @@ func cumulativeContracts(t *testing.T, repository string) (string, map[string]st
 func cumulativePlanBytes(t *testing.T, digests map[string]string) []byte {
 	t.Helper()
 	value := map[string]any{
-		"schema_version": baton.ManifestVersion,
+		"schema_version": protocol.ManifestVersion,
 		"release":        cumulativeRelease,
 		"revision":       int64(1),
 		"previous_plan":  nil,
@@ -147,7 +147,7 @@ func cumulativeRunManifest(
 		Roles: driver.RoleSelections{
 			Planner:     driver.RoleSelection{Profile: "openai", Model: "journey-planner"},
 			Implementer: driver.RoleSelection{Profile: "gemini", Model: "journey-implementer"},
-			Captain:     driver.RoleSelection{Profile: "openai", Model: "journey-captain"},
+			Lead:        driver.RoleSelection{Profile: "openai", Model: "journey-lead"},
 			Verifier:    driver.RoleSelection{Profile: "gemini", Model: "journey-verifier"},
 		},
 		Automation: &swornruntime.AutomationSelections{
@@ -253,11 +253,11 @@ func TestRealBinaryCumulativeT1KernelJourney(t *testing.T) {
 	repository := newProductRepository(t)
 	contractTree, digests := cumulativeContracts(t, repository)
 	planBytes := cumulativePlanBytes(t, digests)
-	plan, err := baton.ParsePlan(planBytes)
+	plan, err := protocol.ParsePlan(planBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Metadata().SchemaVersion != baton.ManifestVersion {
+	if plan.Metadata().SchemaVersion != protocol.ManifestVersion {
 		t.Fatalf("cumulative plan schema = %q", plan.Metadata().SchemaVersion)
 	}
 
@@ -302,23 +302,23 @@ func TestRealBinaryCumulativeT1KernelJourney(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	actions, err := baton.NewActions(
-		baton.UseGitRepository(openedRepository), inertResolver,
+	actions, err := protocol.NewActions(
+		protocol.UseGitRepository(openedRepository), inertResolver,
 		gitx.Identity{Name: "E2E Engine", Email: "engine@example.test"},
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, refused := actions.RecordPlanRevision(baton.RecordPlanRevisionInput{
+	_, refused := actions.RecordPlanRevision(protocol.RecordPlanRevisionInput{
 		PlanBytes: planBytes,
 		Summary:   "Attempt a native manifest with no contract source.",
 		Detail:    []byte("Falsifier for the runtime contract-source repair."),
 	})
-	if baton.ErrorCode(refused) != "CONTRACT_SOURCE_REQUIRED" {
+	if protocol.ErrorCode(refused) != "CONTRACT_SOURCE_REQUIRED" {
 		t.Fatalf(
 			"install without a contract source = %q (%v); "+
 				"this journey would not prove the repair",
-			baton.ErrorCode(refused), refused,
+			protocol.ErrorCode(refused), refused,
 		)
 	}
 	if runGit(t, repository, "rev-parse", "main") != targetBefore {
@@ -396,8 +396,8 @@ func TestRealBinaryCumulativeT1KernelJourney(t *testing.T) {
 	}
 
 	counts, snapshot := kernelEffectCounts(t, journalPath, cumulativeRunID)
-	if counts["effect:approval.admit"] != 1 || counts["effect:baton.install"] != 1 ||
-		counts["effect:baton.merge"] != 1 {
+	if counts["effect:approval.admit"] != 1 || counts["effect:protocol.install"] != 1 ||
+		counts["effect:protocol.merge"] != 1 {
 		t.Fatalf("cumulative authority effects = %#v", counts)
 	}
 	for _, effect := range snapshot.Effects {
@@ -409,9 +409,9 @@ func TestRealBinaryCumulativeT1KernelJourney(t *testing.T) {
 
 	// The authority the run installed is the exact native manifest, and every
 	// slice contract it admitted is the separate committed file, by digest.
-	state := readBatonState(t, repository, cumulativeRelease)
+	state := readProtocolState(t, repository, cumulativeRelease)
 	if state.Plan.Digest != plan.Digest() ||
-		state.Plan.Metadata.SchemaVersion != baton.ManifestVersion ||
+		state.Plan.Metadata.SchemaVersion != protocol.ManifestVersion ||
 		state.Plan.Approval.Receipt.Role != "planner" ||
 		state.Plan.Approval.Receipt.Result != "approved" {
 		t.Fatalf("installed cumulative authority = %#v", state.Plan)
@@ -442,7 +442,7 @@ func TestRealBinaryCumulativeT1KernelJourney(t *testing.T) {
 		committed := runGit(
 			t, repository, "show", contractTree+":"+slice.ContractPath,
 		)
-		_, recomputed, err := baton.ParseSliceContract(
+		_, recomputed, err := protocol.ParseSliceContract(
 			[]byte(committed+"\n"), slice.ID, "T1",
 		)
 		if err != nil || recomputed != want {

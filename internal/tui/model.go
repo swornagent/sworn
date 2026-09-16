@@ -285,7 +285,7 @@ func (m *model) handleActionKey(key tea.KeyMsg) tea.Cmd {
 		action := m.board.Actions[m.actionCursor]
 		if action.Kind == "answer_attention" || action.Kind == "grant" ||
 			action.Kind == "start_delegated" ||
-			action.Kind == "captain_delegation_replace" {
+			action.Kind == "lead_delegation_replace" {
 			m.pendingAction = action
 			m.answer = ""
 			m.overlay = overlayAnswer
@@ -315,8 +315,8 @@ func (m *model) handleAnswerKey(key tea.KeyMsg) tea.Cmd {
 			m.pendingAction.Kind == "grant" {
 			return m.execute(m.pendingAction, m.answer)
 		}
-		if _, err := runtimepkg.ParseCaptainDelegation([]byte(m.answer)); err != nil {
-			m.statusMsg = "The Captain delegation envelope is not canonical."
+		if _, err := runtimepkg.ParseLeadDelegation([]byte(m.answer)); err != nil {
+			m.statusMsg = "The Lead delegation envelope is not canonical."
 			return nil
 		}
 		m.overlay = overlayConfirm
@@ -347,8 +347,8 @@ func (m *model) appendAnswer(value string) {
 	value = clean.String()
 	limit := maxAnswerBytes
 	if m.pendingAction.Kind == "start_delegated" ||
-		m.pendingAction.Kind == "captain_delegation_replace" {
-		limit = runtimepkg.MaxCaptainDelegationBytes
+		m.pendingAction.Kind == "lead_delegation_replace" {
+		limit = runtimepkg.MaxLeadDelegationBytes
 	}
 	if len(m.answer)+len(value) > limit {
 		m.statusMsg = "Input is at its safe size limit."
@@ -368,7 +368,7 @@ func trimLastRune(value string) string {
 func confirmAction(kind string) bool {
 	switch kind {
 	case "start", "start_delegated", "cancel", "retry", "takeover", "approve",
-		"captain_delegation_revoke", "captain_delegation_replace":
+		"lead_delegation_revoke", "lead_delegation_replace":
 		return true
 	default:
 		return false
@@ -604,11 +604,11 @@ func (m *model) actionLabel(action cockpit.Action) string {
 	case "start":
 		return "Start run"
 	case "start_delegated":
-		return "Start with Captain delegation"
-	case "captain_delegation_revoke":
-		return "Revoke Captain delegation"
-	case "captain_delegation_replace":
-		return "Replace Captain delegation"
+		return "Start with Lead delegation"
+	case "lead_delegation_revoke":
+		return "Revoke Lead delegation"
+	case "lead_delegation_replace":
+		return "Replace Lead delegation"
 	case "approve":
 		if action.Approval != nil {
 			return fmt.Sprintf(

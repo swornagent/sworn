@@ -38,7 +38,7 @@ func TestManifestContinuationLifetimeAdmissionAndRoundTrip(t *testing.T) {
 		Roles: driver.RoleSelections{
 			Planner:     driver.RoleSelection{Profile: "default", Model: "model-p"},
 			Implementer: driver.RoleSelection{Profile: "default", Model: "model-i"},
-			Captain:     driver.RoleSelection{Profile: "default", Model: "model-c"},
+			Lead:        driver.RoleSelection{Profile: "default", Model: "model-c"},
 			Verifier:    driver.RoleSelection{Profile: "default", Model: "model-v"},
 		},
 		Automation: &AutomationSelections{
@@ -573,7 +573,7 @@ func TestYieldPathInvalidContinuationLabelReachesAttemptWrite(t *testing.T) {
 				observation.Recovery = &driver.RecoveryDecision{
 					SchemaVersion: driver.RecoveryDecisionSchemaVersion,
 					InvocationID:  invocation.Recovery.InvocationID,
-					Action:        driver.RecoveryAskCaptain,
+					Action:        driver.RecoveryAskLead,
 				}
 			} else {
 				answer := "Use the exact approved fixture value."
@@ -779,7 +779,7 @@ func (d *midYieldExpiryDriver) InvokeAutomation(
 		observation.Recovery = &driver.RecoveryDecision{
 			SchemaVersion: driver.RecoveryDecisionSchemaVersion,
 			InvocationID:  invocation.Recovery.InvocationID,
-			Action:        driver.RecoveryAskCaptain,
+			Action:        driver.RecoveryAskLead,
 		}
 	} else {
 		answer := d.expectedAnswer

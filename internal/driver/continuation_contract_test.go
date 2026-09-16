@@ -231,7 +231,7 @@ func continuationContractObservation(
 		return Observation{}, err
 	}
 	switch descriptor.Responsibility {
-	case CaptainReview:
+	case LeadReview:
 		submission.Decision, err = NewDecision(DecisionProceed)
 	case WorkVerification, AssemblyVerification:
 		submission.Decision, err = NewDecision(DecisionPass)
@@ -966,7 +966,7 @@ func TestContinuationMismatchAndForeignRolesReturnFreshWithoutSubstitution(
 		role           Role
 		responsibility Responsibility
 	}{
-		{"captain", RoleCaptain, CaptainReview},
+		{"lead", RoleLead, LeadReview},
 		{"verifier", RoleVerifier, WorkVerification},
 	} {
 		test := test

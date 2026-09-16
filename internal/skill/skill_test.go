@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/swornagent/sworn/internal/baton"
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 func writeSkill(t *testing.T, root, name string, body []byte) string {
@@ -24,9 +24,9 @@ func writeSkill(t *testing.T, root, name string, body []byte) string {
 
 func generatedLegacyBody(name, release, digest string) []byte {
 	return []byte("---\nname: " + name + "\ndescription: \"legacy\"\n---\n\n" +
-		"<!-- baton-skill\nrelease: " + release + "\n" +
-		"generator-version: baton.skill-generator/v1\n" +
-		"operation-version: baton.operation/v2\n" +
+		"<!-- protocol-skill\nrelease: " + release + "\n" +
+		"generator-version: protocol.skill-generator/v1\n" +
+		"operation-version: protocol.operation/v2\n" +
 		"operation-sha256: " + digest + "\n-->\n\n" +
 		"Legacy standalone role prose.\n")
 }
@@ -63,7 +63,7 @@ func TestInstallCleanHomeInstallsOneSwornSkill(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !bytes.HasPrefix(body, []byte("---\nname: sworn\n")) ||
-		!bytes.Contains(body, []byte("<!-- sworn-skill\nversion: "+baton.RoleAssetsVersion)) {
+		!bytes.Contains(body, []byte("<!-- sworn-skill\nversion: "+protocol.RoleAssetsVersion)) {
 		t.Fatalf("installed sworn skill does not name itself and its identity: %s", body)
 	}
 }
@@ -102,8 +102,8 @@ func TestInstallHandlesMultipleRootPrecedence(t *testing.T) {
 	t.Parallel()
 	home := homeWithRoots(t)
 	roots := SupportedRoots(home)
-	writeSkill(t, roots[0], "baton-implement", generatedLegacyBody("baton-implement", "v1.0.0-rc.13", "sha256:aaaa"))
-	writeSkill(t, roots[1], "baton-implement", generatedLegacyBody("baton-implement", "v1.0.0-rc.14", "sha256:bbbb"))
+	writeSkill(t, roots[0], "protocol-implement", generatedLegacyBody("protocol-implement", "v1.0.0-rc.13", "sha256:aaaa"))
+	writeSkill(t, roots[1], "protocol-implement", generatedLegacyBody("protocol-implement", "v1.0.0-rc.14", "sha256:bbbb"))
 
 	report, err := Install(home)
 	if err != nil {
@@ -121,7 +121,7 @@ func TestInstallIsIdempotent(t *testing.T) {
 	t.Parallel()
 	home := homeWithRoots(t)
 	root := SupportedRoots(home)[0]
-	writeSkill(t, root, "baton-verify", generatedLegacyBody("baton-verify", "v1.0.0-rc.14", "sha256:cccc"))
+	writeSkill(t, root, "protocol-verify", generatedLegacyBody("protocol-verify", "v1.0.0-rc.14", "sha256:cccc"))
 
 	first, err := Install(home)
 	if err != nil {
@@ -141,7 +141,7 @@ func TestInstallHandlesPartialStaleState(t *testing.T) {
 	t.Parallel()
 	home := homeWithRoots(t)
 	root := SupportedRoots(home)[0]
-	writeSkill(t, root, "baton-plan", generatedLegacyBody("baton-plan", "v1.0.0-rc.14", "sha256:dddd"))
+	writeSkill(t, root, "protocol-plan", generatedLegacyBody("protocol-plan", "v1.0.0-rc.14", "sha256:dddd"))
 
 	report, err := Install(home)
 	if err != nil {
@@ -151,7 +151,7 @@ func TestInstallHandlesPartialStaleState(t *testing.T) {
 		t.Fatalf("migrated stubs = %v, want exactly the one present legacy skill", report.MigratedStubs)
 	}
 	for _, name := range LegacyNames {
-		if name == "baton-plan" {
+		if name == "protocol-plan" {
 			continue
 		}
 		if _, err := os.Stat(filepath.Join(root, name, "SKILL.md")); !os.IsNotExist(err) {
@@ -164,7 +164,7 @@ func TestInstallRejectsModifiedCollisionWithoutMutation(t *testing.T) {
 	t.Parallel()
 	home := homeWithRoots(t)
 	root := SupportedRoots(home)[0]
-	modified := writeSkill(t, root, "baton-merge", []byte("---\nname: baton-merge\n---\n\nhand-edited local notes\n"))
+	modified := writeSkill(t, root, "protocol-merge", []byte("---\nname: protocol-merge\n---\n\nhand-edited local notes\n"))
 	before, err := os.ReadFile(modified)
 	if err != nil {
 		t.Fatal(err)
@@ -192,7 +192,7 @@ func TestInstallRejectsModifiedCollisionWithoutMutation(t *testing.T) {
 
 func TestInstalledSkillNamesTruthfulRoleAssetsIdentity(t *testing.T) {
 	t.Parallel()
-	if !strings.Contains(string(swornSkillContent()), baton.RoleAssetsVersion) {
+	if !strings.Contains(string(swornSkillContent()), protocol.RoleAssetsVersion) {
 		t.Fatal("sworn skill content does not name Sworn's own role-assets identity")
 	}
 }

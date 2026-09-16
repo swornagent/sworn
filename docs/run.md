@@ -253,12 +253,12 @@ never changes the driver, model, or any other limit.
 
 Sworn's orchestrator handles a worker turn that ends with a question, reports a
 block, or does not return a usable handoff. It can resume the same worker with
-an answer grounded in saved facts, ask the Captain for advice, retry an
+an answer grounded in saved facts, ask the Lead for advice, retry an
 operational failure, or park only that track for a human answer. Independent
 tracks can continue.
 
 The orchestrator is not a sixth role. It cannot approve a plan, invent a
-Captain decision or Verifier verdict, or merge code. When it parks a track, the
+Lead decision or Verifier verdict, or merge code. When it parks a track, the
 browser board provides an answer form. The equivalent command is:
 
 ```sh
