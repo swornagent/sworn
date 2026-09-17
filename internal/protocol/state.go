@@ -874,7 +874,7 @@ func historyAt(
 				"history boundary "+exclusiveBoundary,
 			)
 		}
-		if !bytes.Contains(row.Message, []byte("\n"+ReceiptTrailer)) {
+		if !hasReceiptTrailer(row.Message) {
 			continue
 		}
 		entry, err := historyEntryAt(rows, index)
@@ -964,7 +964,7 @@ func readReleaseReceiptHistory(
 			}
 			return receiptHistory{}, historyBoundaryFailure(rows, label)
 		}
-		if !bytes.Contains(row.Message, []byte("\n"+ReceiptTrailer)) {
+		if !hasReceiptTrailer(row.Message) {
 			continue
 		}
 		entry, err := historyEntryAt(rows, index)
