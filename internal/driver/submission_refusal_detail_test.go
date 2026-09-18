@@ -336,6 +336,70 @@ func TestToolSubmitRefusesSelfDeclaredProbePlainAndPaddedPastTheFloor(t *testing
 	}
 }
 
+// TestToolSubmitRefusesDegenerateBodyMeasuringBothRatios pins S1-seal-time-
+// gates' A4: the exact 302-byte "A. " body observed in run
+// 2026-09-05-preserve-work-rev4 on receipt af2ac1a0 refuses
+// SUBMISSION_DEGENERATE_BODY with both measured ratios named in the detail,
+// below their fixed floors, independently of submissionDeclaresProbe.
+func TestToolSubmitRefusesDegenerateBodyMeasuringBothRatios(t *testing.T) {
+	invocation, _, _ := memoryInvocationFixture(t)
+	invocation.RecoveryStepHook = func(context.Context, RecoveryStepKind, *SubmitRefusal) error { return nil }
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+
+	degenerateBody := strings.Repeat("A. ", 100) + "A."
+	if len(degenerateBody) != 302 {
+		t.Fatalf("fixture body = %d bytes, want the exact 302-byte af2ac1a0 fixture", len(degenerateBody))
+	}
+	degenerate := map[string]any{
+		"schema_version": SubmissionSchemaVersion,
+		"invocation_id":  invocation.Request.InvocationID,
+		"responsibility": string(PlannerProposal),
+		"summary":        floorSummaryFixture,
+		"detail":         degenerateBody,
+	}
+	res := executeToolJSON(t, session, "degenerate", "sworn_submit", map[string]any{"submission": degenerate})
+	requireSubmissionRefusalDetail(t, res.Content, "SUBMISSION_DEGENERATE_BODY", "submit.degenerate_body", "detail", "")
+
+	prefix := "error:SUBMISSION_DEGENERATE_BODY detail="
+	var detail submissionRefusalDetail
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(string(res.Content), prefix)), &detail); err != nil {
+		t.Fatalf("cannot decode refusal detail: %v", err)
+	}
+	if detail.DistinctTokenRatio == nil || *detail.DistinctTokenRatio >= submissionDegenerateDistinctTokenFloor ||
+		detail.CompressedSizeRatio == nil || *detail.CompressedSizeRatio >= submissionDegenerateCompressedSizeFloor {
+		t.Fatalf("expected both measured ratios below their floors, got %#v", detail)
+	}
+
+	submitted, _ := session.submitted()
+	if submitted || session.handoff() != nil {
+		t.Fatalf("degenerate payload sealed: submitted=%v handoff=%#v", submitted, session.handoff())
+	}
+}
+
+// TestSubmissionIsDegenerateAdmitsExistingFixtureBodiesUnchanged is A4's
+// corpus sweep: every honest fixture body this package's own tests already
+// submit must still admit unchanged under the new degeneracy predicate.
+func TestSubmissionIsDegenerateAdmitsExistingFixtureBodiesUnchanged(t *testing.T) {
+	for name, body := range map[string]string{
+		"floorSummaryFixture":       floorSummaryFixture,
+		"floorDetailFixture":        floorDetailFixture,
+		"submissionFixture summary": "Compact responsibility summary padded so every floored responsibility this shared fixture drives clears the submission content floor for permission and correction-accounting coverage.",
+		"submissionFixture detail":  "Bounded LF-only detail padded so every floored responsibility this shared fixture drives clears the detail content floor while exercising submission-permission acceptance and rejection coverage across these tests.\n",
+		"decision-fixture summary":  "Fixes the off-by-one in the retry counter.",
+		"decision-fixture detail":   "Moved the increment above the early return.\n",
+		"sparse-decode summary":     "Design complete summary padded so the sparse decode test clears the submission content floor for its normalize-and-fail-closed coverage across every responsibility this test exercises.",
+		"sparse-decode detail":      "Bounded detail padded so the sparse decode test clears the detail content floor for its normalize-and-fail-closed coverage across every responsibility this test exercises in turn, well past the two-hundred-byte bound.\n",
+	} {
+		if declared, distinct, compressed := submissionIsDegenerate(body); declared {
+			t.Fatalf("%s wrongly measured degenerate (distinct=%v compressed=%v)", name, distinct, compressed)
+		}
+	}
+}
+
 // TestNamedSubmissionRefusalCostsOneCorrectionNoTryAndCorrectedFollowUpSucceeds
 // pins A4: a named refusal (here, A3's floor) accounts exactly one bounded
 // correction, keeps the session alive without consuming a dispatch try, and

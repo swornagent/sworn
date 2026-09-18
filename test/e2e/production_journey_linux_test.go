@@ -48,6 +48,13 @@ type journeyProvider struct {
 	// submission crash-cut scenario, isolated from preservation/faultMode
 	// so it composes with the ordinary journey unaffected.
 	submissionCorrectionFault bool
+	// anchorGateFault drives S1-seal-time-gates' A6 built-product journey:
+	// A1's first try touches none of its declared anchor file (refused
+	// ANCHOR_NOT_TOUCHED before any host check runs), its repair try then
+	// submits a degenerate body (refused SUBMISSION_DEGENERATE_BODY at the
+	// submit boundary, no dispatch try consumed) before submitting the real,
+	// anchor-touching body that clears every declared check.
+	anchorGateFault bool
 	// slicePaths overrides the slice -> product path table this Planner's plan
 	// promises. It stays nil for the original production journey, which keeps
 	// using journeySlicePaths(); a journey whose plan declares different
@@ -198,7 +205,7 @@ func (provider *journeyProvider) serve(
 	provider.families[prompt.InvocationID] = family
 	provider.models[prompt.InvocationID] = model
 	provider.access[prompt.InvocationID] = prompt.Workspace.Access
-	if provider.submissionCorrectionFault &&
+	if (provider.submissionCorrectionFault || provider.anchorGateFault) &&
 		prompt.Responsibility == driver.ImplementerImplementation &&
 		turn == 2 {
 		if provider.firstImplementerPrompt == nil {
@@ -218,6 +225,10 @@ func (provider *journeyProvider) serve(
 		provider.submissionCorrectionFault &&
 		submissionCorrectionFaultSlice(prompt.InvocationID) {
 		toolName, arguments, err = provider.submissionCorrectionFaultResponse(prompt, turn)
+	} else if prompt.Responsibility == driver.ImplementerImplementation &&
+		provider.anchorGateFault &&
+		anchorGateFaultSlice(prompt.InvocationID) {
+		toolName, arguments, err = provider.anchorGateFaultResponse(prompt, turn)
 	} else if prompt.Responsibility == driver.ImplementerImplementation &&
 		turn == 1 {
 		parts := strings.Split(prompt.InvocationID, "/")
@@ -1100,6 +1111,88 @@ func (provider *journeyProvider) submissionCorrectionFaultResponse(
 	)
 }
 
+// anchorGateFaultSlice reports whether invocation is the one slice (A1) the
+// S1-seal-time-gates A6 built-product journey drives; every other slice in
+// that same registry-wide journey proceeds through its default script
+// unaffected.
+func anchorGateFaultSlice(invocation string) bool {
+	parts := strings.Split(invocation, "/")
+	return len(parts) == 6 && parts[1] == "A1"
+}
+
+// anchorGateFaultResponse drives A1's implementer_implementation through
+// S1-seal-time-gates' A6 journey. On the first try: turn 1 writes the
+// product file but never touches base.txt, A1's declared "Anchor:" file
+// (already present in the fixture's own base commit); turn 2 submits the
+// real, honest submission, which the live submit boundary accepts, so the
+// refusal surfaces only afterward, at seal time, as ANCHOR_NOT_TOUCHED -
+// before any check.host effect for this candidate ever exists. On the
+// repair try (a fresh session with no memory of the first): turn 1 reads
+// back production_dispatch's own work-context.json, the read-back proof the
+// ANCHOR_NOT_TOUCHED refusal reached it; turns 2 and 3 rewrite the product
+// file and touch base.txt, honestly covering the anchor this time; turn 4
+// submits a degenerate body (measured, not self-declared, repetitive past
+// A4's floor), refused SUBMISSION_DEGENERATE_BODY at the submit boundary
+// without consuming a dispatch try; turn 5 submits the real, valid body,
+// which now clears both the anchor gate and, in turn, every declared check.
+func (provider *journeyProvider) anchorGateFaultResponse(
+	prompt journeyPrompt, turn int,
+) (string, map[string]any, error) {
+	firstTry := preservationFirstTry(prompt.InvocationID)
+	switch {
+	case firstTry && turn == 1:
+		return "Write", map[string]any{
+			"path":    "/workspace/one-a.txt",
+			"content": "A1 production journey\n",
+		}, nil
+	case firstTry && turn == 2:
+		return provider.submissionArgumentsTool(prompt)
+	case !firstTry && turn == 1:
+		return "Read", map[string]any{
+			"path": driver.GuestInputPath + "/work-context.json",
+		}, nil
+	case !firstTry && turn == 2:
+		return "Write", map[string]any{
+			"path":    "/workspace/one-a.txt",
+			"content": "A1 production journey\n",
+		}, nil
+	case !firstTry && turn == 3:
+		return "Write", map[string]any{
+			"path":    "/workspace/base.txt",
+			"content": "base\ncovered by A1's repair try\n",
+		}, nil
+	case !firstTry && turn == 4:
+		checks, err := driver.NewCheckBytes(
+			[]byte("deterministic production implementation checks\n"),
+		)
+		if err != nil {
+			return "", nil, err
+		}
+		degenerate := driver.Submission{
+			SchemaVersion:  driver.SubmissionSchemaVersion,
+			InvocationID:   prompt.InvocationID,
+			Responsibility: driver.ImplementerImplementation,
+			Summary:        "Deterministic production journey step for implementer_implementation.",
+			Detail:         strings.Repeat("A. ", 100) + "A.",
+			Checks:         checks,
+		}
+		encoded, err := driver.EncodeSubmission(degenerate)
+		if err != nil {
+			return "", nil, err
+		}
+		var value map[string]any
+		if err := json.Unmarshal(encoded, &value); err != nil {
+			return "", nil, err
+		}
+		return "sworn_submit", map[string]any{"submission": value}, nil
+	case !firstTry && turn == 5:
+		return provider.submissionArgumentsTool(prompt)
+	}
+	return "", nil, fmt.Errorf(
+		"unexpected anchor-gate turn %d for %q", turn, prompt.InvocationID,
+	)
+}
+
 // submissionArgumentsTool wraps submissionArguments with the sworn_submit
 // tool name, matching the shape submissionCorrectionFaultResponse's other
 // branches return.
@@ -1450,6 +1543,213 @@ func TestConfiguredProductionSubmissionCorrectionCrashCutRepairsExactRefusal(
 	}
 }
 
+// TestConfiguredProductionAnchorGateAndDegenerateBodyRefuseThenCorrect is
+// S1-seal-time-gates' A6 built-product journey: one implementation candidate
+// touches none of a criterion's named anchor files and a later one submits
+// a degenerate body; neither candidate reaches a long process suite and
+// neither reaches the Verifier, and a third, correcting candidate reaches
+// every declared check and a verified pass, with the run's journal showing
+// no check.host effect for the two faulted candidates and the typed refusal
+// legible on the board and carried to the next dispatch's work context.
+func TestConfiguredProductionAnchorGateAndDegenerateBodyRefuseThenCorrect(
+	t *testing.T,
+) {
+	t.Parallel()
+	repository := newProductRepository(t)
+	planBytes, plan := productionAnchorGatePlan(t, repository)
+	provider := &journeyProvider{
+		t: t, planBytes: planBytes, anchorGateFault: true,
+		turns:    make(map[string]int),
+		families: make(map[string]driver.ProfileFamily),
+		models:   make(map[string]string),
+		access:   make(map[string]driver.WorkspaceAccess),
+	}
+	providerHTTP := httptest.NewServer(http.HandlerFunc(provider.serve))
+	defer providerHTTP.Close()
+
+	configBody, loaded := productionJourneyConfig(t, providerHTTP.URL)
+	root := t.TempDir()
+	configPath := filepath.Join(root, "drivers.json")
+	if err := os.WriteFile(configPath, configBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifestBody := productionJourneyManifest(t, repository, loaded)
+	manifestPath := writeManifest(t, root, manifestBody)
+	journalPath := filepath.Join(root, "run.sqlite")
+	swornBinary := filepath.Join(root, "sworn")
+	buildBinary(t, swornBinary, "./cmd/sworn", "")
+
+	journeyEnv := map[string]string{
+		"SWORN_JOURNEY_OPENAI_KEY": journeyOpenAISecret,
+		"SWORN_JOURNEY_GEMINI_KEY": journeyGeminiSecret,
+	}
+
+	// 1. Initial run: parks on planner summary
+	stdout, stderr := runBinaryWithEnvironment(
+		t, swornBinary, 0, journeyEnv,
+		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
+	)
+	if stderr != "" || !strings.Contains(stdout, "  state: parked") {
+		t.Fatalf("production start stdout=%q stderr=%q", stdout, stderr)
+	}
+
+	// 2. Answer planner summary
+	attention := openPlannerSummaryAttention(t, swornBinary, "production-journey", journalPath)
+	_, stderr = runBinaryWithEnvironmentTimeout(
+		t, swornBinary, 0, journeyEnv, 180*time.Second,
+		"answer", "--run", "production-journey", "--journal", journalPath,
+		"--attention", attention.ID, "--generation", "1", "--answer", journeySummaryAnswer,
+		"--config", configPath,
+	)
+	if stderr != "" {
+		t.Fatalf("production summary answer stderr=%q", stderr)
+	}
+
+	// 3. Propose plan -> awaiting_approval
+	stdout, stderr = runBinaryWithEnvironmentTimeout(
+		t, swornBinary, 0, journeyEnv, 180*time.Second,
+		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
+	)
+	if stderr != "" || !strings.Contains(stdout, "  state: awaiting_approval") {
+		t.Fatalf("production plan proposal stdout=%q stderr=%q", stdout, stderr)
+	}
+
+	// 4. Authorize plan and resume
+	authorizePlan(t, journalPath, "production-journey", plan)
+	installApprovedPlan(t, repository, planBytes)
+	_, stderr = runBinaryWithEnvironmentTimeout(
+		t, swornBinary, 0, journeyEnv, 180*time.Second,
+		"resume", "--run", "production-journey", "--journal", journalPath,
+		"--command", "resume-1", "--generation", "0", "--config", configPath,
+	)
+	if stderr != "" {
+		t.Fatalf("production resume stderr=%q", stderr)
+	}
+
+	// 5. Run execution: A1's first try touches only one-a.txt (refused
+	// ANCHOR_NOT_TOUCHED before any check.host effect exists), its repair
+	// try covers base.txt but first submits a measured-degenerate body
+	// (refused SUBMISSION_DEGENERATE_BODY at the submit boundary, no try
+	// consumed), then submits the real body that clears every declared
+	// check; A2, B1 and C1 proceed through their default scripted behaviour
+	// to their own verified pass, so the whole run reaches state: complete.
+	stdout, stderr = runBinaryWithEnvironmentTimeout(
+		t, swornBinary, 0, journeyEnv, 180*time.Second,
+		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
+	)
+	if stderr != "" {
+		t.Fatalf("production run stderr=%q", stderr)
+	}
+	if !strings.Contains(stdout, "  state: complete") {
+		t.Fatalf("production run stdout=%q stderr=%q", stdout, stderr)
+	}
+
+	// The ANCHOR_NOT_TOUCHED refusal reached the repair try's own work
+	// context: its turn-2 request carries turn 1's Read of work-context.json
+	// back, and that context's refusal names the criterion and the anchor
+	// base.
+	provider.mu.Lock()
+	var retryPrompt []byte
+	for invocationID, body := range provider.firstImplementerPrompt {
+		parts := strings.Split(invocationID, "/")
+		if len(parts) == 6 && parts[1] == "A1" && parts[5] == "2" {
+			retryPrompt = body
+		}
+	}
+	// Exactly one verified pass reached A1's Verifier: neither the
+	// anchor-untouched nor the degenerate-body candidate ever reached it.
+	var verifierInvocations []string
+	for invocationID := range provider.families {
+		if strings.Contains(invocationID, "/A1/work_verification/") {
+			verifierInvocations = append(verifierInvocations, invocationID)
+		}
+	}
+	provider.mu.Unlock()
+	if retryPrompt == nil {
+		t.Fatal("no captured turn-2 prompt for A1's repair try")
+	}
+	if !bytes.Contains(retryPrompt, []byte("ANCHOR_NOT_TOUCHED")) ||
+		!bytes.Contains(retryPrompt, []byte("A-A1")) {
+		t.Fatalf(
+			"repair try's own prompt does not carry the exact outstanding anchor refusal: %s",
+			retryPrompt,
+		)
+	}
+	if len(verifierInvocations) != 1 {
+		t.Fatalf("A1 work_verification invocations = %v, want exactly 1", verifierInvocations)
+	}
+
+	// No check.host effect exists for either faulted candidate: the anchor
+	// gate and the submit-boundary degeneracy check both run before any
+	// long or short declared check ever executes, so the corrected
+	// candidate alone journals exactly A1's three declared checks.
+	store, err := journal.OpenReadOnly(context.Background(), journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	snapshot, err := store.Snapshot(context.Background(), "production-journey")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostChecks := make(map[string]struct{})
+	for _, effect := range snapshot.Effects {
+		if effect.Kind != "check.host" {
+			continue
+		}
+		if effect.State != journal.Succeeded {
+			t.Fatalf("unexpected non-succeeded check.host effect: %#v", effect)
+		}
+		hostChecks[effect.ID] = struct{}{}
+	}
+	if len(hostChecks) != len(productionAnchorGateChecks) {
+		t.Fatalf("check.host effects = %d, want exactly %d (one per A1 declared check, for the corrected candidate alone)",
+			len(hostChecks), len(productionAnchorGateChecks))
+	}
+
+	// The typed anchor refusal is legible on the durable journal the board
+	// reads generically (internal/cockpit/projector.go, terminal.go read the
+	// effect's own ErrorCode with no fixed enum), not a dropped connection
+	// or an unexplained retry.
+	foundAnchorRefusal := false
+	for _, effect := range snapshot.Effects {
+		if effect.ErrorCode == "ANCHOR_NOT_TOUCHED" {
+			foundAnchorRefusal = true
+		}
+	}
+	if !foundAnchorRefusal {
+		t.Fatal("no journaled effect names ANCHOR_NOT_TOUCHED")
+	}
+
+	// The degenerate-body refusal is a bounded, durably reserved recovery
+	// step (never a failed effect, since the session self-corrects), named
+	// on the journal's own turn_recovery_step_reserved event.
+	foundDegenerateRefusal := false
+	for _, event := range snapshot.Events {
+		if event.Kind != journal.RecoveryStepReservedEvent {
+			continue
+		}
+		var receipt journal.RecoveryStepReceipt
+		if json.Unmarshal(event.Body, &receipt) == nil &&
+			receipt.Step.Refusal != nil &&
+			receipt.Step.Refusal.Code == "SUBMISSION_DEGENERATE_BODY" {
+			foundDegenerateRefusal = true
+		}
+	}
+	if !foundDegenerateRefusal {
+		t.Fatal("no journaled recovery step names SUBMISSION_DEGENERATE_BODY")
+	}
+
+	if got, err := exec.Command(e2eGit, "-C", repository, "show", "main:base.txt").Output(); err != nil ||
+		string(got) != "base\ncovered by A1's repair try\n" {
+		t.Fatalf("base.txt product content = %q, error = %v", got, err)
+	}
+	if got, err := exec.Command(e2eGit, "-C", repository, "show", "main:one-a.txt").Output(); err != nil ||
+		string(got) != "A1 production journey\n" {
+		t.Fatalf("A1 product content = %q, error = %v", got, err)
+	}
+}
+
 func TestConfiguredProductionFirstCheckpointFaultFencesWorkspace(
 	t *testing.T,
 ) {
@@ -1619,6 +1919,105 @@ func productionPreservationPlan(
 	body := []byte(
 		"```protocol-plan-v2\n" + string(metadataBody) +
 			"\n```\n\nDeterministic production preservation journey for " + repository +
+			".\nOwned surface read from the repository: " +
+			journeyRepositoryCanary + ".\n",
+	)
+	plan, err := protocol.ParsePlan(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return body, plan
+}
+
+// productionAnchorGateChecks are A1's three declared checks in
+// productionAnchorGatePlan, all real host_checks: distinct, quick,
+// side-effect-free shell commands, so a corrected candidate's host boundary
+// journals exactly three check.host effects and neither refused candidate
+// journals any.
+var productionAnchorGateChecks = []string{
+	"printf 'anchor-gate-check-one\\n'",
+	"printf 'anchor-gate-check-two\\n'",
+	"printf 'anchor-gate-check-three\\n'",
+}
+
+// productionAnchorGatePlan is productionJourneyPlan's own four-slice,
+// three-track shape with one change: A1 alone carries an "Anchor: base.txt"
+// clause (base.txt already exists in newProductRepository's own base
+// commit) and a scope wide enough to admit a candidate that touches it,
+// and declares its three checks as real host_checks so S1-seal-time-gates'
+// A6 built-product journey measures the gate's absence-of-effect promise
+// against real host-check identity rather than a vacuous list. A2, B1 and
+// C1 are unchanged and proceed through their default scripted behaviour.
+func productionAnchorGatePlan(
+	t *testing.T,
+	repository string,
+) ([]byte, protocol.Plan) {
+	t.Helper()
+	slice := func(id string) protocol.Slice {
+		return protocol.Slice{
+			ID:      id,
+			Outcome: "Deliver deterministic production slice " + id + ".",
+			Scope: protocol.Scope{
+				Include: []string{journeySlicePaths()[id]},
+				Exclude: []string{},
+			},
+			Acceptance: []protocol.Criterion{{
+				ID:   "A-" + id,
+				Text: id + " is present in the exact product tree.",
+			}},
+			Checks:      []string{"check " + id},
+			Constraints: []string{"deterministic local provider"},
+			DependsOn:   []string{},
+			Consumes:    []string{},
+		}
+	}
+	anchorSlice := protocol.Slice{
+		ID:      "A1",
+		Outcome: "Deliver deterministic production slice A1.",
+		Scope: protocol.Scope{
+			Include: []string{"one-a.txt", "base.txt"},
+			Exclude: []string{},
+		},
+		Acceptance: []protocol.Criterion{{
+			ID:   "A-A1",
+			Text: "A1 is present in the exact product tree. Anchor: base.txt.",
+		}},
+		Checks:      productionAnchorGateChecks,
+		HostChecks:  productionAnchorGateChecks,
+		Constraints: []string{"deterministic local provider"},
+		DependsOn:   []string{},
+		Consumes:    []string{},
+	}
+	metadata := protocol.Metadata{
+		SchemaVersion: protocol.PlanVersion,
+		Release:       "production-journey-release",
+		Revision:      1,
+		PreviousPlan:  nil,
+		Repository:    "acme-repo",
+		TargetRef:     "refs/heads/main",
+		ApprovalRef:   "operator://production-journey-release/1",
+		Tracks: []protocol.Track{
+			{
+				ID: "T1", DependsOn: []string{},
+				Slices: []protocol.Slice{anchorSlice, slice("A2")},
+			},
+			{
+				ID: "T2", DependsOn: []string{},
+				Slices: []protocol.Slice{slice("B1")},
+			},
+			{
+				ID: "T3", DependsOn: []string{"T1"},
+				Slices: []protocol.Slice{slice("C1")},
+			},
+		},
+	}
+	metadataBody, err := json.MarshalIndent(metadata, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := []byte(
+		"```protocol-plan-v2\n" + string(metadataBody) +
+			"\n```\n\nDeterministic production anchor-gate journey for " + repository +
 			".\nOwned surface read from the repository: " +
 			journeyRepositoryCanary + ".\n",
 	)

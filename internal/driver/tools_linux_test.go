@@ -4,6 +4,7 @@ package driver
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -48,7 +49,7 @@ func TestSwornSubmitToolSchemaIsCompletePortableAndClosed(t *testing.T) {
 	properties := object(submission["properties"])
 	if root["additionalProperties"] != false ||
 		submission["additionalProperties"] != false ||
-		len(properties) != 9 {
+		len(properties) != 10 {
 		t.Fatalf("submission schema is incomplete or open: %s", submit.InputSchema)
 	}
 	for _, name := range []string{"plan", "checks", "decision"} {
@@ -90,6 +91,57 @@ func TestSparseToolSubmissionNormalizesAndRemainsFailClosed(t *testing.T) {
 	delete(sparse, "detail")
 	if _, err := decodeToolSubmission(sparse); !IsCode(err, "MISSING_FIELD") {
 		t.Fatalf("missing common field error = %v", err)
+	}
+}
+
+// TestDecodeToolSubmissionAnchorSubstitutesDecodeWiring pins S1-seal-time-
+// gates' A3 decode boundary: a non-string anchor_substitutes value refuses
+// INVALID_FIELD, a valid map decodes for implementer_implementation, and
+// every other responsibility drops it as role-irrelevant model noise.
+func TestDecodeToolSubmissionAnchorSubstitutesDecodeWiring(t *testing.T) {
+	checksBody := []byte("anchor substitute decode-wiring checks\n")
+	base := map[string]any{
+		"schema_version": SubmissionSchemaVersion,
+		"invocation_id":  "anchor-substitute-decode",
+		"responsibility": ImplementerImplementation,
+		"summary":        "Compact implementation summary padded so this decode-wiring test clears the submission content floor for its dedicated anchor_substitutes coverage across every branch tested here.",
+		"detail":         "Bounded implementation detail padded so this decode-wiring test clears the detail content floor for its dedicated anchor_substitutes coverage across every branch tested here, well past the two-hundred-byte bound.\n",
+		"checks": map[string]any{
+			"byte_count": int64(len(checksBody)),
+			"digest":     Digest(checksBody),
+			"bytes":      base64.StdEncoding.EncodeToString(checksBody),
+		},
+	}
+	invalid := map[string]any{}
+	for k, v := range base {
+		invalid[k] = v
+	}
+	invalid["anchor_substitutes"] = map[string]any{"A2": 7}
+	if _, err := decodeToolSubmission(invalid); !IsCode(err, "INVALID_FIELD") {
+		t.Fatalf("non-string anchor_substitutes value error = %v", err)
+	}
+
+	valid := map[string]any{}
+	for k, v := range base {
+		valid[k] = v
+	}
+	valid["anchor_substitutes"] = map[string]any{"A2": "internal/runtime/host_repair_test.go"}
+	submission, err := decodeToolSubmission(valid)
+	if err != nil || len(submission.AnchorSubstitutes) != 1 ||
+		submission.AnchorSubstitutes["A2"] != "internal/runtime/host_repair_test.go" {
+		t.Fatalf("valid anchor_substitutes decode = %#v, error=%v", submission, err)
+	}
+
+	irrelevant := map[string]any{}
+	for k, v := range base {
+		irrelevant[k] = v
+	}
+	irrelevant["responsibility"] = ImplementerDesign
+	irrelevant["anchor_substitutes"] = map[string]any{"A2": "internal/runtime/host_repair_test.go"}
+	delete(irrelevant, "checks")
+	dropped, err := decodeToolSubmission(irrelevant)
+	if err != nil || dropped.AnchorSubstitutes != nil {
+		t.Fatalf("role-irrelevant anchor_substitutes = %#v, error=%v", dropped, err)
 	}
 }
 

@@ -121,6 +121,14 @@ type Submission struct {
 	// keyed by their manifest contract_path, so they ride the proposal as
 	// durably as plan bytes. Every other responsibility must leave it nil.
 	Contracts map[string]*ExactBytes `json:"contracts,omitempty"`
+	// AnchorSubstitutes declares, for an implementer_implementation
+	// candidate, a substitute file for an acceptance criterion's declared
+	// "Anchor:" clause (S1-seal-time-gates A3), keyed by criterion ID. It
+	// rides this submission - the durable Result of a succeeded
+	// driver.dispatch effect - so the declaration is engine-held record,
+	// never implementer prose. Every other responsibility must leave it
+	// nil.
+	AnchorSubstitutes map[string]string `json:"anchor_substitutes,omitempty"`
 }
 
 func EncodeSubmission(submission Submission) ([]byte, error) {
@@ -152,7 +160,7 @@ func DecodeSubmission(body []byte) (Submission, error) {
 			"checks",
 			"decision",
 		},
-		[]string{"contracts"},
+		[]string{"contracts", "anchor_substitutes"},
 		&submission,
 	)
 	if err != nil {
@@ -182,6 +190,17 @@ func DecodeSubmission(body []byte) (Submission, error) {
 				nil,
 			); err != nil {
 				return Submission{}, err
+			}
+		}
+	}
+	if root["anchor_substitutes"] != nil {
+		substitutes, ok := root["anchor_substitutes"].(map[string]any)
+		if !ok {
+			return Submission{}, fail("INVALID_FIELD")
+		}
+		for _, value := range substitutes {
+			if _, ok := value.(string); !ok {
+				return Submission{}, fail("INVALID_FIELD")
 			}
 		}
 	}
@@ -247,6 +266,12 @@ func ValidateSubmission(submission Submission) error {
 			return submissionValidateWrap(err, "contracts entry")
 		}
 	}
+	for criterion, path := range submission.AnchorSubstitutes {
+		if validateIdentity(criterion) != nil ||
+			validateText(path, MaxToolPathBytes, false) != nil {
+			return submissionValidateError("INVALID_FIELD", "anchor_substitutes entry")
+		}
+	}
 
 	switch submission.Responsibility {
 	case PlannerProposal:
@@ -257,6 +282,8 @@ func ValidateSubmission(submission Submission) error {
 			return submissionShapeMismatch("checks")
 		case submission.Decision != nil:
 			return submissionShapeMismatch("decision")
+		case submission.AnchorSubstitutes != nil:
+			return submissionShapeMismatch("anchor_substitutes")
 		}
 	case ImplementerDesign:
 		switch {
@@ -268,6 +295,8 @@ func ValidateSubmission(submission Submission) error {
 			return submissionShapeMismatch("decision")
 		case submission.Contracts != nil:
 			return submissionShapeMismatch("contracts")
+		case submission.AnchorSubstitutes != nil:
+			return submissionShapeMismatch("anchor_substitutes")
 		}
 	case ImplementerImplementation:
 		switch {
@@ -294,6 +323,8 @@ func ValidateSubmission(submission Submission) error {
 			return submissionShapeMismatch("decision")
 		case submission.Contracts != nil:
 			return submissionShapeMismatch("contracts")
+		case submission.AnchorSubstitutes != nil:
+			return submissionShapeMismatch("anchor_substitutes")
 		}
 	case WorkVerification, AssemblyVerification:
 		switch {
@@ -311,6 +342,8 @@ func ValidateSubmission(submission Submission) error {
 			return submissionShapeMismatch("decision")
 		case submission.Contracts != nil:
 			return submissionShapeMismatch("contracts")
+		case submission.AnchorSubstitutes != nil:
+			return submissionShapeMismatch("anchor_substitutes")
 		}
 	default:
 		return submissionValidateError("INVALID_RESPONSIBILITY", "responsibility")
