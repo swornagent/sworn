@@ -1197,6 +1197,7 @@ func extractRefusal(err error) *productionRefusalBinding {
 		}
 		return &productionRefusalBinding{
 			Code:       recordErr.Code,
+			Detail:     recordErr.Msg,
 			Paths:      append([]string(nil), recordErr.Paths...),
 			TotalPaths: total,
 		}

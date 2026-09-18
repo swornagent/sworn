@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -246,6 +247,82 @@ func TestHostCheckExecutionJournalsAndBindsExactlyOnce(t *testing.T) {
 	}
 	if effectAfter.State != journal.Succeeded || effectAfter.CurrentClaim != "" {
 		t.Fatalf("effect was re-run: %#v", effectAfter)
+	}
+}
+
+// A1 (S1-seal-time-gates): declared quick checks run before any long suite,
+// and a failing quick check blocks the seal before a single long-suite
+// check.host effect is ever journaled for that candidate, regardless of the
+// checks' declared order.
+func TestHostCheckExecutionRunsQuickChecksBeforeLongSuitesAndBlocksOnQuickFailure(t *testing.T) {
+	longCheck := "echo 'go test ./...' && false"
+	quickCheck := "false"
+	fixture := newHostCheckFixture(t, []string{longCheck, quickCheck})
+	_, err := fixture.service.runHostChecks(
+		fixture.ctx, fixture.engine, fixture.owner, fixture.plan,
+		"S1", fixture.candidate, fixture.targetHead, fixture.releaseHead)
+	if !IsCode(err, "HOST_CHECK_FAILED") {
+		t.Fatalf("expected HOST_CHECK_FAILED, got %v", err)
+	}
+	var failure *hostCheckFailure
+	if !errors.As(err, &failure) || failure.result.Check != quickCheck {
+		t.Fatalf("expected the quick check to fail first, got %#v", failure)
+	}
+	// No check.host effect may exist for the long-suite check: the quick
+	// check's failure returned before phaseOrderedHostChecks's long-suite
+	// tail was ever reached.
+	if _, err := fixture.store.Effect(fixture.ctx, fixture.manifest.value.RunID,
+		hostCheckEffectID(hostCheckWork("S1", fixture.candidate, fixture.contractDgst, longCheck))); err == nil {
+		t.Fatal("a long-suite check ran before its quick sibling was proven")
+	}
+}
+
+// A1: reordering into quick-then-long changes only iteration order, never a
+// check's own identity, so the same check reused across the implementer seal
+// call site and a later verifier dispatch call site still creates exactly
+// one check.host effect.
+func TestPhaseOrderedHostChecksPreservesEachGroupsDeclaredOrder(t *testing.T) {
+	declared := []string{
+		"GOFLAGS=-buildvcs=false go test -count=1 ./...",
+		"go vet ./...",
+		"GOFLAGS=-buildvcs=false go test -count=1 -race ./...",
+		"test -z \"$(gofmt -l .)\"",
+	}
+	ordered := phaseOrderedHostChecks(declared)
+	want := []string{
+		"go vet ./...",
+		"test -z \"$(gofmt -l .)\"",
+		"GOFLAGS=-buildvcs=false go test -count=1 ./...",
+		"GOFLAGS=-buildvcs=false go test -count=1 -race ./...",
+	}
+	if len(ordered) != len(want) {
+		t.Fatalf("phaseOrderedHostChecks(%v) = %v, want %v", declared, ordered, want)
+	}
+	for i := range want {
+		if ordered[i] != want[i] {
+			t.Fatalf("phaseOrderedHostChecks(%v) = %v, want %v", declared, ordered, want)
+		}
+	}
+}
+
+func TestIsLongSuiteHostCheckMatchesOnlyGoTestInvocations(t *testing.T) {
+	tests := []struct {
+		check string
+		long  bool
+	}{
+		{"GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn", true},
+		{"GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e", true},
+		{"GOFLAGS=-buildvcs=false go test -count=1 -race -timeout=20m ./internal/...", true},
+		{"GOFLAGS=-buildvcs=false go vet ./...", false},
+		{"test -z \"$(gofmt -l ./cmd ./internal ./tools)\"", false},
+		{"go mod tidy -diff", false},
+		{"git diff --check", false},
+		{"GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build ./...", false},
+	}
+	for _, tc := range tests {
+		if got := isLongSuiteHostCheck(tc.check); got != tc.long {
+			t.Fatalf("isLongSuiteHostCheck(%q) = %v, want %v", tc.check, got, tc.long)
+		}
 	}
 }
 

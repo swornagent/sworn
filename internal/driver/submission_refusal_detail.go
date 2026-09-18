@@ -1,6 +1,8 @@
 package driver
 
 import (
+	"bytes"
+	"compress/flate"
 	"encoding/json"
 	"errors"
 	"reflect"
@@ -38,6 +40,12 @@ type submissionRefusalDetail struct {
 	// wanted for Field ("string", "integer", "object"): a fixed engine
 	// vocabulary, never the worker's own value (#306).
 	Expected string `json:"expected,omitempty"`
+	// DistinctTokenRatio and CompressedSizeRatio carry S1-seal-time-gates'
+	// A4 measured values for a SUBMISSION_DEGENERATE_BODY refusal: the
+	// contract requires the measured ratio itself in the refusal detail,
+	// not just a bound constant identifier.
+	DistinctTokenRatio  *float64 `json:"distinct_token_ratio,omitempty"`
+	CompressedSizeRatio *float64 `json:"compressed_size_ratio,omitempty"`
 }
 
 // submissionRefusalDetailBytes encodes one submission-refusal envelope as
@@ -571,4 +579,96 @@ func detailRequiredResponsibility(responsibility Responsibility) bool {
 	default:
 		return false
 	}
+}
+
+// submissionDegenerateDistinctTokenFloor and
+// submissionDegenerateCompressedSizeFloor are S1-seal-time-gates' A4 two
+// stated thresholds (#300). Both signals must fall under their floor for a
+// field to refuse: one coincidental signal alone (a short honest field, or a
+// legitimately repetitive-but-real one) never triggers. Calibrated against
+// the observed 302-byte "A. " body from receipt af2ac1a0 (distinct-token
+// ratio 0.0099, compressed-size ratio 0.0298) and against every admitted
+// fixture body in this package's own test corpus (none measured below
+// roughly 0.22 distinct or 0.17 compressed).
+const (
+	submissionDegenerateDistinctTokenFloor  = 0.10
+	submissionDegenerateCompressedSizeFloor = 0.15
+)
+
+// submissionIsDegenerate measures A4's two signals over field's own bytes: a
+// distinct-token ratio (unique whitespace-delimited tokens over total
+// tokens) and a compressed-size ratio (deflated size over raw size at a
+// fixed compression level). It is a fixed, documented predicate over bytes
+// the engine already holds - no model call - and it fails closed toward
+// "not degenerate" rather than misjudging an empty or single-token field.
+func submissionIsDegenerate(field string) (declared bool, distinct, compressed float64) {
+	tokens := strings.Fields(field)
+	if len(tokens) == 0 {
+		return false, 0, 0
+	}
+	seen := make(map[string]struct{}, len(tokens))
+	for _, token := range tokens {
+		seen[token] = struct{}{}
+	}
+	distinct = float64(len(seen)) / float64(len(tokens))
+	compressed = submissionCompressedSizeRatio([]byte(field))
+	if distinct < submissionDegenerateDistinctTokenFloor &&
+		compressed < submissionDegenerateCompressedSizeFloor {
+		return true, distinct, compressed
+	}
+	return false, distinct, compressed
+}
+
+// submissionCompressedSizeRatio deflates raw at the fixed BestCompression
+// level and returns compressed length over raw length. A write/close
+// failure (unreachable for flate.NewWriter at a valid, constant level
+// writing to an in-memory buffer) is treated as maximally non-degenerate
+// (ratio 1.0) rather than as a false refusal.
+func submissionCompressedSizeRatio(raw []byte) float64 {
+	if len(raw) == 0 {
+		return 1
+	}
+	var buffer bytes.Buffer
+	writer, err := flate.NewWriter(&buffer, flate.BestCompression)
+	if err != nil {
+		return 1
+	}
+	if _, err := writer.Write(raw); err != nil {
+		return 1
+	}
+	if err := writer.Close(); err != nil {
+		return 1
+	}
+	return float64(buffer.Len()) / float64(len(raw))
+}
+
+// submissionDegenerateError builds the SUBMISSION_DEGENERATE_BODY refusal
+// A4 raises: field names which submission member measured degenerate
+// (summary or detail), with both measured ratios riding the detail exactly
+// as the contract requires.
+func submissionDegenerateError(field string, distinct, compressed float64) error {
+	return &ContractError{
+		Code:   "SUBMISSION_DEGENERATE_BODY",
+		Detail: submissionDegenerateDetailBytes(field, distinct, compressed),
+	}
+}
+
+// submissionDegenerateDetailBytes encodes A4's refusal envelope directly
+// (rather than through submissionRefusalDetailBytes) because it must carry
+// the two measured ratio fields that helper's fixed (check, field, bound,
+// paths) shape has no room for. A marshal failure (unreachable for this
+// closed shape) yields "" rather than a partial envelope, matching
+// submissionRefusalDetailBytes's own failure behaviour.
+func submissionDegenerateDetailBytes(field string, distinct, compressed float64) string {
+	envelope := submissionRefusalDetail{
+		Check:               "submit.degenerate_body",
+		Field:               field,
+		DistinctTokenRatio:  &distinct,
+		CompressedSizeRatio: &compressed,
+	}
+	body, err := json.Marshal(envelope)
+	if err != nil {
+		return ""
+	}
+	return string(body)
 }

@@ -431,6 +431,65 @@ func TestSubmissionRejectsWrongResponsibilityDecisionAndExactBytes(t *testing.T)
 	}
 }
 
+// TestAnchorSubstitutesOnlyPermittedForImplementerImplementationAndRoundTrips
+// pins S1-seal-time-gates' A3 wire shape: AnchorSubstitutes is additive,
+// keyed by criterion ID, round-trips through Encode/DecodeSubmission
+// unchanged for implementer_implementation, and every other responsibility
+// must leave it nil exactly as Contracts must.
+func TestAnchorSubstitutesOnlyPermittedForImplementerImplementationAndRoundTrips(t *testing.T) {
+	t.Parallel()
+	_, request := permissionFixture(t, RoleImplementer, ImplementerImplementation)
+	valid := submissionFixture(t, request.InvocationID, ImplementerImplementation, "")
+	valid.AnchorSubstitutes = map[string]string{"A2": "internal/runtime/substitute_test.go"}
+	body, err := EncodeSubmission(valid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeSubmission(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.AnchorSubstitutes) != 1 ||
+		decoded.AnchorSubstitutes["A2"] != "internal/runtime/substitute_test.go" {
+		t.Fatalf("decoded AnchorSubstitutes = %#v", decoded.AnchorSubstitutes)
+	}
+
+	mismatches := []struct {
+		responsibility Responsibility
+		role           Role
+		outcome        DecisionOutcome
+	}{
+		{PlannerProposal, RolePlanner, ""},
+		{ImplementerDesign, RoleImplementer, ""},
+		{LeadReview, RoleLead, DecisionProceed},
+		{WorkVerification, RoleVerifier, DecisionPass},
+	}
+	for _, tc := range mismatches {
+		tc := tc
+		t.Run(string(tc.responsibility), func(t *testing.T) {
+			t.Parallel()
+			_, req := permissionFixture(t, tc.role, tc.responsibility)
+			mismatched := submissionFixture(t, req.InvocationID, tc.responsibility, tc.outcome)
+			mismatched.AnchorSubstitutes = map[string]string{"A2": "some/path.go"}
+			if _, err := EncodeSubmission(mismatched); err == nil {
+				t.Fatalf("%s encoded with AnchorSubstitutes set", tc.responsibility)
+			}
+		})
+	}
+
+	// A historical, field-absent submission decodes unchanged: additive
+	// fields must never be required on replay of stored bytes.
+	historical := submissionFixture(t, request.InvocationID, ImplementerImplementation, "")
+	historicalBody, err := EncodeSubmission(historical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decodedHistorical, err := DecodeSubmission(historicalBody)
+	if err != nil || decodedHistorical.AnchorSubstitutes != nil {
+		t.Fatalf("historical decode = %#v, error = %v", decodedHistorical, err)
+	}
+}
+
 func TestDecisionFailScopeIsAdditiveToWorkVerificationFailOnly(t *testing.T) {
 	t.Parallel()
 	_, verifierRequest := permissionFixture(t, RoleVerifier, WorkVerification)

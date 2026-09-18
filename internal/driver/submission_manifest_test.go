@@ -102,9 +102,10 @@ func TestPlannerProposalSubmissionAcceptsManifestFormat(t *testing.T) {
 // correction that phase 2 must not add a second Plan-shaped field or any
 // archive/envelope to Submission beyond the one sanctioned exception: the
 // planner_proposal-only Contracts map that lets a proposal carry new
-// contract files beside its plan bytes (sworn#210). It stays exactly seven
-// fields plus that one map, with exactly one ExactBytes-typed plan field and
-// one ExactBytes-typed checks field.
+// contract files beside its plan bytes (sworn#210), plus S1-seal-time-gates'
+// implementer_implementation-only AnchorSubstitutes map. It stays exactly
+// seven fields plus those two maps, with exactly one ExactBytes-typed plan
+// field and one ExactBytes-typed checks field.
 func TestSubmissionWireEnvelopeIsClosedAndSingleFile(t *testing.T) {
 	t.Parallel()
 	fields := reflect.VisibleFields(reflect.TypeFor[Submission]())
@@ -117,7 +118,7 @@ func TestSubmissionWireEnvelopeIsClosedAndSingleFile(t *testing.T) {
 		}
 	}
 	wantNames := []string{
-		"SchemaVersion", "InvocationID", "Responsibility", "Summary", "Detail", "Plan", "Checks", "Decision", "Contracts",
+		"SchemaVersion", "InvocationID", "Responsibility", "Summary", "Detail", "Plan", "Checks", "Decision", "Contracts", "AnchorSubstitutes",
 	}
 	if strings.Join(names, ",") != strings.Join(wantNames, ",") {
 		t.Fatalf("Submission fields = %v, want exactly %v", names, wantNames)
@@ -128,5 +129,9 @@ func TestSubmissionWireEnvelopeIsClosedAndSingleFile(t *testing.T) {
 	contractsField, ok := reflect.TypeFor[Submission]().FieldByName("Contracts")
 	if !ok || contractsField.Type != reflect.TypeFor[map[string]*ExactBytes]() {
 		t.Fatalf("Contracts field = %#v, want map[string]*ExactBytes", contractsField)
+	}
+	anchorSubstitutesField, ok := reflect.TypeFor[Submission]().FieldByName("AnchorSubstitutes")
+	if !ok || anchorSubstitutesField.Type != reflect.TypeFor[map[string]string]() {
+		t.Fatalf("AnchorSubstitutes field = %#v, want map[string]string", anchorSubstitutesField)
 	}
 }

@@ -146,9 +146,24 @@ func evidenceResealBase(engine *engine, slice *protocol.SliceState) (gitx.OID, e
 	for _, entry := range slice.History.Entries {
 		byOID[entry.OID] = entry
 	}
+	return walkToRealBase(engine, byOID, *slice.Candidate, len(slice.History.Entries))
+}
+
+// walkToRealBase walks backward from cursor over any chain of evidence-only
+// reseals (each leaving receipt.Candidate == receipt.Binds, contributing no
+// new content commit of its own) to the parent of the nearest commit that
+// actually changed content. Shared by evidenceResealBase (which starts from
+// the slice's current candidate) and anchorBaseForSlice (which starts from
+// the slice's earliest candidate under the current plan revision), so the
+// two derivations can never diverge on how a reseal chain is unwound.
+func walkToRealBase(
+	engine *engine,
+	byOID map[string]protocol.ReceiptEntry,
+	cursor protocol.ReceiptEntry,
+	maxSteps int,
+) (gitx.OID, error) {
 	format := engine.repository.ObjectFormat()
-	cursor := *slice.Candidate
-	for steps := 0; steps <= len(slice.History.Entries); steps++ {
+	for steps := 0; steps <= maxSteps; steps++ {
 		if cursor.Receipt.Role != "implementer" ||
 			cursor.Receipt.Result != "candidate" ||
 			cursor.Receipt.Candidate == nil {
@@ -179,6 +194,49 @@ func evidenceResealBase(engine *engine, slice *protocol.SliceState) (gitx.OID, e
 		cursor = prior
 	}
 	return gitx.OID{}, runtimeFail("CORRUPT_JOURNAL", nil)
+}
+
+// anchorBaseForSlice derives the base S1-seal-time-gates' A2 anchor-presence
+// gate diffs against: the parent of the slice's earliest implementer
+// candidate under the current plan revision (walked to its real content base
+// by walkToRealBase, hopping over any evidence-only reseals), never the
+// per-round scopeBase a candidateHeadRefresh or evidenceOnlyReseal round
+// derives in claimPreparedImplementation, which narrows to the prior
+// candidate and would hide an anchor file touched in an earlier attempt.
+// found is false when the slice has no implementer candidate yet under the
+// current plan revision - its first candidate is the one being sealed right
+// now - and the caller must use the round's own prepared.Before instead.
+func anchorBaseForSlice(
+	engine *engine,
+	state protocol.State,
+	slice *protocol.SliceState,
+) (gitx.OID, bool, error) {
+	if engine == nil || engine.repository == nil || slice == nil {
+		return gitx.OID{}, false, runtimeFail("STALE_DISPATCH", nil)
+	}
+	byOID := make(map[string]protocol.ReceiptEntry, len(slice.History.Entries))
+	for _, entry := range slice.History.Entries {
+		byOID[entry.OID] = entry
+	}
+	var earliest *protocol.ReceiptEntry
+	for index := range slice.History.Entries {
+		entry := &slice.History.Entries[index]
+		if entry.Receipt.Role != "implementer" ||
+			entry.Receipt.Result != "candidate" ||
+			entry.Receipt.Plan != state.Plan.OID {
+			continue
+		}
+		earliest = entry
+		break
+	}
+	if earliest == nil {
+		return gitx.OID{}, false, nil
+	}
+	base, err := walkToRealBase(engine, byOID, *earliest, len(slice.History.Entries))
+	if err != nil {
+		return gitx.OID{}, false, err
+	}
+	return base, true, nil
 }
 
 func trackBaseRequestFromWire(

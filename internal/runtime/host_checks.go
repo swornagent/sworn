@@ -570,10 +570,42 @@ func parseHostCheckResult(
 	return result, nil
 }
 
+// isLongSuiteHostCheck classifies a declared check by a fixed byte predicate
+// (S1-seal-time-gates A1): a check is a long process suite iff its command
+// text invokes "go test" - the product suite, the serial end-to-end suite
+// and the race suite, on this and every contract this release declares.
+// Every other declared check (vet, the gofmt assertion, module tidiness, the
+// diff check, the Darwin build) is quick. This inspects only the approved
+// command string, never check identity or effect state, so it cannot
+// diverge from what resolveSliceHostChecks already resolved.
+func isLongSuiteHostCheck(check string) bool {
+	return strings.Contains(check, "go test")
+}
+
+// phaseOrderedHostChecks partitions hostChecks into quick checks followed by
+// long-suite checks, each group keeping its declared relative order. A1
+// requires the quick checks to run first so a failing one blocks every long
+// suite for that candidate; this reorders only iteration, never check
+// identity, so hostCheckWork/EnsureAttempt reuse is unaffected.
+func phaseOrderedHostChecks(hostChecks []string) []string {
+	ordered := make([]string, 0, len(hostChecks))
+	for _, check := range hostChecks {
+		if !isLongSuiteHostCheck(check) {
+			ordered = append(ordered, check)
+		}
+	}
+	for _, check := range hostChecks {
+		if isLongSuiteHostCheck(check) {
+			ordered = append(ordered, check)
+		}
+	}
+	return ordered
+}
+
 // runHostChecks executes every declared host check for the slice against the
-// exact candidate and returns their journaled results in declaration order. A
-// failed, timed-out, or overflowed host check returns an error so the caller
-// blocks the seal; it is never a pass and never absent.
+// exact candidate and returns their journaled results, quick checks first
+// (A1). A failed, timed-out, or overflowed host check returns an error so
+// the caller blocks the seal; it is never a pass and never absent.
 func (s *Service) runHostChecks(
 	ctx context.Context,
 	engine *engine,
@@ -585,6 +617,12 @@ func (s *Service) runHostChecks(
 	if err != nil {
 		return nil, err
 	}
+	// A1: the quick declared checks run against the exact sealed candidate
+	// before any long process suite. A quick-check failure returns
+	// immediately below, before phaseOrderedHostChecks's long-suite tail is
+	// ever reached, so no long-suite check.host effect is journaled for a
+	// candidate that never clears the quick checks.
+	hostChecks = phaseOrderedHostChecks(hostChecks)
 	results := make([]hostCheckResult, 0, len(hostChecks))
 	for _, check := range hostChecks {
 		result, err := s.runOneHostCheck(ctx, engine, owner, plan, sliceID, candidate, targetHead, releaseHead, check)
