@@ -13,7 +13,37 @@ const (
 	ReceiptTrailer = "Protocol-Receipt: "
 	DetailBegin    = "Protocol-Detail-Begin"
 	DetailEnd      = "Protocol-Detail-End"
+
+	// Receipts written before the vocabulary rename (sworn#316) carry the
+	// historical marker text and name the Lead role "captain". They remain
+	// readable so that a release recorded under the old vocabulary can be
+	// continued, revised and promoted. Nothing is ever written in this form.
+	legacyReceiptTrailer = "Baton-Receipt: "
+	legacyDetailBegin    = "Baton-Detail-Begin"
+	legacyDetailEnd      = "Baton-Detail-End"
+	legacyLeadRole       = "captain"
 )
+
+// receiptMarkers is one complete marker vocabulary for a receipt commit.
+type receiptMarkers struct {
+	begin, end, trailer string
+}
+
+var receiptMarkerSets = []receiptMarkers{
+	{DetailBegin, DetailEnd, ReceiptTrailer},
+	{legacyDetailBegin, legacyDetailEnd, legacyReceiptTrailer},
+}
+
+// hasReceiptTrailer reports whether a commit message carries a receipt
+// trailer in the current or the pre-rename vocabulary.
+func hasReceiptTrailer(message []byte) bool {
+	for _, markers := range receiptMarkerSets {
+		if bytes.Contains(message, []byte("\n"+markers.trailer)) {
+			return true
+		}
+	}
+	return false
+}
 
 var resultsByRole = map[string]map[string]bool{
 	"planner":     {"approved": true, "retired": true},
@@ -108,7 +138,14 @@ func ParseReceipt(raw []byte) (Receipt, error) {
 	if err != nil {
 		return Receipt{}, err
 	}
-	canonical, err := canonicalJSON(receipt.toMap())
+	// The canonical-form check compares against the bytes as they were
+	// written: a pre-rename receipt was canonical with its historical role
+	// name, which validation has already normalised.
+	written := receipt
+	if role, _ := object["role"].(string); role == legacyLeadRole {
+		written.Role = legacyLeadRole
+	}
+	canonical, err := canonicalJSON(written.toMap())
 	if err != nil {
 		return Receipt{}, err
 	}
@@ -134,6 +171,9 @@ func validateReceiptMap(value map[string]any) (Receipt, error) {
 	role, err := requiredString(value["role"], "receipt.role", 1, 16)
 	if err != nil {
 		return Receipt{}, err
+	}
+	if role == legacyLeadRole {
+		role = "lead"
 	}
 	result, err := requiredString(value["result"], "receipt.result", 1, 16)
 	if err != nil {
@@ -478,8 +518,17 @@ func ParseReceiptCommitMessage(raw []byte) (ReceiptCommit, error) {
 	if !bytes.HasSuffix(raw, []byte{'\n'}) {
 		return ReceiptCommit{}, recordFail("INVALID_RECEIPT_COMMIT", "receipt commit message must end with LF")
 	}
-	beginToken := []byte("\n\n" + DetailBegin + "\n")
-	endToken := []byte("\n" + DetailEnd + "\n\n" + ReceiptTrailer)
+	// A message is read with whichever complete marker vocabulary opens its
+	// detail block; the current vocabulary is tried first.
+	markers := receiptMarkerSets[0]
+	for _, candidate := range receiptMarkerSets {
+		if bytes.Contains(raw, []byte("\n\n"+candidate.begin+"\n")) {
+			markers = candidate
+			break
+		}
+	}
+	beginToken := []byte("\n\n" + markers.begin + "\n")
+	endToken := []byte("\n" + markers.end + "\n\n" + markers.trailer)
 	begin := bytes.Index(raw, beginToken)
 	end := -1
 	if begin >= 0 {
