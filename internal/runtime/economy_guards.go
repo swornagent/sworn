@@ -923,11 +923,13 @@ func exhaustedWorks(
 		}
 		exhausted[work] = struct{}{}
 		// The persisted effect's ErrorCode is the stable runtime-wrapper
-		// code (e.g. CANDIDATE_SCOPE_FAILED); the more specific refusal
-		// code (SLICE_OUTSIDE_SCOPE, RESERVED_RECORD_ROOT_CHANGED) rides
-		// the effect's journaled productionRefusalBinding result alongside
-		// the named paths.
-		if effect.ErrorCode == "CANDIDATE_SCOPE_FAILED" {
+		// code (e.g. CANDIDATE_SCOPE_FAILED, or S1-seal-time-gates'
+		// ANCHOR_NOT_TOUCHED); the more specific refusal code
+		// (SLICE_OUTSIDE_SCOPE, RESERVED_RECORD_ROOT_CHANGED,
+		// ANCHOR_NOT_TOUCHED) rides the effect's journaled
+		// productionRefusalBinding result alongside the named paths, which
+		// scopeExhaustionDetail renders generically for either.
+		if effect.ErrorCode == "CANDIDATE_SCOPE_FAILED" || effect.ErrorCode == "ANCHOR_NOT_TOUCHED" {
 			if detail := scopeExhaustionDetail(effect.Result); detail != "" {
 				refusals[work] = exhaustionRefusalFacts{
 					code: effect.ErrorCode, detail: detail,
@@ -941,6 +943,16 @@ func exhaustedWorks(
 			refusals[work] = exhaustionRefusalFacts{
 				code:   effect.ErrorCode,
 				detail: "EMPTY_CANDIDATE: implementation produced no change to seal",
+			}
+		} else if effect.ErrorCode == "ANCHOR_GATE_UNREADABLE" {
+			// S1-seal-time-gates A5's fail-closed anchor-gate code: the gate
+			// could not read its own input (an unreadable base tree or an
+			// ambiguous diff), which has no measured value to name, so the
+			// code alone explains the cause exactly as EMPTY_CANDIDATE's
+			// does above.
+			refusals[work] = exhaustionRefusalFacts{
+				code:   effect.ErrorCode,
+				detail: "ANCHOR_GATE_UNREADABLE: the anchor-presence gate could not read the base tree or diff for this candidate",
 			}
 		}
 	}

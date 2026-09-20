@@ -1275,16 +1275,40 @@ func TestReconcileApprovalsSucceededBeforeInstallWakesOnce(t *testing.T) {
 	assertApprovalRecoveryCounts(t, store, fixture.runID)
 }
 
+// reconcileApprovalsTolerateBusyJournal calls ReconcileApprovals with a
+// bounded wait for OWNER_UNAVAILABLE/DATABASE_BUSY alone: the SQLite busy
+// timeout can be exceeded by write contention under a combined -race load
+// with no bearing on this fixture, which touches no approvals (S1-seal-time-
+// gates' named affected-regression-fixture constraint, matching the webhook
+// fixture repaired under 2026-09-05-preserve-work). Any other error still
+// fails immediately, and this weakens no assertion: the call must still
+// succeed, just not necessarily on the very first attempt under contention
+// this fixture does not control.
+func reconcileApprovalsTolerateBusyJournal(t *testing.T, service *Service, runID string) {
+	t.Helper()
+	const attempts = 5
+	backoff := 20 * time.Millisecond
+	var err error
+	for attempt := 0; attempt < attempts; attempt++ {
+		err = service.ReconcileApprovals(context.Background(), runID)
+		if err == nil {
+			return
+		}
+		if !IsCode(err, "OWNER_UNAVAILABLE") {
+			t.Fatal(err)
+		}
+		time.Sleep(backoff)
+		backoff *= 2
+	}
+	t.Fatalf("ReconcileApprovals still busy after %d attempts: %v", attempts, err)
+}
+
 func TestReconcileApprovalsRepeatedReconciliationIsIdempotent(t *testing.T) {
 	fixture := newApprovalRecoveryFixture(t)
 	fixture.seedAdmission(t, journal.Succeeded)
 	service, store := fixture.openService(t)
 	for range 2 {
-		if err := service.ReconcileApprovals(
-			context.Background(), fixture.runID,
-		); err != nil {
-			t.Fatal(err)
-		}
+		reconcileApprovalsTolerateBusyJournal(t, service, fixture.runID)
 	}
 	assertApprovalRecoveryCounts(t, store, fixture.runID)
 }

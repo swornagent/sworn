@@ -43,7 +43,7 @@ const (
 // block reads this same constant so the two can never drift apart.
 const ToolSandboxPath = "/usr/bin:/bin"
 
-const swornSubmitInputSchema = `{"type":"object","properties":{"submission":{"type":"object","properties":{"schema_version":{"type":"string","enum":["sworn.submission/v1"]},"invocation_id":{"type":"string"},"responsibility":{"type":"string","enum":["planner_proposal","implementer_design","implementer_implementation","lead_review","lead_plan_review","work_verification","assembly_verification"]},"summary":{"type":"string"},"detail":{"type":"string"},"plan":{"type":"object","properties":{"byte_count":{"type":"integer"},"digest":{"type":"string"},"bytes":{"type":"string"},"path":{"type":"string"}},"required":["byte_count","digest"],"additionalProperties":false},"checks":{"type":"object","properties":{"byte_count":{"type":"integer"},"digest":{"type":"string"},"bytes":{"type":"string"},"path":{"type":"string"}},"required":["byte_count","digest"],"additionalProperties":false},"contracts":{"type":"object"},"decision":{"type":"object","properties":{"outcome":{"type":"string","enum":["proceed","revise","escalate","pass","fail","blocked"]}},"required":["outcome"],"additionalProperties":false}},"required":["schema_version","invocation_id","responsibility","summary","detail"],"additionalProperties":false}},"required":["submission"],"additionalProperties":false}`
+const swornSubmitInputSchema = `{"type":"object","properties":{"submission":{"type":"object","properties":{"schema_version":{"type":"string","enum":["sworn.submission/v1"]},"invocation_id":{"type":"string"},"responsibility":{"type":"string","enum":["planner_proposal","implementer_design","implementer_implementation","lead_review","lead_plan_review","work_verification","assembly_verification"]},"summary":{"type":"string"},"detail":{"type":"string"},"plan":{"type":"object","properties":{"byte_count":{"type":"integer"},"digest":{"type":"string"},"bytes":{"type":"string"},"path":{"type":"string"}},"required":["byte_count","digest"],"additionalProperties":false},"checks":{"type":"object","properties":{"byte_count":{"type":"integer"},"digest":{"type":"string"},"bytes":{"type":"string"},"path":{"type":"string"}},"required":["byte_count","digest"],"additionalProperties":false},"contracts":{"type":"object"},"anchor_substitutes":{"type":"object"},"decision":{"type":"object","properties":{"outcome":{"type":"string","enum":["proceed","revise","escalate","pass","fail","blocked"]}},"required":["outcome"],"additionalProperties":false}},"required":["schema_version","invocation_id","responsibility","summary","detail"],"additionalProperties":false}},"required":["submission"],"additionalProperties":false}`
 
 type toolPathEntry struct {
 	Relative  string
@@ -922,7 +922,7 @@ func decodeToolSubmission(value any) (Submission, error) {
 			"schema_version", "invocation_id", "responsibility", "summary",
 			"detail",
 		},
-		[]string{"plan", "checks", "decision", "contracts"},
+		[]string{"plan", "checks", "decision", "contracts", "anchor_substitutes"},
 		"submission",
 	)
 	if err != nil {
@@ -935,11 +935,11 @@ func decodeToolSubmission(value any) (Submission, error) {
 		"schema_version": "string", "invocation_id": "string",
 		"responsibility": "string", "summary": "string", "detail": "string",
 		"plan": "object", "checks": "object", "contracts": "object",
-		"decision": "object",
+		"anchor_substitutes": "object", "decision": "object",
 	}
 	if err := requireSubmissionMemberTypes(
 		root, "", stringExpected,
-		append(append([]string(nil), submissionStringKeys...), "plan", "checks", "contracts", "decision"),
+		append(append([]string(nil), submissionStringKeys...), "plan", "checks", "contracts", "anchor_substitutes", "decision"),
 	); err != nil {
 		return Submission{}, err
 	}
@@ -981,6 +981,17 @@ func decodeToolSubmission(value any) (Submission, error) {
 			}
 		}
 	}
+	if root["anchor_substitutes"] != nil {
+		substitutes, ok := root["anchor_substitutes"].(map[string]any)
+		if !ok {
+			return Submission{}, submitDecodeError("INVALID_FIELD", "anchor_substitutes")
+		}
+		for _, value := range substitutes {
+			if _, ok := value.(string); !ok {
+				return Submission{}, submitDecodeError("INVALID_FIELD", "anchor_substitutes")
+			}
+		}
+	}
 	if root["decision"] != nil {
 		decision, err := decodeSubmissionObject(
 			root["decision"],
@@ -1011,18 +1022,22 @@ func decodeToolSubmission(value any) (Submission, error) {
 	switch submission.Responsibility {
 	case PlannerProposal:
 		submission.Checks, submission.Decision = nil, nil
+		submission.AnchorSubstitutes = nil
 	case ImplementerDesign:
 		submission.Plan, submission.Checks, submission.Decision = nil, nil, nil
 		submission.Contracts = nil
+		submission.AnchorSubstitutes = nil
 	case ImplementerImplementation:
 		submission.Plan, submission.Decision = nil, nil
 		submission.Contracts = nil
 	case LeadReview, LeadPlanReview:
 		submission.Plan, submission.Checks = nil, nil
 		submission.Contracts = nil
+		submission.AnchorSubstitutes = nil
 	case WorkVerification, AssemblyVerification:
 		submission.Plan = nil
 		submission.Contracts = nil
+		submission.AnchorSubstitutes = nil
 	}
 	if declared, bound := submissionDeclaresProbe(submission.Summary); declared {
 		return Submission{}, submissionProbeError("summary", bound)
@@ -1034,6 +1049,16 @@ func decodeToolSubmission(value any) (Submission, error) {
 	// file the submission does not carry can never be the work.
 	if pointer, bound := submissionIsUnattachedPointer(submission.Detail); pointer {
 		return Submission{}, submissionPointerError("detail", bound)
+	}
+	// A4 (S1-seal-time-gates, #300): a degenerate, repetitive body - the
+	// 302-byte "A. " observed on receipt af2ac1a0 never declares itself a
+	// probe, so it is caught by measuring repetition, not self-declaration,
+	// independently of submissionDeclaresProbe above.
+	if declared, distinct, compressed := submissionIsDegenerate(submission.Summary); declared {
+		return Submission{}, submissionDegenerateError("summary", distinct, compressed)
+	}
+	if declared, distinct, compressed := submissionIsDegenerate(submission.Detail); declared {
+		return Submission{}, submissionDegenerateError("detail", distinct, compressed)
 	}
 	// Enforced only at this author-side boundary, not inside
 	// ValidateSubmission: that function also re-admits historical and

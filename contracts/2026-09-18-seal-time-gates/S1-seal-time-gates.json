@@ -1,0 +1,82 @@
+{
+  "outcome": "Deterministic engine-owned gates refuse a candidate at seal time, before any long process suite runs, for a failing quick declared check, an acceptance anchor the candidate touches no file of, or a degenerate submission body, each with a typed code that reaches the worker through the existing repair path.",
+  "scope": {
+    "include": [
+      "internal/runtime",
+      "internal/journal",
+      "internal/gitx",
+      "internal/driver",
+      "internal/protocol",
+      "internal/cockpit",
+      "internal/observe",
+      "internal/tui",
+      "internal/skill",
+      "cmd/sworn",
+      "tools/protocolgolden",
+      "test/e2e",
+      "docs/run.md"
+    ],
+    "exclude": []
+  },
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "For a slice whose approved contract declares both quick checks and long process suites, the engine executes the quick declared host checks (vet, the asserted formatting check, module tidiness, the diff check and the Darwin build) against the exact sealed candidate before any long suite executes. A failing quick check blocks the seal with the existing HOST_CHECK_FAILED refusal and its exact host_repair binding, and no long suite executes for that candidate. Each check remains one journaled check.host effect keyed by slice, candidate, contract digest and check, so the later declared run reuses the recorded result rather than executing a second time. Anchor: internal/runtime/host_checks_test.go and internal/runtime/host_checks_integration_test.go."
+    },
+    {
+      "id": "A2",
+      "text": "Anchor presence (#301) is a deterministic seal-time gate that runs before any host check executes. For each acceptance criterion whose text carries an \"Anchor:\" clause, the engine extracts the path-like tokens that exist in the exact base tree, and refuses the seal with a typed code naming every criterion that has an anchor clause and none of whose named files appear in the candidate diff, listing the criterion identifiers and the files. The gate is presence only: it never judges whether a touched test is sufficient, which stays the Verifier's. The refusal binds as repair context for the next same-authority implementer dispatch, so the cost is one further dispatch carrying the exact refusal, not a full evidence round. Anchor: internal/runtime/host_repair_test.go and a new anchor-gate test alongside internal/runtime/refusal_paths_test.go."
+    },
+    {
+      "id": "A3",
+      "text": "An implementer may declare a substitute anchor in its submission so a legitimately different test file is not blocked. A declared substitute the candidate actually touches satisfies its criterion; a declared substitute the candidate does not touch, or one naming a path outside the slice's approved scope, does not satisfy it and the refusal says which. The declaration is carried on the existing submission surface and is recorded with the refusal or the seal, so a reader can see which criterion was satisfied by substitution and by which file. Anchor: internal/driver/submission_test.go and internal/driver/tools_test.go."
+    },
+    {
+      "id": "A4",
+      "text": "Degenerate submission bodies (#300) are refused cheaply at the author-side submit boundary by a fixed documented predicate over the summary and detail: a distinct-token ratio and a compressed-size ratio, each with a stated threshold. The refusal carries its own typed code and the measured ratio in its detail, and is raised through the existing rejectSubmission path so it accounts one bounded correction turn without sealing a handoff or consuming a dispatch try. The 302-byte body of the token \"A. \" repeated, observed in run 2026-09-05-preserve-work-rev4 on receipt af2ac1a0, is refused; every submission body existing fixtures already submit still admits unchanged. Anchor: internal/driver/submission_refusal_detail_test.go and internal/driver/tools_test.go."
+    },
+    {
+      "id": "A5",
+      "text": "Every gate this slice adds is a fixed predicate over bytes the engine already holds, makes no model call, and fails closed: an acceptance clause whose anchor tokens cannot be read, a submission body that cannot be decoded, or an ambiguous candidate diff refuses rather than passing the gate. Each refusal names its code, the criterion or field it concerns and the measured value, and docs/run.md documents the gates, their thresholds and the substitute-anchor declaration alongside the existing host-check and submission-refusal repair sections. Anchor: internal/runtime/refusal_paths_test.go and docs/run.md."
+    },
+    {
+      "id": "A6",
+      "text": "In a built-product journey where one implementation candidate touches none of a criterion's named anchor files and a later one submits a degenerate body, neither candidate reaches a long process suite and neither reaches the Verifier: the run's journal shows no end-to-end or race check.host effect for those candidates, and the board reports the typed refusal rather than a dropped connection or an unexplained retry. Anchor: test/e2e/production_journey_linux_test.go."
+    }
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race -timeout=20m ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "test -z \"$(gofmt -l ./cmd ./internal ./tools)\"",
+    "go mod tidy -diff",
+    "git diff --check",
+    "GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build ./..."
+  ],
+  "host_checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race -timeout=20m ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "test -z \"$(gofmt -l ./cmd ./internal ./tools)\"",
+    "go mod tidy -diff",
+    "git diff --check",
+    "GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build ./..."
+  ],
+  "constraints": [
+    "Port, do not redesign. The verified revision-6 candidate of release 2026-09-11-phased-evidence, commit fc8edaa02c87166f19260a91554ede94b69ff106 (retained as refs/backup/2026-09-12-r7-cand-fc8edaa0; its product diff against its base 39991e31 is 20 files, 'git diff 39991e31 fc8edaa0 -- \"*.go\" docs/run.md'), implements this same contract on the pre-rename base and passed the independent Verifier (receipt 7cf43906). Apply that diff onto this base, adapt every identifier to the ADR-0014 vocabulary (Captain to Lead, captain_review to lead_review, baton. to protocol., internal/baton to internal/protocol, tools/batongolden to tools/protocolgolden), reconcile it with the fixes that landed on main after it (#311 submit.decode names the wrong-typed key and refuses pointer bodies, #312 pinDispatchHistory, #313 one bounded host-check re-execution, #314 the CLI result error as a dispatch cause) and keep its tests. Where the port and a landed fix touch the same seam (the degeneracy gate beside the unattached-pointer refusal in decodeToolSubmission; phase ordering beside the re-execution in host_checks.go), keep both behaviours and both sets of tests. Any departure from the ported design is declared in the design submission with its reason.",
+    "One existing command service and journal own durable transitions. Reuse the existing host-check effect identity (internal/runtime/host_checks.go hostCheckWork keys every check.host effect by slice, candidate, contract digest and check), the existing repair bindings (internal/runtime/host_repair.go productionHostRepair and internal/runtime/submission_repair.go productionSubmissionRepair) and the existing author-side refusal path (internal/driver/tools.go rejectSubmission, which keeps the session alive and accounts one bounded correction without sealing a handoff or consuming a dispatch try). Introduce new representation only where a gate fact cannot truthfully use one of these.",
+    "No gate this release adds may call a model. Every new refusal is a fixed, documented predicate over bytes the engine already holds, with its threshold and the measured value stated in the refusal detail. Presence is not sufficiency: the anchor gate never judges whether a touched test proves anything, which remains the Verifier's authority.",
+    "Fail closed. An unreadable acceptance anchor clause, an undecodable submission body, a missing host-check output or an ambiguous candidate diff refuses before an external effect. A gate that cannot evaluate its own input never falls through to a pass, a skipped check or an absent verdict.",
+    "Nothing in this slice permits a PASS on partial evidence. A seal-time refusal is unverified repair input, never a candidate admission, check PASS, Lead decision, Verifier verdict, plan approval, or permission to merge.",
+    "The checks list declares host obligations. Every listed check is a host_check: contained implementers and verifiers consume engine-bound host evidence and must never attempt nested containment or claim to have executed these commands. This release amends the prior sequence wording: each long process suite still runs exactly once per candidate, but the engine may execute the declared checks in the phase order this release defines rather than strictly in declaration order. A candidate change still requires fresh applicable evidence.",
+    "Issue #300 cites submissionFloorCheck at internal/driver/submission_refusal_detail.go:437 and asks for a code alongside SUBMISSION_BELOW_FLOOR. That premise is stale on this base: the byte-length floor, its constants and SUBMISSION_BELOW_FLOOR were removed by 2026-09-05-preserve-work S3 (commit 868a4c2e). What remains at that boundary is submissionDeclaresProbe and the non-empty Detail check reached from internal/driver/tools.go (detailRequiredResponsibility, INVALID_DETAIL). Add the degeneracy predicate at that same author-side boundary under its own code; do not restore the byte-length floor, which this project has already decided against.",
+    "This release changes no roster, model selection, budget, timeout, retry cap or fallback behaviour. Model and driver selection stay explicit with no fallback.",
+    "The broad supporting package scope admits only this promised mechanism and its affected regression fixtures, adapters, status projections and documentation. It grants no unrelated refactor, provider selection, verification relaxation, or new orchestration policy.",
+    "Known contained-workspace facts, not defects of this slice: cmd/sworn's TestTUIActionDriveSurvivesActionReturn fails in the sandbox with CREDENTIAL_UNAVAILABLE and prints roughly 90 KB of DEBUG output; it passes on the host. Do not chase it and do not run it in the workspace (exclude it with -skip or -run, or rely on host evidence). internal/runtime exceeds Go's implicit 10-minute package deadline in the sandbox; pass -timeout=20m on your own package runs. The sandbox shell is dash without `which`. Never build a binary into the workspace root (for example `go build ./test/e2e/testdata/fake` writes ./fake): an out-of-scope file at the root makes checkpoint capture refuse with CHECKPOINT_SCOPE_VIOLATION and fences the workspace; build into a temporary directory.",
+    "internal/protocol is the embedded protocol package. This slice needs no change to its receipt vocabulary, operation assets or pinned digests; if a design appears to need one, that is a signal the gate has been put in the wrong place, and the correct response is to report it, not to re-pin the bundle."
+  ],
+  "depends_on": [],
+  "consumes": []
+}

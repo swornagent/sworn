@@ -242,15 +242,22 @@ type engine struct {
 }
 
 type sealedRecord struct {
-	Slice        string                      `json:"slice"`
-	Binds        string                      `json:"binds"`
-	Before       string                      `json:"before"`
-	RefreshFrom  string                      `json:"refresh_from,omitempty"`
-	Candidate    string                      `json:"candidate"`
-	Tree         string                      `json:"tree"`
-	ProductTree  string                      `json:"product_tree"`
-	ChangedPaths []string                    `json:"changed_paths"`
-	Receipt      protocol.AppendReceiptInput `json:"receipt"`
+	Slice        string   `json:"slice"`
+	Binds        string   `json:"binds"`
+	Before       string   `json:"before"`
+	RefreshFrom  string   `json:"refresh_from,omitempty"`
+	Candidate    string   `json:"candidate"`
+	Tree         string   `json:"tree"`
+	ProductTree  string   `json:"product_tree"`
+	ChangedPaths []string `json:"changed_paths"`
+	// AnchorSubstitutes names, for each acceptance criterion S1-seal-time-gates'
+	// A3 declared substitute satisfied, the criterion ID and the file that
+	// honoured it. Populated only when the anchor-presence gate accepted a
+	// declared substitute for this candidate, so a reader of the seal itself
+	// (not only the driver.dispatch effect's Result) can see which criterion
+	// was satisfied by substitution and by which file.
+	AnchorSubstitutes map[string]string           `json:"anchor_substitutes,omitempty"`
+	Receipt           protocol.AppendReceiptInput `json:"receipt"`
 }
 
 type implementationCycle struct {

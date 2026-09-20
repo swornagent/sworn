@@ -3256,12 +3256,51 @@ func (s *Service) claimPreparedImplementation(
 		return sealedRecord{}, journal.Claim{},
 			runtimeFail("CANDIDATE_SCOPE_FAILED", err)
 	}
+	// A2/A3 (S1-seal-time-gates): a deterministic, pre-host anchor-presence
+	// gate, sibling to the scope check above and run before any declared
+	// check ever executes. It diffs against the slice's own first-candidate
+	// base (never scopeBase, which a candidateHeadRefresh or
+	// evidenceOnlyReseal round narrows to the prior candidate and would hide
+	// an anchor file this candidate touched in an earlier attempt).
+	anchorContract, err := plan.ResolveSliceContractAtHead(
+		engine.git, cycle.Slice, state.Refs.Release.Head, state.Refs.Target.Head)
+	if err != nil {
+		return sealedRecord{}, journal.Claim{},
+			runtimeFail("CONTRACT_RESOLUTION_FAILED", err)
+	}
+	anchorBase := prepared.Before.String()
+	if currentSlice, ok := state.Slice(cycle.Slice); ok {
+		if resolvedBase, found, baseErr := anchorBaseForSlice(engine, state, currentSlice); baseErr != nil {
+			return sealedRecord{}, journal.Claim{}, baseErr
+		} else if found {
+			anchorBase = resolvedBase.String()
+		}
+	}
+	honoredSubstitutes, err := anchorPresenceGate(
+		engine, anchorContract, anchorBase, prepared.Candidate.String(),
+		submission.AnchorSubstitutes,
+	)
+	if err != nil {
+		// anchorPresenceGate returns a bare *protocol.RecordError for a
+		// genuine anchor-not-touched refusal (so its Paths ride the error
+		// exactly as CANDIDATE_SCOPE_FAILED's do above) and an already
+		// outer-coded *Error (ANCHOR_GATE_UNREADABLE) for a fail-closed read
+		// failure; only the former gets the matching outer wrapper so the
+		// board's effect.ErrorCode names the right one of the two.
+		var anchorRefusal *protocol.RecordError
+		if errors.As(err, &anchorRefusal) {
+			return sealedRecord{}, journal.Claim{},
+				runtimeFail("ANCHOR_NOT_TOUCHED", err)
+		}
+		return sealedRecord{}, journal.Claim{}, err
+	}
 	checks, err := exactBytes(submission.Checks)
 	if err != nil {
 		return sealedRecord{}, journal.Claim{}, err
 	}
 	record := sealedRecordFromCandidate(prepared)
 	record.Slice, record.Binds = cycle.Slice, cycle.Binds
+	record.AnchorSubstitutes = honoredSubstitutes
 	productIdentity, err := engine.repository.ProductTreeIdentity(
 		prepared.Candidate,
 		engine.product,

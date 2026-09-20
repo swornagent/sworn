@@ -477,6 +477,51 @@ the handoff on the retained code instead of an empty commit or a blind
 regeneration. A refusal already corrected by an accepted submission in the
 same or a later try is not replayed as outstanding.
 
+## Seal-time gates and their repair input
+
+Before any declared check ever runs, Sworn evaluates two deterministic gates
+against the exact sealed candidate, and orders the declared checks so the
+cheap facts are cheap. Neither gate calls a model, and neither judges whether
+a touched file proves anything - that stays the Verifier's job.
+
+**Quick-before-long execution order.** Among a slice's declared checks, the
+five that are not a `go test` invocation (vet, the asserted formatting check,
+module tidiness, the diff check, the Darwin build) run first, in their
+declared relative order, before any of the three long process suites (the
+product suite, the serial end-to-end suite, the race suite). A failing quick
+check blocks the seal before a single long-suite `check.host` effect is ever
+journaled for that candidate; each check keeps its own effect identity, so
+reordering never creates a duplicate.
+
+**Anchor presence.** For each acceptance criterion whose text carries a
+trailing `Anchor: path[, path][ and path].` clause, Sworn extracts the named
+paths that exist in the slice's own prepared base - the parent of the
+slice's earliest candidate under the current plan revision, never the
+current round's lease head or refresh point, so a file covered in an earlier
+attempt is never re-flagged as untouched - and refuses the seal with
+`ANCHOR_NOT_TOUCHED` when a criterion's declared anchors, and no valid
+declared substitute, appear in the candidate's diff from that base. The
+refusal names the base it used, every criterion still missing an anchor and
+its files, and separately, as a distinct fact, any declared substitute that
+failed and why (untouched, or outside the slice's approved scope). It is
+captured as repair context for the next same-authority implementer dispatch,
+so the cost is one further dispatch, not a full evidence round. An
+implementer may declare a substitute anchor for a criterion via
+`anchor_substitutes` on its `implementer_implementation` submission
+(criterion ID to path); a substitute the candidate honours is recorded on
+the seal itself (criterion ID to file), so a reader does not have to
+reconstruct it from the dispatch effect. An unreadable base tree or an
+ambiguous diff refuses `ANCHOR_GATE_UNREADABLE` instead of silently passing.
+
+**Degenerate submission body.** At the same author-side boundary that
+already refuses a self-declared probe, Sworn also measures a submission's
+`summary` and `detail` for repetition: a distinct-token ratio and a
+compressed-size ratio, each independently bounded. A field refuses with
+`SUBMISSION_DEGENERATE_BODY`, carrying both measured ratios, only when both
+signals agree the body is degenerate - a single coincidental signal never
+triggers alone. This is raised through the existing submit-boundary refusal
+path, so it corrects in-turn without consuming a dispatch try.
+
 For worktree-hosted operation, pass the intended `--operator-config` explicitly
 to `sworn serve`. Default discovery searches the current checkout; a config
 in another linked checkout is not automatically inherited. Check telemetry
