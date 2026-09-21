@@ -109,6 +109,21 @@ type OpenAIProfileConfig struct {
 	// position, tolerated-and-ignored, so accounting still reads only the
 	// standard token fields.
 	VendorUsage *bool `json:"vendor_usage,omitempty"`
+	// MaxOutputTokens is the provider's own output ceiling. When set, the
+	// output bound sent to the provider (max_output_tokens on responses,
+	// max_completion_tokens on chat completions) is the smaller of
+	// Limits.OutputBytes and this value, for certification and dispatch
+	// alike. Omission sends Limits.OutputBytes unchanged.
+	MaxOutputTokens int64 `json:"max_output_tokens,omitempty"`
+}
+
+// outputLimit clamps the invocation's output bound to the adapter's declared
+// provider ceiling. A zero limit stays zero so the field is still omitted.
+func (config OpenAIProfileConfig) outputLimit(limit int64) int64 {
+	if config.MaxOutputTokens > 0 && limit > config.MaxOutputTokens {
+		return config.MaxOutputTokens
+	}
+	return limit
 }
 
 // effectiveAuth returns the admission-time authentication mode of a unified
@@ -251,7 +266,7 @@ func NewOpenAIAdapter(
 				config.EnableThinking,
 				config.Stream,
 				dialect,
-				limits.OutputBytes,
+				config.outputLimit(limits.OutputBytes),
 			)
 		}
 	case OpenAIChatCompletionsAPI, OpenRouterChatCompletionsAPI:
@@ -278,7 +293,7 @@ func NewOpenAIAdapter(
 				prompt,
 				dialect,
 				config.ReasoningEffort,
-				limits.OutputBytes,
+				config.outputLimit(limits.OutputBytes),
 			)
 		}
 	default:
@@ -305,7 +320,9 @@ func (config OpenAIProfileConfig) valid() bool {
 	parsed, err := url.Parse(config.Endpoint)
 	if validateEndpoint(config.Endpoint) != nil ||
 		err != nil || parsed.RawQuery != "" ||
-		!validReasoningEfforts(config.ReasoningEfforts) {
+		!validReasoningEfforts(config.ReasoningEfforts) ||
+		config.MaxOutputTokens < 0 ||
+		config.MaxOutputTokens > MaxProviderOutputBytes {
 		return false
 	}
 	// The vendor dialects are an explicit one-per-adapter choice: a profile
