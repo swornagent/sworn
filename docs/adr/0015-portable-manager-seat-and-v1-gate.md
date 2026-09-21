@@ -212,9 +212,7 @@ delegated fact bypasses human authority.
 - Remote reach at the manager scope is in the v1.0.0 engine scope: scoped
   credentials and the TLS path ship in the open engine, because gate 1 needs
   them anyway. Nothing about a relay gates the engine's version.
-
-## Open question for the Principal
-
-Whether gate 10 blocks the v1.0.0 tag. Proposed: a clean-machine run by a
-fresh harness session holding only the public documentation blocks the tag;
-a human stranger blocks the public launch announcement, not the tag.
+- Gate 10 blocks the v1.0.0 tag. The stranger is a person other than the
+  author, working from the public documentation alone. A clean-machine run by
+  a fresh harness session holding only that documentation is the rehearsal
+  for it and does not satisfy it.
