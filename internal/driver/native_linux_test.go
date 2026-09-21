@@ -3038,6 +3038,153 @@ func TestNativeEventStateWorkerTurnMalformedEventsCountAsDropsNotRefusals(t *tes
 	}
 }
 
+// TestNativeContinuationFixtureEmitsWorkerTurnsThroughRealChildProcess pins
+// A1's explicit end-to-end requirement: the built fake native CLI
+// (testdata/nativecontinuation/main.go) emits the worker-turn events of
+// each family around two real MCP tool calls it makes over HTTP as a real
+// child process, rather than a hand-built nativeEventState driving
+// state.accept directly. This is what actually exercises the two
+// production wiring lines the slice turns on: platformRunNative's
+// broker.bindTurnSource closure reading state.observationTurn (A2), and
+// scanNativeEvents' deferred flushPendingWorkerTurn (A5) - the second
+// worker turn of each family is deliberately left without a closing
+// boundary event, so it only ever reaches the hook if that defer ran for
+// real.
+func TestNativeContinuationFixtureEmitsWorkerTurnsThroughRealChildProcess(t *testing.T) {
+	setNativeMemoryRootEnv(t)
+	for _, family := range []ProfileFamily{ProfileCodex, ProfileClaude} {
+		family := family
+		t.Run(string(family), func(t *testing.T) {
+			binary := buildNativeContinuation(t)
+			digest, err := executableDigest(binary)
+			if err != nil {
+				t.Fatal(err)
+			}
+			config := nativeContinuationConfigFixture(t, family, binary, digest)
+			configBody, err := canonicalJSON(config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			identity := AdapterIdentity{
+				Key: config.Key, ID: config.ID, Version: config.Version,
+				ConfigurationDigest: Digest(configBody),
+			}
+			ref := config.CredentialRefs[0]
+			credential := filepath.Join(t.TempDir(), "credential")
+			if err := os.WriteFile(
+				credential,
+				[]byte(`{"token":"native-worker-turn-credential-canary"}`),
+				0o600,
+			); err != nil {
+				t.Fatal(err)
+			}
+			adapter := &nativeAdapter{
+				identity: identity,
+				config:   config,
+				resolve: func(context.Context, string) (string, error) {
+					return credential, nil
+				},
+				refs: map[string]struct{}{ref: {}},
+			}
+			profile := ProfileConfig{
+				Key:     "native-worker-turn-profile-" + string(family),
+				Adapter: identity.Key, Network: NetworkRequired,
+				CredentialRef: &ref,
+			}
+			selected := SelectedProfile{
+				Profile: profile,
+				Adapter: identity,
+				Model:   "native-continuation-model",
+				adapter: adapter,
+			}
+			base, _, _ := memoryInvocationFixture(t)
+			base.Selected = selected
+			request, err := NewRequest(
+				"native-worker-turn-fixture-"+string(family),
+				RoleImplementer,
+				profile.Key,
+				selected.Model,
+				Workspace{Path: GuestWorkspacePath, Access: ReadOnly},
+				base.Request.Inputs,
+				true,
+				Limits{TimeoutMillis: 20_000, OutputBytes: 65_536},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			permission, err := NewSubmissionPermission(
+				request,
+				selected,
+				ContainmentReadOnly,
+				ImplementerDesign,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			invocation := base
+			invocation.Request = request
+			invocation.Permission = permission
+			if err := osWriteProviderFixture(
+				invocation.HostWorkspace,
+				"worker-turn-fixture.txt",
+				"worker turn fixture body",
+			); err != nil {
+				t.Fatal(err)
+			}
+			toolRecorder := &recordingToolResultHook{}
+			workerRecorder := &recordingWorkerTurnHook{}
+			invocation.ToolResultHook = toolRecorder.hook()
+			invocation.WorkerTurnHook = workerRecorder.hook()
+
+			observation, err := platformInvokeNative(
+				context.Background(),
+				invocation,
+				config,
+				credential,
+				nativeSurfaceCertificate{},
+			)
+			if err != nil || observation.Handoff == nil {
+				t.Fatalf(
+					"native worker-turn fixture dispatch = observation %#v, error %v",
+					observation,
+					err,
+				)
+			}
+
+			toolTurns := toolRecorder.waitFor(t, 2)
+			workerTurns := workerRecorder.waitFor(t, 2)
+			wantToolTurns, wantWorkerTurns := [2]int64{1, 2}, [2]int64{1, 2}
+			if family == ProfileCodex {
+				wantToolTurns, wantWorkerTurns = [2]int64{0, 1}, [2]int64{0, 1}
+			}
+			if toolTurns[0].Turn != wantToolTurns[0] ||
+				toolTurns[1].Turn != wantToolTurns[1] {
+				t.Fatalf(
+					"tool-result turns = %d, %d, want %d, %d",
+					toolTurns[0].Turn, toolTurns[1].Turn,
+					wantToolTurns[0], wantToolTurns[1],
+				)
+			}
+			if workerTurns[0].Turn != wantWorkerTurns[0] ||
+				workerTurns[1].Turn != wantWorkerTurns[1] {
+				t.Fatalf(
+					"worker turns = %d, %d, want %d, %d",
+					workerTurns[0].Turn, workerTurns[1].Turn,
+					wantWorkerTurns[0], wantWorkerTurns[1],
+				)
+			}
+			second := workerTurns[1].Content
+			if len(second) != 1 || second[0].Kind != WorkerTurnPartToolCall ||
+				second[0].ToolCallID != "fixture-call-2" {
+				t.Fatalf(
+					"defer-flushed final worker turn content = %#v",
+					second,
+				)
+			}
+		})
+	}
+}
+
 // A2: scanNativeEvents' cumulative-total branch fails
 // ECONOMY_OUTPUT_BUDGET_EXCEEDED and stamps the crossing byte total onto
 // state, never touching state.accept - nothing in the pre-slice suite pins
