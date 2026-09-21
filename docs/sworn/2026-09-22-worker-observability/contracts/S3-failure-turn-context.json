@@ -1,0 +1,81 @@
+{
+  "outcome": "When a dispatch fails operationally, its durable failure record carries a bounded tail of the worker's last turns, and the status projection shows that tail for the failed work, so an operator or a Manager seat can see what the worker was doing when it failed without opening the journal.",
+  "scope": {
+    "include": [
+      "internal/runtime",
+      "internal/journal",
+      "internal/gitx",
+      "internal/driver",
+      "internal/protocol",
+      "internal/cockpit",
+      "internal/observe",
+      "internal/tui",
+      "internal/skill",
+      "cmd/sworn",
+      "tools/protocolgolden",
+      "test/e2e",
+      "docs/run.md"
+    ],
+    "exclude": []
+  },
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "Every operational dispatch failure the runtime journals (the dispatch_operational_failure completions for a driver error, an invalid driver handoff and an invalid human turn, and the uncertain outcome) carries a failure turn context: the last turns of that dispatch attempt, at most a declared number of turns and a declared number of bytes, each as the same bounded redacted projection S1 journals, with the count of earlier turns omitted. It is recorded with the failure in the same journal transaction as the failure itself, so a reader never sees a failure without its context or a context without its failure. A dispatch that failed before any turn carries an explicit empty context, not an absent field. Anchor: internal/runtime/failed_observation_persistence_test.go and internal/runtime/tool_result_observation_test.go."
+    },
+    {
+      "id": "A2",
+      "text": "The context is assembled from what the dispatch's observer already emitted, held in a bounded per-dispatch tail, so it is present on every lane that observes turns (HTTP lanes and, after S1, native CLI lanes) and costs no second read of the provider stream and no journal scan at failure time. Turns the observer dropped are counted in the context. If the tail cannot be produced the failure is still journaled exactly as today, with the context marked unavailable and the reason named; assembling context never turns one failure into another and never delays or alters the failure code, the refusal result, the attempt's observation digest or the try accounting. Anchor: internal/driver/tool_result_observation_test.go and internal/runtime/failed_observation_persistence_test.go."
+    },
+    {
+      "id": "A3",
+      "text": "The status projection that `sworn status --json`, the sworn_status tool, the browser board and the TUI already share exposes the failure turn context for the pinned or selected failed work beside its existing failure code and detail, bounded as journaled, read back through a digest-checked journal read so tampering is reported as CORRUPT_JOURNAL rather than shown. The board's and the TUI's work detail render it; the surfaces stay in parity. Anchor: internal/cockpit/projector_test.go and internal/tui/model_test.go."
+    },
+    {
+      "id": "A4",
+      "text": "The driver-side causes are unchanged and still win: the CLI's own error result recorded by #314, the provider-limit classification, the redacted stderr tail and every typed failure code keep their present precedence and text. The turn context is additional evidence beside the cause, never a replacement for it and never parsed to derive a cause, a park or a retry decision. Anchor: internal/driver/native_linux_test.go."
+    },
+    {
+      "id": "A5",
+      "text": "In a built-product journey where a scripted worker takes several turns and then the dispatch fails operationally, the run's status output for that work shows the final turns in order with the failure code, and a following successful try of the same work shows no stale context. docs/run.md documents the failure turn context, its bounds and where each surface shows it, in the section that already explains dispatch failures and their causes. Anchor: test/e2e/turn_recovery_linux_test.go and docs/run.md."
+    }
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race -timeout=20m ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "test -z \"$(gofmt -l ./cmd ./internal ./tools)\"",
+    "go mod tidy -diff",
+    "git diff --check",
+    "GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build ./..."
+  ],
+  "host_checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race -timeout=20m ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "test -z \"$(gofmt -l ./cmd ./internal ./tools)\"",
+    "go mod tidy -diff",
+    "git diff --check",
+    "GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build ./..."
+  ],
+  "constraints": [
+    "One failure record, one write. The runtime journals an operational failure at a small number of sites in internal/runtime/dispatch.go that share one shape (the attempt with its observation body and digest, then a CompleteOwned with the failure code, the refusal result and the dispatch_operational_failure event). Attach the context through that one shape, once, for all of them. Do not add a parallel failure record, a second event that a reader must join by time, or a per-site variant.",
+    "The attempt observation is digest-bound and read back through internal/journal/attempt_observation.go. If the context rides with it, the digest covers it; if it rides on the failure event body, it stays under the journal's event byte bound in the worst case with exact accounting. Either way existing records without a context read back as before, with the context reported as absent for records written before this release rather than as corrupt.",
+    "Reuse S1's projection, bounds and redaction exactly. The context holds projections that were already bounded and redacted for journaling. No raw provider bytes, no unbounded text and no secret reach the failure record, and no new redaction rule is introduced.",
+    "Evidence, never authority. The context is unverified observation of what a worker said. Nothing in the engine reads it to classify a failure, choose a park cause, decide a retry, judge a candidate or answer an attention. It exists for the human and the seat to read.",
+    "The status projection gains one bounded field and no new surface. The product MCP tool list is unchanged: sworn_status already returns the projection. Shape the field so the typed explain read planned after this release can return it as is.",
+    "This slice does not change which failures exist, their codes, their precedence, the try budget, the identical-failure or exhaustion parks, or any retry behaviour.",
+    "Every listed check is a host check: contained implementers and verifiers consume engine-bound host evidence and never attempt nested containment or claim to have executed these commands. Each long process suite runs once per candidate in the phase order the engine defines.",
+    "This release changes no roster, model selection, budget, timeout, retry cap or fallback behaviour. The broad supporting package scope admits only this promised mechanism and its affected regression fixtures, adapters, status projections and documentation.",
+    "Known contained-workspace facts, not defects of this slice: cmd/sworn's TestTUIActionDriveSurvivesActionReturn fails in the sandbox with CREDENTIAL_UNAVAILABLE and prints roughly 90 KB of DEBUG output; it passes on the host. Do not chase it and do not run it in the workspace. internal/runtime exceeds Go's implicit 10-minute package deadline in the sandbox; pass -timeout=20m on your own package runs. The sandbox shell is dash without `which`. Never build a binary into the workspace root: an out-of-scope file at the root makes checkpoint capture refuse with CHECKPOINT_SCOPE_VIOLATION and fences the workspace; build into a temporary directory.",
+    "internal/protocol is the embedded protocol package. This slice needs no change to its receipt vocabulary, operation assets or pinned digests; if a design appears to need one, report it rather than re-pinning the bundle."
+  ],
+  "depends_on": [
+    "S1-native-turn-journal"
+  ],
+  "consumes": [
+    "S1-native-turn-journal"
+  ]
+}
