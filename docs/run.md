@@ -162,6 +162,35 @@ sworn status \
   --json
 ```
 
+### Worker-turn journal
+
+Every dispatch, on every lane, journals one bounded, redacted record per
+worker turn as it happens. An HTTP-lane dispatch has always journaled a
+`tool_result_observed` event (schema `sworn.tool-result-turn/v1`) per turn's
+tool results; a native CLI-lane dispatch (Claude or Codex) now does the
+same, correctly keyed one turn at a time instead of collapsing onto turn 0.
+
+Native CLI lanes additionally journal what the worker said and which tools
+it called, as a `worker_turn_observed` event (schema `sworn.worker-turn/v1`)
+beside the tool-result event for the same turn. Each event carries the same
+identity fields as a tool-result event - run, track, slice, role,
+responsibility, attempt, epoch, try, work and effect identifiers, turn, and
+part/parts geometry for a turn split across multiple events - plus an
+ordered `content` list of bounded parts. Each part names a `kind` (`text`,
+`reasoning` where the CLI emits it, `tool_call` with the tool name and its
+bounded canonical-JSON input, or `tool_result_reference` naming the tool
+call a result belongs to rather than duplicating its bytes), `total_bytes`,
+`omitted_bytes`, `redacted_bytes`, and a `head`/`tail` pair of standard
+base64-encoded bytes bounded to 2,048 bytes each. Every capability,
+capture bearer, and credential fragment is redacted before it ever reaches
+the journal. `dropped_events` names any worker-turn event the reader could
+not decode or recognize, loudly, rather than silently discarding it.
+
+To profile one dispatch by turn, read the journal and filter both event
+kinds on that dispatch's identity fields (run, work, effect, attempt, epoch,
+try), then group by `turn`: a native-lane dispatch reads back exactly like
+an HTTP-lane dispatch, one row (or named part) per turn.
+
 ## 4. Use the local browser board
 
 For an existing run:

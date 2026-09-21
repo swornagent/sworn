@@ -38,6 +38,11 @@ type preparedDriverDispatch struct {
 	// runDriverEffectWithPreparation and copied into every invocation.
 	// It is runtime-only and never serialized into commandPayload.
 	toolResultHook driver.ToolResultHook
+	// workerTurnHook is the runtime-provided durable callback for the
+	// bounded worker-turn projection (native CLI lanes only,
+	// S1-native-turn-journal), set alongside toolResultHook at the same
+	// site and copied into every invocation identically.
+	workerTurnHook driver.WorkerTurnHook
 	// sealedProposalHook is the blocking runtime callback that persists plan
 	// bytes at submission seal, before the driver publishes its handoff.
 	sealedProposalHook driver.SealedProposalHook
@@ -479,10 +484,11 @@ func preparedInvocation(
 		Inputs:        prepared.inputs,
 		FakeProfile:   fakeProfile,
 		MaskNames:     append([]string(nil), maskNames...),
-		// Runtime-only authority: the driver emits the tool-result
-		// projection on this hook off its dispatch loop, never failing
-		// or stalling delivery on it.
+		// Runtime-only authority: the driver emits the tool-result and
+		// worker-turn projections on these hooks off its dispatch loop,
+		// never failing or stalling delivery on either.
 		ToolResultHook:     prepared.toolResultHook,
+		WorkerTurnHook:     prepared.workerTurnHook,
 		SealedProposalHook: prepared.sealedProposalHook,
 	}
 }
@@ -1977,6 +1983,12 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 	// hook: fresh, continuation resume, recoverable resume, and recovery
 	// automation, through the single preparedInvocation construction site.
 	prepared.toolResultHook = s.toolResultObservationHook(
+		owner,
+		prepared,
+		coordinates,
+		attemptIdentity,
+	)
+	prepared.workerTurnHook = s.workerTurnObservationHook(
 		owner,
 		prepared,
 		coordinates,

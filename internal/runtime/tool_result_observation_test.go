@@ -249,6 +249,238 @@ func TestToolResultEventWorstCasePartStaysUnderJournalEventBytes(t *testing.T) {
 	}
 }
 
+func workerTurnTestHook(
+	t *testing.T,
+	service *Service,
+	runID string,
+) driver.WorkerTurnHook {
+	t.Helper()
+	prepared := preparedDriverDispatch{
+		request: driver.Request{Role: driver.RoleImplementer},
+		productionContext: &productionWorkContext{
+			Track: "T1-worker-observability",
+		},
+	}
+	coordinates := dispatchCoordinates{
+		Slice:           "S1-native-turn-journal",
+		Responsibility:  driver.ImplementerImplementation,
+		ProtocolAttempt: 2,
+		Epoch:           1,
+		Try:             3,
+	}
+	attemptIdentity := journal.EffectAttempt{
+		WorkID: "work-worker-turn-events",
+		Epoch:  1,
+		Try:    3,
+	}
+	hook := service.workerTurnObservationHook(
+		journal.OwnerLease{RunID: runID},
+		prepared,
+		coordinates,
+		attemptIdentity,
+	)
+	if hook == nil {
+		t.Fatal("hook must exist for a live journal")
+	}
+	return hook
+}
+
+// TestWorkerTurnObservationHookJournalsIdentityAndExactBytes mirrors
+// TestToolResultObservationHookJournalsIdentityAndExactBytes for the new
+// worker_turn_observed kind (S1-native-turn-journal, A3): the identity
+// envelope, base64 encoding and replay/EventsAfter machinery are identical,
+// under a new, separately named kind and schema version.
+func TestWorkerTurnObservationHookJournalsIdentityAndExactBytes(t *testing.T) {
+	service, store, run := toolResultRuntimeFixture(t)
+	hook := workerTurnTestHook(t, service, run.ID)
+	ctx := context.Background()
+
+	content := []byte("hello worker")
+	turn := driver.WorkerTurn{
+		Turn:          7,
+		Part:          2,
+		Parts:         3,
+		DroppedEvents: 4,
+		Content: []driver.WorkerTurnPart{{
+			Kind:       driver.WorkerTurnPartText,
+			TotalBytes: int64(len(content)),
+			Head:       base64.StdEncoding.EncodeToString(content),
+		}},
+	}
+	if err := hook(ctx, turn); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot, err := store.Snapshot(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var eventBody []byte
+	var eventOffset int64
+	for _, event := range snapshot.Events {
+		if event.Kind == "worker_turn_observed" {
+			eventBody = event.Body
+			eventOffset = event.Offset
+		}
+	}
+	if len(eventBody) == 0 {
+		t.Fatalf("events = %#v, want a worker_turn_observed event", snapshot.Events)
+	}
+	var body struct {
+		SchemaVersion  string                  `json:"schema_version"`
+		RunID          string                  `json:"run_id"`
+		Track          string                  `json:"track"`
+		Slice          string                  `json:"slice"`
+		Role           driver.Role             `json:"role"`
+		Responsibility driver.Responsibility   `json:"responsibility"`
+		Attempt        int64                   `json:"attempt"`
+		Epoch          int64                   `json:"epoch"`
+		Try            int64                   `json:"try"`
+		WorkID         string                  `json:"work_id"`
+		EffectID       string                  `json:"effect_id"`
+		Turn           int64                   `json:"turn"`
+		Part           int64                   `json:"part"`
+		Parts          int64                   `json:"parts"`
+		DroppedEvents  int64                   `json:"dropped_events"`
+		Encoding       string                  `json:"encoding"`
+		Content        []driver.WorkerTurnPart `json:"content"`
+	}
+	if err := json.Unmarshal(eventBody, &body); err != nil {
+		t.Fatalf("event body does not decode: %v (%s)", err, eventBody)
+	}
+	if body.SchemaVersion != "sworn.worker-turn/v1" ||
+		body.RunID != run.ID ||
+		body.Track != "T1-worker-observability" ||
+		body.Slice != "S1-native-turn-journal" ||
+		body.Role != driver.RoleImplementer ||
+		body.Responsibility != driver.ImplementerImplementation ||
+		body.Attempt != 2 || body.Epoch != 1 || body.Try != 3 ||
+		body.WorkID != "work-worker-turn-events" ||
+		body.EffectID != "attempt/work-worker-turn-events/e1/t3" ||
+		body.Turn != 7 || body.Part != 2 || body.Parts != 3 ||
+		body.DroppedEvents != 4 || body.Encoding != "base64" {
+		t.Fatalf("identity = %s", eventBody)
+	}
+	if len(body.Content) != 1 || body.Content[0].Kind != driver.WorkerTurnPartText {
+		t.Fatalf("content = %#v", body.Content)
+	}
+	head, err := base64.StdEncoding.DecodeString(body.Content[0].Head)
+	if err != nil || string(head) != string(content) {
+		t.Fatalf("decoded head = %q, %v", head, err)
+	}
+
+	var association EventAssociation
+	if err := json.Unmarshal(eventBody, &association); err != nil {
+		t.Fatal(err)
+	}
+	if association.EffectID != "attempt/work-worker-turn-events/e1/t3" ||
+		association.WorkID != "work-worker-turn-events" ||
+		association.Track != "T1-worker-observability" ||
+		association.Slice != "S1-native-turn-journal" {
+		t.Fatalf("association = %#v", association)
+	}
+
+	window, err := store.ReadWindow(ctx, run.ID, 0, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayed := false
+	for _, event := range window.Snapshot.Events {
+		if event.Offset == eventOffset {
+			replayed = true
+			if event.Kind != "worker_turn_observed" ||
+				event.BodyDigest != driver.Digest(eventBody) ||
+				string(event.Body) != string(eventBody) {
+				t.Fatalf("replayed event = %#v", event)
+			}
+		}
+	}
+	if !replayed {
+		t.Fatal("replay window lacks the worker_turn_observed event")
+	}
+	facts, err := store.EventsAfter(ctx, run.ID, 0, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, fact := range facts.Events {
+		if fact.Offset == eventOffset && fact.Kind == "worker_turn_observed" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("EventsAfter lacks the worker_turn_observed kind")
+	}
+}
+
+func TestWorkerTurnEventWorstCasePartStaysUnderJournalEventBytes(t *testing.T) {
+	service, store, run := toolResultRuntimeFixture(t)
+	hook := workerTurnTestHook(t, service, run.ID)
+	ctx := context.Background()
+
+	headBytes := []byte(strings.Repeat("m", driver.MaxToolResultHeadBytes))
+	tailBytes := []byte(strings.Repeat("n", driver.MaxToolResultTailBytes))
+	parts := make([]driver.WorkerTurnPart, 0, 21)
+	for index := 0; index < 21; index++ {
+		parts = append(parts, driver.WorkerTurnPart{
+			Kind:       driver.WorkerTurnPartToolCall,
+			Tool:       "Bash",
+			ToolCallID: strings.Repeat("i", 256),
+			TotalBytes: int64(len(headBytes) + len(tailBytes)),
+			Head:       base64.StdEncoding.EncodeToString(headBytes),
+			Tail:       base64.StdEncoding.EncodeToString(tailBytes),
+		})
+	}
+	if err := hook(ctx, driver.WorkerTurn{Turn: 3, Content: parts}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.Snapshot(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var worst []byte
+	for _, event := range snapshot.Events {
+		if event.Kind == "worker_turn_observed" {
+			worst = event.Body
+		}
+	}
+	if len(worst) == 0 {
+		t.Fatal("no worker_turn_observed event")
+	}
+	if len(worst) >= journal.MaxEventBytes {
+		t.Fatalf("worst-case part = %d bytes, journal bound %d",
+			len(worst), journal.MaxEventBytes)
+	}
+}
+
+func TestPreparedInvocationCarriesWorkerTurnHook(t *testing.T) {
+	h := driver.WorkerTurnHook(func(
+		context.Context, driver.WorkerTurn,
+	) error {
+		return nil
+	})
+	invocation := preparedInvocation(
+		preparedDriverDispatch{workerTurnHook: h},
+		nil,
+		driver.Request{},
+		driver.SubmissionPermission{},
+		nil,
+	)
+	if invocation.WorkerTurnHook == nil {
+		t.Fatal("preparedInvocation must copy the worker-turn hook")
+	}
+	plain := preparedInvocation(
+		preparedDriverDispatch{},
+		nil,
+		driver.Request{},
+		driver.SubmissionPermission{},
+		nil,
+	)
+	if plain.WorkerTurnHook != nil {
+		t.Fatal("a nil hook must stay nil")
+	}
+}
+
 func TestPreparedInvocationCarriesToolResultHook(t *testing.T) {
 	h := driver.ToolResultHook(func(
 		context.Context, driver.ToolResultTurn,

@@ -2760,6 +2760,284 @@ func TestNativeEventStateCapturesFullWireSplitAndTurns(t *testing.T) {
 	}
 }
 
+// TestNativeEventStateClaudeAssistantEventsProduceWorkerTurnsAndKeyToolResults
+// pins A1/A2 for the Claude family: state.accept recognizes the
+// stream-json assistant and user events, derives one bounded worker-turn
+// projection per assistant-turn boundary, and the broker's turn source -
+// now state.observationTurn, not state.turns - keys tool results to
+// distinct, increasing turns instead of collapsing every crossing onto
+// turn 0.
+func TestNativeEventStateClaudeAssistantEventsProduceWorkerTurnsAndKeyToolResults(t *testing.T) {
+	invocation, _, _ := memoryInvocationFixture(t)
+	toolRecorder := &recordingToolResultHook{}
+	workerRecorder := &recordingWorkerTurnHook{}
+	invocation.ToolResultHook = toolRecorder.hook()
+	invocation.WorkerTurnHook = workerRecorder.hook()
+	if err := osWriteProviderFixture(
+		invocation.HostWorkspace, "claude.txt", "claude body",
+	); err != nil {
+		t.Fatal(err)
+	}
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	broker, err := newNativeBroker(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer broker.Close()
+	capability := broker.capability()
+	defer clearBytes(capability)
+	openNativeBrokerForTest(t, broker, capability)
+
+	state := &nativeEventState{family: ProfileClaude, model: "m", broker: broker}
+	broker.bindTurnSource(func() int64 {
+		state.mu.Lock()
+		defer state.mu.Unlock()
+		return state.observationTurn
+	})
+
+	assistant1 := `{"type":"assistant","message":{"content":[` +
+		`{"type":"text","text":"looking at the file"},` +
+		`{"type":"tool_use","id":"call-1","name":"Read","input":{"path":"/workspace/claude.txt"}}` +
+		`]}}`
+	if err := state.accept([]byte(assistant1)); err != nil {
+		t.Fatal(err)
+	}
+	status, body := brokerRequest(t, broker, capability, toolCallRequest(
+		1, "Read", map[string]any{"path": "/workspace/claude.txt"},
+	))
+	if status != http.StatusOK || !bytes.Contains(body, []byte(`"text":"claude body"`)) {
+		t.Fatalf("read call 1 = %d %s", status, body)
+	}
+	broker.flushPending()
+	user1 := `{"type":"user","message":{"content":[` +
+		`{"type":"tool_result","tool_use_id":"call-1"}` +
+		`]}}`
+	if err := state.accept([]byte(user1)); err != nil {
+		t.Fatal(err)
+	}
+
+	assistant2 := `{"type":"assistant","message":{"content":[` +
+		`{"type":"tool_use","id":"call-2","name":"Read","input":{"path":"/workspace/claude.txt"}}` +
+		`]}}`
+	if err := state.accept([]byte(assistant2)); err != nil {
+		t.Fatal(err)
+	}
+	status, body = brokerRequest(t, broker, capability, toolCallRequest(
+		2, "Read", map[string]any{"path": "/workspace/claude.txt"},
+	))
+	if status != http.StatusOK || !bytes.Contains(body, []byte(`"text":"claude body"`)) {
+		t.Fatalf("read call 2 = %d %s", status, body)
+	}
+	broker.flushPending()
+	// Simulates scanNativeEvents' deferred teardown flush for the final
+	// turn, which is never followed by a next "assistant" event.
+	state.flushPendingWorkerTurn()
+
+	toolTurns := toolRecorder.waitFor(t, 2)
+	if toolTurns[0].Turn != 1 || toolTurns[1].Turn != 2 {
+		t.Fatalf("tool-result turns = %d, %d, want 1, 2", toolTurns[0].Turn, toolTurns[1].Turn)
+	}
+
+	workerTurns := workerRecorder.waitFor(t, 2)
+	if workerTurns[0].Turn != 1 || workerTurns[1].Turn != 2 {
+		t.Fatalf("worker turns = %d, %d, want 1, 2", workerTurns[0].Turn, workerTurns[1].Turn)
+	}
+	first := workerTurns[0].Content
+	if len(first) != 3 ||
+		first[0].Kind != WorkerTurnPartText ||
+		first[1].Kind != WorkerTurnPartToolCall || first[1].Tool != "Read" ||
+		first[1].ToolCallID != "call-1" ||
+		first[2].Kind != WorkerTurnPartToolResultRef || first[2].ToolCallID != "call-1" {
+		t.Fatalf("first worker turn content = %#v", first)
+	}
+	head, _ := decodeWorkerTurnPartSpans(t, first[0])
+	if string(head) != "looking at the file" {
+		t.Fatalf("text part = %q", head)
+	}
+	second := workerTurns[1].Content
+	if len(second) != 1 || second[0].Kind != WorkerTurnPartToolCall ||
+		second[0].ToolCallID != "call-2" {
+		t.Fatalf("second worker turn content = %#v", second)
+	}
+}
+
+// TestNativeEventStateCodexItemsProduceWorkerTurnsAndKeepPerTurnToolResultKeying
+// pins A1/A2 for the Codex family: state.accept recognizes completed
+// agent_message and MCP tool-call items, and the observation turn advances
+// in lockstep with the existing economics turns counter at "turn.completed",
+// so Codex's already-correct per-turn tool-result keying stays
+// byte-for-byte unchanged.
+func TestNativeEventStateCodexItemsProduceWorkerTurnsAndKeepPerTurnToolResultKeying(t *testing.T) {
+	invocation, _, _ := memoryInvocationFixture(t)
+	toolRecorder := &recordingToolResultHook{}
+	workerRecorder := &recordingWorkerTurnHook{}
+	invocation.ToolResultHook = toolRecorder.hook()
+	invocation.WorkerTurnHook = workerRecorder.hook()
+	if err := osWriteProviderFixture(
+		invocation.HostWorkspace, "codex.txt", "codex body",
+	); err != nil {
+		t.Fatal(err)
+	}
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	broker, err := newNativeBroker(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer broker.Close()
+	capability := broker.capability()
+	defer clearBytes(capability)
+	openNativeBrokerForTest(t, broker, capability)
+
+	state := &nativeEventState{family: ProfileCodex, model: "m", broker: broker}
+	broker.bindTurnSource(func() int64 {
+		state.mu.Lock()
+		defer state.mu.Unlock()
+		return state.observationTurn
+	})
+
+	item1 := `{"type":"item.completed","item":{"type":"mcp_tool_call",` +
+		`"id":"call-1","name":"Read","arguments":{"path":"/workspace/codex.txt"}}}`
+	if err := state.accept([]byte(item1)); err != nil {
+		t.Fatal(err)
+	}
+	status, body := brokerRequest(t, broker, capability, toolCallRequest(
+		1, "Read", map[string]any{"path": "/workspace/codex.txt"},
+	))
+	if status != http.StatusOK || !bytes.Contains(body, []byte(`"text":"codex body"`)) {
+		t.Fatalf("read call 1 = %d %s", status, body)
+	}
+	broker.flushPending()
+	agent1 := `{"type":"item.completed","item":{"type":"agent_message","text":"round one"}}`
+	if err := state.accept([]byte(agent1)); err != nil {
+		t.Fatal(err)
+	}
+	turnCompleted1 := `{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}`
+	if err := state.accept([]byte(turnCompleted1)); err != nil {
+		t.Fatal(err)
+	}
+
+	item2 := `{"type":"item.completed","item":{"type":"mcp_tool_call",` +
+		`"id":"call-2","name":"Read","arguments":{"path":"/workspace/codex.txt"}}}`
+	if err := state.accept([]byte(item2)); err != nil {
+		t.Fatal(err)
+	}
+	status, body = brokerRequest(t, broker, capability, toolCallRequest(
+		2, "Read", map[string]any{"path": "/workspace/codex.txt"},
+	))
+	if status != http.StatusOK || !bytes.Contains(body, []byte(`"text":"codex body"`)) {
+		t.Fatalf("read call 2 = %d %s", status, body)
+	}
+	broker.flushPending()
+	turnCompleted2 := `{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}`
+	if err := state.accept([]byte(turnCompleted2)); err != nil {
+		t.Fatal(err)
+	}
+	state.flushPendingWorkerTurn()
+
+	toolTurns := toolRecorder.waitFor(t, 2)
+	if toolTurns[0].Turn != 0 || toolTurns[1].Turn != 1 {
+		t.Fatalf("tool-result turns = %d, %d, want 0, 1 (pre-existing Codex keying)",
+			toolTurns[0].Turn, toolTurns[1].Turn)
+	}
+
+	workerTurns := workerRecorder.waitFor(t, 2)
+	if workerTurns[0].Turn != 0 || workerTurns[1].Turn != 1 {
+		t.Fatalf("worker turns = %d, %d, want 0, 1", workerTurns[0].Turn, workerTurns[1].Turn)
+	}
+	first := workerTurns[0].Content
+	if len(first) != 2 ||
+		first[0].Kind != WorkerTurnPartToolCall || first[0].ToolCallID != "call-1" ||
+		first[1].Kind != WorkerTurnPartText {
+		t.Fatalf("first worker turn content = %#v", first)
+	}
+	second := workerTurns[1].Content
+	if len(second) != 1 || second[0].Kind != WorkerTurnPartToolCall ||
+		second[0].ToolCallID != "call-2" {
+		t.Fatalf("second worker turn content = %#v", second)
+	}
+}
+
+// TestNativeEventStateWorkerTurnMalformedEventsCountAsDropsNotRefusals pins
+// A4/A5: an unrecognized Codex item type and a structurally invalid Claude
+// assistant event are each counted as a dropped worker-turn event rather
+// than refused - the existing refusal precedence (secret leak, cumulative
+// byte budget, disallowed Codex item type) is unaffected, since these
+// branches only run after those checks already passed.
+func TestNativeEventStateWorkerTurnMalformedEventsCountAsDropsNotRefusals(t *testing.T) {
+	codexInvocation, _, _ := memoryInvocationFixture(t)
+	codexRecorder := &recordingWorkerTurnHook{}
+	codexInvocation.WorkerTurnHook = codexRecorder.hook()
+	codexSession, err := newToolSession(codexInvocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer codexSession.Close()
+	codexBroker, err := newNativeBroker(codexSession)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer codexBroker.Close()
+
+	codex := &nativeEventState{family: ProfileCodex, model: "m", broker: codexBroker}
+	if err := codex.accept([]byte(
+		`{"type":"item.completed","item":{"type":"todo_list"}}`,
+	)); err != nil {
+		t.Fatal(err)
+	}
+	if err := codex.accept([]byte(
+		`{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}`,
+	)); err != nil {
+		t.Fatal(err)
+	}
+	if err := codex.accept([]byte(
+		`{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}`,
+	)); err != nil {
+		t.Fatal(err)
+	}
+	codex.flushPendingWorkerTurn()
+	codexTurns := codexRecorder.waitFor(t, 1)
+	if codexTurns[0].DroppedEvents != 1 {
+		t.Fatalf("codex dropped events = %d, want 1", codexTurns[0].DroppedEvents)
+	}
+
+	claudeInvocation, _, _ := memoryInvocationFixture(t)
+	claudeRecorder := &recordingWorkerTurnHook{}
+	claudeInvocation.WorkerTurnHook = claudeRecorder.hook()
+	claudeSession, err := newToolSession(claudeInvocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer claudeSession.Close()
+	claudeBroker, err := newNativeBroker(claudeSession)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer claudeBroker.Close()
+
+	claude := &nativeEventState{family: ProfileClaude, model: "m", broker: claudeBroker}
+	if err := claude.accept([]byte(`{"type":"assistant","message":{}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := claude.accept([]byte(
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"second"}]}}`,
+	)); err != nil {
+		t.Fatal(err)
+	}
+	claude.flushPendingWorkerTurn()
+	claudeTurns := claudeRecorder.waitFor(t, 1)
+	if claudeTurns[0].DroppedEvents != 1 {
+		t.Fatalf("claude dropped events = %d, want 1", claudeTurns[0].DroppedEvents)
+	}
+}
+
 // A2: scanNativeEvents' cumulative-total branch fails
 // ECONOMY_OUTPUT_BUDGET_EXCEEDED and stamps the crossing byte total onto
 // state, never touching state.accept - nothing in the pre-slice suite pins

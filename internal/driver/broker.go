@@ -49,6 +49,14 @@ type nativeBrokerSession interface {
 	// session implements it as a no-op: automation dispatches journal
 	// nothing by construction.
 	observeToolResultTurn(turn int64, results []providerToolResult)
+	// observeWorkerTurn emits one already-projected native worker turn
+	// (S1-native-turn-journal) onto the runtime-provided worker-turn hook.
+	// The automation session implements it as a no-op, identically.
+	observeWorkerTurn(turn WorkerTurn)
+	// dropWorkerTurnEvent counts one worker-turn event the native reader
+	// could not decode or recognize, without retaining it. The automation
+	// session implements it as a no-op, identically.
+	dropWorkerTurnEvent()
 	// redactionSecrets returns the credentials the engine holds at the
 	// broker seam; the projection redacts them before emission.
 	redactionSecrets() [][]byte
