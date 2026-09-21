@@ -209,7 +209,9 @@ func TestDispatchCompletedBodyCarriesResponsibility(t *testing.T) {
 // TestOperationalFailureBodyCarriesResponsibility pins A1 and A3 on the
 // failed production dispatch: the dispatch_operational_failure event body
 // carries the dispatched responsibility beside effect, work, and slice, and
-// nothing else beyond the engine-owned fallback vocabulary.
+// nothing else beyond the engine-owned fallback vocabulary plus the one S3
+// additive field (failure_turn_context, the same bounded redacted
+// projection S1 journals).
 func TestOperationalFailureBodyCarriesResponsibility(t *testing.T) {
 	t.Parallel()
 
@@ -261,9 +263,24 @@ func TestOperationalFailureBodyCarriesResponsibility(t *testing.T) {
 		t.Fatalf("dispatch_operational_failure family kind = %q", event.Kind)
 	}
 	dispatchAssociationFromEvent(t, fixture, event)
+	failureFallbackBodyKeys := append(
+		append([]string(nil), continuationFallbackBodyKeys...),
+		"failure_turn_context",
+	)
 	assertEventBodyKeySet(
 		t,
 		event.Body,
-		continuationFallbackBodyKeys...,
+		failureFallbackBodyKeys...,
 	)
+	// S3: the additive context is present and explicit. This dispatch
+	// emits no turn before failing, so it carries explicit empty (never
+	// an absent field), the same bounded shape every failure site emits
+	// through the one helper.
+	_, stored := parseFailureEventBody(event.Body)
+	if stored == nil {
+		t.Fatalf("failure body lacks failure_turn_context (body %s)", event.Body)
+	}
+	if stored.SchemaVersion != FailureTurnContextSchemaVersion || stored.Status != FailureTurnContextEmpty || len(stored.Turns) != 0 {
+		t.Fatalf("failure context = %#v, want explicit empty", stored)
+	}
 }

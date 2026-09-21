@@ -343,11 +343,12 @@ func buildSnapshot(
 	}
 	for _, effect := range status.Effects {
 		result.Runtime.Effects = append(result.Runtime.Effects, EffectView{
-			ID:        effect.ID,
-			Kind:      effect.Kind,
-			State:     effect.State,
-			ErrorCode: effect.ErrorCode,
-			Derived:   effect.Derived,
+			ID:                 effect.ID,
+			Kind:               effect.Kind,
+			State:              effect.State,
+			ErrorCode:          effect.ErrorCode,
+			Derived:            effect.Derived,
+			FailureTurnContext: effect.FailureTurnContext,
 		})
 	}
 	for _, attempt := range observation.Attempts {
@@ -482,6 +483,31 @@ func buildSnapshot(
 				cpCopy := cp
 				node.Checkpoint = &cpCopy
 				break
+			}
+		}
+	}
+	// S3: PinnedWork->Node via lane->actionable-node, the existing
+	// Track==lane && HasProtocol precedent (projector.go marks slice nodes
+	// with Track==lane && HasProtocol, and maps the release lane to the
+	// assembly node). At most one slice node per lane carries it; the
+	// release lane maps to the assembly node. Same pointer, no re-decode,
+	// so board/TUI/MCP detail stay in parity with Effects/PinnedWork.
+	for _, pinned := range status.PinnedWork {
+		if pinned.FailureTurnContext == nil {
+			continue
+		}
+		if pinned.Lane == "release" {
+			for i := range result.Graph.Nodes {
+				if result.Graph.Nodes[i].Kind == "assembly" {
+					result.Graph.Nodes[i].FailureTurnContext = pinned.FailureTurnContext
+				}
+			}
+			continue
+		}
+		for i := range result.Graph.Nodes {
+			node := &result.Graph.Nodes[i]
+			if node.Kind == "slice" && node.Track == pinned.Lane && node.HasProtocol {
+				node.FailureTurnContext = pinned.FailureTurnContext
 			}
 		}
 	}

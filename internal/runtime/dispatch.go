@@ -72,6 +72,10 @@ type continuationFallbackEvent struct {
 	Reason   string `json:"reason"`
 	Retained bool   `json:"retained"`
 	Posture  string `json:"posture"`
+	// FailureTurnContext rides additively on fallback kinds exactly as it
+	// does on plain failure bodies, so continuation suffixes carry
+	// context uniformly with no per-site variant.
+	FailureTurnContext *failureContextStored `json:"failure_turn_context,omitempty"`
 }
 
 type continuationDispatchFact struct {
@@ -1998,6 +2002,12 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 	// ends, whether it succeeds, fails, or parks. The journal already holds
 	// every projection the ring ever held.
 	defer s.dropActivityDispatch(replayKey)
+	// S3 failure tail: dropped when this dispatch ends, on the same site
+	// as the live ring. The tail itself is eagerly created empty after
+	// the claim is acquired and before the worker is invoked (below), so
+	// a prior-process or ownerless early return with no live dispatch
+	// reads back as unavailable rather than empty.
+	defer s.dropFailureTail(replayKey)
 	prepared.sealedProposalHook = s.sealedProposalHook(
 		owner,
 		replayKey,
@@ -2118,15 +2128,17 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 			// written here and the cycle machinery resolves parent and
 			// child atomically. The ownerless-claimed reconciliation gate
 			// is for the direct-dispatch shape only.
+			// S3: no live tail on this prior-process path; the helper
+			// carries unavailable with no_live_tail.
 			_ = s.journal.ReconcileOwned(ctx, owner, journal.Completion{
 				RunID: manifest.value.RunID, EffectID: replayKey,
 				Token: effect.CurrentClaim, EventKind: "dispatch_uncertain",
-				EventBody: MarshalAssociation(EventAssociation{
+				EventBody: s.failureEventBodyFor(EventAssociation{
 					EffectID:       replayKey,
 					WorkID:         attemptIdentity.WorkID,
 					Slice:          coordinates.Slice,
 					Responsibility: coordinates.Responsibility,
-				}), At: s.now().UTC(),
+				}, nil, replayKey), At: s.now().UTC(),
 			}, journal.RecoveryAmbiguous)
 			return driver.Submission{},
 				runtimeFail("RECOVERY_UNCERTAIN", nil)
@@ -2189,6 +2201,11 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 	default:
 		return driver.Submission{}, runtimeFail("EFFECT_PARKED", nil)
 	}
+	// S3 failure tail: eagerly created empty once the claim is held and
+	// before the worker is invoked, so a live dispatch that emits no turn
+	// reads back as explicit empty. Early returns above never reach here
+	// and keep no tail, so they read back as unavailable.
+	s.initFailureTail(replayKey)
 	var (
 		observation         driver.Observation
 		pendingContinuation *retainedContinuation
@@ -2363,6 +2380,17 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		}
 		return defaultBody
 	}
+	// S3 failure bodies: the same association (and the same fallback
+	// reason when one applies) plus the bounded failure-turn context,
+	// assembled once through the one helper for every failure/uncertain
+	// site below. Success keeps the plain eventBody above and never
+	// carries a context, so a following successful try shows no stale
+	// copy.
+	failureEventBody := func(defaultBody []byte) []byte {
+		var assoc EventAssociation
+		_ = json.Unmarshal(defaultBody, &assoc)
+		return s.failureEventBodyFor(assoc, continuationFact, replayKey)
+	}
 	if testCrashAfterEffect == "driver.dispatch" {
 		os.Exit(86)
 	}
@@ -2422,7 +2450,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 			State: journal.OperationalFailed, ErrorCode: code, Attempt: attempt,
 			Result:    resultBytes,
 			EventKind: eventKind("dispatch_operational_failure"),
-			EventBody: eventBody(defaultAssocBody), At: s.now().UTC(),
+			EventBody: failureEventBody(defaultAssocBody), At: s.now().UTC(),
 		}); err != nil {
 			return driver.Submission{}, runtimeFail("JOURNAL_WRITE_FAILED", err)
 		}
@@ -2453,7 +2481,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 			State: journal.OperationalFailed, ErrorCode: "invalid_driver_handoff",
 			Attempt:   attempt,
 			EventKind: eventKind("dispatch_operational_failure"),
-			EventBody: eventBody(defaultAssocBody), At: s.now().UTC(),
+			EventBody: failureEventBody(defaultAssocBody), At: s.now().UTC(),
 		}); completeErr != nil {
 			return driver.Submission{}, runtimeFail("JOURNAL_WRITE_FAILED", completeErr)
 		}
@@ -2477,7 +2505,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 			State: journal.OperationalFailed, ErrorCode: "invalid_human_turn",
 			Attempt:   attempt,
 			EventKind: eventKind("dispatch_operational_failure"),
-			EventBody: eventBody(defaultAssocBody), At: s.now().UTC(),
+			EventBody: failureEventBody(defaultAssocBody), At: s.now().UTC(),
 		}); completeErr != nil {
 			return driver.Submission{}, runtimeFail("JOURNAL_WRITE_FAILED", completeErr)
 		}
@@ -2514,7 +2542,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 					EventKind: eventKind(
 						"dispatch_operational_failure",
 					),
-					EventBody: eventBody(defaultAssocBody),
+					EventBody: failureEventBody(defaultAssocBody),
 					At:        s.now().UTC(),
 				},
 			); completeErr != nil {
@@ -2555,7 +2583,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 						EventKind: eventKind(
 							"dispatch_preparation_uncertain",
 						),
-						EventBody: eventBody(defaultAssocBody),
+						EventBody: failureEventBody(defaultAssocBody),
 						At:        s.now().UTC(),
 					},
 					journal.RecoveryAmbiguous,
@@ -2578,7 +2606,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 					EventKind: eventKind(
 						"dispatch_preparation_failed",
 					),
-					EventBody: eventBody(defaultAssocBody),
+					EventBody: failureEventBody(defaultAssocBody),
 					At:        s.now().UTC(),
 				},
 			); completeErr != nil {
@@ -2623,7 +2651,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 					EventKind: eventKind(
 						"dispatch_operational_failure",
 					),
-					EventBody: eventBody(defaultAssocBody),
+					EventBody: failureEventBody(defaultAssocBody),
 					At:        s.now().UTC(),
 				},
 			); completeErr != nil {
@@ -2669,7 +2697,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 					EventKind: eventKind(
 						"dispatch_completion_uncertain",
 					),
-					EventBody: eventBody(defaultAssocBody),
+					EventBody: failureEventBody(defaultAssocBody),
 					At:        s.now().UTC(),
 				},
 				journal.RecoveryAmbiguous,

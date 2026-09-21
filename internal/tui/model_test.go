@@ -1003,3 +1003,118 @@ func TestActivityRefreshesOnExistingCadence(t *testing.T) {
 		t.Fatalf("activity refresh message = %T %#v, want generation 6", msg, msg)
 	}
 }
+
+// S3-failure-turn-context A3: the TUI work detail renders the bounded tail
+// in parity with the board's decoded strings (content availability, not
+// line count), inside the existing truncation discipline with an honest
+// "+N more" line, neutralising controls and honest about narrow terminals.
+func TestFailureTurnContextDetailRendersPresentEmptyUnavailable(t *testing.T) {
+	selection := Selection{Release: "release", RunID: "run", Source: "source"}
+	present := &runtimepkg.FailureTurnContext{
+		SchemaVersion: "sworn.failure-turn-context/v1", Status: "present",
+		Turns: []runtimepkg.FailureTurn{{
+			Kind: "tool_result", Turn: 2,
+			Results: []runtimepkg.FailureToolResult{{
+				Sequence: 1, ToolCallID: "call-1", Tool: "Read", TotalBytes: 4, Head: "data",
+			}},
+		}},
+		Omitted: 1, DroppedMaxVisible: 2,
+	}
+	_, m := readyBoardModel(selection)
+	m.board.Graph.Nodes[1].FailureTurnContext = present
+	m.nodeCursor = 1
+	lines := m.detailLines(100, 30)
+	joined := strings.Join(lines, "\n")
+	for _, required := range []string{"FAILURE TURNS", "1 turn", "1 omitted", "2 dropped (max visible)", "turn 2 tool_result", "Read pass 4 bytes", "data"} {
+		if !strings.Contains(joined, required) {
+			t.Fatalf("present detail omits %q:\n%s", required, joined)
+		}
+	}
+	_, m = readyBoardModel(selection)
+	m.board.Graph.Nodes[1].FailureTurnContext = &runtimepkg.FailureTurnContext{
+		SchemaVersion: "sworn.failure-turn-context/v1", Status: "empty", Turns: []runtimepkg.FailureTurn{},
+	}
+	m.nodeCursor = 1
+	joined = strings.Join(m.detailLines(100, 30), "\n")
+	if !strings.Contains(joined, "No worker turns recorded") {
+		t.Fatalf("empty detail = %q", joined)
+	}
+	_, m = readyBoardModel(selection)
+	m.board.Graph.Nodes[1].FailureTurnContext = &runtimepkg.FailureTurnContext{
+		SchemaVersion: "sworn.failure-turn-context/v1", Status: "unavailable", Turns: []runtimepkg.FailureTurn{}, Reason: "no_live_tail",
+	}
+	m.nodeCursor = 1
+	joined = strings.Join(m.detailLines(100, 30), "\n")
+	if !strings.Contains(joined, "unavailable") || !strings.Contains(joined, "no_live_tail") {
+		t.Fatalf("unavailable detail = %q", joined)
+	}
+	// Absent (nil) renders no failure section.
+	_, m = readyBoardModel(selection)
+	m.nodeCursor = 1
+	joined = strings.Join(m.detailLines(100, 30), "\n")
+	if strings.Contains(joined, "FAILURE TURNS") {
+		t.Fatalf("absent detail leaked failure section:\n%s", joined)
+	}
+}
+
+func TestFailureTurnContextDetailNeutralisesControls(t *testing.T) {
+	selection := Selection{Release: "release", RunID: "run", Source: "source"}
+	_, m := readyBoardModel(selection)
+	m.board.Graph.Nodes[1].FailureTurnContext = &runtimepkg.FailureTurnContext{
+		SchemaVersion: "sworn.failure-turn-context/v1", Status: "present",
+		Turns: []runtimepkg.FailureTurn{{
+			Kind: "worker_turn", Turn: 1,
+			Content: []runtimepkg.FailureWorkerPart{{
+				Kind: "text", TotalBytes: 10, Head: "hello\x1b[31mred\x00put",
+			}},
+		}},
+	}
+	m.nodeCursor = 1
+	m.width, m.height = 100, 30
+	view := m.View()
+	if strings.Contains(view, "\x1b[31m") || strings.Contains(view, "\x00") {
+		t.Fatalf("detail leaked terminal escapes:\n%q", view)
+	}
+	if !strings.Contains(view, "hello red put") && !strings.Contains(view, "hello") {
+		t.Fatalf("Detail omitted neutralised worker text:\n%s", view)
+	}
+}
+
+func TestFailureTurnContextDetailNarrowHonestAndMore(t *testing.T) {
+	selection := Selection{Release: "release", RunID: "run", Source: "source"}
+	turns := make([]runtimepkg.FailureTurn, 0, 5)
+	for turn := int64(1); turn <= 5; turn++ {
+		turns = append(turns, runtimepkg.FailureTurn{
+			Kind: "tool_result", Turn: turn,
+			Results: []runtimepkg.FailureToolResult{{
+				Sequence: 1, ToolCallID: "c1", Tool: "Bash", TotalBytes: 99, Head: "output",
+			}},
+		})
+	}
+	_, m := readyBoardModel(selection)
+	m.board.Graph.Nodes[1].FailureTurnContext = &runtimepkg.FailureTurnContext{
+		SchemaVersion: "sworn.failure-turn-context/v1", Status: "present", Turns: turns,
+	}
+	m.nodeCursor = 1
+	// Narrow honesty at width <60.
+	narrow := m.detailLines(40, 30)
+	joined := strings.Join(narrow, "\n")
+	if !strings.Contains(joined, "Narrow terminal") {
+		t.Fatalf("narrow detail omits honesty:\n%s", joined)
+	}
+	for _, line := range narrow {
+		// lipgloss.Width strips ANSI; the line must fit the narrow budget.
+		if got := lipgloss.Width(line); got > 40 {
+			t.Fatalf("narrow line width = %d, want <=40: %q", got, line)
+		}
+	}
+	// Truncation honesty inside the existing detail budget.
+	short := m.detailLines(100, 12)
+	if len(short) != 12 {
+		t.Fatalf("truncated detail has %d lines, want 12", len(short))
+	}
+	joined = strings.Join(short, "\n")
+	if !strings.Contains(joined, "more") {
+		t.Fatalf("truncated detail omits honest +N more:\n%s", joined)
+	}
+}

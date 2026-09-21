@@ -139,6 +139,10 @@ func (s *Service) toolResultObservationHook(
 		// S2 live ring: feed only after the durable append and carry the
 		// durable offset, so the ring and the journal share one cursor.
 		s.observeActivityTap(ActivityTapEvent{RunID: owner.RunID, EffectID: body.EffectID, Offset: offset, Kind: toolResultEventKind, Body: encoded, CreatedAt: now})
+		// S3 failure tail: feed only after the durable append, so the
+		// tail holds only durably journaled projections. It never fails
+		// the hook: the journal already holds the turn.
+		s.feedFailureTailTool(body.EffectID, turn)
 		return nil
 	}
 }
@@ -202,6 +206,9 @@ func (s *Service) workerTurnObservationHook(
 		// S2 live ring: feed only after the durable append and carry the
 		// durable offset, so the ring and the journal share one cursor.
 		s.observeActivityTap(ActivityTapEvent{RunID: owner.RunID, EffectID: body.EffectID, Offset: offset, Kind: workerTurnEventKind, Body: encoded, CreatedAt: now})
+		// S3 failure tail: feed only after the durable append, on the
+		// identical discipline as the tool-result hook.
+		s.feedFailureTailWorker(body.EffectID, turn)
 		return nil
 	}
 }

@@ -640,3 +640,214 @@ func TestWorkerTurnObservationHookFeedsLiveRingWithDurableOffset(t *testing.T) {
 	}
 	t.Fatal("journal lacks the worker-turn event at the tap offset")
 }
+
+// S3-failure-turn-context: the tail holds only durably journaled
+// projections, fed after AppendEventWithOffset succeeds, as deep copies
+// that a later mutation of the caller's Turn cannot change.
+func TestFailureTailHoldsOnlyDurablyJournaledProjections(t *testing.T) {
+	service, store, run := toolResultRuntimeFixture(t)
+	hook := toolResultTestHook(t, service, run.ID)
+	ctx := context.Background()
+	effectID := "attempt/work-tool-result-events/e1/t3"
+	service.initFailureTail(effectID)
+	turn := driver.ToolResultTurn{
+		Turn: 1,
+		Results: []driver.ToolResultRecord{{
+			Sequence: 1, ToolCallID: "call-1", Tool: "Read",
+			TotalBytes: 4, Head: base64.StdEncoding.EncodeToString([]byte("data")),
+		}},
+	}
+	if err := hook(ctx, turn); err != nil {
+		t.Fatal(err)
+	}
+	// Mutating the caller's Turn after the hook must not change the tail.
+	turn.Results[0].Tool = "Mutated"
+	turn.Results[0].Head = base64.StdEncoding.EncodeToString([]byte("mutated"))
+	stored := service.assembleFailureContextStored(effectID)
+	if stored == nil || stored.Status != FailureTurnContextPresent || len(stored.Turns) != 1 {
+		t.Fatalf("stored = %#v", stored)
+	}
+	if stored.Turns[0].Results[0].Tool != "Read" {
+		t.Fatalf("tail was not a deep copy: %#v", stored.Turns[0].Results[0])
+	}
+	head, err := base64.StdEncoding.DecodeString(stored.Turns[0].Results[0].Head)
+	if err != nil || string(head) != "data" {
+		t.Fatalf("tail head = %q, %v", head, err)
+	}
+	// The journal holds the same turn the tail holds.
+	snapshot, err := store.Snapshot(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, event := range snapshot.Events {
+		if event.Kind == "tool_result_observed" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("journal lacks the tool-result event the tail holds")
+	}
+	service.dropFailureTail(effectID)
+	if again := service.assembleFailureContextStored(effectID); again.Status != FailureTurnContextUnavailable || again.Reason != FailureTurnContextNoLiveTail {
+		t.Fatalf("dropped tail = %#v, want unavailable/no_live_tail", again)
+	}
+}
+
+// S3: the tail keeps the newest 16 turn-events with exact omitted counts;
+// the context selects the newest 5, oldest-first, with tail evictions plus
+// selection counted as omitted.
+func TestFailureTailBoundsNewestWinsAndOmittedExact(t *testing.T) {
+	service, _, _ := toolResultRuntimeFixture(t)
+	effectID := "attempt/work-bounds/e1/t1"
+	service.initFailureTail(effectID)
+	for turn := int64(1); turn <= 20; turn++ {
+		service.feedFailureTailTool(effectID, driver.ToolResultTurn{
+			Turn: turn,
+			Results: []driver.ToolResultRecord{{
+				Sequence: 1, ToolCallID: "call-1", Tool: "Read",
+				TotalBytes: 4, Head: base64.StdEncoding.EncodeToString([]byte("data")),
+			}},
+		})
+	}
+	stored := service.assembleFailureContextStored(effectID)
+	if stored.Status != FailureTurnContextPresent {
+		t.Fatalf("stored status = %q", stored.Status)
+	}
+	if len(stored.Turns) != FailureTurnContextMaxTurns {
+		t.Fatalf("turns = %d, want %d", len(stored.Turns), FailureTurnContextMaxTurns)
+	}
+	// Newest 5 (16..20) emitted oldest-first (increasing).
+	for i, want := range []int64{16, 17, 18, 19, 20} {
+		if stored.Turns[i].Turn != want {
+			t.Fatalf("turns = %v, want 16..20 increasing", stored.Turns)
+		}
+	}
+	// Tail evicted 4 (20-16), context selection omitted 11 more (16-5).
+	if stored.Omitted != 15 {
+		t.Fatalf("omitted = %d, want 15 (4 tail + 11 selection)", stored.Omitted)
+	}
+}
+
+// S3 C2: a single worker turn may legitimately approach the 240 KiB driver
+// budget, exceeding the 48 KiB context bound. Truncating by whole
+// turn-events would yield turns:[] with omitted>0 for a dispatch that did
+// take turns, indistinguishable from explicit empty. The context instead
+// admits the newest turn with whole parts dropped and counted, keeping
+// S1's per-part geometry intact, so empty only ever means "no turns
+// observed".
+func TestFailureContextWorstCaseSingleTurnTruncatesByWholeParts(t *testing.T) {
+	service, _, _ := toolResultRuntimeFixture(t)
+	effectID := "attempt/work-worst/e1/t1"
+	service.initFailureTail(effectID)
+	headBytes := []byte(strings.Repeat("m", driver.MaxToolResultHeadBytes))
+	tailBytes := []byte(strings.Repeat("n", driver.MaxToolResultTailBytes))
+	records := make([]driver.ToolResultRecord, 0, 21)
+	for index := 0; index < 21; index++ {
+		records = append(records, driver.ToolResultRecord{
+			Sequence:   int64(index + 1),
+			ToolCallID: strings.Repeat("i", 256),
+			Tool:       "Bash",
+			TotalBytes: int64(len(headBytes) + len(tailBytes)),
+			Head:       base64.StdEncoding.EncodeToString(headBytes),
+			Tail:       base64.StdEncoding.EncodeToString(tailBytes),
+		})
+	}
+	service.feedFailureTailTool(effectID, driver.ToolResultTurn{Turn: 3, Results: records})
+	stored := service.assembleFailureContextStored(effectID)
+	if stored.Status != FailureTurnContextPresent {
+		t.Fatalf("stored status = %q, want present (never empty with turns observed)", stored.Status)
+	}
+	if len(stored.Turns) != 1 {
+		t.Fatalf("turns = %d, want 1 truncated newest", len(stored.Turns))
+	}
+	turn := stored.Turns[0]
+	if turn.OmittedParts <= 0 {
+		t.Fatalf("omitted_parts = %d, want >0 (whole parts dropped and counted)", turn.OmittedParts)
+	}
+	if len(turn.Results) == 0 || len(turn.Results) >= len(records) {
+		t.Fatalf("kept %d of %d records, want a strict truncated suffix", len(turn.Results), len(records))
+	}
+	// Latest kept (closest to the failure): sequences are a suffix.
+	firstSeq := turn.Results[0].Sequence
+	if firstSeq <= 1 || firstSeq+int64(len(turn.Results))-1 != int64(len(records)) {
+		t.Fatalf("kept sequences start at %d, want a latest suffix of 1..%d", firstSeq, len(records))
+	}
+	// No head/tail span was ever split: every kept record still carries
+	// full 2 KiB head and tail raw spans.
+	for _, record := range turn.Results {
+		head, err := base64.StdEncoding.DecodeString(record.Head)
+		if err != nil || len(head) != driver.MaxToolResultHeadBytes {
+			t.Fatalf("kept head = %d bytes, want %d", len(head), driver.MaxToolResultHeadBytes)
+		}
+		tail, err := base64.StdEncoding.DecodeString(record.Tail)
+		if err != nil || len(tail) != driver.MaxToolResultTailBytes {
+			t.Fatalf("kept tail = %d bytes, want %d", len(tail), driver.MaxToolResultTailBytes)
+		}
+	}
+	body, err := json.Marshal(stored)
+	if err != nil || len(body) > FailureTurnContextMaxBytes {
+		t.Fatalf("worst-case context = %d bytes, bound %d", len(body), FailureTurnContextMaxBytes)
+	}
+	// The full event body (association ~1 KiB + context) stays far under
+	// the journal bound with exact accounting.
+	event := service.failureEventBodyFor(EventAssociation{
+		EffectID: effectID, WorkID: "work-worst", Slice: "S3",
+	}, nil, effectID)
+	if len(event) >= journal.MaxEventBytes {
+		t.Fatalf("worst-case event = %d bytes, journal bound %d", len(event), journal.MaxEventBytes)
+	}
+	if len(event) > 64*1024 {
+		t.Fatalf("worst-case event = %d bytes, want <<256 KiB (48 KiB + ~1 KiB)", len(event))
+	}
+}
+
+// S3: empty only ever means "no turns observed". A live tail with no turns
+// assembles to explicit empty; a dispatch that took turns never assembles
+// to empty, even when its newest turn alone exceeds the byte bound (pinned
+// above).
+func TestFailureContextEmptyOnlyWhenNoTurns(t *testing.T) {
+	service, _, _ := toolResultRuntimeFixture(t)
+	emptyID := "attempt/work-empty/e1/t1"
+	service.initFailureTail(emptyID)
+	empty := service.assembleFailureContextStored(emptyID)
+	if empty.Status != FailureTurnContextEmpty || len(empty.Turns) != 0 || empty.Omitted != 0 {
+		t.Fatalf("empty tail = %#v, want explicit empty with turns:[] omitted 0", empty)
+	}
+	body, err := json.Marshal(empty)
+	if err != nil || !strings.Contains(string(body), `"status":"empty"`) || !strings.Contains(string(body), `"turns":[]`) {
+		t.Fatalf("empty JSON = %s, want explicit status empty and turns []", body)
+	}
+	// No tail at all (a sweep reconcile that never held the dispatch, or a
+	// prior-process path) is unavailable, never empty and never absent for
+	// a new write.
+	missing := service.assembleFailureContextStored("attempt/work-missing/e1/t1")
+	if missing.Status != FailureTurnContextUnavailable || missing.Reason != FailureTurnContextNoLiveTail {
+		t.Fatalf("missing tail = %#v, want unavailable/no_live_tail", missing)
+	}
+}
+
+// S3: dropped counting is max-visible, exactly as honest as the journal.
+// Each observer's count is monotonic, so the newest entry's value is the
+// max; a dangling drop with no later success is invisible without new
+// driver transport and is documented as max-visible, never an exact total.
+func TestFailureContextDroppedMaxVisible(t *testing.T) {
+	service, _, _ := toolResultRuntimeFixture(t)
+	effectID := "attempt/work-dropped/e1/t1"
+	service.initFailureTail(effectID)
+	service.feedFailureTailTool(effectID, driver.ToolResultTurn{
+		Turn: 1, DroppedEvents: 2,
+		Results: []driver.ToolResultRecord{{Sequence: 1, ToolCallID: "c1", Tool: "Read", TotalBytes: 1}},
+	})
+	service.feedFailureTailWorker(effectID, driver.WorkerTurn{
+		Turn: 2, DroppedEvents: 5,
+		Content: []driver.WorkerTurnPart{{Kind: driver.WorkerTurnPartText, TotalBytes: 1}},
+	})
+	stored := service.assembleFailureContextStored(effectID)
+	if stored.DroppedMaxVisible != 5 {
+		t.Fatalf("dropped_max_visible = %d, want 5 (max across retained tail)", stored.DroppedMaxVisible)
+	}
+	if stored.Turns[0].DroppedEvents != 2 || stored.Turns[1].DroppedEvents != 5 {
+		t.Fatalf("per-turn dropped = %d, %d", stored.Turns[0].DroppedEvents, stored.Turns[1].DroppedEvents)
+	}
+}

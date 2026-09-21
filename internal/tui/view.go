@@ -482,10 +482,116 @@ func (m *model) detailLines(width, height int) []string {
 			width,
 		)))
 	}
+	if node.FailureTurnContext != nil {
+		remaining := height - len(lines)
+		lines = append(lines, failureContextLines(node.FailureTurnContext, width, remaining)...)
+	}
 	if len(lines) > height {
 		lines = lines[:height]
 	}
 	return lines
+}
+
+func failureContextLines(ctx *runtimepkg.FailureTurnContext, width, budget int) []string {
+	if ctx == nil || budget <= 0 {
+		return nil
+	}
+	if ctx.SchemaVersion != "sworn.failure-turn-context/v1" {
+		return nil
+	}
+	if ctx.Status != "present" && ctx.Status != "empty" && ctx.Status != "unavailable" {
+		return nil
+	}
+	var all []string
+	all = append(all, swornStyle.Render(truncate("FAILURE TURNS", width)))
+	if width < 60 && ctx.Status == "present" && len(ctx.Turns) > 0 {
+		all = append(all, quietStyle.Render(truncate("Narrow terminal: worker text truncated. Widen to see more.", width)))
+	}
+	switch ctx.Status {
+	case "empty":
+		all = append(all, quietStyle.Render(truncate("No worker turns recorded (failed before any turn).", width)))
+	case "unavailable":
+		reason := safeText(ctx.Reason)
+		if reason == "" {
+			reason = "unknown reason"
+		}
+		all = append(all, quietStyle.Render(truncate("Worker turns unavailable: "+reason+".", width)))
+	case "present":
+		count := len(ctx.Turns)
+		status := ""
+		if count == 1 {
+			status = "1 turn"
+		} else {
+			status = itoaOffset(int64(count)) + " turns"
+		}
+		status += ", " + itoaOffset(ctx.Omitted) + " omitted, " + itoaOffset(ctx.DroppedMaxVisible) + " dropped (max visible)."
+		all = append(all, quietStyle.Render(truncate(status, width)))
+		for _, turn := range ctx.Turns {
+			header := "turn " + itoaOffset(turn.Turn) + " " + safeText(turn.Kind)
+			if turn.Parts > 0 {
+				header += " part " + itoaOffset(turn.Part) + "/" + itoaOffset(turn.Parts)
+			}
+			if turn.OmittedParts > 0 {
+				header += " +" + itoaOffset(turn.OmittedParts) + " parts omitted to fit"
+			}
+			all = append(all, truncate(header, width))
+			for _, part := range turn.Content {
+				body := safeText(part.Head)
+				if tail := safeText(part.Tail); tail != "" {
+					if body != "" {
+						body += " … " + tail
+					} else {
+						body = tail
+					}
+				}
+				if body == "" {
+					body = "(no text)"
+				}
+				label := safeText(part.Kind)
+				if label == "" {
+					label = "text"
+				}
+				if part.Tool != "" {
+					label += " " + safeText(part.Tool)
+				}
+				line := label + ": " + body
+				all = append(all, truncate(line, width))
+				meta := itoaOffset(part.TotalBytes) + " bytes · +" + itoaOffset(part.OmittedBytes) + " omitted, +" + itoaOffset(part.RedactedBytes) + " redacted"
+				all = append(all, quietStyle.Render(truncate(meta, width)))
+			}
+			for _, result := range turn.Results {
+				verdict := "pass"
+				if result.Failed {
+					verdict = "fail"
+				}
+				line := safeText(result.Tool) + " " + verdict + " " + itoaOffset(result.TotalBytes) + " bytes"
+				if result.OmittedBytes > 0 || result.RedactedBytes > 0 {
+					line += " (+" + itoaOffset(result.OmittedBytes) + " omitted, +" + itoaOffset(result.RedactedBytes) + " redacted)"
+				}
+				all = append(all, truncate(line, width))
+				body := safeText(result.Head)
+				if tail := safeText(result.Tail); tail != "" {
+					if body != "" {
+						body += " … " + tail
+					} else {
+						body = tail
+					}
+				}
+				if body != "" {
+					all = append(all, quietStyle.Render(truncate(body, width)))
+				}
+			}
+			if turn.DroppedEvents > 0 {
+				all = append(all, quietStyle.Render(truncate("+"+itoaOffset(turn.DroppedEvents)+" dropped events", width)))
+			}
+		}
+	}
+	if len(all) > budget {
+		omitted := len(all) - (budget - 1)
+		all = all[:budget-1]
+		all = append(all, quietStyle.Render(truncate("+"+itoaOffset(int64(omitted))+" more", width)))
+	}
+	return all
 }
 
 func (m *model) renderConfig(width, height int) string {

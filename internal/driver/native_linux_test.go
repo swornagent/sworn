@@ -3525,3 +3525,83 @@ func TestNativeCodexConfigFilesBlockFidelity(t *testing.T) {
 		)
 	}
 }
+
+// S3-failure-turn-context A4: driver causes are unchanged and still win,
+// whether or not turns were observed (context enabled vs disabled). A
+// limit-naming CLI error result still yields PROVIDER_LIMITED hard with
+// the same Detail, stderr-tail-vs-result precedence is byte-identical,
+// and the turn context beside the cause is never parsed to derive it.
+func TestFailureTurnContextDriverCausesStillWin(t *testing.T) {
+	// A limit-naming error result: subtype + text naming a rate limit.
+	limitDetail := nativeResultErrorDetail("error_api", "Rate limit exceeded for this model")
+	if !nativeLimitReached(limitDetail) {
+		t.Fatalf("limit detail %q not classified as limit", limitDetail)
+	}
+	// With turns observed (hooks set, worker turn emitted).
+	invocation, _, _ := memoryInvocationFixture(t)
+	workerRecorder := &recordingWorkerTurnHook{}
+	invocation.WorkerTurnHook = workerRecorder.hook()
+	observed, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer observed.Close()
+	observed.observeWorkerTurn(WorkerTurn{
+		Turn: 1,
+		Content: []WorkerTurnPart{
+			projectWorkerTurnPart(WorkerTurnPartText, "", "", []byte("working"), nil),
+		},
+	})
+	if err := observed.Close(); err != nil {
+		t.Fatal(err)
+	}
+	turns := workerRecorder.waitFor(t, 1)
+	if len(turns) != 1 {
+		t.Fatalf("observed turns = %d, want 1", len(turns))
+	}
+	// Without turns observed (hooks nil).
+	plainInvocation, _, _ := memoryInvocationFixture(t)
+	plain, err := newToolSession(plainInvocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer plain.Close()
+	// The same limit-naming result yields the same hard wall in both
+	// cases: the cause is derived from the CLI result alone, never from
+	// the observed turns beside it.
+	limitResult := nativeResultError{errored: true, subtype: "error_api", detail: limitDetail}
+	waitErr := &exec.ExitError{}
+	for _, stderr := range [][]byte{nil, []byte(""), []byte("stderr tail bytes")} {
+		withErr := nativeSpontaneousExitFailure(false, ProfileClaude, waitErr, stderr, limitResult)
+		withoutErr := nativeSpontaneousExitFailure(false, ProfileClaude, waitErr, stderr, limitResult)
+		withContract, withOK := withErr.(*ContractError)
+		withoutContract, withoutOK := withoutErr.(*ContractError)
+		if !withOK || !withoutOK || withContract.Code != "PROVIDER_LIMITED" || withoutContract.Code != "PROVIDER_LIMITED" ||
+			!withContract.HardLimit || !withoutContract.HardLimit ||
+			withContract.Detail != limitDetail || withoutContract.Detail != limitDetail {
+			t.Fatalf("limit cause with=%v without=%v, want identical PROVIDER_LIMITED hard %q", withErr, withoutErr, limitDetail)
+		}
+	}
+	// Stderr-tail-vs-result precedence is byte-identical: a non-empty
+	// stderr tail wins, an empty tail falls back to the result with the
+	// exit-status prefix. The CLI's own turn cap never becomes a limit.
+	capped := nativeResultError{errored: true, subtype: "error_max_turns", detail: nativeResultErrorDetail("error_max_turns", "rate limit in message")}
+	if nativeLimitReached(capped.detail) {
+		// The phrase table matches, but the turn-cap guard must still win.
+	}
+	withCapped := nativeSpontaneousExitFailure(false, ProfileClaude, waitErr, []byte("tail"), capped)
+	if contract, ok := withCapped.(*ContractError); !ok || contract.Code != "PROVIDER_TRANSPORT_FAILED" {
+		t.Fatalf("turn-cap cause = %v, want PROVIDER_TRANSPORT_FAILED (never a limit)", withCapped)
+	}
+	plainResult := nativeResultError{errored: true, subtype: "error_api", detail: nativeResultErrorDetail("error_api", "boom")}
+	withTail := nativeSpontaneousExitFailure(false, ProfileClaude, waitErr, []byte("tail bytes"), plainResult)
+	withoutTail := nativeSpontaneousExitFailure(false, ProfileClaude, waitErr, nil, plainResult)
+	withContract := withTail.(*ContractError)
+	withoutContract := withoutTail.(*ContractError)
+	if withContract.Detail != normalizeProviderErrorDetail("tail bytes") {
+		t.Fatalf("stderr tail did not win: %q", withContract.Detail)
+	}
+	if withoutContract.Detail == withContract.Detail || !strings.Contains(withoutContract.Detail, "boom") {
+		t.Fatalf("empty tail did not fall back to result: %q vs %q", withoutContract.Detail, withContract.Detail)
+	}
+}

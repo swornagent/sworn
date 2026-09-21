@@ -667,10 +667,128 @@ function renderDetail() {
     ],
     ["Technical ID", node.id],
   ].forEach(([label, value]) => details.append(fact(label, value)));
-  elements.detail.replaceChildren(details.cloneNode(true));
-  elements.sheetContent.replaceChildren(details);
+  const failure = renderFailureTurnContext(node);
+  if (failure) {
+    elements.detail.replaceChildren(details.cloneNode(true), failure.cloneNode(true));
+    elements.sheetContent.replaceChildren(details, failure);
+  } else {
+    elements.detail.replaceChildren(details.cloneNode(true));
+    elements.sheetContent.replaceChildren(details);
+  }
   renderActions(elements.sheetActions, snapshot.actions);
   refreshActivity();
+}
+
+function renderFailureTurnContext(node) {
+  const ctx = node && node.failure_turn_context;
+  if (!ctx || ctx.schema_version !== "sworn.failure-turn-context/v1") {
+    return null;
+  }
+  if (ctx.status !== "present" && ctx.status !== "empty" && ctx.status !== "unavailable") {
+    return null;
+  }
+  if (!Array.isArray(ctx.turns)) {
+    return null;
+  }
+  const section = document.createElement("section");
+  section.className = "failure-context";
+  const heading = document.createElement("p");
+  heading.className = "eyebrow";
+  heading.textContent = "Failure turns";
+  section.append(heading);
+  const status = document.createElement("p");
+  status.className = "quiet";
+  if (ctx.status === "empty") {
+    status.textContent = "No worker turns recorded (failed before any turn).";
+    section.append(status);
+    return section;
+  }
+  if (ctx.status === "unavailable") {
+    status.textContent = `Worker turns unavailable: ${ctx.reason || "unknown reason"}.`;
+    section.append(status);
+    return section;
+  }
+  const omitted = Number.isSafeInteger(ctx.omitted) ? ctx.omitted : 0;
+  const dropped = Number.isSafeInteger(ctx.dropped_max_visible) ? ctx.dropped_max_visible : 0;
+  const count = ctx.turns.length;
+  status.textContent = count === 1
+    ? `1 turn, ${omitted} omitted, ${dropped} dropped.`
+    : `${count} turns, ${omitted} omitted, ${dropped} dropped.`;
+  section.append(status);
+  const list = document.createElement("ol");
+  list.className = "failure-turn-list";
+  for (const turn of ctx.turns) {
+    if (!turn || !Number.isSafeInteger(turn.turn)) {
+      continue;
+    }
+    const item = document.createElement("li");
+    item.className = "failure-turn";
+    const header = document.createElement("p");
+    header.className = "eyebrow";
+    let title = `Turn ${turn.turn} \u00b7 ${turn.kind || "turn"}`;
+    if (Number.isSafeInteger(turn.parts) && turn.parts > 0) {
+      const part = Number.isSafeInteger(turn.part) ? turn.part : 0;
+      title += ` \u00b7 part ${part}/${turn.parts}`;
+    }
+    if (Number.isSafeInteger(turn.omitted_parts) && turn.omitted_parts > 0) {
+      title += ` \u00b7 +${turn.omitted_parts} parts omitted to fit`;
+    }
+    header.textContent = title;
+    item.append(header);
+    for (const part of turn.content || []) {
+      const text = document.createElement("p");
+      text.className = "activity-text";
+      let body = part.head || "";
+      if (part.tail) {
+        body += body ? ` \u2026 ${part.tail}` : part.tail;
+      }
+      if (!body) {
+        body = "(no text)";
+      }
+      text.textContent = `${part.kind || "text"}: ${body}`;
+      item.append(text);
+      if (part.tool) {
+        const called = document.createElement("p");
+        called.className = "node-meta";
+        called.textContent = `called ${part.tool}`;
+        item.append(called);
+      }
+      const meta = document.createElement("p");
+      meta.className = "quiet";
+      meta.textContent = `${part.total_bytes || 0} bytes \u00b7 +${part.omitted_bytes || 0} omitted, +${part.redacted_bytes || 0} redacted`;
+      item.append(meta);
+    }
+    for (const result of turn.results || []) {
+      const line = document.createElement("p");
+      line.className = "activity-result";
+      const verdict = result.failed ? "fail" : "pass";
+      line.textContent = `${result.tool || "tool"} ${verdict} ${result.total_bytes || 0} bytes`;
+      item.append(line);
+      if (result.head || result.tail) {
+        const snippet = document.createElement("p");
+        snippet.className = "quiet";
+        let body = result.head || "";
+        if (result.tail) {
+          body += body ? ` \u2026 ${result.tail}` : result.tail;
+        }
+        snippet.textContent = body;
+        item.append(snippet);
+      }
+      const meta = document.createElement("p");
+      meta.className = "quiet";
+      meta.textContent = `+${result.omitted_bytes || 0} omitted, +${result.redacted_bytes || 0} redacted`;
+      item.append(meta);
+    }
+    if (Number.isSafeInteger(turn.dropped_events) && turn.dropped_events > 0) {
+      const droppedLine = document.createElement("p");
+      droppedLine.className = "quiet";
+      droppedLine.textContent = `+${turn.dropped_events} dropped events`;
+      item.append(droppedLine);
+    }
+    list.append(item);
+  }
+  section.append(list);
+  return section;
 }
 
 function renderActions(container, actions) {

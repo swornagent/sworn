@@ -888,3 +888,71 @@ func TestToolResultHookFailuresAndBlocksNeverAlterDelivery(t *testing.T) {
 			blockedElapsed, baselineElapsed)
 	}
 }
+
+// S3-failure-turn-context A2 regression: S1's projection, bounds and
+// redaction are reused exactly (no driver product change), and an
+// overflow-then-success still rides its loud drop count on the next
+// accepted turn, separately for the tool-result and worker-turn
+// observers. The runtime tail's max-visible dropped count is exactly as
+// honest as these journal-visible counts.
+func TestFailureTurnContextReusesS1ProjectionAndDropRiding(t *testing.T) {
+	if MaxToolResultHeadBytes != 2_048 || MaxToolResultTailBytes != 2_048 {
+		t.Fatalf("projection bounds = %d/%d, want 2048/2048", MaxToolResultHeadBytes, MaxToolResultTailBytes)
+	}
+	secret := []byte("capability-secret-0123456789")
+	planted := append(append([]byte("pre "), secret...), []byte(" post")...)
+	toolRecord := projectToolResult(
+		providerToolResult{ID: "c1", Name: "Read", Content: planted}, 1, [][]byte{secret},
+	)
+	head, _ := base64.StdEncoding.DecodeString(toolRecord.Head)
+	if bytes.Contains(head, secret) || !bytes.Contains(head, []byte(toolResultRedactedMarker)) ||
+		toolRecord.RedactedBytes != int64(len(secret)) || toolRecord.TotalBytes != int64(len(planted)) {
+		t.Fatalf("tool redaction changed: %#v", toolRecord)
+	}
+	workerPart := projectWorkerTurnPart(
+		WorkerTurnPartText, "", "", planted, [][]byte{secret},
+	)
+	head, _ = base64.StdEncoding.DecodeString(workerPart.Head)
+	if bytes.Contains(head, secret) || workerPart.RedactedBytes != int64(len(secret)) {
+		t.Fatalf("worker redaction changed: %#v", workerPart)
+	}
+	// Tool overflow-then-success: prior drops stamp the next accepted turn.
+	toolRecorder := &recordingToolResultHook{}
+	toolObserver := newToolResultObserver(toolRecorder.hook())
+	if toolObserver == nil {
+		t.Fatal("tool observer must exist")
+	}
+	toolObserver.noteDropped()
+	toolObserver.noteDropped()
+	toolObserver.enqueue(ToolResultTurn{Turn: 1, Results: []ToolResultRecord{{
+		Sequence: 1, ToolCallID: "c1", Tool: "Read", TotalBytes: 1,
+	}}})
+	toolTurns := toolRecorder.waitFor(t, 1)
+	if toolTurns[0].DroppedEvents != 2 {
+		t.Fatalf("tool dropped_events = %d, want 2", toolTurns[0].DroppedEvents)
+	}
+	toolObserver.close()
+	// Worker overflow-then-success through the session seam.
+	invocation, _, _ := memoryInvocationFixture(t)
+	workerRecorder := &recordingWorkerTurnHook{}
+	invocation.WorkerTurnHook = workerRecorder.hook()
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	session.dropWorkerTurnEvent()
+	session.observeWorkerTurn(WorkerTurn{
+		Turn: 1,
+		Content: []WorkerTurnPart{
+			projectWorkerTurnPart(WorkerTurnPartText, "", "", []byte("ok"), nil),
+		},
+	})
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+	workerTurns := workerRecorder.waitFor(t, 1)
+	if workerTurns[0].DroppedEvents != 1 {
+		t.Fatalf("worker dropped_events = %d, want 1", workerTurns[0].DroppedEvents)
+	}
+}

@@ -243,6 +243,65 @@ journal alone (`live:false`) and says nothing false about liveness; when
 the serve host drives the run in-process the route merges the ring ahead
 of the journal on the one durable cursor (`live:true`).
 
+### Failure turn context
+
+When a dispatch fails operationally, its durable failure record carries a
+bounded tail of the worker's last turns, so an operator or a Manager seat
+can see what the worker was doing when it failed without opening the
+journal. The context rides on the failure or uncertain event body in the
+same journal transaction as the failure itself, so a reader never sees a
+failure without its context or a context without its failure. It is read
+back through the digest-checked journal read, so tampering surfaces as
+`CORRUPT_JOURNAL` rather than shown.
+
+What it holds: the last turns of that dispatch attempt, at most 5
+turn-events and 48 KiB of context JSON, each as the same bounded redacted
+projection the worker-turn journal holds (2,048 head and tail bytes each,
+with omitted, redacted and dropped counts), with the count of earlier
+turns omitted. An HTTP-lane dispatch shows tool-result turns; a native
+CLI-lane dispatch shows interleaved worker and tool-result turns. The tail
+behind it holds the newest 16 turn-events and 128 KiB per live dispatch,
+fed only after the durable journal append, so it costs no second read of
+the provider stream and no journal scan at failure time.
+
+Empty, absent, and unavailable have one meaning each. `empty` (explicit
+`turns: []`) means the dispatch failed before any turn was observed in its
+live tail. Empty only ever means that: a dispatch that took turns always
+carries at least its newest turn, truncated by whole parts (latest kept,
+dropped counted on the turn) when that turn alone exceeds the byte bound,
+never an empty list with omitted turns. `absent` (no `failure_turn_context`
+key) means a record written before this release, or a sweep reconcile
+(`implementation_dispatch_uncertain` and its siblings) that never held the
+dispatch. `unavailable` with a named reason (`no_live_tail` for a
+prior-process or ownerless path with no live tail, `tail_encode_failed`
+and `context_over_budget` as defensive loud fallbacks) means the failure
+is journaled exactly as today but its tail could not be produced;
+assembling context never turns one failure into another and never alters
+the failure code, the refusal result, the observation digest, or the try
+accounting. Dropped turns are counted as `dropped_max_visible`: the maximum
+observer drop count visible in the retained tail, not an exact total, since
+a drop with no later success never rides onto a journaled turn.
+
+Where each surface shows it: `sworn status --json` carries
+`failure_turn_context` (schema `sworn.failure-turn-context/v1`) on each
+failed `driver.dispatch` effect beside its failure code, and on each pinned
+work beside its code and detail; `sworn board --json` (`sworn.cockpit/v2`)
+and the `sworn_status` tool carry the same field on effects and, for a
+pinned lane, on its actionable work-detail node (the track's ready slice,
+or the assembly node for the release lane); the browser board's work detail
+and the TUI's work detail render it in parity (the TUI truncates to its
+detail budget with an honest "+N more" line). A following successful try of
+the same work shows no context (absent, not a stale copy), and a healthy
+lane shows no pinned context.
+
+The driver-side causes are unchanged and still win: the CLI's own error
+result, the provider-limit classification, the redacted stderr tail, and
+every typed failure code keep their present precedence and text. The turn
+context is additional evidence beside the cause, never a replacement for
+it and never parsed to derive a cause, a park, or a retry decision. See
+"Pause, resume, cancel, or recover" below for the recovery verbs that use
+those causes.
+
 ## 4. Use the local browser board
 
 For an existing run:
@@ -351,6 +410,12 @@ sworn answer \
   --answer "YOUR ANSWER" \
   --config /absolute/path/drivers.json
 ```
+
+When a dispatch fails operationally, its failure record already carries
+the bounded tail described under "Failure turn context" above: read the
+failed work's `failure_turn_context` on the latest status or board before
+retrying, so the retry decision sees what the worker was doing when it
+failed.
 
 ## What the run statuses mean
 

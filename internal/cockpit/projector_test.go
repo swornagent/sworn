@@ -2,6 +2,7 @@ package cockpit
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -1352,4 +1353,189 @@ func TestProjectorActivityPairsResumedWorkerAndToolByCallID(t *testing.T) {
 			t.Fatalf("paired turn %d = %#v, want %s", i, turn, want)
 		}
 	}
+}
+
+// S3-failure-turn-context A3: the status projection exposes the bounded
+// tail beside code/detail, the projector copies Effect and PinnedWork
+// contexts to EffectView and the actionable Node, absent/empty/
+// unavailable keep one meaning each, tampering surfaces as
+// CORRUPT_JOURNAL rather than shown, and metadata-only Evidence stays
+// content-free.
+func TestProjectorFailureTurnContextCopiesEffectAndNode(t *testing.T) {
+	t.Parallel()
+	run, observation, status, state := projectionFixture()
+	present := &runtimepkg.FailureTurnContext{
+		SchemaVersion: "sworn.failure-turn-context/v1", Status: "present",
+		Turns: []runtimepkg.FailureTurn{{
+			Kind: "tool_result", Turn: 2,
+			Results: []runtimepkg.FailureToolResult{{
+				Sequence: 1, ToolCallID: "call-1", Tool: "Read", TotalBytes: 4, Head: "data",
+			}},
+		}},
+		Omitted: 1, DroppedMaxVisible: 2,
+	}
+	empty := &runtimepkg.FailureTurnContext{
+		SchemaVersion: "sworn.failure-turn-context/v1", Status: "empty", Turns: []runtimepkg.FailureTurn{},
+	}
+	unavailable := &runtimepkg.FailureTurnContext{
+		SchemaVersion: "sworn.failure-turn-context/v1", Status: "unavailable",
+		Turns: []runtimepkg.FailureTurn{}, Reason: "no_live_tail",
+	}
+	status.Effects = []runtimepkg.EffectStatus{
+		{ID: "attempt/" + strings.Repeat("b", 64) + "/e2/t3", Kind: "driver.dispatch", State: string(journal.OperationalFailed), ErrorCode: "transport_error", FailureTurnContext: present},
+		{ID: "attempt/" + strings.Repeat("c", 64) + "/e1/t1", Kind: "driver.dispatch", State: string(journal.OperationalFailed), ErrorCode: "other", FailureTurnContext: empty},
+		{ID: "attempt/" + strings.Repeat("d", 64) + "/e1/t1", Kind: "driver.dispatch", State: string(journal.Uncertain), FailureTurnContext: unavailable},
+		{ID: "attempt/" + strings.Repeat("e", 64) + "/e1/t1", Kind: "driver.dispatch", State: string(journal.OperationalFailed), ErrorCode: "old"},
+	}
+	status.PinnedWork = []runtimepkg.PinnedWork{{
+		WorkID: "sha256:" + strings.Repeat("b", 64), Lane: "T1", Cause: "exhaustion",
+		Code: "transport_error", FailureTurnContext: present,
+	}}
+	var calls []string
+	projector, err := NewProjector(
+		&fakeJournal{binding: run, observations: []journal.Observation{observation}, calls: &calls},
+		&fakeRuntime{statuses: []runtimepkg.RunStatus{status, status}, calls: &calls},
+		&fakeStateReader{states: []protocol.State{state, state}, errs: []error{nil, nil}, calls: &calls},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projector.now = func() time.Time { return run.CreatedAt }
+	snapshot, err := projector.Snapshot(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Runtime.Effects) != 4 {
+		t.Fatalf("effects = %d", len(snapshot.Runtime.Effects))
+	}
+	if got := snapshot.Runtime.Effects[0].FailureTurnContext; got == nil || got.Status != "present" || len(got.Turns) != 1 || got.Turns[0].Results[0].Head != "data" || got.Omitted != 1 || got.DroppedMaxVisible != 2 {
+		t.Fatalf("present effect = %#v", got)
+	}
+	if got := snapshot.Runtime.Effects[1].FailureTurnContext; got == nil || got.Status != "empty" || len(got.Turns) != 0 {
+		t.Fatalf("empty effect = %#v, want explicit empty", got)
+	}
+	if got := snapshot.Runtime.Effects[2].FailureTurnContext; got == nil || got.Status != "unavailable" || got.Reason != "no_live_tail" {
+		t.Fatalf("unavailable effect = %#v", got)
+	}
+	if got := snapshot.Runtime.Effects[3].FailureTurnContext; got != nil {
+		t.Fatalf("absent effect = %#v, want nil (pre-S3)", got)
+	}
+	// PinnedWork->Node via lane->actionable-node: T1 maps to its ready
+	// slice node (HasProtocol), release would map to assembly.
+	var sliceNode, assemblyNode *Node
+	for i := range snapshot.Graph.Nodes {
+		node := &snapshot.Graph.Nodes[i]
+		if node.ID == "slice:S1" {
+			sliceNode = node
+		}
+		if node.Kind == "assembly" {
+			assemblyNode = node
+		}
+	}
+	if sliceNode == nil || sliceNode.FailureTurnContext == nil || sliceNode.FailureTurnContext.Status != "present" {
+		t.Fatalf("slice node context = %#v", sliceNode)
+	}
+	if assemblyNode != nil && assemblyNode.FailureTurnContext != nil {
+		t.Fatalf("assembly node context = %#v, want nil (release lane not pinned)", assemblyNode.FailureTurnContext)
+	}
+	// No leak: metadata-only Evidence carries no worker content.
+	evidenceJSON, _ := json.Marshal(snapshot.Evidence)
+	if strings.Contains(string(evidenceJSON), "data") {
+		t.Fatalf("evidence leaked worker content: %s", evidenceJSON)
+	}
+}
+
+func TestProjectorFailureTurnContextReleaseLaneMapsToAssembly(t *testing.T) {
+	t.Parallel()
+	run, observation, status, state := projectionFixture()
+	present := &runtimepkg.FailureTurnContext{
+		SchemaVersion: "sworn.failure-turn-context/v1", Status: "present",
+		Turns: []runtimepkg.FailureTurn{{Kind: "tool_result", Turn: 1}},
+	}
+	status.PinnedWork = []runtimepkg.PinnedWork{{
+		WorkID: "sha256:" + strings.Repeat("f", 64), Lane: "release", Cause: "exhaustion",
+		FailureTurnContext: present,
+	}}
+	var calls []string
+	projector, err := NewProjector(
+		&fakeJournal{binding: run, observations: []journal.Observation{observation}, calls: &calls},
+		&fakeRuntime{statuses: []runtimepkg.RunStatus{status, status}, calls: &calls},
+		&fakeStateReader{states: []protocol.State{state, state}, errs: []error{nil, nil}, calls: &calls},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projector.now = func() time.Time { return run.CreatedAt }
+	snapshot, err := projector.Snapshot(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, node := range snapshot.Graph.Nodes {
+		if node.Kind == "assembly" {
+			if node.FailureTurnContext == nil || node.FailureTurnContext.Status != "present" {
+				t.Fatalf("assembly context = %#v", node.FailureTurnContext)
+			}
+			return
+		}
+	}
+	t.Fatal("assembly node missing")
+}
+
+func TestProjectorFailureTurnContextTamperFailsCorruptJournal(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, err := journal.Open(ctx, filepath.Join(t.TempDir(), "failure-tamper.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Do not close before tampering; the store holds the only connection.
+	now := time.Unix(1_700_300_000, 0).UTC()
+	run := journal.Run{
+		ID: "run-failure-tamper", ManifestDigest: "sha256:" + strings.Repeat("a", 64),
+		Repository: t.TempDir(), Release: "release-tamper",
+		TargetRef: "refs/heads/main", CreatedAt: now,
+	}
+	if err := store.RegisterRun(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	assoc := runtimepkg.MarshalAssociation(runtimepkg.EventAssociation{EffectID: "attempt/work/e1/t1", WorkID: "work"})
+	body, _ := json.Marshal(map[string]any{
+		"effect_id": "attempt/work/e1/t1", "work_id": "work",
+		"failure_turn_context": map[string]any{
+			"schema_version": "sworn.failure-turn-context/v1", "status": "present",
+			"turns": []any{map[string]any{"kind": "tool_result", "turn": int64(1)}},
+		},
+	})
+	_ = assoc
+	if err := store.AppendEvent(ctx, run.ID, "dispatch_operational_failure", body, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Snapshot(ctx, run.ID); err != nil {
+		t.Fatalf("clean snapshot = %v", err)
+	}
+	// Tamper with the body without updating its digest: the digest-checked
+	// read must fail CORRUPT_JOURNAL rather than show the tampered tail.
+	if err := tamperJournalEventBody(t, store, run.ID, []byte(`{"effect_id":"attempt/work/e1/t1","failure_turn_context":{"schema_version":"sworn.failure-turn-context/v1","status":"present","turns":[{"kind":"tool_result","turn":99}]}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Snapshot(ctx, run.ID); !journal.IsCode(err, "CORRUPT_JOURNAL") {
+		t.Fatalf("tampered snapshot = %v, want CORRUPT_JOURNAL", err)
+	}
+	if _, err := store.ReadWindow(ctx, run.ID, 0, 64); !journal.IsCode(err, "CORRUPT_JOURNAL") {
+		t.Fatalf("tampered window = %v, want CORRUPT_JOURNAL", err)
+	}
+	_ = store.Close()
+}
+
+func tamperJournalEventBody(t *testing.T, store *journal.Store, runID string, tampered []byte) error {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+store.Path()+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	if _, err := db.Exec(`UPDATE events SET body = ? WHERE run_id = ?`, tampered, runID); err != nil {
+		return err
+	}
+	return nil
 }
