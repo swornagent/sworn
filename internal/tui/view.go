@@ -37,6 +37,8 @@ func (m *model) View() string {
 		body = m.renderConfig(width, bodyHeight)
 	} else if m.screen == screenBoard {
 		body = m.renderBoard(width, bodyHeight)
+	} else if m.screen == screenActivity {
+		body = m.renderActivity(width, bodyHeight)
 	} else {
 		body = m.renderCatalog(width, bodyHeight)
 	}
@@ -51,6 +53,11 @@ func (m *model) renderHeader(width int) string {
 	connection := ""
 	if m.screen == screenConfig {
 		location = "config"
+	} else if m.screen == screenActivity {
+		location = "activity"
+		if m.activityNode != "" {
+			location += " · " + m.activityNode
+		}
 	} else if m.screen == screenBoard {
 		location = m.selection.Release
 		switch {
@@ -91,7 +98,9 @@ func (m *model) renderFooter(width int) string {
 	if m.screen == screenCatalog {
 		content = " ↑/k ↓/j move   enter open   c config   ? help   q quit"
 	} else if m.screen == screenBoard {
-		content = " ↑/k ↓/j move   a actions   c config   esc releases   ? help   q quit"
+		content = " ↑/k ↓/j move   a actions   v activity   c config   esc releases   ? help   q quit"
+	} else if m.screen == screenActivity {
+		content = " ↑/k ↓/j scroll   g/G top/bottom   r refresh   esc board   ? help   q quit"
 	} else if m.screen == screenConfig {
 		content = " esc back   r refresh   ? help   q quit"
 	}
@@ -195,6 +204,168 @@ func (m *model) renderBoard(width, height int) string {
 	right := m.detailLines(rightWidth, remaining)
 	lines = append(lines, joinColumns(left, right, leftWidth, rightWidth, remaining)...)
 	return strings.Join(lines, "\n")
+}
+
+func (m *model) renderActivity(width, height int) string {
+	title := "WORKER ACTIVITY"
+	if m.activityNode != "" {
+		title += " \u00b7 " + m.activityNode
+	}
+	lines := []string{titleStyle.Render(truncate(safeText(title), width))}
+	if width < 60 {
+		lines = append(lines, quietStyle.Render(truncate("Narrow terminal: worker text truncated. Widen to see more.", width)))
+	}
+	if m.loading && len(m.activity.Turns) == 0 {
+		lines = append(lines, "", quietStyle.Render(truncate("Loading worker activity\u2026", width)))
+		return joinActivityLines(lines, height)
+	}
+	if len(m.activity.Turns) == 0 {
+		lines = append(lines, "", quietStyle.Render(truncate("No worker turns recorded yet.", width)))
+		lines = append(lines, quietStyle.Render(truncate("Turns appear here turn by turn while the worker works.", width)))
+		return joinActivityLines(lines, height)
+	}
+	listBudget := max(1, (height-len(lines)-2)/2)
+	if listBudget < 1 {
+		listBudget = 1
+	}
+	start, end := cursorWindow(len(m.activity.Turns), m.activityCursor, listBudget)
+	for index := start; index < end; index++ {
+		turn := m.activity.Turns[index]
+		line := activityTurnSummary(turn)
+		if index == m.activityCursor {
+			lines = append(lines, selectedStyle.Copy().Width(width).Render(truncate(line, width)))
+		} else {
+			lines = append(lines, truncate(line, width))
+		}
+	}
+	if len(m.activity.Turns) > end-start {
+		lines = append(lines, quietStyle.Render(truncate("Showing turns in order; scroll to see more.", width)))
+	}
+	lines = append(lines, quietStyle.Render(truncate("Checked update "+itoaOffset(m.activity.ThroughOffset), width)))
+	if m.activityCursor < len(m.activity.Turns) {
+		remaining := height - len(lines)
+		if remaining > 1 {
+			lines = append(lines, quietStyle.Render(strings.Repeat("\u2500", width)))
+			details := activityTurnDetails(m.activity.Turns[m.activityCursor], width, remaining-1)
+			lines = append(lines, details...)
+		}
+	}
+	return joinActivityLines(lines, height)
+}
+
+func joinActivityLines(lines []string, height int) string {
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	return joinLines(lines)
+}
+
+func joinLines(lines []string) string {
+	result := ""
+	for i, line := range lines {
+		if i > 0 {
+			result += "\n"
+		}
+		result += line
+	}
+	return result
+}
+
+func activityTurnSummary(turn cockpit.ActivityTurn) string {
+	role := safeText(turn.Responsibility)
+	if role == "" {
+		role = safeText(turn.Role)
+	}
+	where := safeText(turn.Slice)
+	if where == "" {
+		where = safeText(turn.Track)
+	}
+	parts := ""
+	if len(turn.Content) > 0 || len(turn.Results) > 0 {
+		parts = " \u00b7 " + itoaOffset(int64(len(turn.Content))) + " text \u00b7 " + itoaOffset(int64(len(turn.Results))) + " tools"
+	}
+	label := where
+	if label != "" {
+		label = " \u00b7 " + label
+	}
+	return "turn " + itoaOffset(turn.Turn) + " \u00b7 " + role + label + parts
+}
+
+func activityTurnDetails(turn cockpit.ActivityTurn, width, maxLines int) []string {
+	if maxLines <= 0 {
+		return nil
+	}
+	var lines []string
+	for _, part := range turn.Content {
+		if len(lines) >= maxLines {
+			break
+		}
+		head := safeText(part.Head)
+		if part.Tail != "" && head != "" {
+			head += " \u2026 " + safeText(part.Tail)
+		} else if part.Tail != "" {
+			head = safeText(part.Tail)
+		}
+		if head == "" {
+			head = "(no text)"
+		}
+		label := safeText(string(part.Kind))
+		if part.Tool != "" {
+			label += " " + safeText(part.Tool)
+		}
+		line := label + ": " + head
+		if part.OmittedBytes > 0 || part.RedactedBytes > 0 {
+			line += " (+" + itoaOffset(part.OmittedBytes) + " omitted, +" + itoaOffset(part.RedactedBytes) + " redacted)"
+		}
+		lines = append(lines, truncate(line, width))
+	}
+	for _, result := range turn.Results {
+		if len(lines) >= maxLines {
+			break
+		}
+		state := "pass"
+		if result.Failed {
+			state = "fail"
+		}
+		head := safeText(result.Head)
+		if head == "" && result.Tail != "" {
+			head = safeText(result.Tail)
+		}
+		line := safeText(result.Tool) + " " + state + " " + itoaOffset(result.TotalBytes) + " bytes"
+		if result.OmittedBytes > 0 || result.RedactedBytes > 0 {
+			line += " (+" + itoaOffset(result.OmittedBytes) + " omitted, +" + itoaOffset(result.RedactedBytes) + " redacted)"
+		}
+		if head != "" {
+			line += ": " + head
+		}
+		lines = append(lines, truncate(line, width))
+	}
+	if turn.DroppedEvents > 0 && len(lines) < maxLines {
+		lines = append(lines, truncate("+"+itoaOffset(turn.DroppedEvents)+" dropped events", width))
+	}
+	return lines
+}
+
+func itoaOffset(value int64) string {
+	if value == 0 {
+		return "0"
+	}
+	negative := value < 0
+	if negative {
+		value = -value
+	}
+	var digits [32]byte
+	pos := len(digits)
+	for value > 0 {
+		pos--
+		digits[pos] = byte('0' + value%10)
+		value /= 10
+	}
+	if negative {
+		pos--
+		digits[pos] = '-'
+	}
+	return string(digits[pos:])
 }
 
 func (m *model) renderNarrowBoard(width, height int) []string {
@@ -406,7 +577,7 @@ func (m *model) renderHelp(width, height int) string {
 	lines := []string{
 		titleStyle.Render("HELP"),
 		"↑/k  move up", "↓/j  move down", "enter  open or select",
-		"a  available run controls", "c  project configuration",
+		"a  available run controls", "v  worker activity", "c  project configuration",
 		"r  refresh saved facts", "esc  close or go back",
 		"q  quit", "?  close help",
 	}

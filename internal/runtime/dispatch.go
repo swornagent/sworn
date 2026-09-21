@@ -1994,6 +1994,10 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		coordinates,
 		attemptIdentity,
 	)
+	// S2 live ring: the per-dispatch ring is dropped when this dispatch
+	// ends, whether it succeeds, fails, or parks. The journal already holds
+	// every projection the ring ever held.
+	defer s.dropActivityDispatch(replayKey)
 	prepared.sealedProposalHook = s.sealedProposalHook(
 		owner,
 		replayKey,

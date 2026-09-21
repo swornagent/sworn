@@ -396,6 +396,35 @@ func (s *projectOperatorService) Events(ctx context.Context, runID string, after
 	return projector.Events(ctx, runID, after, limit, track...)
 }
 
+// Activity serves the same activity projection from the journal alone.
+// The project-wide host never drives a run, so it wires no ring and the
+// page reports Live=false, saying nothing false about liveness.
+func (s *projectOperatorService) Activity(ctx context.Context, runID string, after int64, limit int, filter cockpit.ActivityFilter) (cockpit.ActivityPage, error) {
+	journalPath, err := s.findRunJournal(ctx, runID)
+	if err != nil {
+		return cockpit.ActivityPage{}, err
+	}
+	store, err := journal.OpenReadOnly(ctx, journalPath)
+	if err != nil {
+		return cockpit.ActivityPage{}, &cockpit.Error{Code: "JOURNAL_UNAVAILABLE"}
+	}
+	defer store.Close()
+	statusReader, err := runtimepkg.OpenStatusService(ctx, journalPath)
+	if err != nil {
+		return cockpit.ActivityPage{}, &cockpit.Error{Code: "JOURNAL_UNAVAILABLE"}
+	}
+	defer statusReader.Close()
+	stateReader, err := cockpit.NewGitStateReader(s.gitExecutable)
+	if err != nil {
+		return cockpit.ActivityPage{}, &cockpit.Error{Code: "GIT_UNAVAILABLE"}
+	}
+	projector, err := cockpit.NewProjector(store, statusReader, stateReader)
+	if err != nil {
+		return cockpit.ActivityPage{}, err
+	}
+	return projector.Activity(ctx, runID, after, limit, filter)
+}
+
 func (s *projectOperatorService) Start(ctx context.Context, command cockpit.StartCommand) (runtimepkg.RunStatus, error) {
 	return runtimepkg.RunStatus{}, &cockpit.Error{Code: "COMMAND_UNAVAILABLE"}
 }
@@ -773,6 +802,15 @@ func serveRunOperator(
 	if err != nil {
 		return errors.New("operator unavailable")
 	}
+	// S2 live worker stream: the run-scoped serve host drives the run
+	// in-process, so it owns one ephemeral activity ring. The ring is
+	// wired into the runtime Service as its ActivityTap and into the
+	// projector the activity route merges ahead of the journal on one
+	// cursor. It is never persisted and per-dispatch entries are dropped
+	// when each dispatch ends.
+	activityRing := cockpit.NewActivityRing()
+	runtimeService.SetActivityTap(activityRing)
+	baseProjector.SetActivityRing(activityRing)
 	projector := &operatorProjector{
 		authority: authority,
 		delegate:  baseProjector,

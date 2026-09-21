@@ -65,6 +65,12 @@ type Projector struct {
 	runtime  RuntimeReader
 	protocol StateReader
 	now      func() time.Time
+	// activityRing is the optional live ring the serve host wires in.
+	// Nil means journal-only (the TUI, the project-wide host, and any
+	// run driven by another process); non-nil means the serve host
+	// drives the run in-process and the activity route merges the ring
+	// ahead of the journal on one cursor.
+	activityRing *ActivityRing
 }
 
 func NewProjector(
@@ -81,6 +87,16 @@ func NewProjector(
 		protocol: stateReader,
 		now:      time.Now,
 	}, nil
+}
+
+// SetActivityRing wires the live ring for serve-driven runs. A nil ring
+// disables liveness; Activity then serves the same content from the
+// journal alone with Live=false.
+func (p *Projector) SetActivityRing(ring *ActivityRing) {
+	if p == nil {
+		return
+	}
+	p.activityRing = ring
 }
 
 type windowReader interface {

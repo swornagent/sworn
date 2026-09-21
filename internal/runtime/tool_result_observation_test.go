@@ -508,3 +508,135 @@ func TestPreparedInvocationCarriesToolResultHook(t *testing.T) {
 		t.Fatal("a nil hook must stay nil")
 	}
 }
+
+type fakeActivityTap struct {
+	events []ActivityTapEvent
+	drops  []string
+	panic  bool
+}
+
+func (f *fakeActivityTap) ObserveActivity(event ActivityTapEvent) {
+	if f.panic {
+		panic("tap panic must never fail the dispatch")
+	}
+	f.events = append(f.events, ActivityTapEvent{
+		RunID: event.RunID, EffectID: event.EffectID, Offset: event.Offset,
+		Kind: event.Kind, Body: append([]byte(nil), event.Body...), CreatedAt: event.CreatedAt,
+	})
+}
+
+func (f *fakeActivityTap) DropActivityDispatch(effectID string) {
+	if f.panic {
+		panic("drop panic must never fail the dispatch")
+	}
+	f.drops = append(f.drops, effectID)
+}
+
+// A3: the observation hooks feed the live ring only after the durable
+// append and carry the durable offset, so the ring and the journal share
+// one cursor. The tap never blocks or fails the dispatch, holds only the
+// already-bounded journaled bytes, and is dropped when the dispatch ends.
+func TestToolResultObservationHookFeedsLiveRingWithDurableOffset(t *testing.T) {
+	service, store, run := toolResultRuntimeFixture(t)
+	tap := &fakeActivityTap{}
+	service.SetActivityTap(tap)
+	hook := toolResultTestHook(t, service, run.ID)
+	ctx := context.Background()
+	turn := driver.ToolResultTurn{
+		Turn: 3,
+		Results: []driver.ToolResultRecord{{
+			Sequence: 1, ToolCallID: "call-1", Tool: "Read",
+			TotalBytes: 4, Head: base64.StdEncoding.EncodeToString([]byte("data")),
+		}},
+	}
+	if err := hook(ctx, turn); err != nil {
+		t.Fatal(err)
+	}
+	if len(tap.events) != 1 {
+		t.Fatalf("tap events = %d, want 1", len(tap.events))
+	}
+	event := tap.events[0]
+	if event.RunID != run.ID || event.EffectID != "attempt/work-tool-result-events/e1/t3" || event.Kind != "tool_result_observed" || event.Offset <= 0 {
+		t.Fatalf("tap event = %#v", event)
+	}
+	snapshot, err := store.Snapshot(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var journalOffset int64
+	var journalBody []byte
+	for _, journalEvent := range snapshot.Events {
+		if journalEvent.Kind == "tool_result_observed" {
+			journalOffset = journalEvent.Offset
+			journalBody = journalEvent.Body
+		}
+	}
+	if journalOffset == 0 || event.Offset != journalOffset || string(event.Body) != string(journalBody) {
+		t.Fatalf("tap offset %d body %s vs journal offset %d body %s", event.Offset, event.Body, journalOffset, journalBody)
+	}
+	// A panicking tap never fails the dispatch: the hook still journals.
+	tap.panic = true
+	if err := hook(ctx, turn); err != nil {
+		t.Fatalf("hook with panicking tap = %v, want nil (journaled, tap recovered)", err)
+	}
+	tap.panic = false
+	// Dispatch end drops the per-dispatch ring.
+	service.dropActivityDispatch("attempt/work-tool-result-events/e1/t1")
+	service.dropActivityDispatch("attempt/work-tool-result-events/e1/t3")
+	if len(tap.drops) != 2 || tap.drops[1] != "attempt/work-tool-result-events/e1/t3" {
+		t.Fatalf("drops = %#v", tap.drops)
+	}
+	// A nil tap disables the ring; hooks still journal.
+	service.SetActivityTap(nil)
+	if err := hook(ctx, turn); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWorkerTurnObservationHookFeedsLiveRingWithDurableOffset(t *testing.T) {
+	service, store, run := toolResultRuntimeFixture(t)
+	tap := &fakeActivityTap{}
+	service.SetActivityTap(tap)
+	prepared := preparedDriverDispatch{
+		request:           driver.Request{Role: driver.RoleImplementer},
+		productionContext: &productionWorkContext{Track: "T1-telemetry"},
+	}
+	coordinates := dispatchCoordinates{
+		Slice: "S8-tool-result-observation", Responsibility: driver.ImplementerImplementation,
+		ProtocolAttempt: 2, Epoch: 1, Try: 3,
+	}
+	attemptIdentity := journal.EffectAttempt{WorkID: "work-tool-result-events", Epoch: 1, Try: 3}
+	hook := service.workerTurnObservationHook(
+		journal.OwnerLease{RunID: run.ID}, prepared, coordinates, attemptIdentity,
+	)
+	if hook == nil {
+		t.Fatal("worker hook must exist for a live journal")
+	}
+	ctx := context.Background()
+	turn := driver.WorkerTurn{
+		Turn: 5,
+		Content: []driver.WorkerTurnPart{{
+			Kind: driver.WorkerTurnPartText, TotalBytes: 5,
+			Head: base64.StdEncoding.EncodeToString([]byte("hello")),
+		}},
+	}
+	if err := hook(ctx, turn); err != nil {
+		t.Fatal(err)
+	}
+	if len(tap.events) != 1 || tap.events[0].Kind != "worker_turn_observed" || tap.events[0].Offset <= 0 {
+		t.Fatalf("tap events = %#v", tap.events)
+	}
+	snapshot, err := store.Snapshot(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, journalEvent := range snapshot.Events {
+		if journalEvent.Kind == "worker_turn_observed" && journalEvent.Offset == tap.events[0].Offset {
+			if string(journalEvent.Body) != string(tap.events[0].Body) {
+				t.Fatalf("ring body differs from journal body")
+			}
+			return
+		}
+	}
+	t.Fatal("journal lacks the worker-turn event at the tap offset")
+}

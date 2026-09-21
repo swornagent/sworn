@@ -317,3 +317,57 @@ if (failures.length !== 0) {
   );
 }
 `
+
+// A4: the browser board shows an activity pane for the selected work that
+// renders the live dispatch's turns in order with role, turn, bounded text,
+// tools and pass/fail sizes, follows new turns, marks omitted/redacted
+// plainly, opens the stream only while visible and closes it on pane or run
+// change, and inserts content as text, never as markup.
+func TestWebActivityPaneRendersOrderedTurnsAsTextOnly(t *testing.T) {
+	t.Parallel()
+	javascript := mustEmbeddedAsset(t, "web/app.js")
+	index := mustEmbeddedAsset(t, "web/index.html")
+	for _, required := range []string{
+		`id="activity-pane"`,
+		`id="activity-list"`,
+		`id="activity-status"`,
+	} {
+		if !strings.Contains(index, required) {
+			t.Fatalf("activity pane is missing %q", required)
+		}
+	}
+	for _, required := range []string{
+		"activityFilterForSelected",
+		"renderActivityTurn",
+		"closeActivityStream",
+		"openActivityStream",
+		`new EventSource(`,
+		`/activity?after=`,
+		`addEventListener("activity"`,
+		"state.activitySource.close()",
+		"state.activityNode = state.selectedID",
+		"Turn ${turn.turn}",
+		"omitted, +",
+		"redacted",
+		"dropped events",
+		"activityList.append(renderActivityTurn",
+		"elements.activityList.scrollTop",
+	} {
+		if !strings.Contains(javascript, required) {
+			t.Fatalf("activity pane is missing %q", required)
+		}
+	}
+	// Content reaches the pane as text, never as markup.
+	start := strings.Index(javascript, "function renderActivityTurn(")
+	end := strings.Index(javascript[start:], "\n}\n\n")
+	if start < 0 || end < 0 {
+		t.Fatal("renderActivityTurn source not found")
+	}
+	renderer := javascript[start : start+end]
+	if strings.Contains(renderer, "innerHTML") {
+		t.Fatal("activity renderer inserts markup instead of text")
+	}
+	if strings.Count(renderer, "textContent") < 5 {
+		t.Fatalf("activity renderer inserts too little as text: %q", renderer)
+	}
+}

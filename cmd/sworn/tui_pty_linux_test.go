@@ -929,3 +929,78 @@ func TestTUIAnswerObservesSubsequentDriveProgress(t *testing.T) {
 		t.Fatalf("owner lease remained claimed after completion: %#v", owner)
 	}
 }
+
+// A6 (TUI half): in a built-product journey the TUI activity screen shows
+// the same turns the live stream delivered, reached from the board for the
+// selected work without connecting to the serve host.
+func TestTUIActivityScreenShowsJournaledTurns(t *testing.T) {
+	root, _ := projectRepositoryFixture(t)
+	installProjectPlan(t, root, "delivery")
+	stateDir := filepath.Join(root, ".sworn")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manifestDir := filepath.Join(stateDir, "runs")
+	if err := os.MkdirAll(manifestDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	projectWriteManifest(t, manifestDir, "delivery.json", root, "delivery", "run-activity-pty")
+	manifestBody, err := os.ReadFile(filepath.Join(manifestDir, "delivery.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestDigest := sha256Digest(manifestBody)
+	journalPath := filepath.Join(stateDir, "sworn.db")
+	store, err := journal.Open(context.Background(), journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1_700_000_000, 0).UTC()
+	if err := store.RegisterRun(context.Background(), journal.Run{
+		ID: "run-activity-pty", ManifestDigest: manifestDigest,
+		Repository: root, Release: "delivery",
+		TargetRef: "refs/heads/main", CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	toolBody := func(turn int64, text string) []byte {
+		body, _ := json.Marshal(map[string]any{
+			"schema_version": "sworn.tool-result-turn/v1", "run_id": "run-activity-pty",
+			"track": "T1", "slice": "S1", "role": "implementer",
+			"responsibility": "implementer_implementation",
+			"attempt":        int64(1), "epoch": int64(1), "try": int64(1),
+			"work_id": "work-1", "effect_id": "attempt/work-1/e1/t1",
+			"turn": turn, "encoding": "base64",
+			"results": []map[string]any{{
+				"sequence": int64(1), "tool_call_id": "call-1", "tool": "Read",
+				"failed": false, "total_bytes": int64(len(text)),
+				"head": base64.StdEncoding.EncodeToString([]byte(text)), "tail": "",
+			}},
+		})
+		return body
+	}
+	if err := store.AppendEvent(context.Background(), "run-activity-pty", "tool_result_observed", toolBody(1, "pty-data-one"), now); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AppendEvent(context.Background(), "run-activity-pty", "tool_result_observed", toolBody(2, "pty-data-two"), now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	swornBinary := filepath.Join(t.TempDir(), "sworn")
+	buildTestBinary(t, swornBinary, "./cmd/sworn", "")
+	session := startPTYSession(t, swornBinary, nil,
+		"tui", "--project", root, "--journal", journalPath,
+		"--config", filepath.Join(stateDir, "drivers.json"),
+	)
+	session.waitFor("catalog", 20*time.Second, "RELEASES", "delivery")
+	session.send("\r")
+	session.waitFor("board", 20*time.Second, "Status", "Needs you")
+	session.clear()
+	session.send("v")
+	session.waitFor("activity", 20*time.Second, "WORKER ACTIVITY", "turn 1", "turn 2", "pty-data-one")
+	session.send("\x1b")
+	session.waitFor("back to board", 20*time.Second, "Status")
+	session.quit()
+}

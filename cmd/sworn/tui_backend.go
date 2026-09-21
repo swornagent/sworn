@@ -616,6 +616,60 @@ func (b *projectTUIBackend) Events(
 	return projector.Events(ctx, run.binding.ID, after, limit, trackArgs...)
 }
 
+// Activity serves the same activity projection over the journal the
+// browser board's activity route serves. The TUI stays a direct journal
+// reader: it opens the journal read-only, wires no ring, and never
+// connects to the serve host.
+func (b *projectTUIBackend) Activity(
+	ctx context.Context,
+	selection tui.Selection,
+	after int64,
+	limit int,
+	filter cockpit.ActivityFilter,
+) (cockpit.ActivityPage, error) {
+	if b == nil || ctx == nil {
+		return cockpit.ActivityPage{}, errors.New("project activity is unavailable")
+	}
+	project, err := b.discover(ctx)
+	if err != nil {
+		return cockpit.ActivityPage{}, err
+	}
+	_, run, hasRun, err := resolveTUISelection(project, selection)
+	if err != nil {
+		return cockpit.ActivityPage{}, err
+	}
+	if !hasRun {
+		return cockpit.ActivityPage{}, errors.New("the selected release has no active run")
+	}
+	gitExecutable, err := resolveGitExecutable()
+	if err != nil {
+		return cockpit.ActivityPage{}, errRunBoardGit
+	}
+	journalReader, err := journal.OpenReadOnly(ctx, run.journalPath)
+	if err != nil {
+		return cockpit.ActivityPage{}, errRunBoardJournal
+	}
+	defer journalReader.Close()
+	statusReader, err := runtimepkg.OpenStatusService(ctx, run.journalPath)
+	if err != nil {
+		return cockpit.ActivityPage{}, errRunBoardJournal
+	}
+	defer statusReader.Close()
+	stateReader, err := cockpit.NewGitStateReader(gitExecutable)
+	if err != nil {
+		return cockpit.ActivityPage{}, errRunBoardGit
+	}
+	projector, err := cockpit.NewProjector(
+		journalReader,
+		statusReader,
+		stateReader,
+	)
+	if err != nil {
+		return cockpit.ActivityPage{}, err
+	}
+	return projector.Activity(ctx, run.binding.ID, after, limit, filter)
+}
+
 func leadDelegationTUILabel(value *runtimepkg.LeadDelegationView) string {
 	if value == nil {
 		return "External human approval"

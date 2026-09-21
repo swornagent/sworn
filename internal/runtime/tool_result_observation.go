@@ -131,13 +131,15 @@ func (s *Service) toolResultObservationHook(
 			// failure loud on the observation side instead of silent.
 			return runtimeFail("TOOL_RESULT_OBSERVATION_FAILED", err)
 		}
-		return s.journal.AppendEvent(
-			ctx,
-			owner.RunID,
-			toolResultEventKind,
-			encoded,
-			s.now().UTC(),
-		)
+		now := s.now().UTC()
+		offset, err := s.journal.AppendEventWithOffset(ctx, owner.RunID, toolResultEventKind, encoded, now)
+		if err != nil {
+			return err
+		}
+		// S2 live ring: feed only after the durable append and carry the
+		// durable offset, so the ring and the journal share one cursor.
+		s.observeActivityTap(ActivityTapEvent{RunID: owner.RunID, EffectID: body.EffectID, Offset: offset, Kind: toolResultEventKind, Body: encoded, CreatedAt: now})
+		return nil
 	}
 }
 
@@ -192,12 +194,14 @@ func (s *Service) workerTurnObservationHook(
 			// failure loud on the observation side instead of silent.
 			return runtimeFail("WORKER_TURN_OBSERVATION_FAILED", err)
 		}
-		return s.journal.AppendEvent(
-			ctx,
-			owner.RunID,
-			workerTurnEventKind,
-			encoded,
-			s.now().UTC(),
-		)
+		now := s.now().UTC()
+		offset, err := s.journal.AppendEventWithOffset(ctx, owner.RunID, workerTurnEventKind, encoded, now)
+		if err != nil {
+			return err
+		}
+		// S2 live ring: feed only after the durable append and carry the
+		// durable offset, so the ring and the journal share one cursor.
+		s.observeActivityTap(ActivityTapEvent{RunID: owner.RunID, EffectID: body.EffectID, Offset: offset, Kind: workerTurnEventKind, Body: encoded, CreatedAt: now})
+		return nil
 	}
 }

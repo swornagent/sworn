@@ -373,6 +373,8 @@ func (h *HTTPHandler) route(w http.ResponseWriter, r *http.Request) {
 		h.serveSnapshot(w, r, runID)
 	case len(parts) == 5 && parts[4] == "events":
 		h.serveEvents(w, r, runID)
+	case len(parts) == 5 && parts[4] == "activity":
+		h.serveActivity(w, r, runID)
 	case len(parts) == 5 && parts[4] == "commands":
 		h.serveControl(w, r, runID)
 	case len(parts) == 7 && parts[4] == "attentions" &&

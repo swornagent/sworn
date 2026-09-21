@@ -2,8 +2,10 @@ package cockpit
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -935,5 +937,419 @@ func TestSafeActionsOffersGrantActionForEconomyPinnedWorkOnly(t *testing.T) {
 	identicalActions := safeActions(identicalStatus, control)
 	if hasAction(identicalActions, string(journal.Grant)) {
 		t.Fatalf("identical-failure pinned work offered a grant action: %#v", identicalActions)
+	}
+}
+
+// A1: the activity projection joins journaled worker-turn and tool-result
+// events by (effect_id, turn), merges parts, decodes spans, and pages with
+// one cursor. It reads only what S1 journaled, performs no new redaction,
+// and leaves the metadata-only evidence projection unchanged.
+func TestProjectorActivityProjectionCoversA1(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, err := journal.Open(ctx, filepath.Join(t.TempDir(), "activity.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	now := time.Unix(1_700_200_000, 0).UTC()
+	run := journal.Run{
+		ID: "run-activity-1", ManifestDigest: "sha256:" + strings.Repeat("a", 64),
+		Repository: t.TempDir(), Release: "release-activity",
+		TargetRef: "refs/heads/main", CreatedAt: now,
+	}
+	if err := store.RegisterRun(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	encode := func(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
+	workerBody := func(turn int64, part, parts int64, content string) []byte {
+		body, _ := json.Marshal(map[string]any{
+			"schema_version": "sworn.worker-turn/v1", "run_id": run.ID,
+			"track": "T1", "slice": "S1", "role": "implementer",
+			"responsibility": "implementer_implementation",
+			"attempt":        int64(1), "epoch": int64(1), "try": int64(1),
+			"work_id": "work-1", "effect_id": "attempt/work-1/e1/t1",
+			"turn": turn, "part": part, "parts": parts,
+			"encoding": "base64",
+			"content": []map[string]any{{
+				"kind": "text", "total_bytes": int64(len(content)),
+				"omitted_bytes": int64(7), "redacted_bytes": int64(3),
+				"head": encode(content), "tail": "",
+			}},
+		})
+		return body
+	}
+	toolBody := func(turn int64, tool string, failed bool, head string) []byte {
+		body, _ := json.Marshal(map[string]any{
+			"schema_version": "sworn.tool-result-turn/v1", "run_id": run.ID,
+			"track": "T1", "slice": "S1", "role": "implementer",
+			"responsibility": "implementer_implementation",
+			"attempt":        int64(1), "epoch": int64(1), "try": int64(1),
+			"work_id": "work-1", "effect_id": "attempt/work-1/e1/t1",
+			"turn": turn, "encoding": "base64",
+			"results": []map[string]any{{
+				"sequence": int64(1), "tool_call_id": "call-1", "tool": tool,
+				"failed": failed, "total_bytes": int64(len(head)),
+				"omitted_bytes": int64(0), "redacted_bytes": int64(0),
+				"head": encode(head), "tail": "",
+			}},
+		})
+		return body
+	}
+	at := now.Add(time.Second)
+	// Turn 1: native turn with worker text + tool result.
+	if err := store.AppendEvent(ctx, run.ID, "worker_turn_observed", workerBody(1, 0, 0, "hello worker"), at); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AppendEvent(ctx, run.ID, "tool_result_observed", toolBody(1, "Read", false, "file bytes"), at.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	// Turn 2: HTTP-lane turn with tool results alone (no worker-turn event).
+	if err := store.AppendEvent(ctx, run.ID, "tool_result_observed", toolBody(2, "Bash", true, "error bytes"), at.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	// Turn 3: split worker turn in two parts sharing one (effect, turn).
+	if err := store.AppendEvent(ctx, run.ID, "worker_turn_observed", workerBody(3, 1, 2, "part one"), at.Add(3*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AppendEvent(ctx, run.ID, "worker_turn_observed", workerBody(3, 2, 2, "part two"), at.Add(4*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	// Fail-closed: unknown kind and wrong schema must never appear.
+	if err := store.AppendEvent(ctx, run.ID, "other_kind", []byte(`{"schema_version":"sworn.worker-turn/v1","run_id":"`+run.ID+`","effect_id":"attempt/work-1/e1/t1","turn":9}`), at.Add(5*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	wrongSchema, _ := json.Marshal(map[string]any{
+		"schema_version": "sworn.worker-turn/v9", "run_id": run.ID,
+		"track": "T1", "slice": "S1", "effect_id": "attempt/work-1/e1/t1", "turn": int64(9),
+		"encoding": "base64", "content": []map[string]any{},
+	})
+	if err := store.AppendEvent(ctx, run.ID, "worker_turn_observed", wrongSchema, at.Add(6*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	// Non-UTF-8 head span: arbitrary bytes that must decode with replacement.
+	badHead := base64.StdEncoding.EncodeToString([]byte{0xff, 0xfe, 0xfd, 'o', 'k'})
+	badBody, _ := json.Marshal(map[string]any{
+		"schema_version": "sworn.worker-turn/v1", "run_id": run.ID,
+		"track": "T1", "slice": "S1", "role": "implementer",
+		"responsibility": "implementer_implementation",
+		"attempt":        int64(1), "epoch": int64(1), "try": int64(1),
+		"work_id": "work-1", "effect_id": "attempt/work-1/e1/t1",
+		"turn": int64(4), "encoding": "base64",
+		"content": []map[string]any{{
+			"kind": "text", "total_bytes": int64(5),
+			"omitted_bytes": int64(0), "redacted_bytes": int64(0),
+			"head": badHead, "tail": "",
+		}},
+	})
+	if err := store.AppendEvent(ctx, run.ID, "worker_turn_observed", badBody, at.Add(7*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	var calls []string
+	projector, err := NewProjector(
+		store,
+		&fakeRuntime{statuses: []runtimepkg.RunStatus{{}}, calls: &calls},
+		&fakeStateReader{states: []protocol.State{{}}, errs: []error{nil}, calls: &calls},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := projector.Activity(ctx, run.ID, 0, 128, ActivityFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.SchemaVersion != ActivitySchemaVersion || page.RunID != run.ID || page.Live {
+		t.Fatalf("activity page header = %#v, want journal-only Live=false", page)
+	}
+	if len(page.Turns) != 4 {
+		t.Fatalf("turns = %d, want 4 (turns 1,2,3,4; kinds filtered): %#v", len(page.Turns), page.Turns)
+	}
+	// Turns are ordered by durable offset (1,2,3,4 in journal order).
+	for i, want := range []int64{1, 2, 3, 4} {
+		if page.Turns[i].Turn != want {
+			t.Fatalf("turn order = %v, want 1,2,3,4", page.Turns)
+		}
+	}
+	first := page.Turns[0]
+	if first.Slice != "S1" || first.Role != "implementer" || first.Responsibility != "implementer_implementation" || first.Attempt != 1 || first.Try != 1 || first.Turn != 1 {
+		t.Fatalf("first turn identity = %#v", first)
+	}
+	if len(first.Content) != 1 || first.Content[0].Head != "hello worker" || first.Content[0].OmittedBytes != 7 || first.Content[0].RedactedBytes != 3 {
+		t.Fatalf("first content = %#v", first.Content)
+	}
+	if len(first.Results) != 1 || first.Results[0].Tool != "Read" || first.Results[0].Failed || first.Results[0].Head != "file bytes" {
+		t.Fatalf("first results = %#v", first.Results)
+	}
+	// HTTP-lane turn exists without a worker-turn event.
+	second := page.Turns[1]
+	if len(second.Content) != 0 || len(second.Results) != 1 || second.Results[0].Tool != "Bash" || !second.Results[0].Failed {
+		t.Fatalf("tool-only turn = %#v", second)
+	}
+	// Split parts merge in part order with max parts surfaced.
+	third := page.Turns[2]
+	if third.Parts != 2 || len(third.Content) != 2 || third.Content[0].Head != "part one" || third.Content[1].Head != "part two" {
+		t.Fatalf("split turn = %#v", third)
+	}
+	// Non-UTF-8 decodes with named replacement; counts stay authoritative.
+	fourth := page.Turns[3]
+	if len(fourth.Content) != 1 || !strings.Contains(fourth.Content[0].Head, "�") || fourth.Content[0].TotalBytes != 5 {
+		t.Fatalf("non-utf8 head = %q counts=%d", fourth.Content[0].Head, fourth.Content[0].TotalBytes)
+	}
+	// Fail-closed: turn 9 never appears.
+	for _, turn := range page.Turns {
+		if turn.Turn == 9 {
+			t.Fatalf("filtered kind or schema leaked: %#v", turn)
+		}
+	}
+	// Paging: after/limit with one cursor, no gap and no duplicate.
+	firstPage, err := projector.Activity(ctx, run.ID, 0, 2, ActivityFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(firstPage.Turns) != 2 || !firstPage.HasMore {
+		t.Fatalf("first page = %#v", firstPage)
+	}
+	secondPage, err := projector.Activity(ctx, run.ID, firstPage.ThroughOffset, 2, ActivityFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(secondPage.Turns) != 2 || secondPage.HasMore {
+		t.Fatalf("second page = %#v", secondPage)
+	}
+	seen := make(map[int64]bool)
+	for _, turn := range append(firstPage.Turns, secondPage.Turns...) {
+		if seen[turn.Offset] {
+			t.Fatalf("duplicate offset %d across pages", turn.Offset)
+		}
+		seen[turn.Offset] = true
+	}
+	if len(seen) != 4 {
+		t.Fatalf("paged offsets = %v, want 4 distinct", seen)
+	}
+	// Filtering: track/slice narrow, dispatch narrows to one effect.
+	filtered, err := projector.Activity(ctx, run.ID, 0, 128, ActivityFilter{Track: "T1", Slice: "S1"})
+	if err != nil || len(filtered.Turns) != 4 {
+		t.Fatalf("track+slice filter = %#v, %v", filtered, err)
+	}
+	empty, err := projector.Activity(ctx, run.ID, 0, 128, ActivityFilter{Track: "T9"})
+	if err != nil || len(empty.Turns) != 0 {
+		t.Fatalf("non-matching track filter = %#v, %v", empty, err)
+	}
+	byEffect, err := projector.Activity(ctx, run.ID, 0, 128, ActivityFilter{EffectID: "attempt/work-1/e1/t1"})
+	if err != nil || len(byEffect.Turns) != 4 {
+		t.Fatalf("effect filter = %#v, %v", byEffect, err)
+	}
+	// The metadata-only evidence projection is unchanged: Events still
+	// returns content-free evidence with no worker bodies. The page type
+	// carries no content fields; worker text never appears in its JSON.
+	events, err := projector.Events(ctx, run.ID, 0, 128)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidenceJSON, _ := json.Marshal(events)
+	for _, forbidden := range []string{"hello worker", "file bytes", "part one"} {
+		if strings.Contains(string(evidenceJSON), forbidden) {
+			t.Fatalf("evidence page leaked worker content %q: %s", forbidden, evidenceJSON)
+		}
+	}
+}
+
+// A1+A2+A6 repair: a dispatch that parks on a human turn and resumes
+// reuses its provider turn numbers. Two single-part tool events sharing
+// one (effect_id, turn) are two distinct worker turns, not two parts of
+// one. Merging them makes a served row grow after emission (live Turn 1
+// with one result versus journal Turn 1 with two), breaking resume and
+// the e2e live-equals-journal check. The projection must split them into
+// stable instances with distinct offsets.
+func TestProjectorActivitySplitsResumedTurnNumbers(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, err := journal.Open(ctx, filepath.Join(t.TempDir(), "activity-resume.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	now := time.Unix(1_700_210_000, 0).UTC()
+	run := journal.Run{
+		ID: "run-activity-resume", ManifestDigest: "sha256:" + strings.Repeat("b", 64),
+		Repository: t.TempDir(), Release: "release-activity",
+		TargetRef: "refs/heads/main", CreatedAt: now,
+	}
+	if err := store.RegisterRun(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	encode := func(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
+	toolBody := func(turn int64, callID, tool, head string) []byte {
+		body, _ := json.Marshal(map[string]any{
+			"schema_version": "sworn.tool-result-turn/v1", "run_id": run.ID,
+			"track": "T1", "slice": "S1", "role": "implementer",
+			"responsibility": "implementer_implementation",
+			"attempt":        int64(1), "epoch": int64(1), "try": int64(1),
+			"work_id": "work-1", "effect_id": "attempt/work-1/e1/t1",
+			"turn": turn, "encoding": "base64",
+			"results": []map[string]any{{
+				"sequence": int64(1), "tool_call_id": callID, "tool": tool,
+				"failed": false, "total_bytes": int64(len(head)),
+				"omitted_bytes": int64(0), "redacted_bytes": int64(0),
+				"head": encode(head), "tail": "",
+			}},
+		})
+		return body
+	}
+	at := now.Add(time.Second)
+	// Turn 1 yield before the park, Turn 2 between, Turn 1 Write after the
+	// resume: the two Turn 1 rows share a number but are distinct turns.
+	if err := store.AppendEvent(ctx, run.ID, "tool_result_observed", toolBody(1, "call-yield-1", "sworn_yield", "accepted"), at); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AppendEvent(ctx, run.ID, "tool_result_observed", toolBody(2, "call-read-1", "Read", "between"), at.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AppendEvent(ctx, run.ID, "tool_result_observed", toolBody(1, "call-write-1", "Write", "ok"), at.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	var calls []string
+	projector, err := NewProjector(
+		store,
+		&fakeRuntime{statuses: []runtimepkg.RunStatus{{}}, calls: &calls},
+		&fakeStateReader{states: []protocol.State{{}}, errs: []error{nil}, calls: &calls},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := projector.Activity(ctx, run.ID, 0, 128, ActivityFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Turns) != 3 {
+		t.Fatalf("turns = %d, want 3 (two Turn 1 instances + Turn 2): %#v", len(page.Turns), page.Turns)
+	}
+	if page.Turns[0].Turn != 1 || len(page.Turns[0].Results) != 1 || page.Turns[0].Results[0].Tool != "sworn_yield" {
+		t.Fatalf("first Turn 1 = %#v", page.Turns[0])
+	}
+	if page.Turns[1].Turn != 2 || len(page.Turns[1].Results) != 1 {
+		t.Fatalf("Turn 2 = %#v", page.Turns[1])
+	}
+	if page.Turns[2].Turn != 1 || len(page.Turns[2].Results) != 1 || page.Turns[2].Results[0].Tool != "Write" {
+		t.Fatalf("second Turn 1 = %#v", page.Turns[2])
+	}
+	for i := 1; i < len(page.Turns); i++ {
+		if page.Turns[i].Offset <= page.Turns[i-1].Offset {
+			t.Fatalf("turns out of order: %#v", page.Turns)
+		}
+	}
+	// Resuming after the first Turn 1 returns the later turns unchanged:
+	// the second Turn 1 still carries exactly its own result, never the
+	// first Turn 1's merged in.
+	resumed, err := projector.Activity(ctx, run.ID, page.Turns[0].Offset, 128, ActivityFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resumed.Turns) != 2 || resumed.Turns[1].Turn != 1 || len(resumed.Turns[1].Results) != 1 || resumed.Turns[1].Results[0].Tool != "Write" {
+		t.Fatalf("resumed page = %#v, want Turn 2 + tool-only Turn 1 Write", resumed.Turns)
+	}
+	// Paging across the split has no gap and no duplicate.
+	first, err := projector.Activity(ctx, run.ID, 0, 2, ActivityFilter{})
+	if err != nil || len(first.Turns) != 2 || !first.HasMore {
+		t.Fatalf("first page = %#v, %v", first, err)
+	}
+	second, err := projector.Activity(ctx, run.ID, first.ThroughOffset, 2, ActivityFilter{})
+	if err != nil || len(second.Turns) != 1 || second.HasMore {
+		t.Fatalf("second page = %#v, %v", second, err)
+	}
+	if second.Turns[0].Offset != page.Turns[2].Offset || len(second.Turns[0].Results) != 1 {
+		t.Fatalf("paged second Turn 1 = %#v", second.Turns[0])
+	}
+}
+
+// A1 native pairing: when a resumed number carries both worker and tool
+// sides, each resume's worker pairs with its own tool by shared
+// tool-call identity, and a worker-only turn stays alone.
+func TestProjectorActivityPairsResumedWorkerAndToolByCallID(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, err := journal.Open(ctx, filepath.Join(t.TempDir(), "activity-pair.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	now := time.Unix(1_700_220_000, 0).UTC()
+	run := journal.Run{
+		ID: "run-activity-pair", ManifestDigest: "sha256:" + strings.Repeat("c", 64),
+		Repository: t.TempDir(), Release: "release-activity",
+		TargetRef: "refs/heads/main", CreatedAt: now,
+	}
+	if err := store.RegisterRun(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	encode := func(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
+	workerBody := func(callID, text string) []byte {
+		body, _ := json.Marshal(map[string]any{
+			"schema_version": "sworn.worker-turn/v1", "run_id": run.ID,
+			"track": "T1", "slice": "S1", "role": "implementer",
+			"responsibility": "implementer_implementation",
+			"attempt":        int64(1), "epoch": int64(1), "try": int64(1),
+			"work_id": "work-1", "effect_id": "attempt/work-1/e1/t1",
+			"turn": int64(1), "encoding": "base64",
+			"content": []map[string]any{{
+				"kind": "tool_call", "tool": "Read", "tool_call_id": callID,
+				"total_bytes":   int64(len(text)),
+				"omitted_bytes": int64(0), "redacted_bytes": int64(0),
+				"head": encode(text), "tail": "",
+			}},
+		})
+		return body
+	}
+	toolBody := func(callID, head string) []byte {
+		body, _ := json.Marshal(map[string]any{
+			"schema_version": "sworn.tool-result-turn/v1", "run_id": run.ID,
+			"track": "T1", "slice": "S1", "role": "implementer",
+			"responsibility": "implementer_implementation",
+			"attempt":        int64(1), "epoch": int64(1), "try": int64(1),
+			"work_id": "work-1", "effect_id": "attempt/work-1/e1/t1",
+			"turn": int64(1), "encoding": "base64",
+			"results": []map[string]any{{
+				"sequence": int64(1), "tool_call_id": callID, "tool": "Read",
+				"failed": false, "total_bytes": int64(len(head)),
+				"omitted_bytes": int64(0), "redacted_bytes": int64(0),
+				"head": encode(head), "tail": "",
+			}},
+		})
+		return body
+	}
+	at := now.Add(time.Second)
+	if err := store.AppendEvent(ctx, run.ID, "worker_turn_observed", workerBody("call-A", "first"), at); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AppendEvent(ctx, run.ID, "tool_result_observed", toolBody("call-A", "first-result"), at.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AppendEvent(ctx, run.ID, "worker_turn_observed", workerBody("call-B", "second"), at.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AppendEvent(ctx, run.ID, "tool_result_observed", toolBody("call-B", "second-result"), at.Add(3*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	var calls []string
+	projector, err := NewProjector(
+		store,
+		&fakeRuntime{statuses: []runtimepkg.RunStatus{{}}, calls: &calls},
+		&fakeStateReader{states: []protocol.State{{}}, errs: []error{nil}, calls: &calls},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := projector.Activity(ctx, run.ID, 0, 128, ActivityFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Turns) != 2 {
+		t.Fatalf("turns = %d, want 2 paired instances: %#v", len(page.Turns), page.Turns)
+	}
+	for i, want := range []string{"call-A", "call-B"} {
+		turn := page.Turns[i]
+		if len(turn.Content) != 1 || len(turn.Results) != 1 || turn.Content[0].ToolCallID != want || turn.Results[0].ToolCallID != want {
+			t.Fatalf("paired turn %d = %#v, want %s", i, turn, want)
+		}
 	}
 }

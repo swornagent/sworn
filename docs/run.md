@@ -191,6 +191,58 @@ kinds on that dispatch's identity fields (run, work, effect, attempt, epoch,
 try), then group by `turn`: a native-lane dispatch reads back exactly like
 an HTTP-lane dispatch, one row (or named part) per turn.
 
+### Live worker activity
+
+While a dispatch runs, its turns are visible turn by turn on every lane,
+in the browser board's activity pane and in the TUI's activity screen.
+Both render the same activity projection over the journaled worker-turn
+and tool-result events: for a run, optionally narrowed to a track, slice
+or dispatch, an ordered, paged list of turns, each with its identity
+(slice, role, responsibility, attempt, try, turn), the bounded decoded
+parts of the worker turn and the tool results keyed to that turn, with
+omitted and redacted byte counts and dropped-event counts shown rather
+than hidden.
+
+The browser board shows the live dispatch's turns in order for the
+selected work, each with the role, the turn number, the worker's bounded
+text, the tools it called and each tool result's pass or fail state and
+size, following new turns as they arrive. It opens the activity stream
+only while the pane is visible and closes it when the pane or run
+changes. The TUI's activity screen (`v` from the board for the selected
+work) is fed through the same projection over the journal, refreshed on
+the 2s cadence, scrollable with `j`/`k` (`g`/`G` for top and bottom), and
+honest about narrow terminals. The TUI never connects to the serve host;
+it stays a direct journal reader.
+
+The serve host exposes the same projection on a new route under the run's
+API:
+
+```text
+GET /api/v2/runs/<run>/activity?after=<offset>&limit=<n>&track=<t>&slice=<s>&effect_id=<e>&work_id=<w>
+```
+
+As JSON it returns one `sworn.activity/v1` page. When the client accepts
+`text/event-stream` it returns server-sent events whose `activity` frames
+carry the turn content (`{"schema_version":"sworn.activity/v1","turn":{...}}`)
+with `id` set to the turn's durable offset. The stream resumes exactly
+from `Last-Event-ID` or `after` with no gap and no duplicate, keeps the
+1s keepalive cadence, and shares the concurrent-stream gate and its
+`SSE_LIMIT` refusal with the existing events route. The existing events
+route keeps its contract byte for byte: `invalidate` frames that carry
+only the schema version and the through offset.
+
+What is retained: the journaled worker-turn and tool-result events
+themselves, bounded to 2,048 head and tail bytes each with omitted,
+redacted and dropped counts. What is not retained: the in-memory ring
+that shortens latency when the serve host drives the run. That ring is
+bounded to 64 turn events and 256 KiB per live dispatch, drops its
+oldest turn with a loud count when full, never blocks the dispatch, is
+dropped when the dispatch ends, and is never persisted. When the run is
+driven by another process the route serves the same content from the
+journal alone (`live:false`) and says nothing false about liveness; when
+the serve host drives the run in-process the route merges the ring ahead
+of the journal on the one durable cursor (`live:true`).
+
 ## 4. Use the local browser board
 
 For an existing run:

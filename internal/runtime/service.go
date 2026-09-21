@@ -73,6 +73,9 @@ type Service struct {
 	backgroundCancel map[string]context.CancelFunc
 	backgroundRuns   map[string]*backgroundRun
 	backgroundWait   sync.WaitGroup
+
+	activityMu  sync.RWMutex
+	activityTap ActivityTap
 }
 
 type backgroundRun struct {
