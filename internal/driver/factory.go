@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -349,7 +350,16 @@ func systemFileCredential(
 		clearBytes(body)
 		return nil, fail("CREDENTIAL_UNAVAILABLE")
 	}
-	return body, nil
+	// An editor or a shell redirect leaves a trailing line ending on the
+	// file. It is never part of the secret, and net/http refuses a header
+	// value that carries one before it dials. The trimmed slice shares the
+	// read buffer, so only line-ending bytes are left behind uncleared.
+	secret := bytes.TrimRight(body, "\r\n")
+	if !validHeaderSecret(secret) {
+		clearBytes(body)
+		return nil, fail("CREDENTIAL_MALFORMED")
+	}
+	return secret, nil
 }
 
 func configuredAWSEnvironments(

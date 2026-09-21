@@ -221,6 +221,9 @@ func (transport *httpTransport) roundTrip(
 			return nil, fail("CREDENTIAL_UNAVAILABLE")
 		}
 		defer clearBytes(secret)
+		if !validHeaderSecret(secret) {
+			return nil, fail("CREDENTIAL_MALFORMED")
+		}
 		httpRequest.Header.Set(
 			transport.config.CredentialHeader,
 			transport.config.CredentialPrefix+string(secret),
@@ -228,6 +231,17 @@ func (transport *httpTransport) roundTrip(
 	}
 	if request.Stream {
 		httpRequest.Header.Set("Accept", "text/event-stream")
+	}
+	// net/http refuses a header value it cannot put on the wire before it
+	// dials, and reports it through the same error path as a dial, TLS or
+	// read failure. Refuse it here instead, so PROVIDER_TRANSPORT_FAILED
+	// below always means the network was tried. The detail names the error
+	// class and the header name only, never a value.
+	if name := invalidHeaderValueName(httpRequest.Header); name != "" {
+		return nil, failWithDetail(
+			"INVALID_PROVIDER_REQUEST",
+			"request rejected before dial: invalid header field value for "+name,
+		)
 	}
 	response, err := transport.client.Do(httpRequest)
 	if err != nil {
@@ -343,6 +357,9 @@ func (transport *httpTransport) check(
 	case checkInspect:
 		return ReadinessPass, "http_configuration_exact"
 	case checkDoctor:
+		if transport.credentialMalformed(ctx, ref) {
+			return ReadinessFail, "credential_malformed"
+		}
 		return ReadinessPass, "http_boundary_ready"
 	case checkCertify:
 		if transport.liveProbe == nil {
@@ -355,6 +372,24 @@ func (transport *httpTransport) check(
 	default:
 		return ReadinessFail, "check_kind_invalid"
 	}
+}
+
+// credentialMalformed reports whether dispatch would refuse this profile's
+// credential as CREDENTIAL_MALFORMED. A credential that is merely absent stays
+// outside doctor's verdict, exactly as before; certify still proves it live.
+func (transport *httpTransport) credentialMalformed(
+	ctx context.Context,
+	ref *string,
+) bool {
+	if transport.auth != AuthModeBearer || transport.resolve == nil || ref == nil {
+		return false
+	}
+	secret, err := transport.resolve(ctx, *ref)
+	defer clearBytes(secret)
+	if err != nil {
+		return IsCode(err, "CREDENTIAL_MALFORMED")
+	}
+	return !validHeaderSecret(secret)
 }
 
 func refValue(ref *string) string {
@@ -390,6 +425,43 @@ func sameEndpointAuthority(configured, requested string) bool {
 	return leftErr == nil && rightErr == nil &&
 		left.Scheme == right.Scheme &&
 		strings.EqualFold(left.Host, right.Host)
+}
+
+// validHeaderSecret reports whether a resolved credential can be sent as an
+// HTTP header value: it is not empty and holds no control byte, which covers
+// an interior CR or LF as well as NUL, tab and DEL.
+func validHeaderSecret(secret []byte) bool {
+	if len(secret) == 0 {
+		return false
+	}
+	for _, character := range secret {
+		if character < 32 || character == 127 {
+			return false
+		}
+	}
+	return true
+}
+
+// invalidHeaderValueName returns the name of the first header, in name order,
+// whose value net/http would refuse before dialling: any control byte other
+// than a tab. It returns "" when every value is sendable.
+func invalidHeaderValueName(header http.Header) string {
+	names := make([]string, 0, len(header))
+	for name := range header {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		for _, value := range header[name] {
+			for index := 0; index < len(value); index++ {
+				character := value[index]
+				if (character < 32 && character != '\t') || character == 127 {
+					return name
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func httpToken(value string) bool {

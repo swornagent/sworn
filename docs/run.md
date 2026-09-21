@@ -406,6 +406,16 @@ profiles additionally bind the exact CLI binary, version output, required
 runtime files, and owner-only credential file. Bedrock profiles explicitly
 choose Runtime Converse or Mantle Chat; Sworn never switches between them.
 
+A header credential file may end in a line ending, which is ignored. A file
+that is otherwise empty, or that holds any other control byte, is refused as
+`CREDENTIAL_MALFORMED`, and `sworn driver doctor` fails it as
+`credential_malformed`.
+
+An OpenAI-compatible adapter may declare `max_output_tokens`, an optional
+integer from 1 to 1048576, when the provider's output ceiling is lower than
+the limit Sworn would send. Certification and dispatch then send the smaller
+of the two; leaving the field out changes nothing.
+
 Sworn does not currently include a driver-config generator. Production
 provisioning should create the canonical file and use the
 `configuration_digest` reported by `sworn driver inspect` in the run manifest.
