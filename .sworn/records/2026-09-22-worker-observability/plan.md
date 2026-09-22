@@ -1,10 +1,10 @@
 ```sworn-release-manifest-v1
 {
-  "approval_ref": "operator://2026-09-22-worker-observability/2",
-  "previous_plan": "cf8801a0f71d442edf85d627c24e7561d7cdb29e",
+  "approval_ref": "operator://2026-09-22-worker-observability/3",
+  "previous_plan": "c3c297f699bf849079c65b265cf7b18bfd97289f",
   "release": "2026-09-22-worker-observability",
   "repository": "sworn",
-  "revision": 2,
+  "revision": 3,
   "schema_version": "sworn.release-manifest/v1",
   "target_ref": "refs/heads/release/2026-09-22-worker-observability",
   "tracks": [
@@ -101,7 +101,7 @@
 Unchanged from revision 1: deliver sworn#294. Every slice contract in this
 revision is byte-identical to revision 1; only the manifest metadata changes.
 
-# Why a revision with nothing changed
+# Why a third revision with nothing changed
 
 Run 2026-09-22-worker-observability-r3 verified all three slices (S1 receipt
 a819e4f0 under r1, S2 c0e0aa24 and S3 113d0929 under r3). The assembly
@@ -112,9 +112,9 @@ verifier brief forbids PASS while a declared host check's evidence is
 missing (sworn#343). The assembled tree is byte-identical to S3's verified
 candidate, on which all eight host checks passed.
 
-The engine now projects that evidence (PR #344, main 796ed0a5). A BLOCKED
+Revision 2 was recorded for the same reason after PR #344 (main 796ed0a5); run r5 then BLOCKED again, correctly, because the projected evidence could not be proven across runs (adoption carries records, not journals). PR #348 (main dfb106dc) makes assembly preparation execute the declared host checks on the assembled candidate in the judging run, and r6 on that engine adopted r5's BLOCKED record under revision 2 before it could dispatch. A BLOCKED
 assembly verdict routes to the planner, and under bootstrap-only authority
-the protocol's exit is a recorded plan revision. This revision is that exit:
+the protocol's exit is a recorded plan revision. This revision is that exit, for the second time:
 it changes no outcome, scope, acceptance, check, host check, constraint or
 dependency, so the three verified passes carry, and the assembly
 verification re-runs on the fixed engine with the evidence it lacked.
