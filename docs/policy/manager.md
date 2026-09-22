@@ -7,7 +7,7 @@ cross. Anything not listed is a Type-1 decision: escalate to the Principal
 with evidence identifiers and stop.
 
 Entries are proposed from the decision journal and ratified by the Principal.
-Version: 1 (2026-09-16).
+Version: 2 (2026-09-22).
 
 ## Authority the Manager holds
 
@@ -56,10 +56,14 @@ Origin: 2026-09-12 attention on phased-evidence S2.
 Situation: the pinned work's failure code is `PROVIDER_LIMITED` or
 `PROVIDER_UNAVAILABLE`, with the provider's message in the detail.
 Decision: do not retry into the wall. Wait until the message's reset time,
-or 30 minutes when it names none, probe the lane (`sworn driver doctor` and
-one live call), then retry the work on a fresh epoch. Cite the failure detail
-and the probe result.
-Origin: sworn#310 (2026-09-12).
+or 30 minutes when it names none, or until a live probe of the lane passes
+if that is sooner (probe every few minutes with `sworn driver certify`;
+`doctor` makes no live call and proves nothing here), then retry the work on
+a fresh epoch. Cite the failure detail and the probe result. A second park of
+the same shape on the same work after a passing probe is Type-1.
+Origin: sworn#310 (2026-09-12); refined 2026-09-22 from run
+2026-09-22-worker-observability-r2 (three provider admission stalls in one
+hour; a retry three minutes after a passing probe recovered the run).
 
 ### M5. An identical candidate tree resubmitted after a plain host-check fail
 
@@ -84,6 +88,23 @@ Situation: the serve unit is active, the run reads `running` but no dispatch
 effect is claimed and no start command is outstanding (the persistent start
 exited when the run parked).
 Decision: re-issue the start call. Cite the last event offset.
+
+### M9. A byte-identical plan revision that clears a BLOCKED assembly
+
+Situation: the assembly verification returned BLOCKED for a reason the engine
+has since fixed (the record names an engine gap, not a candidate or contract
+defect), the run is parked `bootstrap_authority` with outcome `blocked`, and
+every slice pass is verified.
+Decision: prepare a plan revision whose slice contracts are byte-identical to
+the approved revision (manifest metadata only: revision, previous_plan,
+approval_ref, and prose naming the record and the fix), pin and lint it, and
+put its digest to the Principal. The Principal's approval is still required;
+this entry names the route so the seat does not improvise one. Never edit or
+remove records.
+Evidence: the BLOCKED record identifier, the engine fix (issue and merge
+commit), the unchanged slice digests.
+Origin: 2026-09-22 (sworn#343, run r3 to r5). Candidate for catalogue entry
+3 once a second occurrence confirms the shape.
 
 ### M8. Cancel a run at a safe boundary
 
