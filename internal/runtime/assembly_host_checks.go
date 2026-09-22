@@ -24,13 +24,13 @@ type assemblyHostCheckSet struct {
 }
 
 // assemblySliceCheck names one slice that declares a check, with the slice's
-// current candidate and that candidate's Git tree, so the reuse rule can
-// find a recorded result for the identical tree. Candidate and Tree are
-// empty when the slice has no candidate.
+// current candidate and that candidate's product tree identity, so the reuse
+// rule can find a recorded result for the identical product. Candidate and
+// ProductTree are empty when the slice has no candidate.
 type assemblySliceCheck struct {
 	Slice          string
 	Candidate      string
-	Tree           string
+	ProductTree    string
 	ContractDigest string
 }
 
@@ -68,11 +68,10 @@ func assemblyDeclaredHostChecks(
 			}
 			digests = append(digests, contractDigest)
 			declaring := assemblySliceCheck{Slice: sliceID, ContractDigest: contractDigest}
-			if slice.Candidate != nil && slice.Candidate.Receipt.Candidate != nil {
+			if slice.Candidate != nil && slice.Candidate.Receipt.Candidate != nil &&
+				slice.Candidate.Receipt.ProductTree != nil {
 				declaring.Candidate = *slice.Candidate.Receipt.Candidate
-				if tree, treeErr := commitTreeOID(engine, declaring.Candidate); treeErr == nil {
-					declaring.Tree = tree
-				}
+				declaring.ProductTree = *slice.Candidate.Receipt.ProductTree
 			}
 			for _, check := range hostChecks {
 				if _, seen := set.Declaring[check]; !seen {
@@ -94,14 +93,19 @@ func assemblyDeclaredHostChecks(
 // declared check of the assembled tree, never executing anything. The
 // assembly's own check.host effect wins whenever it has succeeded; otherwise
 // the reuse rule applies: the first declaring slice, in track and slice
-// order, whose candidate has exactly the assembled tree and whose journaled
-// result for the same check command is a pass. The runner and the assembly
-// roll-up both resolve through here, so the result the seal consumed is the
-// result the verifier is shown. Not found is honest absence, not an error.
+// order, whose candidate has exactly the assembled product tree and whose
+// journaled result for the same check command is a pass. Identity is the
+// product tree, the same identity every candidate receipt carries: an
+// assembly is composed from the release head, whose reserved record root
+// holds the installed plan and contract records a track candidate never
+// carries, so the Git trees of an identical product legitimately differ
+// there and only there. The runner and the assembly roll-up both resolve
+// through here, so the result the preparation consumed is the result the
+// verifier is shown. Not found is honest absence, not an error.
 func resolveAssemblyHostCheck(
 	ctx context.Context,
 	engine *engine,
-	candidate, tree string,
+	candidate, productTree string,
 	set assemblyHostCheckSet,
 	check string,
 ) (resolvedAssemblyHostCheck, bool, error) {
@@ -119,7 +123,8 @@ func resolveAssemblyHostCheck(
 		return resolvedAssemblyHostCheck{}, false, err
 	}
 	for _, declaring := range set.Declaring[check] {
-		if declaring.Candidate == "" || declaring.Tree == "" || declaring.Tree != tree {
+		if declaring.Candidate == "" || declaring.ProductTree == "" ||
+			declaring.ProductTree != productTree {
 			continue
 		}
 		sliceWork := hostCheckWork(
@@ -155,7 +160,8 @@ func resolveAssemblyHostCheck(
 // check.host effect keyed by the assembly candidate (assemblyHostCheckWork),
 // exactly-once through the same admission the slice seal uses, unless the
 // reuse rule already holds a slice candidate's recorded pass for the
-// identical tree, in which case that record is cited instead of re-running.
+// identical product tree, in which case that record is cited instead of
+// re-running.
 // A nil manifest means no slice declares a host check. A failed, timed-out
 // or overflowed check returns the typed HOST_CHECK_FAILED failure so the
 // preparation refuses; it is never a pass and never absent.
@@ -174,13 +180,13 @@ func (s *Service) runAssemblyHostChecks(
 	if len(set.Checks) == 0 {
 		return nil, nil
 	}
-	tree, err := commitTreeOID(engine, candidate)
+	productTree, err := commitProductTree(engine, candidate)
 	if err != nil {
 		return nil, runtimeFail("INVALID_CANDIDATE", err)
 	}
 	results := make([]hostCheckResult, 0, len(set.Checks))
 	for _, check := range set.Checks {
-		resolved, found, err := resolveAssemblyHostCheck(ctx, engine, candidate, tree, set, check)
+		resolved, found, err := resolveAssemblyHostCheck(ctx, engine, candidate, productTree, set, check)
 		if err != nil {
 			return nil, err
 		}

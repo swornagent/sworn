@@ -1682,7 +1682,12 @@ func TestConfiguredProductionAnchorGateAndDegenerateBodyRefuseThenCorrect(
 	// No check.host effect exists for either faulted candidate: the anchor
 	// gate and the submit-boundary degeneracy check both run before any
 	// long or short declared check ever executes, so the corrected
-	// candidate alone journals exactly A1's three declared checks.
+	// candidate alone journals exactly A1's three declared checks under
+	// A1's identity. The assembly then journals the same three checks once
+	// more under the assembly candidate's identity (sworn#343): the
+	// assembled product carries A2, B1 and C1 beside A1, so it is not A1's
+	// candidate product tree and A1's recorded results cannot be reused for
+	// it.
 	store, err := journal.OpenReadOnly(context.Background(), journalPath)
 	if err != nil {
 		t.Fatal(err)
@@ -1692,7 +1697,8 @@ func TestConfiguredProductionAnchorGateAndDegenerateBodyRefuseThenCorrect(
 	if err != nil {
 		t.Fatal(err)
 	}
-	hostChecks := make(map[string]struct{})
+	hostChecksBySlice := make(map[string]map[string]struct{})
+	hostCheckCandidates := make(map[string]map[string]struct{})
 	for _, effect := range snapshot.Effects {
 		if effect.Kind != "check.host" {
 			continue
@@ -1700,11 +1706,28 @@ func TestConfiguredProductionAnchorGateAndDegenerateBodyRefuseThenCorrect(
 		if effect.State != journal.Succeeded {
 			t.Fatalf("unexpected non-succeeded check.host effect: %#v", effect)
 		}
-		hostChecks[effect.ID] = struct{}{}
+		var result struct {
+			Slice     string `json:"slice"`
+			Candidate string `json:"candidate"`
+		}
+		if err := json.Unmarshal(effect.Result, &result); err != nil {
+			t.Fatalf("check.host effect %s result: %v", effect.ID, err)
+		}
+		if hostChecksBySlice[result.Slice] == nil {
+			hostChecksBySlice[result.Slice] = make(map[string]struct{})
+			hostCheckCandidates[result.Slice] = make(map[string]struct{})
+		}
+		hostChecksBySlice[result.Slice][effect.ID] = struct{}{}
+		hostCheckCandidates[result.Slice][result.Candidate] = struct{}{}
 	}
-	if len(hostChecks) != len(productionAnchorGateChecks) {
-		t.Fatalf("check.host effects = %d, want exactly %d (one per A1 declared check, for the corrected candidate alone)",
-			len(hostChecks), len(productionAnchorGateChecks))
+	if len(hostChecksBySlice) != 2 ||
+		len(hostChecksBySlice["A1"]) != len(productionAnchorGateChecks) ||
+		len(hostCheckCandidates["A1"]) != 1 ||
+		len(hostChecksBySlice[""]) != len(productionAnchorGateChecks) ||
+		len(hostCheckCandidates[""]) != 1 {
+		t.Fatalf("check.host effects by slice = %v (candidates %v), want exactly %d for A1's corrected candidate alone and %d for the assembly candidate alone",
+			hostChecksBySlice, hostCheckCandidates,
+			len(productionAnchorGateChecks), len(productionAnchorGateChecks))
 	}
 
 	// The typed anchor refusal is legible on the durable journal the board

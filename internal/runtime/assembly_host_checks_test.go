@@ -2,6 +2,9 @@ package runtime
 
 import (
 	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -135,6 +138,88 @@ func TestAssemblyPreparationReusesSliceHostEvidenceForIdenticalTree(t *testing.T
 	// The per-slice section is unchanged supporting context.
 	if len(body.Slices) != 1 || body.Slices[0].Evidence != assemblyHostEvidenceProven {
 		t.Fatalf("per-slice section = %#v", body.Slices)
+	}
+}
+
+// #343: the reuse rule keys on the product tree, not the Git tree. An
+// assembly candidate is composed from the release head, whose reserved
+// record root carries records a track candidate never does, so a commit
+// whose tree differs from the verified slice candidate's only under the
+// record root is the identical product and executes nothing new.
+func TestAssemblyHostChecksReuseAcrossRecordRootOnlyTreeDifference(t *testing.T) {
+	hostCheck := "printf 'host ok\\n'"
+	f := newAssemblyHostEvidenceFixture(t, [][]string{{"S1", "S2"}}, []string{hostCheck})
+	for _, sliceID := range []string{"S1", "S2"} {
+		f.sealThroughHostRunner(t, sliceID)
+		f.passByVerifier(t, sliceID)
+	}
+	state := f.readState(t)
+	slice, _ := state.Slice("S2")
+	verified := *slice.Candidate.Receipt.Candidate
+
+	// A commit on top of S2's candidate that adds one file under the reserved
+	// record root and changes nothing else.
+	repository := f.manifest.value.Repository
+	note := filepath.Join(t.TempDir(), "note.txt")
+	if err := os.WriteFile(note, []byte("engine record\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	blob := runRuntimeGit(t, repository, "hash-object", "-w", note)
+	index := filepath.Join(t.TempDir(), "index")
+	for _, arguments := range [][]string{
+		{"read-tree", verified + "^{tree}"},
+		{"update-index", "--add", "--cacheinfo",
+			"100644," + blob + "," + f.engine.repository.RecordRoot() + "/note.txt"},
+	} {
+		command := exec.Command("git", append([]string{"-C", repository}, arguments...)...)
+		command.Env = append(os.Environ(), "GIT_INDEX_FILE="+index)
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", arguments, err, output)
+		}
+	}
+	writeTree := exec.Command("git", "-C", repository, "write-tree")
+	writeTree.Env = append(os.Environ(), "GIT_INDEX_FILE="+index)
+	treeBytes, err := writeTree.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git write-tree: %v\n%s", err, treeBytes)
+	}
+	tree := strings.TrimSpace(string(treeBytes))
+	composed := runRuntimeGitIdentity(t, repository, "commit-tree", tree, "-p", verified, "-m", "assembly with records")
+
+	verifiedTree, err := commitTreeOID(f.engine, verified)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if composedTree, err := commitTreeOID(f.engine, composed); err != nil || composedTree == verifiedTree {
+		t.Fatalf("composed git tree %s (%v) should differ from the verified %s", composedTree, err, verifiedTree)
+	}
+	if productTree, err := commitProductTree(f.engine, composed); err != nil ||
+		productTree != *slice.Candidate.Receipt.ProductTree {
+		t.Fatalf("composed product tree %s (%v), want the verified %s",
+			productTree, err, *slice.Candidate.Receipt.ProductTree)
+	}
+
+	before := f.countHostCheckEffects(t)
+	manifest, err := f.service.runAssemblyHostChecks(f.ctx, f.engine, f.owner, state, f.plan, composed)
+	if err != nil {
+		t.Fatalf("runAssemblyHostChecks: %v", err)
+	}
+	if after := f.countHostCheckEffects(t); after != before {
+		t.Fatalf("check.host effects %d -> %d, want reuse with no execution", before, after)
+	}
+	if effects := f.assemblyHostCheckEffects(t); len(effects) != 0 {
+		t.Fatalf("assembly-keyed check.host effects = %#v, want none", effects)
+	}
+	parsed, err := protocol.ParseCheckResults(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contractDigest, _ := f.plan.Contract("S2")
+	_, expectedID, err := latestJournaledHostCheck(f.ctx, f.engine,
+		hostCheckWork("S2", verified, contractDigest, hostCheck))
+	if err != nil || len(parsed.Entries) != 1 || parsed.Entries[0].HostEffect != expectedID ||
+		parsed.Candidate != composed {
+		t.Fatalf("assembly manifest = %#v (%v), want S2's effect %s", parsed, err, expectedID)
 	}
 }
 
@@ -350,6 +435,7 @@ func TestAssemblyChecksEvidenceGuard(t *testing.T) {
 		evidence := assemblyRollupEvidence(candidate)
 		section := &productionAssemblyChecksEvidence{
 			Candidate: candidate, Tree: evidence.Assembly.AssemblyTree,
+			ProductTree:          "sha256:" + strings.Repeat("8", 64),
 			ContractDigest:       "sha256:" + strings.Repeat("6", 64),
 			ManifestDigest:       evidence.ManifestDigest,
 			ReceiptBindsManifest: true,
@@ -376,6 +462,9 @@ func TestAssemblyChecksEvidenceGuard(t *testing.T) {
 	for name, mutate := range map[string]func(*productionAssemblyChecksEvidence){
 		"foreign candidate": func(s *productionAssemblyChecksEvidence) { s.Candidate = strings.Repeat("8", 40) },
 		"foreign tree":      func(s *productionAssemblyChecksEvidence) { s.Tree = strings.Repeat("8", 40) },
+		"foreign product tree": func(s *productionAssemblyChecksEvidence) {
+			s.ProductTree = "sha256:" + strings.Repeat("9", 64)
+		},
 		"binding claim against another digest": func(s *productionAssemblyChecksEvidence) {
 			s.ManifestDigest = "sha256:" + strings.Repeat("5", 64)
 		},

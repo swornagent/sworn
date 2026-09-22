@@ -178,15 +178,19 @@ type productionAssemblyHostEvidence struct {
 // from this run's journal. Evidence is proven when every declared check
 // (the union of the slices' contract host_checks) resolves to a recorded
 // pass for exactly this candidate's tree, missing otherwise with the reason,
-// or none_declared when no slice declares a host check. ContractDigest is
-// the assembly's union contract digest; ManifestDigest is the digest of the
-// manifest rebuilt from the recorded results; ReceiptBindsManifest reports
-// whether the assembly candidate receipt's checks digest is that digest
-// (false when the receipt predates this run's evidence: a candidate reused
-// from an earlier preparation).
+// or none_declared when no slice declares a host check. Tree is the
+// candidate's Git tree and ProductTree its product tree identity, the
+// identity the reuse rule matches a slice candidate on (the reserved record
+// root is excluded from it). ContractDigest is the assembly's union contract
+// digest; ManifestDigest is the digest of the manifest rebuilt from the
+// recorded results; ReceiptBindsManifest reports whether the assembly
+// candidate receipt's checks digest is that digest (false when the receipt
+// predates this run's evidence: a candidate reused from an earlier
+// preparation).
 type productionAssemblyChecksEvidence struct {
 	Candidate            string                        `json:"candidate"`
 	Tree                 string                        `json:"tree"`
+	ProductTree          string                        `json:"product_tree"`
 	ContractDigest       string                        `json:"contract_digest,omitempty"`
 	ManifestDigest       string                        `json:"manifest_digest,omitempty"`
 	ReceiptBindsManifest bool                          `json:"receipt_binds_manifest"`
@@ -215,8 +219,9 @@ type productionAssemblyHostCheck struct {
 	ExitCode     int    `json:"exit_code"`
 	OutputDigest string `json:"output_digest"`
 	HostEffect   string `json:"host_effect"`
-	// ReusedFrom names the slice whose recorded pass for the identical tree
-	// an assembly check cites instead of its own execution (the reuse rule);
+	// ReusedFrom names the slice whose recorded pass for the identical
+	// product tree an assembly check cites instead of its own execution (the
+	// reuse rule);
 	// empty for a check executed against the assembly candidate itself and
 	// for every per-slice entry.
 	ReusedFrom string `json:"reused_from_slice,omitempty"`
@@ -1190,7 +1195,7 @@ func captureAssemblyHostEvidence(
 	rollup.TreeMatchesLastVerifiedCandidate = rollup.MatchingSlice != ""
 	checks, err := captureAssemblyChecksEvidence(
 		ctx, engine, state, plan, workContext.Candidate.Commit, assemblyTree,
-		*state.Assembly.Candidate.Receipt.Checks)
+		workContext.Candidate.ProductTree, *state.Assembly.Candidate.Receipt.Checks)
 	if err != nil {
 		return err
 	}
@@ -1224,10 +1229,10 @@ func captureAssemblyChecksEvidence(
 	engine *engine,
 	state protocol.State,
 	plan protocol.Plan,
-	candidate, tree, receiptChecks string,
+	candidate, tree, productTree, receiptChecks string,
 ) (productionAssemblyChecksEvidence, error) {
 	entry := productionAssemblyChecksEvidence{
-		Candidate: candidate, Tree: tree,
+		Candidate: candidate, Tree: tree, ProductTree: productTree,
 		Evidence: assemblyHostEvidenceMissing,
 	}
 	set, err := assemblyDeclaredHostChecks(engine, plan, state)
@@ -1242,7 +1247,7 @@ func captureAssemblyChecksEvidence(
 	entry.ContractDigest = set.ContractDigest
 	results := make([]hostCheckResult, 0, len(set.Checks))
 	for _, check := range set.Checks {
-		resolved, found, err := resolveAssemblyHostCheck(ctx, engine, candidate, tree, set, check)
+		resolved, found, err := resolveAssemblyHostCheck(ctx, engine, candidate, productTree, set, check)
 		if err != nil {
 			if IsCode(err, "JOURNAL_READ_FAILED") {
 				return productionAssemblyChecksEvidence{}, err
@@ -1441,6 +1446,24 @@ func commitTreeOID(engine *engine, commit string) (string, error) {
 		return "", err
 	}
 	return tree.String(), nil
+}
+
+// commitProductTree derives the product tree identity of commit under the
+// engine's product admission: the identity every candidate receipt carries,
+// which excludes the reserved record root.
+func commitProductTree(engine *engine, commit string) (string, error) {
+	if engine == nil || engine.repository == nil {
+		return "", runtimeFail("INVALID_ENGINE", nil)
+	}
+	oid, err := gitx.ParseOID(engine.repository.ObjectFormat(), commit)
+	if err != nil {
+		return "", err
+	}
+	identity, err := engine.repository.ProductTreeIdentity(oid, engine.product)
+	if err != nil {
+		return "", err
+	}
+	return identity.ProductTree, nil
 }
 
 func runtimeErrorCode(err error) string {
@@ -2082,7 +2105,7 @@ func validateProductionWorkContext(
 				evidence.Slice != "" ||
 				evidence.ContractDigest != "" ||
 				len(evidence.Results) != 0 ||
-				!validAssemblyHostEvidence(evidence) {
+				!validAssemblyHostEvidence(evidence, workContext.Candidate.ProductTree) {
 				return runtimeFail("CORRUPT_JOURNAL", nil)
 			}
 		default:
@@ -2232,8 +2255,9 @@ func validateProductionWorkContext(
 // binds the same assembly candidate, every slice entry is unique and names
 // its candidate, a proven entry carries digests and at least one check, a
 // missing entry carries a reason, and the tree flag agrees with the named
-// matching slice.
-func validAssemblyHostEvidence(evidence *productionHostEvidence) bool {
+// matching slice. productTree is the dispatch candidate's product tree, which
+// the assembly section must bind.
+func validAssemblyHostEvidence(evidence *productionHostEvidence, productTree string) bool {
 	rollup := evidence.Assembly
 	if rollup == nil ||
 		rollup.SchemaVersion != productionAssemblyHostEvidenceVersion ||
@@ -2297,11 +2321,13 @@ func validAssemblyHostEvidence(evidence *productionHostEvidence) bool {
 	if rollup.MatchingSlice != "" && !matched {
 		return false
 	}
-	return rollup.Assembly == nil || validAssemblyChecksEvidence(evidence, rollup.Assembly)
+	return rollup.Assembly == nil ||
+		validAssemblyChecksEvidence(evidence, rollup.Assembly, productTree)
 }
 
 // validAssemblyChecksEvidence checks the shape of the roll-up's assembly
-// section: it binds the roll-up's candidate and tree; a proven section
+// section: it binds the roll-up's candidate, its tree and the dispatch
+// candidate's product tree; a proven section
 // carries the union contract digest, a manifest digest and at least one
 // check, every check a unique recorded pass citing its effect; a missing
 // section carries a reason and only well-formed checks; a none_declared
@@ -2310,9 +2336,12 @@ func validAssemblyHostEvidence(evidence *productionHostEvidence) bool {
 func validAssemblyChecksEvidence(
 	evidence *productionHostEvidence,
 	section *productionAssemblyChecksEvidence,
+	productTree string,
 ) bool {
 	if section.Candidate != evidence.Candidate ||
 		section.Tree != evidence.Assembly.AssemblyTree ||
+		section.ProductTree != productTree ||
+		!runtimeDigestPattern.MatchString(section.ProductTree) ||
 		(section.ReceiptBindsManifest &&
 			(section.Evidence != assemblyHostEvidenceProven ||
 				section.ManifestDigest != evidence.ManifestDigest)) {

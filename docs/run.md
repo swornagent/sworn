@@ -490,11 +490,15 @@ candidate, once per candidate, in the same phase order as a slice seal
 `check.host` effect keyed by the assembly candidate (an empty slice, the
 candidate, the assembly's union contract digest and the check), exactly-once
 like a slice's, so a relaunch or a retry replays the recorded results instead
-of re-running them. One reuse rule applies: when the assembled tree is
-exactly the tree of a slice candidate whose recorded result for the same
-check command in this run's journal is a pass (a single serial track
-fast-forwards to its last verified candidate), that record is cited instead
-of executing again. The engine-built manifest of those results becomes the
+of re-running them. One reuse rule applies: when the assembled product tree
+is exactly the product tree of a slice candidate whose recorded result for
+the same check command in this run's journal is a pass (a single serial
+track fast-forwards to its last verified candidate), that record is cited
+instead of executing again. Identity is the product tree, the identity every
+candidate receipt carries: the assembly is composed from the release head,
+whose reserved record root holds the installed plan and contract records a
+track candidate never carries, so the Git trees of an identical product
+differ there and only there. The engine-built manifest of those results becomes the
 assembly candidate receipt's checks digest, exactly as the slice seal binds
 its manifest; an assembly whose slices declare no host checks keeps the
 input-pin digest. A failing, timed-out or overflowed check refuses the
@@ -510,12 +514,13 @@ The assembly verification dispatch receives the same
 `protocol/host-evidence.json` input as a slice verification, as a roll-up
 (`sworn.assembly-host-evidence/v1`) with two parts. The `assembly` section is
 the evidence produced in the judging run about the assembled tree itself: the
-candidate, its tree, the union contract digest, the digest of the manifest
-rebuilt from the journaled results, whether the receipt's checks digest is
-that digest (`receipt_binds_manifest`), and each check with its outcome, exit
-code, output digest, `host_effect` and, for a reused record, the slice it
-was reused from. It is `"evidence": "proven"` only when every declared check
-resolves to a recorded pass for exactly this candidate's tree in this run's
+candidate, its Git tree and product tree, the union contract digest, the
+digest of the manifest rebuilt from the journaled results, whether the
+receipt's checks digest is that digest (`receipt_binds_manifest`), and each
+check with its outcome, exit code, output digest, `host_effect` and, for a
+reused record, the slice it was reused from. It is `"evidence": "proven"`
+only when every declared check resolves to a recorded pass for exactly this
+candidate's product tree in this run's
 journal, `"missing"` with a reason code otherwise, and `"none_declared"` when
 no slice declares a host check. The per-slice `slices` section stays as
 supporting context: one entry per evidence pin, each proven the way the seal
