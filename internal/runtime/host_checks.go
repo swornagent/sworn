@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -80,6 +81,35 @@ type hostCheckRefusal struct {
 
 func hostCheckWork(sliceID, candidate, contractDigest, check string) string {
 	return workIdentity("check.host", sliceID, candidate, contractDigest, check)
+}
+
+// assemblyHostCheckWork is the check.host work identity of one declared check
+// executed against an assembly candidate (sworn#343). It is hostCheckWork
+// with an empty slice: no slice owns an assembly, a slice identity is never
+// empty, and the contract digest is the assembly's own union digest
+// (assemblyContractDigest), so the identity can collide with no slice's
+// check.host work and replays exactly like one.
+func assemblyHostCheckWork(candidate, contractDigest, check string) string {
+	return hostCheckWork("", candidate, contractDigest, check)
+}
+
+// assemblyContractDigest binds the set of approved contracts an assembly's
+// declared host checks came from: the digest of the canonical sorted list of
+// the distinct slice contract digests. It is the contract_digest every
+// assembly check.host effect and the assembly manifest carry, so a check is
+// bound to exactly the contracts that declared it.
+func assemblyContractDigest(contractDigests []string) string {
+	distinct := make([]string, 0, len(contractDigests))
+	seen := make(map[string]struct{}, len(contractDigests))
+	for _, digest := range contractDigests {
+		if _, duplicate := seen[digest]; duplicate {
+			continue
+		}
+		seen[digest] = struct{}{}
+		distinct = append(distinct, digest)
+	}
+	sort.Strings(distinct)
+	return protocol.DigestBytes(mustJSON(distinct))
 }
 
 func hostCheckRefusalWork(sliceID, candidate, check, reason string) string {
@@ -652,6 +682,44 @@ func buildHostCheckResultsManifest(
 	hostResults []hostCheckResult,
 	roleDigest string,
 ) ([]byte, error) {
+	entries := hostCheckManifestEntries(hostResults)
+	entries = append(entries, protocol.CheckResultEntry{
+		Check: "role checks", Provenance: protocol.CheckProvenanceRole,
+		Outcome: protocol.CheckOutcomePass, RoleDigest: roleDigest,
+	})
+	manifest := protocol.CheckResults{
+		SchemaVersion: protocol.CheckResultsVersion, Release: release,
+		Slice: sliceID, Attempt: attempt, Candidate: candidate,
+		ContractDigest: contractDigest, Entries: entries,
+	}
+	return protocol.EncodeCheckResults(manifest)
+}
+
+// buildAssemblyHostCheckResultsManifest constructs the sworn.check-results/v1
+// manifest that becomes the assembly candidate receipt's Checks bytes
+// (sworn#343): one host_boundary entry per journaled (or reused) host check
+// of the assembled tree, bound to the empty slice, the plan revision as the
+// attempt, the assembly candidate and the assembly's union contract digest.
+// An assembly is prepared by the engine, not by a role, so unlike the slice
+// manifest it carries no role entry.
+func buildAssemblyHostCheckResultsManifest(
+	release string,
+	attempt int64,
+	candidate, contractDigest string,
+	hostResults []hostCheckResult,
+) ([]byte, error) {
+	manifest := protocol.CheckResults{
+		SchemaVersion: protocol.CheckResultsVersion, Release: release,
+		Slice: "", Attempt: attempt, Candidate: candidate,
+		ContractDigest: contractDigest,
+		Entries:        hostCheckManifestEntries(hostResults),
+	}
+	return protocol.EncodeCheckResults(manifest)
+}
+
+// hostCheckManifestEntries renders journaled host results as host_boundary
+// manifest entries, carrying only bounded output excerpts and digests.
+func hostCheckManifestEntries(hostResults []hostCheckResult) []protocol.CheckResultEntry {
 	entries := make([]protocol.CheckResultEntry, 0, len(hostResults)+1)
 	for _, result := range hostResults {
 		entry := protocol.CheckResultEntry{
@@ -665,16 +733,7 @@ func buildHostCheckResultsManifest(
 			result.Output, result.Truncated)
 		entries = append(entries, entry)
 	}
-	entries = append(entries, protocol.CheckResultEntry{
-		Check: "role checks", Provenance: protocol.CheckProvenanceRole,
-		Outcome: protocol.CheckOutcomePass, RoleDigest: roleDigest,
-	})
-	manifest := protocol.CheckResults{
-		SchemaVersion: protocol.CheckResultsVersion, Release: release,
-		Slice: sliceID, Attempt: attempt, Candidate: candidate,
-		ContractDigest: contractDigest, Entries: entries,
-	}
-	return protocol.EncodeCheckResults(manifest)
+	return entries
 }
 
 // validateHostCheckEvidenceProof proves that a sealed record's checks evidence

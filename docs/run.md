@@ -483,20 +483,50 @@ budget increase.
 
 ## Assembly host-check evidence
 
-An assembly runs no host checks of its own: its receipt's checks digest
-covers the input-pin map, and the only host-boundary evidence for the
-assembled product is what each track's final slice candidate already
-recorded. The assembly verification dispatch therefore receives the same
-`protocol/host-evidence.json` input as a slice verification, but as a
-per-slice roll-up (`sworn.assembly-host-evidence/v1`): one entry per
-evidence pin with its slice, candidate, contract digest, manifest digest
-and each journaled host check's outcome and exit code, plus whether the
-assembly candidate's tree is the tree of one of those verified candidates.
-Each entry is proven the way the seal bound it: the journaled `check.host`
-results must rebuild exactly the manifest the candidate receipt's checks
-digest covers. A pin whose evidence cannot be read or proven is projected as
-`"evidence": "missing"` with a reason code, never as a pass, and the dispatch
-still prepares, so the Verifier sees which slice lacks proof instead of no
+At assembly preparation the engine executes the union of the declared
+`host_checks` of every slice in the assembly against the exact composed
+candidate, once per candidate, in the same phase order as a slice seal
+(quick checks first, long suites after). Each check is journaled as a
+`check.host` effect keyed by the assembly candidate (an empty slice, the
+candidate, the assembly's union contract digest and the check), exactly-once
+like a slice's, so a relaunch or a retry replays the recorded results instead
+of re-running them. One reuse rule applies: when the assembled tree is
+exactly the tree of a slice candidate whose recorded result for the same
+check command in this run's journal is a pass (a single serial track
+fast-forwards to its last verified candidate), that record is cited instead
+of executing again. The engine-built manifest of those results becomes the
+assembly candidate receipt's checks digest, exactly as the slice seal binds
+its manifest; an assembly whose slices declare no host checks keeps the
+input-pin digest. A failing, timed-out or overflowed check refuses the
+preparation under the existing `HOST_CHECK_FAILED` path: the
+`prepare_assembly` action fails operationally on each try (a plain failure
+gets the one bounded re-execution a slice candidate gets), and the spent try
+budget parks the run on `exhaustion` with `HOST_CHECK_FAILED` and a detail
+naming the check and the candidate. There is no assembly repair dispatch:
+the assembled product is composed from verified slices, so only new slice
+work changes the tree.
+
+The assembly verification dispatch receives the same
+`protocol/host-evidence.json` input as a slice verification, as a roll-up
+(`sworn.assembly-host-evidence/v1`) with two parts. The `assembly` section is
+the evidence produced in the judging run about the assembled tree itself: the
+candidate, its tree, the union contract digest, the digest of the manifest
+rebuilt from the journaled results, whether the receipt's checks digest is
+that digest (`receipt_binds_manifest`), and each check with its outcome, exit
+code, output digest, `host_effect` and, for a reused record, the slice it
+was reused from. It is `"evidence": "proven"` only when every declared check
+resolves to a recorded pass for exactly this candidate's tree in this run's
+journal, `"missing"` with a reason code otherwise, and `"none_declared"` when
+no slice declares a host check. The per-slice `slices` section stays as
+supporting context: one entry per evidence pin, each proven the way the seal
+bound it (the journaled `check.host` results must rebuild exactly the
+manifest the candidate receipt's checks digest covers), plus whether the
+assembly candidate's tree is the tree of one of those verified candidates. A
+relaunched run adopts slice passes by ancestry, not another run's journal,
+so its per-slice entries read `"missing"` while its `assembly` section is
+proven from the checks it ran itself. Nothing in the roll-up is ever
+projected as a pass without a journaled record, and the dispatch still
+prepares, so the Verifier sees exactly what lacks proof instead of no
 projection at all.
 
 ## Submission-refusal repair input

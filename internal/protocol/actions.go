@@ -68,6 +68,16 @@ type PrepareAssemblyInput struct {
 	Summary      string
 	Detail       []byte
 	CheckResults []byte
+	// CheckResultsFor, when set, is asked for the engine-built check-results
+	// manifest of the exact composed candidate before the candidate receipt
+	// is rendered (sworn#343): the engine runs the assembly's declared host
+	// checks against that candidate and returns the manifest whose digest
+	// becomes the receipt's checks digest, exactly as the slice seal binds
+	// its manifest. It is also asked for an already-prepared candidate that
+	// is being reused, so the judging run always holds its own evidence. A
+	// nil manifest keeps the input-pin digest. It is engine state, never
+	// part of the persisted action input, so it is excluded from encoding.
+	CheckResultsFor func(candidate string) ([]byte, error) `json:"-"`
 }
 
 type MergePassedCandidateInput struct {

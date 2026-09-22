@@ -165,6 +165,34 @@ type productionAssemblyHostEvidence struct {
 	MatchingSlice                    string                            `json:"matching_slice,omitempty"`
 	TreeMatchesLastVerifiedCandidate bool                              `json:"assembly_tree_matches_last_verified_candidate"`
 	Slices                           []productionAssemblySliceEvidence `json:"slices"`
+	// Assembly is the evidence produced in this run about the assembled tree
+	// itself (sworn#343): the declared host checks the engine ran (or reused
+	// by tree identity) at assembly preparation, keyed by this candidate in
+	// this run's journal. It is the section a verifier judges; Slices stay
+	// as supporting context. Omitted only by a roll-up recorded before this
+	// section existed.
+	Assembly *productionAssemblyChecksEvidence `json:"assembly,omitempty"`
+}
+
+// productionAssemblyChecksEvidence proves the assembly's own host checks
+// from this run's journal. Evidence is proven when every declared check
+// (the union of the slices' contract host_checks) resolves to a recorded
+// pass for exactly this candidate's tree, missing otherwise with the reason,
+// or none_declared when no slice declares a host check. ContractDigest is
+// the assembly's union contract digest; ManifestDigest is the digest of the
+// manifest rebuilt from the recorded results; ReceiptBindsManifest reports
+// whether the assembly candidate receipt's checks digest is that digest
+// (false when the receipt predates this run's evidence: a candidate reused
+// from an earlier preparation).
+type productionAssemblyChecksEvidence struct {
+	Candidate            string                        `json:"candidate"`
+	Tree                 string                        `json:"tree"`
+	ContractDigest       string                        `json:"contract_digest,omitempty"`
+	ManifestDigest       string                        `json:"manifest_digest,omitempty"`
+	ReceiptBindsManifest bool                          `json:"receipt_binds_manifest"`
+	Evidence             string                        `json:"evidence"`
+	Reason               string                        `json:"reason,omitempty"`
+	Checks               []productionAssemblyHostCheck `json:"checks,omitempty"`
 }
 
 type productionAssemblySliceEvidence struct {
@@ -187,6 +215,11 @@ type productionAssemblyHostCheck struct {
 	ExitCode     int    `json:"exit_code"`
 	OutputDigest string `json:"output_digest"`
 	HostEffect   string `json:"host_effect"`
+	// ReusedFrom names the slice whose recorded pass for the identical tree
+	// an assembly check cites instead of its own execution (the reuse rule);
+	// empty for a check executed against the assembly candidate itself and
+	// for every per-slice entry.
+	ReusedFrom string `json:"reused_from_slice,omitempty"`
 }
 
 type productionHostCheckResult struct {
@@ -1155,6 +1188,13 @@ func captureAssemblyHostEvidence(
 		rollup.Slices = append(rollup.Slices, entry)
 	}
 	rollup.TreeMatchesLastVerifiedCandidate = rollup.MatchingSlice != ""
+	checks, err := captureAssemblyChecksEvidence(
+		ctx, engine, state, plan, workContext.Candidate.Commit, assemblyTree,
+		*state.Assembly.Candidate.Receipt.Checks)
+	if err != nil {
+		return err
+	}
+	rollup.Assembly = &checks
 	body := mustJSON(rollup)
 	workContext.HostEvidence = &productionHostEvidence{
 		SchemaVersion:  productionAssemblyHostEvidenceVersion,
@@ -1169,6 +1209,80 @@ func captureAssemblyHostEvidence(
 		body: body,
 	}
 	return nil
+}
+
+// captureAssemblyChecksEvidence proves the assembly's own host checks from
+// this run's journal (sworn#343): every declared check must resolve, through
+// the same resolver the preparation ran, to a recorded pass for exactly this
+// candidate's tree. The manifest is rebuilt from those results the way the
+// preparation built it, so its digest is the receipt's checks digest whenever
+// the receipt was minted with this evidence. Every failure short of an
+// unreadable journal is projected as missing with a stable reason code, never
+// as a pass and never returned.
+func captureAssemblyChecksEvidence(
+	ctx context.Context,
+	engine *engine,
+	state protocol.State,
+	plan protocol.Plan,
+	candidate, tree, receiptChecks string,
+) (productionAssemblyChecksEvidence, error) {
+	entry := productionAssemblyChecksEvidence{
+		Candidate: candidate, Tree: tree,
+		Evidence: assemblyHostEvidenceMissing,
+	}
+	set, err := assemblyDeclaredHostChecks(engine, plan, state)
+	if err != nil {
+		entry.Reason = "CONTRACT_RESOLUTION_FAILED"
+		return entry, nil
+	}
+	if len(set.Checks) == 0 {
+		entry.Evidence = assemblyHostEvidenceNone
+		return entry, nil
+	}
+	entry.ContractDigest = set.ContractDigest
+	results := make([]hostCheckResult, 0, len(set.Checks))
+	for _, check := range set.Checks {
+		resolved, found, err := resolveAssemblyHostCheck(ctx, engine, candidate, tree, set, check)
+		if err != nil {
+			if IsCode(err, "JOURNAL_READ_FAILED") {
+				return productionAssemblyChecksEvidence{}, err
+			}
+			if entry.Reason == "" {
+				entry.Reason = runtimeErrorCode(err)
+			}
+			continue
+		}
+		if !found {
+			if entry.Reason == "" {
+				entry.Reason = "HOST_CHECK_EVIDENCE_MISSING"
+			}
+			continue
+		}
+		result := resolved.Result
+		if result.Outcome != protocol.CheckOutcomePass && entry.Reason == "" {
+			entry.Reason = "HOST_CHECK_FAILED"
+		}
+		results = append(results, result)
+		entry.Checks = append(entry.Checks, productionAssemblyHostCheck{
+			Check: result.Check, Outcome: result.Outcome,
+			ExitCode: result.ExitCode, OutputDigest: result.OutputDigest,
+			HostEffect: result.EffectID, ReusedFrom: resolved.ReusedFrom,
+		})
+	}
+	if entry.Reason != "" {
+		return entry, nil
+	}
+	manifest, buildErr := buildAssemblyHostCheckResultsManifest(
+		state.Release, state.Plan.Metadata.Revision, candidate,
+		set.ContractDigest, results)
+	if buildErr != nil {
+		entry.Reason = "CORRUPT_JOURNAL"
+		return entry, nil
+	}
+	entry.Evidence = assemblyHostEvidenceProven
+	entry.ManifestDigest = protocol.DigestBytes(manifest)
+	entry.ReceiptBindsManifest = entry.ManifestDigest == receiptChecks
+	return entry, nil
 }
 
 // captureAssemblySliceEvidence proves one evidence pin's host evidence. Every
@@ -2180,7 +2294,73 @@ func validAssemblyHostEvidence(evidence *productionHostEvidence) bool {
 			return false
 		}
 	}
-	return rollup.MatchingSlice == "" || matched
+	if rollup.MatchingSlice != "" && !matched {
+		return false
+	}
+	return rollup.Assembly == nil || validAssemblyChecksEvidence(evidence, rollup.Assembly)
+}
+
+// validAssemblyChecksEvidence checks the shape of the roll-up's assembly
+// section: it binds the roll-up's candidate and tree; a proven section
+// carries the union contract digest, a manifest digest and at least one
+// check, every check a unique recorded pass citing its effect; a missing
+// section carries a reason and only well-formed checks; a none_declared
+// section carries nothing; and the receipt binding claim can only be made
+// for the receipt's own checks digest.
+func validAssemblyChecksEvidence(
+	evidence *productionHostEvidence,
+	section *productionAssemblyChecksEvidence,
+) bool {
+	if section.Candidate != evidence.Candidate ||
+		section.Tree != evidence.Assembly.AssemblyTree ||
+		(section.ReceiptBindsManifest &&
+			(section.Evidence != assemblyHostEvidenceProven ||
+				section.ManifestDigest != evidence.ManifestDigest)) {
+		return false
+	}
+	checks := make(map[string]struct{}, len(section.Checks))
+	for _, check := range section.Checks {
+		if check.Check == "" ||
+			!runtimeIdentityPattern.MatchString(check.Outcome) ||
+			!runtimeDigestPattern.MatchString(check.OutputDigest) ||
+			check.HostEffect == "" ||
+			(check.ReusedFrom != "" && !runtimeIdentityPattern.MatchString(check.ReusedFrom)) {
+			return false
+		}
+		if _, duplicate := checks[check.Check]; duplicate {
+			return false
+		}
+		checks[check.Check] = struct{}{}
+	}
+	switch section.Evidence {
+	case assemblyHostEvidenceProven:
+		if section.Reason != "" ||
+			!runtimeDigestPattern.MatchString(section.ContractDigest) ||
+			!runtimeDigestPattern.MatchString(section.ManifestDigest) ||
+			len(section.Checks) == 0 {
+			return false
+		}
+		for _, check := range section.Checks {
+			if check.Outcome != protocol.CheckOutcomePass {
+				return false
+			}
+		}
+	case assemblyHostEvidenceMissing:
+		if !runtimeIdentityPattern.MatchString(section.Reason) ||
+			section.ManifestDigest != "" ||
+			(section.ContractDigest != "" &&
+				!runtimeDigestPattern.MatchString(section.ContractDigest)) {
+			return false
+		}
+	case assemblyHostEvidenceNone:
+		if section.Reason != "" || len(section.Checks) != 0 ||
+			section.ContractDigest != "" || section.ManifestDigest != "" {
+			return false
+		}
+	default:
+		return false
+	}
+	return true
 }
 
 func leadReviewBeforeFromBinding(binding *productionLeadPlanBinding, authority productionAuthorityBinding) string {

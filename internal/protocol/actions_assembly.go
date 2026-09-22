@@ -19,6 +19,9 @@ func (a *Actions) PrepareAssembly(input PrepareAssemblyInput) (ActionResult, err
 	}
 	var checkResults []byte
 	if input.CheckResults != nil {
+		if input.CheckResultsFor != nil {
+			return ActionResult{}, recordFail("INVALID_ACTION_INPUT", "checkResults and checkResultsFor are mutually exclusive")
+		}
 		if len(input.CheckResults) > MaxEvidenceBytes {
 			return ActionResult{}, recordFail("INVALID_ACTION_INPUT", fmt.Sprintf("checkResults must be at most %d bytes", MaxEvidenceBytes))
 		}
@@ -49,6 +52,11 @@ func (a *Actions) PrepareAssembly(input PrepareAssemblyInput) (ActionResult, err
 	existing := state.Assembly.Candidate
 	if existing != nil && existing.Receipt.Target != nil &&
 		*existing.Receipt.Target == target && inputsEqual(existing.Receipt.Inputs, inputs) {
+		// The reused candidate's receipt already binds its checks digest;
+		// the engine still records this run's own evidence for it.
+		if _, err := composedCheckResults(input, *existing.Receipt.Candidate); err != nil {
+			return ActionResult{}, err
+		}
 		result := actionResult("prepareAssembly", false)
 		result.Release, result.Direct, result.Candidate = release, false, *existing.Receipt.Candidate
 		result.Inputs, result.ReceiptCommit = cloneInputs(inputs), existing.OID
@@ -67,8 +75,13 @@ func (a *Actions) PrepareAssembly(input PrepareAssemblyInput) (ActionResult, err
 	if err != nil {
 		return ActionResult{}, err
 	}
+	if composed, err := composedCheckResults(input, candidate); err != nil {
+		return ActionResult{}, err
+	} else if composed != nil {
+		checkResults = composed
+	}
 	checks := ""
-	if input.CheckResults != nil {
+	if checkResults != nil {
 		checks = DigestBytes(checkResults)
 	} else {
 		canonical, err := canonicalJSON(stringMapAny(inputs))
@@ -116,6 +129,36 @@ func (a *Actions) PrepareAssembly(input PrepareAssemblyInput) (ActionResult, err
 	result.Inputs, result.ReceiptCommit, result.Receipt =
 		cloneInputs(inputs), prepared.Commit, &parsedReceipt
 	return result, nil
+}
+
+// composedCheckResults asks the engine's CheckResultsFor hook for the
+// check-results manifest of the exact composed candidate and admits it: it
+// must be a well-formed sworn.check-results/v1 manifest within the evidence
+// cap that binds this candidate whenever it asserts one, so the receipt's
+// checks digest can never cover evidence about a different tree. A nil
+// manifest means no host checks are declared and keeps the input-pin digest.
+func composedCheckResults(input PrepareAssemblyInput, candidate string) ([]byte, error) {
+	if input.CheckResultsFor == nil {
+		return nil, nil
+	}
+	manifest, err := input.CheckResultsFor(candidate)
+	if err != nil {
+		return nil, err
+	}
+	if manifest == nil {
+		return nil, nil
+	}
+	if len(manifest) > MaxEvidenceBytes {
+		return nil, recordFail("INVALID_ACTION_INPUT", fmt.Sprintf("checkResults must be at most %d bytes", MaxEvidenceBytes))
+	}
+	parsed, err := ParseCheckResults(manifest)
+	if err != nil {
+		return nil, err
+	}
+	if parsed.Slice != "" || (parsed.Candidate != "" && parsed.Candidate != candidate) {
+		return nil, recordFail("STALE_BINDING", "assembly check results do not bind the composed candidate")
+	}
+	return append([]byte(nil), manifest...), nil
 }
 
 func (a *Actions) MergePassedCandidate(input MergePassedCandidateInput) (ActionResult, error) {

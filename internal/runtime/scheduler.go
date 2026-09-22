@@ -1446,7 +1446,19 @@ func (s *Service) dispatchRoleWithScope(ctx context.Context, engine *engine, wor
 	return driver.Submission{}, runtimeFail("EFFECT_PARKED", nil)
 }
 
-func persistedProtocolAction(engine *engine, kind string,
+// persistedProtocolAction rebuilds the callback for a journaled protocol
+// action from its persisted command. The prepare_assembly callback installs
+// the engine's host-check hook (sworn#343): the assembly's declared host
+// checks run against the exact composed candidate inside the action, so a
+// failing check fails the action operationally under HOST_CHECK_FAILED and
+// the ordinary try budget and exhaustion park apply; the hook is engine
+// state, never part of the persisted input, so the journaled command is
+// unchanged and a crash recovery installs it again here.
+func (s *Service) persistedProtocolAction(
+	ctx context.Context,
+	engine *engine,
+	owner journal.OwnerLease,
+	kind string,
 	command protocolActionCommand,
 ) (
 	func() (protocol.ActionResult, error),
@@ -1478,6 +1490,12 @@ func persistedProtocolAction(engine *engine, kind string,
 		if parseCanonicalActionInput(command.Input, &input) != nil ||
 			input.Release != command.Authority.Release {
 			return nil, nil, runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		if input.CheckResults == nil {
+			authority := command.Authority
+			input.CheckResultsFor = func(candidate string) ([]byte, error) {
+				return s.assemblyCheckResultsFor(ctx, engine, owner, authority, candidate)
+			}
 		}
 		var cleanupErr error
 		return func() (protocol.ActionResult, error) {
@@ -1566,13 +1584,22 @@ func (s *Service) finishClaimedAction(ctx context.Context, owner journal.OwnerLe
 
 func (s *Service) finishClaimedFailure(ctx context.Context, owner journal.OwnerLease,
 	effect journal.Effect, code string) error {
+	return s.finishClaimedFailureResult(ctx, owner, effect, code, nil)
+}
+
+// finishClaimedFailureResult completes a claimed effect as operationally
+// failed under code, recording result as its durable refusal detail when the
+// failure carries one (a typed host-check failure names its check); nil
+// records no result, exactly as finishClaimedFailure always has.
+func (s *Service) finishClaimedFailureResult(ctx context.Context, owner journal.OwnerLease,
+	effect journal.Effect, code string, result []byte) error {
 	assocBody := MarshalAssociation(EventAssociation{
 		EffectID: effect.ID,
 		WorkID:   effect.BeforeDigest,
 	})
 	completion := journal.Completion{
 		RunID: owner.RunID, EffectID: effect.ID, Token: effect.CurrentClaim,
-		State: journal.OperationalFailed, ErrorCode: code,
+		State: journal.OperationalFailed, ErrorCode: code, Result: result,
 		EventKind: "effect_operational_failure", EventBody: assocBody,
 		At: s.now().UTC(),
 	}
@@ -1691,8 +1718,9 @@ func (s *Service) reconcileClaimedProtocolAction(ctx context.Context, engine *en
 			return actionAmbiguous, protocol.ActionResult{},
 				runtimeFail("RECOVERY_UNCERTAIN", errors.Join(actionErr, classifyErr))
 		default:
-			if err := s.finishClaimedFailure(
-				ctx, owner, effect, stableErrorCode(actionErr)); err != nil {
+			if err := s.finishClaimedFailureResult(
+				ctx, owner, effect, stableErrorCode(actionErr),
+				hostCheckFailureResult(actionErr)); err != nil {
 				return after, protocol.ActionResult{}, err
 			}
 			return after, protocol.ActionResult{}, actionErr
@@ -1760,7 +1788,7 @@ func (s *Service) runAction(ctx context.Context, engine *engine, owner journal.O
 			),
 		)
 	}
-	action, cleanup, err := persistedProtocolAction(engine, kind, persisted)
+	action, cleanup, err := s.persistedProtocolAction(ctx, engine, owner, kind, persisted)
 	if err != nil {
 		return protocol.ActionResult{}, err
 	}
@@ -6307,8 +6335,10 @@ func (s *Service) recoverClaimedProtocolAction(ctx context.Context, engine *engi
 				return true, runtimeFail("CORRUPT_JOURNAL", nil)
 			}
 		}
-		action, cleanup, err := persistedProtocolAction(
+		action, cleanup, err := s.persistedProtocolAction(
+			ctx,
 			engine,
+			owner,
 			effect.Kind,
 			persisted,
 		)
@@ -7158,6 +7188,13 @@ func withReleaseAssembly(
 	)
 }
 
+// prepareAssembly composes the assembly candidate through the journaled
+// prepare_assembly action. The persisted action (persistedProtocolAction)
+// runs the assembly's declared host checks against the exact composed
+// candidate before its receipt is rendered (sworn#343), so the receipt's
+// checks digest is the digest of the engine-built manifest whenever a slice
+// declares host checks, and a failing check fails the action operationally
+// under HOST_CHECK_FAILED.
 func (s *Service) prepareAssembly(ctx context.Context, engine *engine, owner journal.OwnerLease, state protocol.State) error {
 	input := protocol.PrepareAssemblyInput{Release: state.Release,
 		Summary: "Compose all exact passed track candidates.",
