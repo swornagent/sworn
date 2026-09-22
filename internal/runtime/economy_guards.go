@@ -944,6 +944,15 @@ func exhaustedWorks(
 				code:   effect.ErrorCode,
 				detail: "EMPTY_CANDIDATE: implementation produced no change to seal",
 			}
+		} else if effect.ErrorCode == "HOST_CHECK_FAILED" {
+			// An assembly preparation whose declared host check failed
+			// against the assembled tree (sworn#343) records the refusal
+			// binding naming that check; the park carries it verbatim.
+			if detail := hostCheckExhaustionDetail(effect.Result); detail != "" {
+				refusals[work] = exhaustionRefusalFacts{
+					code: effect.ErrorCode, detail: detail,
+				}
+			}
 		} else if effect.ErrorCode == "ANCHOR_GATE_UNREADABLE" {
 			// S1-seal-time-gates A5's fail-closed anchor-gate code: the gate
 			// could not read its own input (an unreadable base tree or an
