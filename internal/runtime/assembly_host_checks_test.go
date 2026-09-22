@@ -10,8 +10,12 @@ import (
 	"github.com/swornagent/sworn/internal/protocol"
 )
 
-// assemblyHostCheckEffects returns every succeeded check.host effect in the
-// journal keyed by an assembly candidate (an empty slice), by check.
+// assemblyHostCheckEffects returns, per check, the succeeded check.host
+// effect that speaks for an assembly candidate (an empty slice): the one
+// bounded re-execution when it succeeded, otherwise the first execution,
+// exactly as latestJournaledHostCheck prefers. The snapshot orders effects
+// by content-addressed id, so a last-writer-wins map would pick either at
+// random from run to run.
 func (f *assemblyHostEvidenceFixture) assemblyHostCheckEffects(t *testing.T) map[string]journal.Effect {
 	t.Helper()
 	snapshot, err := f.store.Snapshot(f.ctx, f.owner.RunID)
@@ -27,9 +31,15 @@ func (f *assemblyHostEvidenceFixture) assemblyHostCheckEffects(t *testing.T) map
 		if err := json.Unmarshal(effect.Result, &result); err != nil {
 			t.Fatal(err)
 		}
-		if result.Slice == "" {
-			effects[result.Check] = effect
+		if result.Slice != "" {
+			continue
 		}
+		work := assemblyHostCheckWork(result.Candidate, result.ContractDigest, result.Check)
+		latest, latestID, err := latestJournaledHostCheck(f.ctx, f.engine, work)
+		if err != nil || latestID != effect.ID {
+			continue
+		}
+		effects[result.Check] = latest
 	}
 	return effects
 }
@@ -233,6 +243,16 @@ func TestAssemblyPreparationRefusesOnFailingHostCheck(t *testing.T) {
 	}
 	if result.Outcome != protocol.CheckOutcomeFail || result.RerunOf == "" {
 		t.Fatalf("assembly check result = %#v, want the re-executed fail", result)
+	}
+	// The reader the preparation and the roll-up share resolves the same
+	// re-execution for the assembly identity, and its record names the first
+	// execution it replaced.
+	assemblyWork := assemblyHostCheckWork(result.Candidate, result.ContractDigest, hostCheck)
+	latest, latestID, err := latestJournaledHostCheck(f.ctx, f.engine, assemblyWork)
+	if err != nil || latestID != hostCheckRerunEffectID(assemblyWork) ||
+		latest.ID != effects[hostCheck].ID || result.RerunOf != hostCheckEffectID(assemblyWork) {
+		t.Fatalf("latest assembly effect = %s (%v), want rerun %s of %s",
+			latestID, err, hostCheckRerunEffectID(assemblyWork), hostCheckEffectID(assemblyWork))
 	}
 	snapshot, err := f.store.Snapshot(f.ctx, f.owner.RunID)
 	if err != nil {
