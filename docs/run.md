@@ -481,6 +481,24 @@ consumers can observe the stop without waiting for another scheduler tick.
 This does not invent a human approval question or authorize an automatic
 budget increase.
 
+## Assembly host-check evidence
+
+An assembly runs no host checks of its own: its receipt's checks digest
+covers the input-pin map, and the only host-boundary evidence for the
+assembled product is what each track's final slice candidate already
+recorded. The assembly verification dispatch therefore receives the same
+`protocol/host-evidence.json` input as a slice verification, but as a
+per-slice roll-up (`sworn.assembly-host-evidence/v1`): one entry per
+evidence pin with its slice, candidate, contract digest, manifest digest
+and each journaled host check's outcome and exit code, plus whether the
+assembly candidate's tree is the tree of one of those verified candidates.
+Each entry is proven the way the seal bound it: the journaled `check.host`
+results must rebuild exactly the manifest the candidate receipt's checks
+digest covers. A pin whose evidence cannot be read or proven is projected as
+`"evidence": "missing"` with a reason code, never as a pass, and the dispatch
+still prepares, so the Verifier sees which slice lacks proof instead of no
+projection at all.
+
 ## Submission-refusal repair input
 
 When a submitted handoff is refused for a field-level reason (an

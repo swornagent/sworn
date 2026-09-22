@@ -104,6 +104,21 @@ type productionEvidenceBinding struct {
 const (
 	productionHostEvidencePath    = "protocol/host-evidence.json"
 	productionHostEvidenceVersion = "sworn.host-evidence/v1"
+	// productionAssemblyHostEvidenceVersion identifies the per-slice roll-up
+	// an assembly verification receives at the same input path (#343). It
+	// is a distinct schema because its body is a list of slice proofs, not
+	// one slice's manifest, so a reader can never confuse the two.
+	productionAssemblyHostEvidenceVersion = "sworn.assembly-host-evidence/v1"
+
+	// assemblyHostEvidenceProven means the slice's journaled check.host
+	// results rebuild the exact manifest its candidate receipt's checks
+	// digest covers. assemblyHostEvidenceMissing means they could not be
+	// read or proven; the reason names why, and it is never a pass.
+	// assemblyHostEvidenceNone means the slice's approved contract declares
+	// no host checks, so there is nothing to prove.
+	assemblyHostEvidenceProven  = "proven"
+	assemblyHostEvidenceMissing = "missing"
+	assemblyHostEvidenceNone    = "none_declared"
 )
 
 // productionHostEvidence projects the engine's recorded host-boundary check
@@ -121,8 +136,57 @@ type productionHostEvidence struct {
 	ContractDigest string                      `json:"contract_digest"`
 	ManifestDigest string                      `json:"manifest_digest"`
 	Results        []productionHostCheckResult `json:"results"`
-	Input          driver.Input                `json:"input"`
-	body           []byte
+	// Assembly carries the per-slice roll-up an AssemblyVerification
+	// dispatch receives instead of Results (#343). Slice is empty,
+	// Candidate is the assembly candidate, ContractDigest is empty (no
+	// single contract governs an assembly) and ManifestDigest is the
+	// assembly receipt's own checks digest. Nil on every slice dispatch, so
+	// the WorkVerification projection stays byte-identical.
+	Assembly *productionAssemblyHostEvidence `json:"assembly,omitempty"`
+	Input    driver.Input                    `json:"input"`
+	body     []byte
+}
+
+// productionAssemblyHostEvidence is the roll-up body projected as
+// protocol/host-evidence.json for an assembly verification: one entry per
+// evidence pin (the final passed slice of each track), each proven against
+// its own candidate receipt, plus whether the assembly candidate's tree is
+// the tree of one of those already-verified slice candidates. It is derived
+// only from Protocol state and the journal, so a retry re-derives the same
+// bytes.
+type productionAssemblyHostEvidence struct {
+	SchemaVersion string `json:"schema_version"`
+	Candidate     string `json:"candidate"`
+	// AssemblyTree is the assembly candidate's Git tree. MatchingSlice names
+	// the evidence pin whose candidate has exactly that tree, or is empty
+	// when none does (a multi-track composition is a merge and matches no
+	// pin). TreeMatchesLastVerifiedCandidate is MatchingSlice != "".
+	AssemblyTree                     string                            `json:"assembly_tree"`
+	MatchingSlice                    string                            `json:"matching_slice,omitempty"`
+	TreeMatchesLastVerifiedCandidate bool                              `json:"assembly_tree_matches_last_verified_candidate"`
+	Slices                           []productionAssemblySliceEvidence `json:"slices"`
+}
+
+type productionAssemblySliceEvidence struct {
+	Slice            string `json:"slice"`
+	CandidateReceipt string `json:"candidate_receipt"`
+	Candidate        string `json:"candidate"`
+	CandidateTree    string `json:"candidate_tree"`
+	ContractDigest   string `json:"contract_digest,omitempty"`
+	ManifestDigest   string `json:"manifest_digest,omitempty"`
+	// Evidence is one of assemblyHostEvidenceProven, ...Missing or ...None.
+	// Reason is the stable code explaining a missing proof.
+	Evidence string                        `json:"evidence"`
+	Reason   string                        `json:"reason,omitempty"`
+	Checks   []productionAssemblyHostCheck `json:"checks,omitempty"`
+}
+
+type productionAssemblyHostCheck struct {
+	Check        string `json:"check"`
+	Outcome      string `json:"outcome"`
+	ExitCode     int    `json:"exit_code"`
+	OutputDigest string `json:"output_digest"`
+	HostEffect   string `json:"host_effect"`
 }
 
 type productionHostCheckResult struct {
@@ -865,7 +929,10 @@ func captureProtocolWorkContext(
 			return err
 		}
 		workContext.Evidence, err = assemblyEvidence(state)
-		return err
+		if err != nil {
+			return err
+		}
+		return captureAssemblyHostEvidence(ctx, engine, state, workContext)
 	}
 	slice, ok := state.Slice(coordinates.Slice)
 	if !ok || slice.Attempt != coordinates.ProtocolAttempt ||
@@ -1024,6 +1091,250 @@ func captureHostEvidence(
 		body: body,
 	}
 	return nil
+}
+
+// captureAssemblyHostEvidence projects the recorded host-boundary evidence
+// of every evidence pin into an AssemblyVerification work context (#343).
+// An assembly runs no host checks of its own: its receipt's checks digest
+// covers the input-pin map, so the only host evidence that exists for the
+// assembled product is what the slice candidates already recorded. For each
+// pin this reads the journaled check.host effects for that slice candidate
+// and proves them against the candidate receipt's checks digest exactly as
+// the seal bound them: the git.seal record's manifest bytes must digest to
+// the receipt's checks digest, and the manifest rebuilt from the journaled
+// results must equal those bytes. The role entry's digest and the attempt
+// are carried through from the sealed manifest; the journal witnesses every
+// host entry.
+//
+// It fails closed per slice, never per dispatch: a pin whose evidence cannot
+// be read or proven is projected as assemblyHostEvidenceMissing with the
+// reason, so the verifier sees exactly which slice lacks proof instead of
+// seeing no projection at all. Only an unreadable journal, which every other
+// capture on this path already refuses, fails the dispatch.
+func captureAssemblyHostEvidence(
+	ctx context.Context,
+	engine *engine,
+	state protocol.State,
+	workContext *productionWorkContext,
+) error {
+	if engine == nil || workContext == nil || workContext.Plan == nil ||
+		workContext.Candidate == nil || state.Assembly.Candidate == nil ||
+		state.Assembly.Candidate.Receipt.Checks == nil ||
+		len(workContext.Evidence) == 0 {
+		return nil
+	}
+	plan, err := protocol.ParsePlan(workContext.Plan.body)
+	if err != nil || plan.Digest() != workContext.Plan.Digest {
+		return nil
+	}
+	assemblyTree, err := commitTreeOID(engine, workContext.Candidate.Commit)
+	if err != nil {
+		return nil
+	}
+	snapshot, err := engineSnapshot(ctx, engine)
+	if err != nil {
+		return err
+	}
+	records := journaledSealedRecords(snapshot)
+	rollup := productionAssemblyHostEvidence{
+		SchemaVersion: productionAssemblyHostEvidenceVersion,
+		Candidate:     workContext.Candidate.Commit,
+		AssemblyTree:  assemblyTree,
+		Slices:        make([]productionAssemblySliceEvidence, 0, len(workContext.Evidence)),
+	}
+	for _, pin := range workContext.Evidence {
+		entry, entryErr := captureAssemblySliceEvidence(
+			ctx, engine, state, plan, pin, records)
+		if entryErr != nil {
+			return entryErr
+		}
+		if entry.CandidateTree != "" && entry.CandidateTree == assemblyTree &&
+			rollup.MatchingSlice == "" {
+			rollup.MatchingSlice = entry.Slice
+		}
+		rollup.Slices = append(rollup.Slices, entry)
+	}
+	rollup.TreeMatchesLastVerifiedCandidate = rollup.MatchingSlice != ""
+	body := mustJSON(rollup)
+	workContext.HostEvidence = &productionHostEvidence{
+		SchemaVersion:  productionAssemblyHostEvidenceVersion,
+		Candidate:      workContext.Candidate.Commit,
+		ManifestDigest: *state.Assembly.Candidate.Receipt.Checks,
+		Assembly:       &rollup,
+		Input: driver.Input{
+			Name:   "host-evidence",
+			Path:   productionHostEvidencePath,
+			Digest: driver.Digest(body),
+		},
+		body: body,
+	}
+	return nil
+}
+
+// captureAssemblySliceEvidence proves one evidence pin's host evidence. Every
+// failure short of an unreadable journal is projected as missing with a
+// stable reason code, never returned.
+func captureAssemblySliceEvidence(
+	ctx context.Context,
+	engine *engine,
+	state protocol.State,
+	plan protocol.Plan,
+	pin productionEvidenceBinding,
+	records map[string]sealedRecord,
+) (productionAssemblySliceEvidence, error) {
+	entry := productionAssemblySliceEvidence{
+		Slice:            pin.Slice,
+		CandidateReceipt: pin.CandidateReceipt,
+		Candidate:        pin.Candidate,
+		Evidence:         assemblyHostEvidenceMissing,
+	}
+	if tree, err := commitTreeOID(engine, pin.Candidate); err == nil {
+		entry.CandidateTree = tree
+	}
+	slice, ok := state.Slice(pin.Slice)
+	if !ok || slice.Candidate == nil || slice.Candidate.OID != pin.CandidateReceipt ||
+		slice.Candidate.Receipt.Checks == nil {
+		entry.Reason = "CHECKS_DIGEST_ABSENT"
+		return entry, nil
+	}
+	checksDigest := *slice.Candidate.Receipt.Checks
+	hostChecks, contractDigest, err := resolveSliceHostChecks(
+		engine, plan, pin.Slice, state.Refs.Target.Head, state.Refs.Release.Head)
+	if err != nil {
+		entry.Reason = "CONTRACT_RESOLUTION_FAILED"
+		return entry, nil
+	}
+	entry.ContractDigest = contractDigest
+	if len(hostChecks) == 0 {
+		entry.Evidence = assemblyHostEvidenceNone
+		entry.ManifestDigest = checksDigest
+		return entry, nil
+	}
+	results, err := readJournaledHostResults(
+		ctx, engine, pin.Slice, pin.Candidate, contractDigest, hostChecks)
+	if err != nil {
+		// An absent check.host effect is missing evidence; any other journal
+		// read failure is operational and refuses the dispatch as every
+		// other capture on this path does.
+		switch {
+		case journal.IsCode(err, "EFFECT_NOT_FOUND"):
+			entry.Reason = "HOST_CHECK_EVIDENCE_MISSING"
+		case IsCode(err, "JOURNAL_READ_FAILED"):
+			return productionAssemblySliceEvidence{}, err
+		default:
+			entry.Reason = runtimeErrorCode(err)
+		}
+		return entry, nil
+	}
+	record, found := records[sealedRecordKey(pin.Slice, pin.Candidate)]
+	if !found {
+		entry.Reason = "SEAL_RECORD_MISSING"
+		return entry, nil
+	}
+	if reason := proveSliceHostManifest(
+		state.Release, pin.Slice, pin.Candidate, contractDigest,
+		checksDigest, results, record.Receipt.CheckResults,
+	); reason != "" {
+		entry.Reason = reason
+		return entry, nil
+	}
+	entry.Evidence = assemblyHostEvidenceProven
+	entry.ManifestDigest = checksDigest
+	entry.Checks = make([]productionAssemblyHostCheck, len(results))
+	for index, result := range results {
+		entry.Checks[index] = productionAssemblyHostCheck{
+			Check: result.Check, Outcome: result.Outcome,
+			ExitCode: result.ExitCode, OutputDigest: result.OutputDigest,
+			HostEffect: result.EffectID,
+		}
+	}
+	return entry, nil
+}
+
+// proveSliceHostManifest proves that manifest (the sealed record's checks
+// evidence) is exactly what checksDigest covers and that it is the manifest
+// the journaled results rebuild. It returns an empty string on proof or a
+// stable reason code. The attempt and the role entry's digest are the two
+// fields with no journal witness here and are carried through unchanged,
+// as validateHostCheckEvidenceProof carries the attempt.
+func proveSliceHostManifest(
+	release, sliceID, candidate, contractDigest, checksDigest string,
+	results []hostCheckResult,
+	manifest []byte,
+) string {
+	if len(manifest) == 0 || protocol.DigestBytes(manifest) != checksDigest {
+		return "CHECKS_DIGEST_MISMATCH"
+	}
+	parsed, err := protocol.ParseCheckResults(manifest)
+	if err != nil || parsed.Slice != sliceID || parsed.Candidate != candidate ||
+		parsed.ContractDigest != contractDigest {
+		return "CORRUPT_JOURNAL"
+	}
+	roleDigest := ""
+	for _, entry := range parsed.Entries {
+		if entry.Provenance == protocol.CheckProvenanceRole {
+			roleDigest = entry.RoleDigest
+		}
+	}
+	rebuilt, err := buildHostCheckResultsManifest(
+		release, sliceID, parsed.Attempt, candidate, contractDigest,
+		results, roleDigest)
+	if err != nil || !bytes.Equal(rebuilt, manifest) {
+		return "CHECKS_DIGEST_MISMATCH"
+	}
+	return ""
+}
+
+// journaledSealedRecords indexes every succeeded git.seal record in the
+// snapshot by slice and candidate. A result whose digest does not match the
+// effect's recorded digest, or that is not a sealed record, is skipped, so a
+// pin can only ever be proven against bytes the journal vouches for.
+func journaledSealedRecords(snapshot journal.Snapshot) map[string]sealedRecord {
+	records := make(map[string]sealedRecord)
+	for _, effect := range snapshot.Effects {
+		if effect.Kind != "git.seal" || effect.State != journal.Succeeded ||
+			effect.ResultDigest != sha256Digest(effect.Result) {
+			continue
+		}
+		var record sealedRecord
+		if json.Unmarshal(effect.Result, &record) != nil ||
+			record.Slice == "" || record.Candidate == "" {
+			continue
+		}
+		key := sealedRecordKey(record.Slice, record.Candidate)
+		if _, duplicate := records[key]; duplicate {
+			continue
+		}
+		records[key] = record
+	}
+	return records
+}
+
+func sealedRecordKey(sliceID, candidate string) string {
+	return sliceID + "\x00" + candidate
+}
+
+func commitTreeOID(engine *engine, commit string) (string, error) {
+	if engine == nil || engine.repository == nil {
+		return "", runtimeFail("INVALID_ENGINE", nil)
+	}
+	oid, err := gitx.ParseOID(engine.repository.ObjectFormat(), commit)
+	if err != nil {
+		return "", err
+	}
+	tree, err := engine.repository.TreeOID(oid)
+	if err != nil {
+		return "", err
+	}
+	return tree.String(), nil
+}
+
+func runtimeErrorCode(err error) string {
+	var runtimeErr *Error
+	if errors.As(err, &runtimeErr) && runtimeErr.Code != "" {
+		return runtimeErr.Code
+	}
+	return "HOST_CHECK_EVIDENCE_MISSING"
 }
 
 func productionHostResults(
@@ -1629,19 +1940,38 @@ func validateProductionWorkContext(
 	}
 	if workContext.HostEvidence != nil {
 		evidence := workContext.HostEvidence
-		if evidence.SchemaVersion != productionHostEvidenceVersion ||
-			evidence.Slice != workContext.Slice ||
-			evidence.Slice == "" ||
+		if evidence.Slice != workContext.Slice ||
 			!validGitObjectID(evidence.Candidate) ||
-			!runtimeDigestPattern.MatchString(evidence.ContractDigest) ||
 			!runtimeDigestPattern.MatchString(evidence.ManifestDigest) ||
 			evidence.Input.Name != "host-evidence" ||
 			evidence.Input.Path != productionHostEvidencePath ||
 			!runtimeDigestPattern.MatchString(evidence.Input.Digest) ||
-			len(evidence.Results) == 0 ||
-			workContext.Responsibility != driver.WorkVerification ||
 			workContext.Candidate == nil ||
 			workContext.Candidate.Commit != evidence.Candidate {
+			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		// Host evidence is admitted on exactly two responsibilities: a slice
+		// verification carries one slice's manifest, and an assembly
+		// verification (Slice empty) carries the per-slice roll-up (#343).
+		// Every other combination is refused.
+		switch workContext.Responsibility {
+		case driver.WorkVerification:
+			if evidence.SchemaVersion != productionHostEvidenceVersion ||
+				evidence.Slice == "" ||
+				evidence.Assembly != nil ||
+				!runtimeDigestPattern.MatchString(evidence.ContractDigest) ||
+				len(evidence.Results) == 0 {
+				return runtimeFail("CORRUPT_JOURNAL", nil)
+			}
+		case driver.AssemblyVerification:
+			if evidence.SchemaVersion != productionAssemblyHostEvidenceVersion ||
+				evidence.Slice != "" ||
+				evidence.ContractDigest != "" ||
+				len(evidence.Results) != 0 ||
+				!validAssemblyHostEvidence(evidence) {
+				return runtimeFail("CORRUPT_JOURNAL", nil)
+			}
+		default:
 			return runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 		seen := make(map[string]struct{}, len(evidence.Results))
@@ -1782,6 +2112,75 @@ func validateProductionWorkContext(
 		return runtimeFail("CORRUPT_JOURNAL", nil)
 	}
 	return nil
+}
+
+// validAssemblyHostEvidence checks the shape of an assembly roll-up: it
+// binds the same assembly candidate, every slice entry is unique and names
+// its candidate, a proven entry carries digests and at least one check, a
+// missing entry carries a reason, and the tree flag agrees with the named
+// matching slice.
+func validAssemblyHostEvidence(evidence *productionHostEvidence) bool {
+	rollup := evidence.Assembly
+	if rollup == nil ||
+		rollup.SchemaVersion != productionAssemblyHostEvidenceVersion ||
+		rollup.Candidate != evidence.Candidate ||
+		!validGitObjectID(rollup.AssemblyTree) ||
+		rollup.TreeMatchesLastVerifiedCandidate != (rollup.MatchingSlice != "") ||
+		len(rollup.Slices) == 0 {
+		return false
+	}
+	seen := make(map[string]struct{}, len(rollup.Slices))
+	matched := false
+	for _, entry := range rollup.Slices {
+		if entry.Slice == "" || entry.CandidateReceipt == "" ||
+			!validGitObjectID(entry.Candidate) ||
+			(entry.CandidateTree != "" && !validGitObjectID(entry.CandidateTree)) {
+			return false
+		}
+		if _, duplicate := seen[entry.Slice]; duplicate {
+			return false
+		}
+		seen[entry.Slice] = struct{}{}
+		if entry.Slice == rollup.MatchingSlice {
+			matched = entry.CandidateTree == rollup.AssemblyTree
+		}
+		switch entry.Evidence {
+		case assemblyHostEvidenceProven:
+			if entry.Reason != "" ||
+				!runtimeDigestPattern.MatchString(entry.ContractDigest) ||
+				!runtimeDigestPattern.MatchString(entry.ManifestDigest) ||
+				len(entry.Checks) == 0 {
+				return false
+			}
+			checks := make(map[string]struct{}, len(entry.Checks))
+			for _, check := range entry.Checks {
+				if check.Check == "" ||
+					!runtimeIdentityPattern.MatchString(check.Outcome) ||
+					!runtimeDigestPattern.MatchString(check.OutputDigest) ||
+					check.HostEffect == "" {
+					return false
+				}
+				if _, duplicate := checks[check.Check]; duplicate {
+					return false
+				}
+				checks[check.Check] = struct{}{}
+			}
+		case assemblyHostEvidenceNone:
+			if entry.Reason != "" || len(entry.Checks) != 0 ||
+				!runtimeDigestPattern.MatchString(entry.ContractDigest) ||
+				!runtimeDigestPattern.MatchString(entry.ManifestDigest) {
+				return false
+			}
+		case assemblyHostEvidenceMissing:
+			if !runtimeIdentityPattern.MatchString(entry.Reason) ||
+				len(entry.Checks) != 0 || entry.ManifestDigest != "" {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return rollup.MatchingSlice == "" || matched
 }
 
 func leadReviewBeforeFromBinding(binding *productionLeadPlanBinding, authority productionAuthorityBinding) string {
