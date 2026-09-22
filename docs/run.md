@@ -416,6 +416,14 @@ integer from 1 to 1048576, when the provider's output ceiling is lower than
 the limit Sworn would send. Certification and dispatch then send the smaller
 of the two; leaving the field out changes nothing.
 
+A Responses adapter may also declare `reasoning_summary` (`auto`, `concise`
+or `detailed`), which asks the provider to stream a reasoning summary while
+the model thinks. Set it when a provider cuts a streaming request whose first
+event has not arrived within its own limit, since without a summary the first
+event waits for the whole think and the longest turns are exactly the ones
+dropped. The summary is rendered on the live stream only; leaving the field
+out sends `reasoning.effort` alone, as before.
+
 Sworn does not currently include a driver-config generator. Production
 provisioning should create the canonical file and use the
 `configuration_digest` reported by `sworn driver inspect` in the run manifest.

@@ -665,3 +665,101 @@ func TestOpenRouterFixturesArePresentBesideExistingDialectHome(t *testing.T) {
 		t.Fatal("responses fixture lost the named cost decoration")
 	}
 }
+
+// A streamed reasoning summary (#338) renders live as reasoning, never as
+// output text, and the terminal event's reasoning item is accepted with its
+// summary text filled in.
+func TestReadStreamedResponseRendersReasoningSummaryAsReasoning(t *testing.T) {
+	const summaryDelta = "Weighing the two candidate edits."
+	const outputDelta = "Applying the smaller edit."
+	terminalResponse := `{"id":"resp-summary-01","object":"response","status":"completed","error":null,` +
+		`"reasoning":{"effort":"high","summary":"auto"},` +
+		`"output":[` +
+		`{"type":"reasoning","id":"rs-1","status":"completed","summary":[{"type":"summary_text","text":"` + summaryDelta + `"}]},` +
+		`{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"` + outputDelta + `"}]}` +
+		`],"usage":{"input_tokens":12,"output_tokens":9,"total_tokens":21,"output_tokens_details":{"reasoning_tokens":6}}}`
+	sse := "event: response.created\n" +
+		"data: {\"type\":\"response.created\",\"response\":{\"model\":\"m\",\"reasoning\":{\"effort\":\"high\",\"summary\":\"auto\"}}}\n\n" +
+		"event: response.reasoning_summary_part.added\n" +
+		"data: {\"type\":\"response.reasoning_summary_part.added\",\"item_id\":\"rs-1\",\"part\":{\"type\":\"summary_text\",\"text\":\"\"}}\n\n" +
+		"event: response.reasoning_summary_text.delta\n" +
+		"data: {\"type\":\"response.reasoning_summary_text.delta\",\"item_id\":\"rs-1\",\"delta\":\"" + summaryDelta + "\"}\n\n" +
+		"event: response.reasoning_summary_text.done\n" +
+		"data: {\"type\":\"response.reasoning_summary_text.done\",\"item_id\":\"rs-1\",\"text\":\"" + summaryDelta + "\"}\n\n" +
+		"event: response.output_text.delta\n" +
+		"data: {\"type\":\"response.output_text.delta\",\"delta\":\"" + outputDelta + "\"}\n\n" +
+		"event: response.completed\n" +
+		"data: {\"type\":\"response.completed\",\"response\":" + terminalResponse + "}\n\n"
+	var terminal []byte
+	var terminalErr error
+	rendered := captureResponsesLiveStream(t, func() {
+		terminal, terminalErr = readStreamedResponse(
+			bytes.NewReader([]byte(sse)),
+			MaxProviderResponseBytes,
+		)
+	})
+	if terminalErr != nil {
+		t.Fatalf("summary stream = %v", terminalErr)
+	}
+	if !bytes.Equal(terminal, []byte(terminalResponse)) {
+		t.Fatalf("summary terminal = %s", terminal)
+	}
+	// The renderer prefixes a reasoning run with "· " and breaks the line
+	// before output text, so the summary appears only in the dim reasoning
+	// run and the output text only on its own line.
+	if !strings.Contains(rendered, "· "+summaryDelta+"\n") {
+		t.Fatalf("summary not rendered as reasoning: %q", rendered)
+	}
+	if !strings.Contains(rendered, "\n"+outputDelta+"\n") ||
+		strings.Contains(rendered, "· "+outputDelta) {
+		t.Fatalf("output text rendering = %q", rendered)
+	}
+	if strings.Count(rendered, summaryDelta) != 1 {
+		t.Fatalf("summary rendered more than once: %q", rendered)
+	}
+	conversation := newResponsesFixtureConversation(t, providerDialectOpenAIResponses)
+	defer conversation.close()
+	turn, err := conversation.accept(terminal)
+	if err != nil || !turn.Prose || len(turn.Calls) != 0 ||
+		turn.Usage == nil || turn.Usage.ReasoningTokens == nil ||
+		*turn.Usage.ReasoningTokens != 6 {
+		t.Fatalf("accepted summary terminal = %#v, %v", turn, err)
+	}
+}
+
+// The non-streamed accept path admits a reasoning item whose summary_text
+// parts carry text, keeps it replay-only, and still refuses a malformed part.
+func TestResponsesAcceptReasoningItemWithPopulatedSummaryText(t *testing.T) {
+	t.Parallel()
+	body := func(summary string) []byte {
+		return []byte(`{"id":"resp-summary-02","object":"response","status":"completed","error":null,"output":[` +
+			`{"type":"reasoning","id":"rs-2","status":"completed","summary":` + summary + `},` +
+			`{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"done"}]}` +
+			`],"usage":{"input_tokens":4,"output_tokens":2,"total_tokens":6}}`)
+	}
+	populated := `[{"type":"summary_text","text":"Checked the callers first."},{"type":"summary_text","text":"Then the tests."}]`
+	conversation := newResponsesFixtureConversation(t, providerDialectOpenAIResponses)
+	defer conversation.close()
+	turn, err := conversation.accept(body(populated))
+	if err != nil || !turn.Prose || len(turn.Calls) != 0 {
+		t.Fatalf("populated summary accept = %#v, %v", turn, err)
+	}
+	// The item is retained verbatim for replay only: prompt, reasoning
+	// item, message, and nothing derived from the summary text.
+	if len(conversation.input) != 3 ||
+		!bytes.Contains(conversation.input[1], []byte(`"summary":`+populated)) {
+		t.Fatalf("retained input = %d items, item 1 = %s", len(conversation.input), conversation.input[1])
+	}
+	for name, summary := range map[string]string{
+		"null text":  `[{"type":"summary_text","text":null}]`,
+		"wrong type": `[{"type":"output_text","text":"leaked"}]`,
+		"empty list": `[]`,
+	} {
+		refused := newResponsesFixtureConversation(t, providerDialectOpenAIResponses)
+		_, err := refused.accept(body(summary))
+		refused.close()
+		if !IsCode(err, "CONTINUATION_INVALID") {
+			t.Fatalf("%s error = %v", name, err)
+		}
+	}
+}
