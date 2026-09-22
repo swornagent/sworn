@@ -17,6 +17,10 @@ type responsesConversation struct {
 	// emitted as max_output_tokens on the responses surface. Zero omits the
 	// field entirely.
 	maxOutputTokens int64
+	// reasoningSummary is the adapter's reasoning_summary, emitted as
+	// reasoning.summary so the provider streams summary deltas while it
+	// thinks. Empty omits the field entirely.
+	reasoningSummary string
 }
 
 type responsesTool struct {
@@ -28,7 +32,8 @@ type responsesTool struct {
 }
 
 type responsesReasoning struct {
-	Effort string `json:"effort"`
+	Effort  string `json:"effort"`
+	Summary string `json:"summary,omitempty"`
 }
 
 type responsesFunctionOutput struct {
@@ -128,11 +133,14 @@ func (conversation *responsesConversation) request() (providerRequest, error) {
 		Tools:             conversation.tools,
 		ToolChoice:        "auto",
 		ParallelToolCalls: true,
-		Reasoning:         responsesReasoning{Effort: conversation.reasoningEffort},
-		EnableThinking:    conversation.enableThinking,
-		Store:             false,
-		Stream:            conversation.stream,
-		MaxOutputTokens:   conversation.maxOutputTokens,
+		Reasoning: responsesReasoning{
+			Effort:  conversation.reasoningEffort,
+			Summary: conversation.reasoningSummary,
+		},
+		EnableThinking:  conversation.enableThinking,
+		Store:           false,
+		Stream:          conversation.stream,
+		MaxOutputTokens: conversation.maxOutputTokens,
 	})
 	if err != nil || len(body) > MaxProviderRequestBytes {
 		clearBytes(body)
@@ -414,7 +422,10 @@ func validateResponsesReasoningItem(item map[string]any) error {
 	}
 	// DeepSeek's Responses dialect carries plaintext reasoning as
 	// content parts of type reasoning_text instead of encrypted_content;
-	// Qwen's carries a summary list of summary_text parts with null content.
+	// Qwen's carries a summary list of summary_text parts with null content,
+	// and a request with reasoning.summary set gets the same list with the
+	// streamed summary text filled in. Either way the item is retained for
+	// replay only; summary text is never read as output.
 	if parts, partsOK := item["content"].([]any); partsOK && len(parts) > 0 {
 		for _, rawPart := range parts {
 			part, partOK := rawPart.(map[string]any)

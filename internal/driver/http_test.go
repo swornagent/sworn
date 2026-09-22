@@ -424,3 +424,153 @@ func TestOpenAIAdapterOutputCeilingConfigValidationAndCanonicalForm(t *testing.T
 		t.Fatalf("explicit zero ceiling error = %v", err)
 	}
 }
+
+func TestOpenAIAdapterReasoningSummaryThreadsToResponsesRequest(t *testing.T) {
+	t.Parallel()
+	resolver := func(context.Context, string) ([]byte, error) {
+		return []byte("secret"), nil
+	}
+	requestBody := func(t *testing.T, config OpenAIProfileConfig) []byte {
+		t.Helper()
+		adapter, err := NewOpenAIAdapter(config, resolver, nil, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		loop, ok := adapter.(*loopAdapter)
+		if !ok {
+			t.Fatalf("adapter type = %T", adapter)
+		}
+		conversation, err := loop.new(
+			[]byte(`{}`),
+			"exact-model",
+			toolDefinitions(ReadWrite),
+			Limits{TimeoutMillis: 120_000, OutputBytes: MaxProviderOutputBytes},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conversation.close()
+		request, err := conversation.request()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return request.Body
+	}
+	base := func(stream bool) OpenAIProfileConfig {
+		return OpenAIProfileConfig{
+			HTTPProfileConfig: HTTPProfileConfig{
+				Key: "a-summary", ID: "sworn.summary", Version: "1.0.0",
+				Endpoint:         "https://provider.test/v1/responses",
+				CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
+				CredentialRefs: []string{"cred"},
+				ResponseBytes:  MaxProviderResponseBytes,
+			},
+			API:             OpenAIResponsesAPI,
+			ReasoningEffort: "high",
+			Stream:          stream,
+		}
+	}
+	reasoning := func(t *testing.T, body []byte) map[string]json.RawMessage {
+		t.Helper()
+		var sent struct {
+			Reasoning map[string]json.RawMessage `json:"reasoning"`
+		}
+		if err := json.Unmarshal(body, &sent); err != nil {
+			t.Fatal(err)
+		}
+		return sent.Reasoning
+	}
+	for _, stream := range []bool{false, true} {
+		absent := reasoning(t, requestBody(t, base(stream)))
+		if string(absent["effort"]) != `"high"` || len(absent) != 1 {
+			t.Fatalf("stream=%t absent summary reasoning = %v", stream, absent)
+		}
+		for _, value := range []string{"auto", "concise", "detailed"} {
+			config := base(stream)
+			config.ReasoningSummary = value
+			sent := reasoning(t, requestBody(t, config))
+			if string(sent["effort"]) != `"high"` ||
+				string(sent["summary"]) != `"`+value+`"` || len(sent) != 2 {
+				t.Fatalf("stream=%t summary %q reasoning = %v", stream, value, sent)
+			}
+		}
+	}
+	// The chat surface has no reasoning.summary; the field is refused there
+	// exactly as stream is, rather than silently dropped.
+	chat := base(false)
+	chat.API = OpenAIChatCompletionsAPI
+	chat.Endpoint = "https://provider.test/v1/chat/completions"
+	chat.ReasoningEffort = ""
+	if _, err := NewOpenAIAdapter(chat, resolver, nil, nil, nil); err != nil {
+		t.Fatalf("chat without summary error = %v", err)
+	}
+	chat.ReasoningSummary = "auto"
+	if _, err := NewOpenAIAdapter(chat, resolver, nil, nil, nil); !IsCode(err, "INVALID_ADAPTER") {
+		t.Fatalf("chat with summary error = %v", err)
+	}
+	invalid := base(false)
+	invalid.ReasoningSummary = "verbose"
+	if _, err := NewOpenAIAdapter(invalid, resolver, nil, nil, nil); !IsCode(err, "INVALID_ADAPTER") {
+		t.Fatalf("invalid summary error = %v", err)
+	}
+}
+
+func TestOpenAIAdapterReasoningSummaryConfigValidationAndCanonicalForm(t *testing.T) {
+	config := completeDriverConfigFixture(t)
+	before, err := EncodeDriverConfig(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(before, []byte("reasoning_summary")) {
+		t.Fatalf("absent summary leaked into canonical form: %s", before)
+	}
+	setSummary := func(key, value string) DriverConfig {
+		clone := config
+		clone.Adapters = append([]DriverAdapterConfig(nil), config.Adapters...)
+		for index := range clone.Adapters {
+			if clone.Adapters[index].OpenAI != nil &&
+				clone.Adapters[index].OpenAI.Key == key {
+				openAI := cloneOpenAIProfileConfig(*clone.Adapters[index].OpenAI)
+				openAI.ReasoningSummary = value
+				clone.Adapters[index].OpenAI = &openAI
+			}
+		}
+		return clone
+	}
+	// An explicit empty value is absence: the canonical form and digest are
+	// the same bytes as leaving the field out.
+	unchanged, err := EncodeDriverConfig(setSummary("a-openai", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(unchanged, before) || Digest(unchanged) != Digest(before) {
+		t.Fatalf("empty summary changed the canonical form: %s", unchanged)
+	}
+	for _, value := range []string{"auto", "concise", "detailed"} {
+		body, err := EncodeDriverConfig(setSummary("a-openai", value))
+		if err != nil {
+			t.Fatalf("summary %q error = %v", value, err)
+		}
+		want := []byte(`"reasoning_summary":"` + value + `"`)
+		if !bytes.Contains(body, want) {
+			t.Fatalf("summary %q missing from canonical form: %s", value, body)
+		}
+		loaded, err := DecodeDriverConfig(body)
+		if err != nil {
+			t.Fatalf("summary %q decode error = %v", value, err)
+		}
+		if loaded.ConfigurationDigest() != Digest(body) ||
+			loaded.ConfigurationDigest() == Digest(before) {
+			t.Fatalf("summary %q digest = %s", value, loaded.ConfigurationDigest())
+		}
+	}
+	for _, value := range []string{"verbose", "Auto", "auto "} {
+		if _, err := EncodeDriverConfig(setSummary("a-openai", value)); !IsCode(err, "INVALID_DRIVER_CONFIG") {
+			t.Fatalf("summary %q error = %v", value, err)
+		}
+	}
+	// A chat-completions adapter has no reasoning.summary to carry.
+	if _, err := EncodeDriverConfig(setSummary("a-openai-chat", "auto")); !IsCode(err, "INVALID_DRIVER_CONFIG") {
+		t.Fatalf("chat summary error = %v", err)
+	}
+}

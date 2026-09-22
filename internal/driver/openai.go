@@ -115,6 +115,14 @@ type OpenAIProfileConfig struct {
 	// Limits.OutputBytes and this value, for certification and dispatch
 	// alike. Omission sends Limits.OutputBytes unchanged.
 	MaxOutputTokens int64 `json:"max_output_tokens,omitempty"`
+	// ReasoningSummary asks the responses flavour to stream a reasoning
+	// summary (reasoning.summary on the request): "auto", "concise" or
+	// "detailed". A provider that cuts a stream whose first event has not
+	// been emitted within its own limit otherwise drops every turn that
+	// thinks past it; the summary makes the reasoning phase incremental. The
+	// summary is display only: the live stream renders it as reasoning and
+	// nothing else reads it. Omission sends reasoning.effort alone.
+	ReasoningSummary string `json:"reasoning_summary,omitempty"`
 }
 
 // outputLimit clamps the invocation's output bound to the adapter's declared
@@ -257,7 +265,7 @@ func NewOpenAIAdapter(
 			tools []providerToolDefinition,
 			limits Limits,
 		) (providerConversation, error) {
-			return newResponsesConversation(
+			conversation, err := newResponsesConversation(
 				config.Endpoint,
 				model,
 				tools,
@@ -268,6 +276,13 @@ func NewOpenAIAdapter(
 				dialect,
 				config.outputLimit(limits.OutputBytes),
 			)
+			if err != nil {
+				return nil, err
+			}
+			// Validated by valid() above; set here rather than widening
+			// the constructor, which the summary does not gate.
+			conversation.reasoningSummary = config.ReasoningSummary
+			return conversation, nil
 		}
 	case OpenAIChatCompletionsAPI, OpenRouterChatCompletionsAPI:
 		if config.API == OpenRouterChatCompletionsAPI {
@@ -337,8 +352,8 @@ func (config OpenAIProfileConfig) valid() bool {
 		(opaqueReasoning && (thoughtSignature || vendorUsage)) {
 		return false
 	}
-	// Streaming is a responses-flavour capability only; the chat flavours
-	// keep the exact non-streaming request shape.
+	// Streaming and the reasoning summary are responses-flavour capabilities
+	// only; the chat flavours keep the exact non-streaming request shape.
 	switch config.API {
 	case OpenAIChatCompletionsAPI, OpenRouterChatCompletionsAPI:
 		if thoughtSignature && config.API != OpenAIChatCompletionsAPI {
@@ -347,7 +362,7 @@ func (config OpenAIProfileConfig) valid() bool {
 		if vendorUsage && config.API == OpenRouterChatCompletionsAPI {
 			return false
 		}
-		return !config.Stream &&
+		return !config.Stream && config.ReasoningSummary == "" &&
 			(config.ReasoningEffort == "" ||
 				config.declaresReasoningEffort(config.ReasoningEffort))
 	case OpenAIResponsesAPI:
@@ -355,7 +370,8 @@ func (config OpenAIProfileConfig) valid() bool {
 			return false
 		}
 		return config.ReasoningEffort != "" &&
-			config.declaresReasoningEffort(config.ReasoningEffort)
+			config.declaresReasoningEffort(config.ReasoningEffort) &&
+			validReasoningSummary(config.ReasoningSummary)
 	default:
 		return false
 	}
@@ -482,6 +498,17 @@ func (conversation *openAIConversation) request() (providerRequest, error) {
 func validOpenAIReasoningEffort(value string) bool {
 	switch value {
 	case "", "none", "low", "medium", "high", "xhigh", "max":
+		return true
+	default:
+		return false
+	}
+}
+
+// validReasoningSummary admits the Responses reasoning.summary vocabulary;
+// the empty value is absence.
+func validReasoningSummary(value string) bool {
+	switch value {
+	case "", "auto", "concise", "detailed":
 		return true
 	default:
 		return false
