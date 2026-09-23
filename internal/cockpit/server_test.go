@@ -9,13 +9,16 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/protocol"
 	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 )
 
@@ -28,13 +31,19 @@ const (
 )
 
 type httpFakeProjector struct {
-	mu         sync.Mutex
-	snapshot   Snapshot
-	events     EventPage
-	eventsErr  error
-	eventAfter int64
-	eventLimit int
-	onEvents   func()
+	mu             sync.Mutex
+	snapshot       Snapshot
+	events         EventPage
+	eventsErr      error
+	eventAfter     int64
+	eventLimit     int
+	onEvents       func()
+	activity       ActivityPage
+	activityErr    error
+	activityAfter  int64
+	activityLimit  int
+	activityFilter ActivityFilter
+	onActivity     func()
 }
 
 func (f *httpFakeProjector) Snapshot(
@@ -60,6 +69,27 @@ func (f *httpFakeProjector) Events(
 	f.mu.Unlock()
 	if onEvents != nil {
 		onEvents()
+	}
+	return result, err
+}
+
+func (f *httpFakeProjector) Activity(
+	_ context.Context,
+	_ string,
+	after int64,
+	limit int,
+	filter ActivityFilter,
+) (ActivityPage, error) {
+	f.mu.Lock()
+	f.activityAfter = after
+	f.activityLimit = limit
+	f.activityFilter = filter
+	onActivity := f.onActivity
+	result := f.activity
+	err := f.activityErr
+	f.mu.Unlock()
+	if onActivity != nil {
+		onActivity()
 	}
 	return result, err
 }
@@ -1194,6 +1224,11 @@ func TestHTTPAssetsArePinnedAndUIContractIsStatic(t *testing.T) {
 		!strings.Contains(index, "Confirm every current binding") {
 		t.Errorf("UI must have one topology and one handoff ribbon")
 	}
+	if strings.Count(index, `id="activity-pane"`) != 1 ||
+		strings.Count(index, `id="activity-list"`) != 1 ||
+		strings.Count(index, `id="activity-status"`) != 1 {
+		t.Errorf("UI must have one worker activity pane for the selected work")
+	}
 	for _, forbidden := range []string{
 		"gradient", "box-shadow", "sheet-handle",
 	} {
@@ -1205,6 +1240,8 @@ func TestHTTPAssetsArePinnedAndUIContractIsStatic(t *testing.T) {
 		"@media (max-width: 72rem)",
 		"@media (max-width: 48rem)",
 		"max-height: 78svh",
+		".activity-pane",
+		".activity-turn",
 	} {
 		if !strings.Contains(css, required) {
 			t.Errorf("CSS missing %q", required)
@@ -1231,6 +1268,13 @@ func TestHTTPAssetsArePinnedAndUIContractIsStatic(t *testing.T) {
 		"Current digest:",
 		"lead-delegation/manage",
 		"Use the exact canonical envelope, including its final newline",
+		"const ACTIVITY_SCHEMA = \"sworn.activity/v1\";",
+		"activityFilterForSelected",
+		"renderActivityTurn",
+		"closeActivityStream",
+		"openActivityStream",
+		"validActivityTurn",
+		"/activity?after=",
 	} {
 		if !strings.Contains(javascript, required) {
 			t.Errorf("JavaScript missing %q", required)
@@ -1342,4 +1386,270 @@ func assertSecurityHeaders(
 			t.Errorf("CSP missing %q in %q", directive, csp)
 		}
 	}
+}
+
+// A2: the activity route serves the projection as JSON and as
+// content-bearing SSE, resumes exactly from Last-Event-ID or after with no
+// gap and no duplicate, keeps the 1s keepalive cadence, and sits behind the
+// same canonicalisation, origin, loopback and bearer rules as every other
+// run route.
+func TestHTTPActivityRouteServesJSONAndSSEWithExactResume(t *testing.T) {
+	t.Parallel()
+	handler, projector, _ := newHTTPFixture(t, testLocalHost, testLocalOrigin)
+	projector.activity = ActivityPage{
+		SchemaVersion: ActivitySchemaVersion, RunID: "run-1",
+		Turns: []ActivityTurn{
+			{Offset: 7, EffectID: "attempt/work-1/e1/t1", WorkID: "work-1", Track: "T1", Slice: "S1", Role: "implementer", Responsibility: "implementer_implementation", Attempt: 1, Try: 1, Turn: 1, Content: []ActivityPart{{Kind: "text", TotalBytes: 5, Head: "hello"}}, Results: []ActivityResult{{Sequence: 1, Tool: "Read", Failed: false, TotalBytes: 9, Head: "file data"}}, CreatedAt: time.Unix(1_700_000_000, 0).UTC()},
+			{Offset: 8, EffectID: "attempt/work-1/e1/t1", WorkID: "work-1", Track: "T1", Slice: "S1", Turn: 2, Results: []ActivityResult{{Sequence: 1, Tool: "Bash", Failed: true, TotalBytes: 4}}, CreatedAt: time.Unix(1_700_000_001, 0).UTC()},
+		},
+		ThroughOffset: 8, EventOffset: 8, Live: true,
+	}
+	jsonReq := httpRequest(http.MethodGet, testLocalOrigin+"/api/v2/runs/run-1/activity?after=0&limit=2&track=T1&slice=S1&effect_id=attempt/work-1/e1/t1", "127.0.0.1:46001", nil)
+	jsonResp := serve(handler, jsonReq)
+	if jsonResp.Code != http.StatusOK {
+		t.Fatalf("activity JSON = %d: %s", jsonResp.Code, jsonResp.Body)
+	}
+	var page ActivityPage
+	if err := json.Unmarshal(jsonResp.Body.Bytes(), &page); err != nil {
+		t.Fatal(err)
+	}
+	if page.SchemaVersion != ActivitySchemaVersion || len(page.Turns) != 2 || page.Turns[0].Content[0].Head != "hello" || page.Turns[1].Results[0].Failed != true {
+		t.Fatalf("activity page = %#v", page)
+	}
+	projector.mu.Lock()
+	gotFilter := projector.activityFilter
+	projector.mu.Unlock()
+	if gotFilter.Track != "T1" || gotFilter.Slice != "S1" || gotFilter.EffectID != "attempt/work-1/e1/t1" {
+		t.Fatalf("activity filter = %#v", gotFilter)
+	}
+	projector.activity = ActivityPage{
+		SchemaVersion: ActivitySchemaVersion, RunID: "run-1",
+		Turns: []ActivityTurn{
+			{Offset: 9, Turn: 3, Content: []ActivityPart{{Kind: "text", Head: "live turn"}}, CreatedAt: time.Unix(1_700_000_002, 0).UTC()},
+		},
+		ThroughOffset: 9, EventOffset: 9,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	projector.onActivity = cancel
+	sseReq := httpRequest(http.MethodGet, testLocalOrigin+"/api/v2/runs/run-1/activity?after=7&limit=2", "127.0.0.1:46002", nil).WithContext(ctx)
+	sseReq.Header.Set("Accept", "text/event-stream")
+	sseReq.Header.Set("Last-Event-ID", "8")
+	sseResp := serve(handler, sseReq)
+	if sseResp.Code != http.StatusOK {
+		t.Fatalf("activity SSE = %d: %s", sseResp.Code, sseResp.Body)
+	}
+	projector.mu.Lock()
+	after, limit := projector.activityAfter, projector.activityLimit
+	projector.mu.Unlock()
+	if after != 8 || limit != 2 {
+		t.Fatalf("activity resume = after %d limit %d, want 8/2", after, limit)
+	}
+	body := sseResp.Body.String()
+	for _, required := range []string{"id: 9\n", "event: activity\n", `"schema_version":"sworn.activity/v1"`, "live turn"} {
+		if !strings.Contains(body, required) {
+			t.Fatalf("SSE missing %q in %q", required, body)
+		}
+	}
+	if ct := sseResp.Header().Get("Content-Type"); ct != "text/event-stream; charset=utf-8" {
+		t.Fatalf("SSE content-type = %q", ct)
+	}
+	for _, target := range []string{
+		"/api/v2/runs/run-1/activity?after=-1",
+		"/api/v2/runs/run-1/activity?limit=999",
+		"/api/v2/runs/run-1/activity?surprise=1",
+		"/api/v2/runs/run-1/activity?after=1&after=2",
+	} {
+		req := httpRequest(http.MethodGet, testLocalOrigin+target, "127.0.0.1:46003", nil)
+		if resp := serve(handler, req); resp.Code != http.StatusBadRequest {
+			t.Fatalf("%s = %d, want 400", target, resp.Code)
+		}
+	}
+	backward := httpRequest(http.MethodGet, testLocalOrigin+"/api/v2/runs/run-1/activity?after=9", "127.0.0.1:46004", nil)
+	backward.Header.Set("Last-Event-ID", "8")
+	if resp := serve(handler, backward); resp.Code != http.StatusBadRequest {
+		t.Fatalf("backward resume = %d, want 400", resp.Code)
+	}
+	trailing := httpRequest(http.MethodGet, testLocalOrigin+"/api/v2/runs/run-1/activity/", "127.0.0.1:46005", nil)
+	if resp := serve(handler, trailing); resp.Code != http.StatusNotFound {
+		t.Fatalf("trailing slash = %d, want 404", resp.Code)
+	}
+	crossOrigin := httpRequest(http.MethodGet, testLocalOrigin+"/api/v2/runs/run-1/activity?after=0", "127.0.0.1:46006", nil)
+	crossOrigin.Header.Set("Origin", "https://attacker.example")
+	if resp := serve(handler, crossOrigin); resp.Code != http.StatusForbidden {
+		t.Fatalf("cross origin = %d, want 403", resp.Code)
+	}
+	public, _, _ := newHTTPFixture(t, testPublicHost, testPublicURL)
+	cleartext := httpRequest(http.MethodGet, testPublicURL+"/api/v2/runs/run-1/activity?after=0", "203.0.113.10:46007", nil)
+	cleartext.TLS = nil
+	cleartext.Header.Set("Authorization", "Bearer "+testHTTPToken)
+	if resp := serve(public, cleartext); resp.Code != http.StatusForbidden {
+		t.Fatalf("remote cleartext = %d, want 403", resp.Code)
+	}
+	post := httpRequest(http.MethodPost, testLocalOrigin+"/api/v2/runs/run-1/activity?after=0", "127.0.0.1:46008", []byte(`{}`))
+	post.Header.Set("Content-Type", "application/json")
+	if resp := serve(handler, post); resp.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST activity = %d, want 405", resp.Code)
+	}
+}
+
+// A2+A3: the activity stream shares the concurrent-stream gate and its
+// SSE_LIMIT refusal with the events stream, and the existing events route
+// keeps its contract byte for byte (invalidate frames with only the schema
+// version and the through offset).
+func TestHTTPActivitySharesSSEGateAndKeepsEventsContract(t *testing.T) {
+	t.Parallel()
+	handler, projector, _ := newHTTPFixture(t, testLocalHost, testLocalOrigin)
+	handler.sse <- struct{}{}
+	handler.sse <- struct{}{}
+	sseReq := httpRequest(http.MethodGet, testLocalOrigin+"/api/v2/runs/run-1/activity?after=0", "127.0.0.1:46100", nil)
+	sseReq.Header.Set("Accept", "text/event-stream")
+	if resp := serve(handler, sseReq); resp.Code != http.StatusServiceUnavailable || !strings.Contains(resp.Body.String(), "SSE_LIMIT") {
+		t.Fatalf("activity gate = %d %s, want 503 SSE_LIMIT", resp.Code, resp.Body)
+	}
+	eventsReq := httpRequest(http.MethodGet, testLocalOrigin+"/api/v2/runs/run-1/events?after=0", "127.0.0.1:46101", nil)
+	eventsReq.Header.Set("Accept", "text/event-stream")
+	if resp := serve(handler, eventsReq); resp.Code != http.StatusServiceUnavailable || !strings.Contains(resp.Body.String(), "SSE_LIMIT") {
+		t.Fatalf("events gate = %d %s, want 503 SSE_LIMIT", resp.Code, resp.Body)
+	}
+	<-handler.sse
+	<-handler.sse
+	projector.events = EventPage{
+		SchemaVersion: SnapshotSchemaVersion, RunID: "run-1",
+		Events: []Evidence{{Offset: 11, Kind: "effect_completed"}}, ThroughOffset: 11, EventOffset: 11,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	projector.onEvents = cancel
+	eventsSSE := httpRequest(http.MethodGet, testLocalOrigin+"/api/v2/runs/run-1/events?after=10&limit=1", "127.0.0.1:46102", nil).WithContext(ctx)
+	eventsSSE.Header.Set("Accept", "text/event-stream")
+	resp := serve(handler, eventsSSE)
+	body := resp.Body.String()
+	if !strings.Contains(body, "event: invalidate\n") || !strings.Contains(body, `"through_offset":11`) {
+		t.Fatalf("events SSE = %q", body)
+	}
+	if strings.Contains(body, "effect_completed") || strings.Contains(body, "event: activity") {
+		t.Fatalf("events route leaked content: %q", body)
+	}
+}
+
+// A3: when the serve host drives the run, the ring merges ahead of the
+// journal on one cursor; when the run is driven elsewhere the same content
+// serves from the journal alone. The ring is bounded, drops oldest with a
+// count, never blocks, is dropped at dispatch end, and is never persisted.
+func TestHTTPActivityRingJournalMergeAcrossReconnect(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	journalPath := filepath.Join(t.TempDir(), "activity-ring.sqlite")
+	store, err := journal.Open(ctx, journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	now := time.Unix(1_700_300_000, 0).UTC()
+	run := journal.Run{
+		ID: "run-1", ManifestDigest: "sha256:" + strings.Repeat("e", 64),
+		Repository: t.TempDir(), Release: "release-1",
+		TargetRef: "refs/heads/main", CreatedAt: now,
+	}
+	if err := store.RegisterRun(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	toolBody := func(turn int64) []byte {
+		body, _ := json.Marshal(map[string]any{
+			"schema_version": "sworn.tool-result-turn/v1", "run_id": run.ID,
+			"track": "T1", "slice": "S1", "role": "implementer",
+			"responsibility": "implementer_implementation",
+			"attempt":        int64(1), "epoch": int64(1), "try": int64(1),
+			"work_id": "work-1", "effect_id": "attempt/work-1/e1/t1",
+			"turn": turn, "encoding": "base64",
+			"results": []map[string]any{{
+				"sequence": int64(1), "tool_call_id": "call-1", "tool": "Read",
+				"failed": false, "total_bytes": int64(4),
+				"head": "ZGF0YQ==", "tail": "",
+			}},
+		})
+		return body
+	}
+	off1, err := store.AppendEventWithOffset(ctx, run.ID, "tool_result_observed", toolBody(1), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	off2, err := store.AppendEventWithOffset(ctx, run.ID, "tool_result_observed", toolBody(2), now.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ring := NewActivityRing()
+	ring.ObserveActivity(runtimepkg.ActivityTapEvent{RunID: run.ID, EffectID: "attempt/work-1/e1/t1", Offset: off1, Kind: "tool_result_observed", Body: toolBody(1), CreatedAt: now})
+	ring.ObserveActivity(runtimepkg.ActivityTapEvent{RunID: run.ID, EffectID: "attempt/work-1/e1/t1", Offset: off2, Kind: "tool_result_observed", Body: toolBody(2), CreatedAt: now.Add(time.Second)})
+	ring.ObserveActivity(runtimepkg.ActivityTapEvent{RunID: run.ID, EffectID: "attempt/work-1/e1/t1", Offset: off2 + 100, Kind: "other_kind", Body: []byte(`{}`), CreatedAt: now})
+	liveProjector, err := NewProjector(store, &fakeRuntimeForActivity{}, &fakeStateForActivity{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	liveProjector.SetActivityRing(ring)
+	liveHandler, err := NewHTTPHandler(liveProjector, &httpFakeCommands{}, HTTPConfig{RunID: "run-1", Host: testLocalHost, Origin: testLocalOrigin})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := httpRequest(http.MethodGet, testLocalOrigin+"/api/v2/runs/run-1/activity?after=0&limit=128", "127.0.0.1:46200", nil)
+	firstResp := serve(liveHandler, first)
+	if firstResp.Code != http.StatusOK {
+		t.Fatalf("live page = %d: %s", firstResp.Code, firstResp.Body)
+	}
+	var livePage ActivityPage
+	if err := json.Unmarshal(firstResp.Body.Bytes(), &livePage); err != nil {
+		t.Fatal(err)
+	}
+	if !livePage.Live || len(livePage.Turns) != 2 || livePage.Turns[0].Turn != 1 || livePage.Turns[1].Turn != 2 {
+		t.Fatalf("live page = %#v", livePage)
+	}
+	ring.DropActivityDispatch("attempt/work-1/e1/t1")
+	journalProjector, err := NewProjector(store, &fakeRuntimeForActivity{}, &fakeStateForActivity{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	journalHandler, err := NewHTTPHandler(journalProjector, &httpFakeCommands{}, HTTPConfig{RunID: "run-1", Host: testLocalHost, Origin: testLocalOrigin})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reconnect := httpRequest(http.MethodGet, testLocalOrigin+"/api/v2/runs/run-1/activity?after=0&limit=128", "127.0.0.1:46201", nil)
+	reconnect.Header.Set("Last-Event-ID", "2")
+	reconnectResp := serve(journalHandler, reconnect)
+	if reconnectResp.Code != http.StatusOK {
+		t.Fatalf("reconnect = %d: %s", reconnectResp.Code, reconnectResp.Body)
+	}
+	var journalPage ActivityPage
+	if err := json.Unmarshal(reconnectResp.Body.Bytes(), &journalPage); err != nil {
+		t.Fatal(err)
+	}
+	if journalPage.Live || len(journalPage.Turns) != 0 || journalPage.ThroughOffset != journalPage.EventOffset {
+		t.Fatalf("journal-only reconnect = %#v, want empty Live=false at high watermark", journalPage)
+	}
+	bounded := NewActivityRing()
+	for i := int64(0); i < ActivityRingMaxTurnsPerDispatch+10; i++ {
+		bounded.ObserveActivity(runtimepkg.ActivityTapEvent{RunID: "run-1", EffectID: "effect-bounded", Offset: 1000 + i, Kind: "tool_result_observed", Body: toolBody(1), CreatedAt: now})
+	}
+	events, dropped := bounded.eventsAfter("run-1", 0)
+	if len(events) != ActivityRingMaxTurnsPerDispatch || dropped != 10 {
+		t.Fatalf("bounded ring = %d events dropped %d, want %d/10", len(events), dropped, ActivityRingMaxTurnsPerDispatch)
+	}
+	if events[0].Offset != 1010 {
+		t.Fatalf("drop-oldest kept offset %d, want 1010", events[0].Offset)
+	}
+	for _, event := range events {
+		if len(event.Body) == 0 || event.Kind != "tool_result_observed" {
+			t.Fatalf("ring held non-journaled content: %#v", event)
+		}
+	}
+}
+
+type fakeRuntimeForActivity struct{}
+
+func (f *fakeRuntimeForActivity) Status(context.Context, string) (runtimepkg.RunStatus, error) {
+	panic("runtime must not be consulted for activity")
+}
+
+type fakeStateForActivity struct{}
+
+func (f *fakeStateForActivity) Read(context.Context, journal.Run) (protocol.State, error) {
+	panic("protocol must not be consulted for activity")
 }

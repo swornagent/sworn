@@ -109,6 +109,9 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		}
 	}
 	derived := derivedWorks(snapshot)
+	// S3: one digest-checked pass over the failure/uncertain events keyed
+	// by effect ID; every failed dispatch below reuses it.
+	failureContexts := failureContextsForSnapshot(snapshot)
 	for _, effect := range snapshot.Effects {
 		if effect.ID == "runtime.owner" || effect.Kind == "runtime.control" {
 			continue
@@ -119,8 +122,13 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 			work = "sha256:" + parts[1]
 		}
 		_, isDerived := derived[work]
-		result.Effects = append(result.Effects, EffectStatus{ID: effect.ID, Kind: effect.Kind,
-			State: string(effect.State), ErrorCode: effect.ErrorCode, Derived: isDerived})
+		status := EffectStatus{ID: effect.ID, Kind: effect.Kind,
+			State: string(effect.State), ErrorCode: effect.ErrorCode, Derived: isDerived}
+		if effect.Kind == "driver.dispatch" &&
+			(effect.State == journal.OperationalFailed || effect.State == journal.Uncertain) {
+			status.FailureTurnContext = failureContexts[effect.ID]
+		}
+		result.Effects = append(result.Effects, status)
 		if state, deliberate := recoveryClaims[effect.ID]; deliberate {
 			active = active ||
 				(state == journal.AttentionAnswered && ownerActive)
@@ -504,6 +512,12 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	// (B2): it is the run-level summary, nil whenever the run is not
 	// parked, never a partial one.
 	result.PinnedWork = pinnedWork
+	// S3: each pin reuses its latest failed dispatch's already-decoded
+	// context (same pointer, no re-decode) so Effects, PinnedWork and
+	// Node stay in parity.
+	for index := range result.PinnedWork {
+		result.PinnedWork[index].FailureTurnContext = failureContextForPinnedWork(snapshot, result.Effects, result.PinnedWork[index])
+	}
 	if result.State == "parked" {
 		switch {
 		case humanAuthorityRequired || attentionParked || degradationBudgetExceeded || bootstrapAuthorityParked:

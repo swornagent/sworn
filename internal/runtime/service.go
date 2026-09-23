@@ -73,6 +73,12 @@ type Service struct {
 	backgroundCancel map[string]context.CancelFunc
 	backgroundRuns   map[string]*backgroundRun
 	backgroundWait   sync.WaitGroup
+
+	activityMu  sync.RWMutex
+	activityTap ActivityTap
+
+	failureMu    sync.Mutex
+	failureTails map[string]*failureTail
 }
 
 type backgroundRun struct {
@@ -162,6 +168,13 @@ type PinnedWork struct {
 	// targeting this pin must name DispatchWorkID as its WorkID, not the
 	// lane-level WorkID above (S4-resumable-budget-stops V3).
 	DispatchWorkID string `json:"dispatch_work_id,omitempty"`
+	// FailureTurnContext carries the bounded tail of the worker's last
+	// turns for the pinned work's latest failed dispatch, beside Code and
+	// Detail. Nil means absent: a pre-S3 record, a sweep reconcile that
+	// never held the dispatch, or a pin with no failed dispatch to show.
+	// It is evidence for the human and the seat to read, never authority:
+	// nothing in the engine parses it to classify, park, retry, or judge.
+	FailureTurnContext *FailureTurnContext `json:"failure_turn_context,omitempty"`
 }
 
 // RecoveryAction names the one control verb currently admissible for a run
@@ -224,6 +237,12 @@ type EffectStatus struct {
 	State     string `json:"state"`
 	ErrorCode string `json:"error_code,omitempty"`
 	Derived   bool   `json:"derived,omitempty"`
+	// FailureTurnContext carries the bounded tail of the worker's last
+	// turns for a failed driver.dispatch, beside ErrorCode. Nil means
+	// absent: a pre-S3 record, a sweep reconcile that never held the
+	// dispatch, or an effect that is not a failed dispatch. It is
+	// evidence, never authority.
+	FailureTurnContext *FailureTurnContext `json:"failure_turn_context,omitempty"`
 }
 
 type engine struct {

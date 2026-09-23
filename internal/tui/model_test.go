@@ -89,17 +89,20 @@ func TestMissingReleaseBoardUsesSwornOwnedLanguage(t *testing.T) {
 }
 
 type fakeBackend struct {
-	catalog      Catalog
-	boards       map[Selection]Board
-	config       ConfigView
-	catalogErr   error
-	boardErr     error
-	configErr    error
-	executeErr   error
-	catalogCalls int
-	boardCall    []Selection
-	configCalls  int
-	executed     []executeCall
+	catalog       Catalog
+	boards        map[Selection]Board
+	config        ConfigView
+	activity      cockpit.ActivityPage
+	catalogErr    error
+	boardErr      error
+	configErr     error
+	activityErr   error
+	executeErr    error
+	catalogCalls  int
+	boardCall     []Selection
+	configCalls   int
+	activityCalls int
+	executed      []executeCall
 }
 
 func (f *fakeBackend) Catalog(_ context.Context) (Catalog, error) {
@@ -132,6 +135,17 @@ func (f *fakeBackend) Events(
 	_ string,
 ) (cockpit.EventPage, error) {
 	return cockpit.EventPage{}, nil
+}
+
+func (f *fakeBackend) Activity(
+	_ context.Context,
+	_ Selection,
+	_ int64,
+	_ int,
+	_ cockpit.ActivityFilter,
+) (cockpit.ActivityPage, error) {
+	f.activityCalls++
+	return f.activity, f.activityErr
 }
 
 func (f *fakeBackend) Config(_ context.Context) (ConfigView, error) {
@@ -844,4 +858,263 @@ func runesKey(value string) tea.KeyMsg {
 
 func specialKey(value tea.KeyType) tea.KeyMsg {
 	return tea.KeyMsg{Type: value}
+}
+
+// A5: the TUI gains an activity screen reached from the board for the
+// selected work, fed through the backend boundary from the same activity
+// projection, refreshed on the 2s cadence, guarded by the generation check,
+// scrollable, honest about narrow terminals, and neutralising escapes. The
+// help overlay names the key.
+func TestActivityScreenReachedFromBoardAndGuardedByGeneration(t *testing.T) {
+	selection := Selection{Release: "release", RunID: "run", Source: "source"}
+	backend, m := readyBoardModel(selection, cockpit.Action{Kind: "pause"})
+	backend.activity = cockpit.ActivityPage{
+		SchemaVersion: "sworn.activity/v1", RunID: "run",
+		Turns: []cockpit.ActivityTurn{
+			{Offset: 1, Turn: 1, Responsibility: "implementer_implementation", Slice: "S01", Content: []cockpit.ActivityPart{{Kind: "text", Head: "first"}}},
+			{Offset: 2, Turn: 2, Responsibility: "implementer_implementation", Slice: "S01", Content: []cockpit.ActivityPart{{Kind: "text", Head: "second"}}},
+		},
+		ThroughOffset: 2, EventOffset: 2,
+	}
+	// Board footer advertises the key.
+	m.width, m.height = 100, 30
+	if !strings.Contains(m.View(), "v activity") {
+		t.Fatalf("board footer omits activity key:\n%s", m.View())
+	}
+	cmd := updateModel(t, m, runeKey('v'))
+	if m.screen != screenActivity || cmd == nil {
+		t.Fatalf("v did not open activity screen: screen=%d cmd=%v", m.screen, cmd != nil)
+	}
+	if m.activityNode == "" {
+		t.Fatal("activity did not capture the selected work")
+	}
+	updateModel(t, m, cmd())
+	if len(m.activity.Turns) != 2 || m.loading {
+		t.Fatalf("activity = %#v loading=%t", m.activity, m.loading)
+	}
+	if backend.activityCalls != 1 {
+		t.Fatalf("activity calls = %d, want 1", backend.activityCalls)
+	}
+	// Stale generation and stale selection cannot replace the screen.
+	updateModel(t, m, activityResultMsg{generation: m.generation - 1, selection: selection, filter: m.activityFilter, nodeID: m.activityNode, page: cockpit.ActivityPage{Turns: []cockpit.ActivityTurn{{Offset: 99}}}})
+	if len(m.activity.Turns) != 2 || m.activity.Turns[0].Offset == 99 {
+		t.Fatalf("stale generation replaced activity: %#v", m.activity)
+	}
+	other := Selection{Release: "release", RunID: "other", Source: "other"}
+	updateModel(t, m, activityResultMsg{generation: m.generation, selection: other, filter: m.activityFilter, nodeID: m.activityNode, page: cockpit.ActivityPage{}})
+	if len(m.activity.Turns) != 2 {
+		t.Fatalf("foreign selection replaced activity")
+	}
+	// Scrolling moves the selected turn.
+	updateModel(t, m, runeKey('j'))
+	if m.activityCursor != 1 {
+		t.Fatalf("activity cursor = %d, want 1", m.activityCursor)
+	}
+	updateModel(t, m, runeKey('k'))
+	if m.activityCursor != 0 {
+		t.Fatalf("activity cursor = %d, want 0", m.activityCursor)
+	}
+	// Help names the key.
+	updateModel(t, m, runeKey('?'))
+	if m.overlay != overlayHelp || !strings.Contains(m.View(), "v  worker activity") {
+		t.Fatalf("help omits activity key:\n%s", m.View())
+	}
+	updateModel(t, m, specialKey(tea.KeyEsc))
+	// Back to the board without a reload.
+	updateModel(t, m, specialKey(tea.KeyEsc))
+	if m.screen != screenBoard {
+		t.Fatalf("esc from activity = screen %d, want board", m.screen)
+	}
+	// No run means no activity screen.
+	empty := Selection{Release: "release", Source: "release-only"}
+	_, m2 := readyBoardModel(empty)
+	m2.selection = empty
+	if cmd := updateModel(t, m2, runeKey('v')); cmd != nil || m2.screen != screenBoard {
+		t.Fatal("v without a run opened activity")
+	}
+}
+
+func TestActivityScreenScrollableHonestAndNeutralised(t *testing.T) {
+	selection := Selection{Release: "release", RunID: "run", Source: "source"}
+	_, m := readyBoardModel(selection)
+	m.screen = screenActivity
+	m.selection = selection
+	m.activityNode = "slice:S01"
+	m.activityFilter = cockpit.ActivityFilter{Slice: "S01"}
+	m.activity = cockpit.ActivityPage{
+		Turns: []cockpit.ActivityTurn{
+			{Offset: 1, Turn: 1, Responsibility: "implementer_implementation", Slice: "S01", Content: []cockpit.ActivityPart{{Kind: "text", Head: "hello\x1b[31mred", TotalBytes: 10, OmittedBytes: 5, RedactedBytes: 2}}},
+			{Offset: 2, Turn: 2, Responsibility: "implementer_implementation", Slice: "S01", Results: []cockpit.ActivityResult{{Tool: "Bash", Failed: true, TotalBytes: 99, Head: "out\x00put"}}},
+		},
+		ThroughOffset: 2,
+	}
+	m.width, m.height = 100, 30
+	view := m.View()
+	for _, required := range []string{"WORKER ACTIVITY", "turn 1", "turn 2", "implementer_implementation", "+5 omitted, +2 redacted"} {
+		if !strings.Contains(view, required) {
+			t.Fatalf("activity view omits %q:\n%s", required, view)
+		}
+	}
+	if strings.Contains(view, "\x1b[31m") || strings.Contains(view, "\x00") {
+		t.Fatalf("activity view leaked terminal escapes:\n%q", view)
+	}
+	updateModel(t, m, runeKey('j'))
+	selected := m.View()
+	if !strings.Contains(selected, "Bash fail 99 bytes") {
+		t.Fatalf("selected turn details omit tool result:\n%s", selected)
+	}
+	if strings.Contains(selected, "\x00") {
+		t.Fatalf("selected details leaked NUL:\n%q", selected)
+	}
+	// Narrow honesty.
+	m.width, m.height = 40, 20
+	narrow := m.View()
+	if !strings.Contains(narrow, "Narrow terminal") {
+		t.Fatalf("narrow activity omits honesty:\n%s", narrow)
+	}
+	lines := strings.Split(narrow, "\n")
+	if len(lines) != 20 {
+		t.Fatalf("narrow activity has %d lines, want 20", len(lines))
+	}
+	for _, line := range lines {
+		if got := lipgloss.Width(line); got > 40 {
+			t.Fatalf("narrow line width = %d, want <=40: %q", got, line)
+		}
+	}
+}
+
+func TestActivityRefreshesOnExistingCadence(t *testing.T) {
+	selection := Selection{Release: "release", RunID: "run", Source: "source"}
+	backend, m := readyBoardModel(selection)
+	backend.activity = cockpit.ActivityPage{Turns: []cockpit.ActivityTurn{{Offset: 1, Turn: 1}}}
+	m.screen = screenActivity
+	m.selection = selection
+	m.activityNode = "slice:S01"
+	m.activityFilter = cockpit.ActivityFilter{Slice: "S01"}
+	m.generation = 5
+	m.loading = false
+	cmd := updateModel(t, m, refreshDueMsg{generation: 5})
+	if cmd == nil || !m.loading {
+		t.Fatalf("activity tick did not begin refresh: cmd=%v loading=%t", cmd != nil, m.loading)
+	}
+	msg := cmd()
+	result, ok := msg.(activityResultMsg)
+	if !ok || result.generation != 6 {
+		t.Fatalf("activity refresh message = %T %#v, want generation 6", msg, msg)
+	}
+}
+
+// S3-failure-turn-context A3: the TUI work detail renders the bounded tail
+// in parity with the board's decoded strings (content availability, not
+// line count), inside the existing truncation discipline with an honest
+// "+N more" line, neutralising controls and honest about narrow terminals.
+func TestFailureTurnContextDetailRendersPresentEmptyUnavailable(t *testing.T) {
+	selection := Selection{Release: "release", RunID: "run", Source: "source"}
+	present := &runtimepkg.FailureTurnContext{
+		SchemaVersion: "sworn.failure-turn-context/v1", Status: "present",
+		Turns: []runtimepkg.FailureTurn{{
+			Kind: "tool_result", Turn: 2,
+			Results: []runtimepkg.FailureToolResult{{
+				Sequence: 1, ToolCallID: "call-1", Tool: "Read", TotalBytes: 4, Head: "data",
+			}},
+		}},
+		Omitted: 1, DroppedMaxVisible: 2,
+	}
+	_, m := readyBoardModel(selection)
+	m.board.Graph.Nodes[1].FailureTurnContext = present
+	m.nodeCursor = 1
+	lines := m.detailLines(100, 30)
+	joined := strings.Join(lines, "\n")
+	for _, required := range []string{"FAILURE TURNS", "1 turn", "1 omitted", "2 dropped (max visible)", "turn 2 tool_result", "Read pass 4 bytes", "data"} {
+		if !strings.Contains(joined, required) {
+			t.Fatalf("present detail omits %q:\n%s", required, joined)
+		}
+	}
+	_, m = readyBoardModel(selection)
+	m.board.Graph.Nodes[1].FailureTurnContext = &runtimepkg.FailureTurnContext{
+		SchemaVersion: "sworn.failure-turn-context/v1", Status: "empty", Turns: []runtimepkg.FailureTurn{},
+	}
+	m.nodeCursor = 1
+	joined = strings.Join(m.detailLines(100, 30), "\n")
+	if !strings.Contains(joined, "No worker turns recorded") {
+		t.Fatalf("empty detail = %q", joined)
+	}
+	_, m = readyBoardModel(selection)
+	m.board.Graph.Nodes[1].FailureTurnContext = &runtimepkg.FailureTurnContext{
+		SchemaVersion: "sworn.failure-turn-context/v1", Status: "unavailable", Turns: []runtimepkg.FailureTurn{}, Reason: "no_live_tail",
+	}
+	m.nodeCursor = 1
+	joined = strings.Join(m.detailLines(100, 30), "\n")
+	if !strings.Contains(joined, "unavailable") || !strings.Contains(joined, "no_live_tail") {
+		t.Fatalf("unavailable detail = %q", joined)
+	}
+	// Absent (nil) renders no failure section.
+	_, m = readyBoardModel(selection)
+	m.nodeCursor = 1
+	joined = strings.Join(m.detailLines(100, 30), "\n")
+	if strings.Contains(joined, "FAILURE TURNS") {
+		t.Fatalf("absent detail leaked failure section:\n%s", joined)
+	}
+}
+
+func TestFailureTurnContextDetailNeutralisesControls(t *testing.T) {
+	selection := Selection{Release: "release", RunID: "run", Source: "source"}
+	_, m := readyBoardModel(selection)
+	m.board.Graph.Nodes[1].FailureTurnContext = &runtimepkg.FailureTurnContext{
+		SchemaVersion: "sworn.failure-turn-context/v1", Status: "present",
+		Turns: []runtimepkg.FailureTurn{{
+			Kind: "worker_turn", Turn: 1,
+			Content: []runtimepkg.FailureWorkerPart{{
+				Kind: "text", TotalBytes: 10, Head: "hello\x1b[31mred\x00put",
+			}},
+		}},
+	}
+	m.nodeCursor = 1
+	m.width, m.height = 100, 30
+	view := m.View()
+	if strings.Contains(view, "\x1b[31m") || strings.Contains(view, "\x00") {
+		t.Fatalf("detail leaked terminal escapes:\n%q", view)
+	}
+	if !strings.Contains(view, "hello red put") && !strings.Contains(view, "hello") {
+		t.Fatalf("Detail omitted neutralised worker text:\n%s", view)
+	}
+}
+
+func TestFailureTurnContextDetailNarrowHonestAndMore(t *testing.T) {
+	selection := Selection{Release: "release", RunID: "run", Source: "source"}
+	turns := make([]runtimepkg.FailureTurn, 0, 5)
+	for turn := int64(1); turn <= 5; turn++ {
+		turns = append(turns, runtimepkg.FailureTurn{
+			Kind: "tool_result", Turn: turn,
+			Results: []runtimepkg.FailureToolResult{{
+				Sequence: 1, ToolCallID: "c1", Tool: "Bash", TotalBytes: 99, Head: "output",
+			}},
+		})
+	}
+	_, m := readyBoardModel(selection)
+	m.board.Graph.Nodes[1].FailureTurnContext = &runtimepkg.FailureTurnContext{
+		SchemaVersion: "sworn.failure-turn-context/v1", Status: "present", Turns: turns,
+	}
+	m.nodeCursor = 1
+	// Narrow honesty at width <60.
+	narrow := m.detailLines(40, 30)
+	joined := strings.Join(narrow, "\n")
+	if !strings.Contains(joined, "Narrow terminal") {
+		t.Fatalf("narrow detail omits honesty:\n%s", joined)
+	}
+	for _, line := range narrow {
+		// lipgloss.Width strips ANSI; the line must fit the narrow budget.
+		if got := lipgloss.Width(line); got > 40 {
+			t.Fatalf("narrow line width = %d, want <=40: %q", got, line)
+		}
+	}
+	// Truncation honesty inside the existing detail budget.
+	short := m.detailLines(100, 12)
+	if len(short) != 12 {
+		t.Fatalf("truncated detail has %d lines, want 12", len(short))
+	}
+	joined = strings.Join(short, "\n")
+	if !strings.Contains(joined, "more") {
+		t.Fatalf("truncated detail omits honest +N more:\n%s", joined)
+	}
 }

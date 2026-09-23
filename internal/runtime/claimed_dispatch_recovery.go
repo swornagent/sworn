@@ -1118,6 +1118,8 @@ func (s *Service) reconcileOwnerlessClaimedDispatch(
 		// parked lane is engine-impossible: do not adopt it and do not
 		// clear it. Preserve answerable uncertainty; A2's retry verb and
 		// the board's needs-you row remain available.
+		// S3: no live tail on this ownerless path; the helper carries
+		// unavailable with no_live_tail.
 		if err := s.journal.ReconcileOwned(
 			context.WithoutCancel(ctx),
 			owner,
@@ -1126,8 +1128,14 @@ func (s *Service) reconcileOwnerlessClaimedDispatch(
 				EffectID:  effect.ID,
 				Token:     effect.CurrentClaim,
 				EventKind: "dispatch_uncertain",
-				EventBody: association,
-				At:        now,
+				EventBody: s.failureEventBodyFor(EventAssociation{
+					EffectID:       effect.ID,
+					WorkID:         work,
+					Track:          track,
+					Slice:          slice,
+					Responsibility: responsibility,
+				}, nil, effect.ID),
+				At: now,
 			},
 			journal.RecoveryAmbiguous,
 		); err != nil {

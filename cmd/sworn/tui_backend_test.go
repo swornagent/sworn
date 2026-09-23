@@ -921,3 +921,122 @@ func TestTUIBackendCloseWaitsForInFlightExecute(t *testing.T) {
 		t.Fatal("Execute after Close succeeded, want error")
 	}
 }
+
+// A5: the TUI backend serves the same activity projection over the journal
+// the browser route serves, as a direct journal reader with no serve
+// connection and no ring (Live=false).
+func TestTUIBackendActivityServesSameProjectionWithoutServeConnection(t *testing.T) {
+	t.Parallel()
+	root, _ := projectRepositoryFixture(t)
+	installProjectPlan(t, root, "delivery")
+	stateDir := filepath.Join(root, ".sworn")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manifestDir := filepath.Join(stateDir, "runs")
+	if err := os.MkdirAll(manifestDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	projectWriteManifest(t, manifestDir, "delivery.json", root, "delivery", "run-activity")
+	manifestBody, err := os.ReadFile(filepath.Join(manifestDir, "delivery.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestDigest := sha256Digest(manifestBody)
+	journalPath := filepath.Join(stateDir, "sworn.db")
+	store, err := journal.Open(context.Background(), journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1_700_000_000, 0).UTC()
+	if err := store.RegisterRun(context.Background(), journal.Run{
+		ID: "run-activity", ManifestDigest: manifestDigest,
+		Repository: root, Release: "delivery",
+		TargetRef: "refs/heads/main", CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	toolBody, _ := json.Marshal(map[string]any{
+		"schema_version": "sworn.tool-result-turn/v1", "run_id": "run-activity",
+		"track": "T1", "slice": "S1", "role": "implementer",
+		"responsibility": "implementer_implementation",
+		"attempt":        int64(1), "epoch": int64(1), "try": int64(1),
+		"work_id": "work-1", "effect_id": "attempt/work-1/e1/t1",
+		"turn": int64(1), "encoding": "base64",
+		"results": []map[string]any{{
+			"sequence": int64(1), "tool_call_id": "call-1", "tool": "Read",
+			"failed": false, "total_bytes": int64(4), "head": "ZGF0YQ==", "tail": "",
+		}},
+	})
+	if err := store.AppendEvent(context.Background(), "run-activity", "tool_result_observed", toolBody, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	backend := newProjectTUIBackend(root, "", "", "")
+	catalog, err := backend.Catalog(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog.Entries) != 1 {
+		t.Fatalf("catalog entries = %#v", catalog.Entries)
+	}
+	selection := catalog.Entries[0].Selection
+	page, err := backend.Activity(context.Background(), selection, 0, 128, cockpit.ActivityFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Live || len(page.Turns) != 1 || page.Turns[0].Turn != 1 || len(page.Turns[0].Results) != 1 {
+		t.Fatalf("backend activity = %#v, want journal-only Live=false with one turn", page)
+	}
+	// Same projection as a direct projector over the same journal.
+	reader, err := journal.OpenReadOnly(context.Background(), journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	statusReader, err := runtimepkg.OpenStatusService(context.Background(), journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer statusReader.Close()
+	gitExecutable, err := resolveGitExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateReader, err := cockpit.NewGitStateReader(gitExecutable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	direct, err := cockpit.NewProjector(reader, statusReader, stateReader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directPage, err := direct.Activity(context.Background(), "run-activity", 0, 128, cockpit.ActivityFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(directPage.Turns) != len(page.Turns) || directPage.Turns[0].Offset != page.Turns[0].Offset {
+		t.Fatalf("direct=%#v backend=%#v, want same projection", directPage, page)
+	}
+	// A release without a run has no activity.
+	emptyRoot, _ := projectRepositoryFixture(t)
+	installProjectPlan(t, emptyRoot, "delivery")
+	emptyState := filepath.Join(emptyRoot, ".sworn")
+	if err := os.MkdirAll(filepath.Join(emptyState, "runs"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	projectWriteManifest(t, filepath.Join(emptyState, "runs"), "delivery.json", emptyRoot, "delivery", "run-missing")
+	emptyBackend := newProjectTUIBackend(emptyRoot, "", "", "")
+	emptyCatalog, err := emptyBackend.Catalog(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(emptyCatalog.Entries) != 1 {
+		t.Fatalf("empty catalog = %#v", emptyCatalog)
+	}
+	if _, err := emptyBackend.Activity(context.Background(), emptyCatalog.Entries[0].Selection, 0, 128, cockpit.ActivityFilter{}); err == nil || !strings.Contains(err.Error(), "no active run") {
+		t.Fatalf("empty activity err = %v, want no active run", err)
+	}
+}

@@ -160,6 +160,9 @@ func main() {
 		}
 	}
 	time.Sleep(100 * time.Millisecond)
+	if strings.Contains(prompt.InvocationID, "worker-turn-fixture") {
+		emitWorkerTurnFixtureEvents(family, brokerURL, token)
+	}
 	if strings.Contains(prompt.InvocationID, "prose-nudge-twice") ||
 		(strings.Contains(prompt.InvocationID, "prose-nudge") &&
 			prompt.Recovery == nil) {
@@ -258,6 +261,60 @@ func emitProse(family string) {
 		return
 	}
 	fmt.Println(`{"type":"result","subtype":"success","result":"I completed the work but forgot the terminal."}`)
+}
+
+// emitWorkerTurnFixtureEvents drives S1-native-turn-journal's A1 end-to-end
+// requirement against a real child process: it emits the stream-json
+// worker-turn events of each family around two real MCP tool calls this
+// process makes to the broker over HTTP (not a hand-built session), so the
+// production observationTurn wiring (platformRunNative's
+// broker.bindTurnSource) and the scanNativeEvents' deferred final flush
+// both run for real rather than being simulated by a test. The second
+// worker turn of each family is deliberately left without a closing
+// boundary event (a second "assistant"/"turn.completed"), so it is only
+// ever flushed by that defer, never by an explicit boundary.
+func emitWorkerTurnFixtureEvents(family, brokerURL, token string) {
+	const readPath = "/workspace/worker-turn-fixture.txt"
+	call := func(id int) {
+		rpc(brokerURL, token, id, "tools/call", map[string]any{
+			"name":      "Read",
+			"arguments": map[string]any{"path": readPath},
+		})
+	}
+	if family == "codex" {
+		fmt.Println(`{"type":"item.completed","item":{"type":"mcp_tool_call",` +
+			`"id":"fixture-call-1","name":"Read","arguments":{"path":"` + readPath + `"}}}`)
+		call(101)
+		fmt.Println(`{"type":"item.completed","item":{"type":"agent_message","text":"looking at the fixture"}}`)
+		fmt.Println(`{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}`)
+		// The host's stdout scan and this process's own HTTP call to the
+		// broker race independently; observationTurn only advances once the
+		// scan goroutine has read and accepted the line above, so the
+		// second real tool call must wait for that to have happened before
+		// it can be keyed to the post-turn.completed turn.
+		time.Sleep(100 * time.Millisecond)
+		fmt.Println(`{"type":"item.completed","item":{"type":"mcp_tool_call",` +
+			`"id":"fixture-call-2","name":"Read","arguments":{"path":"` + readPath + `"}}}`)
+		call(102)
+		return
+	}
+	fmt.Println(`{"type":"assistant","message":{"content":[` +
+		`{"type":"text","text":"looking at the fixture"},` +
+		`{"type":"tool_use","id":"fixture-call-1","name":"Read","input":{"path":"` + readPath + `"}}` +
+		`]}}`)
+	// See the Codex branch above: the real tool call must wait for the
+	// host to have accepted this assistant event and advanced
+	// observationTurn before it races the broker for its turn key.
+	time.Sleep(100 * time.Millisecond)
+	call(101)
+	fmt.Println(`{"type":"user","message":{"content":[` +
+		`{"type":"tool_result","tool_use_id":"fixture-call-1"}` +
+		`]}}`)
+	fmt.Println(`{"type":"assistant","message":{"content":[` +
+		`{"type":"tool_use","id":"fixture-call-2","name":"Read","input":{"path":"` + readPath + `"}}` +
+		`]}}`)
+	time.Sleep(100 * time.Millisecond)
+	call(102)
 }
 
 // credentialFixtureMode reads the family credential bound into the guest and

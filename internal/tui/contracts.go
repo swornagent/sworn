@@ -14,6 +14,7 @@ type Backend interface {
 	Board(context.Context, Selection) (Board, error)
 	Execute(context.Context, Selection, cockpit.Action, string) error
 	Events(context.Context, Selection, int64, int, string) (cockpit.EventPage, error)
+	Activity(context.Context, Selection, int64, int, cockpit.ActivityFilter) (cockpit.ActivityPage, error)
 	Config(context.Context) (ConfigView, error)
 }
 

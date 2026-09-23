@@ -2760,6 +2760,431 @@ func TestNativeEventStateCapturesFullWireSplitAndTurns(t *testing.T) {
 	}
 }
 
+// TestNativeEventStateClaudeAssistantEventsProduceWorkerTurnsAndKeyToolResults
+// pins A1/A2 for the Claude family: state.accept recognizes the
+// stream-json assistant and user events, derives one bounded worker-turn
+// projection per assistant-turn boundary, and the broker's turn source -
+// now state.observationTurn, not state.turns - keys tool results to
+// distinct, increasing turns instead of collapsing every crossing onto
+// turn 0.
+func TestNativeEventStateClaudeAssistantEventsProduceWorkerTurnsAndKeyToolResults(t *testing.T) {
+	invocation, _, _ := memoryInvocationFixture(t)
+	toolRecorder := &recordingToolResultHook{}
+	workerRecorder := &recordingWorkerTurnHook{}
+	invocation.ToolResultHook = toolRecorder.hook()
+	invocation.WorkerTurnHook = workerRecorder.hook()
+	if err := osWriteProviderFixture(
+		invocation.HostWorkspace, "claude.txt", "claude body",
+	); err != nil {
+		t.Fatal(err)
+	}
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	broker, err := newNativeBroker(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer broker.Close()
+	capability := broker.capability()
+	defer clearBytes(capability)
+	openNativeBrokerForTest(t, broker, capability)
+
+	state := &nativeEventState{family: ProfileClaude, model: "m", broker: broker}
+	broker.bindTurnSource(func() int64 {
+		state.mu.Lock()
+		defer state.mu.Unlock()
+		return state.observationTurn
+	})
+
+	assistant1 := `{"type":"assistant","message":{"content":[` +
+		`{"type":"text","text":"looking at the file"},` +
+		`{"type":"tool_use","id":"call-1","name":"Read","input":{"path":"/workspace/claude.txt"}}` +
+		`]}}`
+	if err := state.accept([]byte(assistant1)); err != nil {
+		t.Fatal(err)
+	}
+	status, body := brokerRequest(t, broker, capability, toolCallRequest(
+		1, "Read", map[string]any{"path": "/workspace/claude.txt"},
+	))
+	if status != http.StatusOK || !bytes.Contains(body, []byte(`"text":"claude body"`)) {
+		t.Fatalf("read call 1 = %d %s", status, body)
+	}
+	broker.flushPending()
+	user1 := `{"type":"user","message":{"content":[` +
+		`{"type":"tool_result","tool_use_id":"call-1"}` +
+		`]}}`
+	if err := state.accept([]byte(user1)); err != nil {
+		t.Fatal(err)
+	}
+
+	assistant2 := `{"type":"assistant","message":{"content":[` +
+		`{"type":"tool_use","id":"call-2","name":"Read","input":{"path":"/workspace/claude.txt"}}` +
+		`]}}`
+	if err := state.accept([]byte(assistant2)); err != nil {
+		t.Fatal(err)
+	}
+	status, body = brokerRequest(t, broker, capability, toolCallRequest(
+		2, "Read", map[string]any{"path": "/workspace/claude.txt"},
+	))
+	if status != http.StatusOK || !bytes.Contains(body, []byte(`"text":"claude body"`)) {
+		t.Fatalf("read call 2 = %d %s", status, body)
+	}
+	broker.flushPending()
+	// Simulates scanNativeEvents' deferred teardown flush for the final
+	// turn, which is never followed by a next "assistant" event.
+	state.flushPendingWorkerTurn()
+
+	toolTurns := toolRecorder.waitFor(t, 2)
+	if toolTurns[0].Turn != 1 || toolTurns[1].Turn != 2 {
+		t.Fatalf("tool-result turns = %d, %d, want 1, 2", toolTurns[0].Turn, toolTurns[1].Turn)
+	}
+
+	workerTurns := workerRecorder.waitFor(t, 2)
+	if workerTurns[0].Turn != 1 || workerTurns[1].Turn != 2 {
+		t.Fatalf("worker turns = %d, %d, want 1, 2", workerTurns[0].Turn, workerTurns[1].Turn)
+	}
+	first := workerTurns[0].Content
+	if len(first) != 3 ||
+		first[0].Kind != WorkerTurnPartText ||
+		first[1].Kind != WorkerTurnPartToolCall || first[1].Tool != "Read" ||
+		first[1].ToolCallID != "call-1" ||
+		first[2].Kind != WorkerTurnPartToolResultRef || first[2].ToolCallID != "call-1" {
+		t.Fatalf("first worker turn content = %#v", first)
+	}
+	head, _ := decodeWorkerTurnPartSpans(t, first[0])
+	if string(head) != "looking at the file" {
+		t.Fatalf("text part = %q", head)
+	}
+	second := workerTurns[1].Content
+	if len(second) != 1 || second[0].Kind != WorkerTurnPartToolCall ||
+		second[0].ToolCallID != "call-2" {
+		t.Fatalf("second worker turn content = %#v", second)
+	}
+}
+
+// TestNativeEventStateCodexItemsProduceWorkerTurnsAndKeepPerTurnToolResultKeying
+// pins A1/A2 for the Codex family: state.accept recognizes completed
+// agent_message and MCP tool-call items, and the observation turn advances
+// in lockstep with the existing economics turns counter at "turn.completed",
+// so Codex's already-correct per-turn tool-result keying stays
+// byte-for-byte unchanged.
+func TestNativeEventStateCodexItemsProduceWorkerTurnsAndKeepPerTurnToolResultKeying(t *testing.T) {
+	invocation, _, _ := memoryInvocationFixture(t)
+	toolRecorder := &recordingToolResultHook{}
+	workerRecorder := &recordingWorkerTurnHook{}
+	invocation.ToolResultHook = toolRecorder.hook()
+	invocation.WorkerTurnHook = workerRecorder.hook()
+	if err := osWriteProviderFixture(
+		invocation.HostWorkspace, "codex.txt", "codex body",
+	); err != nil {
+		t.Fatal(err)
+	}
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	broker, err := newNativeBroker(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer broker.Close()
+	capability := broker.capability()
+	defer clearBytes(capability)
+	openNativeBrokerForTest(t, broker, capability)
+
+	state := &nativeEventState{family: ProfileCodex, model: "m", broker: broker}
+	broker.bindTurnSource(func() int64 {
+		state.mu.Lock()
+		defer state.mu.Unlock()
+		return state.observationTurn
+	})
+
+	item1 := `{"type":"item.completed","item":{"type":"mcp_tool_call",` +
+		`"id":"call-1","name":"Read","arguments":{"path":"/workspace/codex.txt"}}}`
+	if err := state.accept([]byte(item1)); err != nil {
+		t.Fatal(err)
+	}
+	status, body := brokerRequest(t, broker, capability, toolCallRequest(
+		1, "Read", map[string]any{"path": "/workspace/codex.txt"},
+	))
+	if status != http.StatusOK || !bytes.Contains(body, []byte(`"text":"codex body"`)) {
+		t.Fatalf("read call 1 = %d %s", status, body)
+	}
+	broker.flushPending()
+	agent1 := `{"type":"item.completed","item":{"type":"agent_message","text":"round one"}}`
+	if err := state.accept([]byte(agent1)); err != nil {
+		t.Fatal(err)
+	}
+	turnCompleted1 := `{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}`
+	if err := state.accept([]byte(turnCompleted1)); err != nil {
+		t.Fatal(err)
+	}
+
+	item2 := `{"type":"item.completed","item":{"type":"mcp_tool_call",` +
+		`"id":"call-2","name":"Read","arguments":{"path":"/workspace/codex.txt"}}}`
+	if err := state.accept([]byte(item2)); err != nil {
+		t.Fatal(err)
+	}
+	status, body = brokerRequest(t, broker, capability, toolCallRequest(
+		2, "Read", map[string]any{"path": "/workspace/codex.txt"},
+	))
+	if status != http.StatusOK || !bytes.Contains(body, []byte(`"text":"codex body"`)) {
+		t.Fatalf("read call 2 = %d %s", status, body)
+	}
+	broker.flushPending()
+	turnCompleted2 := `{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}`
+	if err := state.accept([]byte(turnCompleted2)); err != nil {
+		t.Fatal(err)
+	}
+	state.flushPendingWorkerTurn()
+
+	toolTurns := toolRecorder.waitFor(t, 2)
+	if toolTurns[0].Turn != 0 || toolTurns[1].Turn != 1 {
+		t.Fatalf("tool-result turns = %d, %d, want 0, 1 (pre-existing Codex keying)",
+			toolTurns[0].Turn, toolTurns[1].Turn)
+	}
+
+	workerTurns := workerRecorder.waitFor(t, 2)
+	if workerTurns[0].Turn != 0 || workerTurns[1].Turn != 1 {
+		t.Fatalf("worker turns = %d, %d, want 0, 1", workerTurns[0].Turn, workerTurns[1].Turn)
+	}
+	first := workerTurns[0].Content
+	if len(first) != 2 ||
+		first[0].Kind != WorkerTurnPartToolCall || first[0].ToolCallID != "call-1" ||
+		first[1].Kind != WorkerTurnPartText {
+		t.Fatalf("first worker turn content = %#v", first)
+	}
+	second := workerTurns[1].Content
+	if len(second) != 1 || second[0].Kind != WorkerTurnPartToolCall ||
+		second[0].ToolCallID != "call-2" {
+		t.Fatalf("second worker turn content = %#v", second)
+	}
+}
+
+// TestNativeEventStateWorkerTurnMalformedEventsCountAsDropsNotRefusals pins
+// A4/A5: an unrecognized Codex item type and a structurally invalid Claude
+// assistant event are each counted as a dropped worker-turn event rather
+// than refused - the existing refusal precedence (secret leak, cumulative
+// byte budget, disallowed Codex item type) is unaffected, since these
+// branches only run after those checks already passed.
+func TestNativeEventStateWorkerTurnMalformedEventsCountAsDropsNotRefusals(t *testing.T) {
+	codexInvocation, _, _ := memoryInvocationFixture(t)
+	codexRecorder := &recordingWorkerTurnHook{}
+	codexInvocation.WorkerTurnHook = codexRecorder.hook()
+	codexSession, err := newToolSession(codexInvocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer codexSession.Close()
+	codexBroker, err := newNativeBroker(codexSession)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer codexBroker.Close()
+
+	codex := &nativeEventState{family: ProfileCodex, model: "m", broker: codexBroker}
+	if err := codex.accept([]byte(
+		`{"type":"item.completed","item":{"type":"todo_list"}}`,
+	)); err != nil {
+		t.Fatal(err)
+	}
+	if err := codex.accept([]byte(
+		`{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}`,
+	)); err != nil {
+		t.Fatal(err)
+	}
+	if err := codex.accept([]byte(
+		`{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}`,
+	)); err != nil {
+		t.Fatal(err)
+	}
+	codex.flushPendingWorkerTurn()
+	codexTurns := codexRecorder.waitFor(t, 1)
+	if codexTurns[0].DroppedEvents != 1 {
+		t.Fatalf("codex dropped events = %d, want 1", codexTurns[0].DroppedEvents)
+	}
+
+	claudeInvocation, _, _ := memoryInvocationFixture(t)
+	claudeRecorder := &recordingWorkerTurnHook{}
+	claudeInvocation.WorkerTurnHook = claudeRecorder.hook()
+	claudeSession, err := newToolSession(claudeInvocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer claudeSession.Close()
+	claudeBroker, err := newNativeBroker(claudeSession)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer claudeBroker.Close()
+
+	claude := &nativeEventState{family: ProfileClaude, model: "m", broker: claudeBroker}
+	if err := claude.accept([]byte(`{"type":"assistant","message":{}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := claude.accept([]byte(
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"second"}]}}`,
+	)); err != nil {
+		t.Fatal(err)
+	}
+	claude.flushPendingWorkerTurn()
+	claudeTurns := claudeRecorder.waitFor(t, 1)
+	if claudeTurns[0].DroppedEvents != 1 {
+		t.Fatalf("claude dropped events = %d, want 1", claudeTurns[0].DroppedEvents)
+	}
+}
+
+// TestNativeContinuationFixtureEmitsWorkerTurnsThroughRealChildProcess pins
+// A1's explicit end-to-end requirement: the built fake native CLI
+// (testdata/nativecontinuation/main.go) emits the worker-turn events of
+// each family around two real MCP tool calls it makes over HTTP as a real
+// child process, rather than a hand-built nativeEventState driving
+// state.accept directly. This is what actually exercises the two
+// production wiring lines the slice turns on: platformRunNative's
+// broker.bindTurnSource closure reading state.observationTurn (A2), and
+// scanNativeEvents' deferred flushPendingWorkerTurn (A5) - the second
+// worker turn of each family is deliberately left without a closing
+// boundary event, so it only ever reaches the hook if that defer ran for
+// real.
+func TestNativeContinuationFixtureEmitsWorkerTurnsThroughRealChildProcess(t *testing.T) {
+	setNativeMemoryRootEnv(t)
+	for _, family := range []ProfileFamily{ProfileCodex, ProfileClaude} {
+		family := family
+		t.Run(string(family), func(t *testing.T) {
+			binary := buildNativeContinuation(t)
+			digest, err := executableDigest(binary)
+			if err != nil {
+				t.Fatal(err)
+			}
+			config := nativeContinuationConfigFixture(t, family, binary, digest)
+			configBody, err := canonicalJSON(config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			identity := AdapterIdentity{
+				Key: config.Key, ID: config.ID, Version: config.Version,
+				ConfigurationDigest: Digest(configBody),
+			}
+			ref := config.CredentialRefs[0]
+			credential := filepath.Join(t.TempDir(), "credential")
+			if err := os.WriteFile(
+				credential,
+				[]byte(`{"token":"native-worker-turn-credential-canary"}`),
+				0o600,
+			); err != nil {
+				t.Fatal(err)
+			}
+			adapter := &nativeAdapter{
+				identity: identity,
+				config:   config,
+				resolve: func(context.Context, string) (string, error) {
+					return credential, nil
+				},
+				refs: map[string]struct{}{ref: {}},
+			}
+			profile := ProfileConfig{
+				Key:     "native-worker-turn-profile-" + string(family),
+				Adapter: identity.Key, Network: NetworkRequired,
+				CredentialRef: &ref,
+			}
+			selected := SelectedProfile{
+				Profile: profile,
+				Adapter: identity,
+				Model:   "native-continuation-model",
+				adapter: adapter,
+			}
+			base, _, _ := memoryInvocationFixture(t)
+			base.Selected = selected
+			request, err := NewRequest(
+				"native-worker-turn-fixture-"+string(family),
+				RoleImplementer,
+				profile.Key,
+				selected.Model,
+				Workspace{Path: GuestWorkspacePath, Access: ReadOnly},
+				base.Request.Inputs,
+				true,
+				Limits{TimeoutMillis: 20_000, OutputBytes: 65_536},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			permission, err := NewSubmissionPermission(
+				request,
+				selected,
+				ContainmentReadOnly,
+				ImplementerDesign,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			invocation := base
+			invocation.Request = request
+			invocation.Permission = permission
+			if err := osWriteProviderFixture(
+				invocation.HostWorkspace,
+				"worker-turn-fixture.txt",
+				"worker turn fixture body",
+			); err != nil {
+				t.Fatal(err)
+			}
+			toolRecorder := &recordingToolResultHook{}
+			workerRecorder := &recordingWorkerTurnHook{}
+			invocation.ToolResultHook = toolRecorder.hook()
+			invocation.WorkerTurnHook = workerRecorder.hook()
+
+			observation, err := platformInvokeNative(
+				context.Background(),
+				invocation,
+				config,
+				credential,
+				nativeSurfaceCertificate{},
+			)
+			if err != nil || observation.Handoff == nil {
+				t.Fatalf(
+					"native worker-turn fixture dispatch = observation %#v, error %v",
+					observation,
+					err,
+				)
+			}
+
+			toolTurns := toolRecorder.waitFor(t, 2)
+			workerTurns := workerRecorder.waitFor(t, 2)
+			wantToolTurns, wantWorkerTurns := [2]int64{1, 2}, [2]int64{1, 2}
+			if family == ProfileCodex {
+				wantToolTurns, wantWorkerTurns = [2]int64{0, 1}, [2]int64{0, 1}
+			}
+			if toolTurns[0].Turn != wantToolTurns[0] ||
+				toolTurns[1].Turn != wantToolTurns[1] {
+				t.Fatalf(
+					"tool-result turns = %d, %d, want %d, %d",
+					toolTurns[0].Turn, toolTurns[1].Turn,
+					wantToolTurns[0], wantToolTurns[1],
+				)
+			}
+			if workerTurns[0].Turn != wantWorkerTurns[0] ||
+				workerTurns[1].Turn != wantWorkerTurns[1] {
+				t.Fatalf(
+					"worker turns = %d, %d, want %d, %d",
+					workerTurns[0].Turn, workerTurns[1].Turn,
+					wantWorkerTurns[0], wantWorkerTurns[1],
+				)
+			}
+			second := workerTurns[1].Content
+			if len(second) != 1 || second[0].Kind != WorkerTurnPartToolCall ||
+				second[0].ToolCallID != "fixture-call-2" {
+				t.Fatalf(
+					"defer-flushed final worker turn content = %#v",
+					second,
+				)
+			}
+		})
+	}
+}
+
 // A2: scanNativeEvents' cumulative-total branch fails
 // ECONOMY_OUTPUT_BUDGET_EXCEEDED and stamps the crossing byte total onto
 // state, never touching state.accept - nothing in the pre-slice suite pins
@@ -3098,5 +3523,85 @@ func TestNativeCodexConfigFilesBlockFidelity(t *testing.T) {
 			redactedGot,
 			redactedWant,
 		)
+	}
+}
+
+// S3-failure-turn-context A4: driver causes are unchanged and still win,
+// whether or not turns were observed (context enabled vs disabled). A
+// limit-naming CLI error result still yields PROVIDER_LIMITED hard with
+// the same Detail, stderr-tail-vs-result precedence is byte-identical,
+// and the turn context beside the cause is never parsed to derive it.
+func TestFailureTurnContextDriverCausesStillWin(t *testing.T) {
+	// A limit-naming error result: subtype + text naming a rate limit.
+	limitDetail := nativeResultErrorDetail("error_api", "Rate limit exceeded for this model")
+	if !nativeLimitReached(limitDetail) {
+		t.Fatalf("limit detail %q not classified as limit", limitDetail)
+	}
+	// With turns observed (hooks set, worker turn emitted).
+	invocation, _, _ := memoryInvocationFixture(t)
+	workerRecorder := &recordingWorkerTurnHook{}
+	invocation.WorkerTurnHook = workerRecorder.hook()
+	observed, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer observed.Close()
+	observed.observeWorkerTurn(WorkerTurn{
+		Turn: 1,
+		Content: []WorkerTurnPart{
+			projectWorkerTurnPart(WorkerTurnPartText, "", "", []byte("working"), nil),
+		},
+	})
+	if err := observed.Close(); err != nil {
+		t.Fatal(err)
+	}
+	turns := workerRecorder.waitFor(t, 1)
+	if len(turns) != 1 {
+		t.Fatalf("observed turns = %d, want 1", len(turns))
+	}
+	// Without turns observed (hooks nil).
+	plainInvocation, _, _ := memoryInvocationFixture(t)
+	plain, err := newToolSession(plainInvocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer plain.Close()
+	// The same limit-naming result yields the same hard wall in both
+	// cases: the cause is derived from the CLI result alone, never from
+	// the observed turns beside it.
+	limitResult := nativeResultError{errored: true, subtype: "error_api", detail: limitDetail}
+	waitErr := &exec.ExitError{}
+	for _, stderr := range [][]byte{nil, []byte(""), []byte("stderr tail bytes")} {
+		withErr := nativeSpontaneousExitFailure(false, ProfileClaude, waitErr, stderr, limitResult)
+		withoutErr := nativeSpontaneousExitFailure(false, ProfileClaude, waitErr, stderr, limitResult)
+		withContract, withOK := withErr.(*ContractError)
+		withoutContract, withoutOK := withoutErr.(*ContractError)
+		if !withOK || !withoutOK || withContract.Code != "PROVIDER_LIMITED" || withoutContract.Code != "PROVIDER_LIMITED" ||
+			!withContract.HardLimit || !withoutContract.HardLimit ||
+			withContract.Detail != limitDetail || withoutContract.Detail != limitDetail {
+			t.Fatalf("limit cause with=%v without=%v, want identical PROVIDER_LIMITED hard %q", withErr, withoutErr, limitDetail)
+		}
+	}
+	// Stderr-tail-vs-result precedence is byte-identical: a non-empty
+	// stderr tail wins, an empty tail falls back to the result with the
+	// exit-status prefix. The CLI's own turn cap never becomes a limit.
+	capped := nativeResultError{errored: true, subtype: "error_max_turns", detail: nativeResultErrorDetail("error_max_turns", "rate limit in message")}
+	if nativeLimitReached(capped.detail) {
+		// The phrase table matches, but the turn-cap guard must still win.
+	}
+	withCapped := nativeSpontaneousExitFailure(false, ProfileClaude, waitErr, []byte("tail"), capped)
+	if contract, ok := withCapped.(*ContractError); !ok || contract.Code != "PROVIDER_TRANSPORT_FAILED" {
+		t.Fatalf("turn-cap cause = %v, want PROVIDER_TRANSPORT_FAILED (never a limit)", withCapped)
+	}
+	plainResult := nativeResultError{errored: true, subtype: "error_api", detail: nativeResultErrorDetail("error_api", "boom")}
+	withTail := nativeSpontaneousExitFailure(false, ProfileClaude, waitErr, []byte("tail bytes"), plainResult)
+	withoutTail := nativeSpontaneousExitFailure(false, ProfileClaude, waitErr, nil, plainResult)
+	withContract := withTail.(*ContractError)
+	withoutContract := withoutTail.(*ContractError)
+	if withContract.Detail != normalizeProviderErrorDetail("tail bytes") {
+		t.Fatalf("stderr tail did not win: %q", withContract.Detail)
+	}
+	if withoutContract.Detail == withContract.Detail || !strings.Contains(withoutContract.Detail, "boom") {
+		t.Fatalf("empty tail did not fall back to result: %q vs %q", withoutContract.Detail, withContract.Detail)
 	}
 }

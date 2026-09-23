@@ -65,6 +65,12 @@ type Projector struct {
 	runtime  RuntimeReader
 	protocol StateReader
 	now      func() time.Time
+	// activityRing is the optional live ring the serve host wires in.
+	// Nil means journal-only (the TUI, the project-wide host, and any
+	// run driven by another process); non-nil means the serve host
+	// drives the run in-process and the activity route merges the ring
+	// ahead of the journal on one cursor.
+	activityRing *ActivityRing
 }
 
 func NewProjector(
@@ -81,6 +87,16 @@ func NewProjector(
 		protocol: stateReader,
 		now:      time.Now,
 	}, nil
+}
+
+// SetActivityRing wires the live ring for serve-driven runs. A nil ring
+// disables liveness; Activity then serves the same content from the
+// journal alone with Live=false.
+func (p *Projector) SetActivityRing(ring *ActivityRing) {
+	if p == nil {
+		return
+	}
+	p.activityRing = ring
 }
 
 type windowReader interface {
@@ -327,11 +343,12 @@ func buildSnapshot(
 	}
 	for _, effect := range status.Effects {
 		result.Runtime.Effects = append(result.Runtime.Effects, EffectView{
-			ID:        effect.ID,
-			Kind:      effect.Kind,
-			State:     effect.State,
-			ErrorCode: effect.ErrorCode,
-			Derived:   effect.Derived,
+			ID:                 effect.ID,
+			Kind:               effect.Kind,
+			State:              effect.State,
+			ErrorCode:          effect.ErrorCode,
+			Derived:            effect.Derived,
+			FailureTurnContext: effect.FailureTurnContext,
 		})
 	}
 	for _, attempt := range observation.Attempts {
@@ -466,6 +483,31 @@ func buildSnapshot(
 				cpCopy := cp
 				node.Checkpoint = &cpCopy
 				break
+			}
+		}
+	}
+	// S3: PinnedWork->Node via lane->actionable-node, the existing
+	// Track==lane && HasProtocol precedent (projector.go marks slice nodes
+	// with Track==lane && HasProtocol, and maps the release lane to the
+	// assembly node). At most one slice node per lane carries it; the
+	// release lane maps to the assembly node. Same pointer, no re-decode,
+	// so board/TUI/MCP detail stay in parity with Effects/PinnedWork.
+	for _, pinned := range status.PinnedWork {
+		if pinned.FailureTurnContext == nil {
+			continue
+		}
+		if pinned.Lane == "release" {
+			for i := range result.Graph.Nodes {
+				if result.Graph.Nodes[i].Kind == "assembly" {
+					result.Graph.Nodes[i].FailureTurnContext = pinned.FailureTurnContext
+				}
+			}
+			continue
+		}
+		for i := range result.Graph.Nodes {
+			node := &result.Graph.Nodes[i]
+			if node.Kind == "slice" && node.Track == pinned.Lane && node.HasProtocol {
+				node.FailureTurnContext = pinned.FailureTurnContext
 			}
 		}
 	}

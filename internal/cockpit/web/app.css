@@ -788,3 +788,29 @@ main {
     transition: border-color 120ms linear;
   }
 }
+.activity-pane {
+  margin-top: 1.5rem;
+  border-top: 1px solid var(--rule);
+  padding-top: 1rem;
+}
+
+.activity-pane ol {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  max-height: 24rem;
+  overflow-y: auto;
+}
+
+.activity-turn {
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  padding: 0.6rem 0.75rem;
+  margin-bottom: 0.6rem;
+}
+
+.activity-text,
+.activity-result {
+  margin-top: 0.35rem;
+  overflow-wrap: anywhere;
+}

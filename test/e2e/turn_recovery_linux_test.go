@@ -1745,3 +1745,373 @@ func TestProductionTurnRecoveryParksRestartsAndAccountsExactlyOnce(
 		outputDelta,
 	)
 }
+
+// S3-failure-turn-context A5 (C4: lands in this anchor file): in a
+// built-product journey where a scripted HTTP-lane worker takes several
+// tool turns and then the dispatch fails operationally, the run's status
+// output for that work shows the final turns in order with the failure
+// code, and a following successful try of the same work shows no stale
+// context. The native lane's worker+tool interleaving is covered by unit
+// test; this journey pins the HTTP lane deterministically.
+func s3E2EPlan(t *testing.T) ([]byte, protocol.Plan) {
+	t.Helper()
+	body, plan := recoveryE2EPlan(t)
+	// S3 needs no declared check to cover: the Verifier then passes
+	// without engine-recorded check evidence, so the journey pins the
+	// failure tail rather than the check-evidence gate.
+	metadata := plan.Metadata()
+	metadata.Tracks[0].Slices[0].Checks = []string{}
+	metadataBody, err := json.MarshalIndent(metadata, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = []byte("```protocol-plan-v2\n" + string(metadataBody) + "\n```\n\nDeterministic S3 failure-turn-context E2E.\n")
+	plan, err = protocol.ParsePlan(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return body, plan
+}
+
+func TestFailureTurnContextBuiltProductJourney(t *testing.T) {
+	const runID = "failure-turn-context"
+	repository := newProductRepository(t)
+	planBytes, plan := s3E2EPlan(t)
+	provider := &failureTurnContextProvider{t: t, planBytes: planBytes, turns: make(map[string]int)}
+	providerHTTP := httptest.NewServer(http.HandlerFunc(provider.serve))
+	defer providerHTTP.Close()
+
+	root := t.TempDir()
+	configBody, loaded := recoveryE2EConfig(t, providerHTTP.URL)
+	configPath := filepath.Join(root, "drivers.json")
+	if err := os.WriteFile(configPath, configBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := writeManifest(t, root, recoveryE2EManifest(t, runID, repository, loaded))
+	journalPath := filepath.Join(root, "run.sqlite")
+	swornBinary := filepath.Join(root, "sworn")
+	buildBinary(t, swornBinary, "./cmd/sworn", "")
+	environment := map[string]string{"SWORN_TURN_RECOVERY_KEY": recoveryE2ESecret}
+
+	stdout, stderr := runBinaryWithEnvironment(t, swornBinary, 0, environment,
+		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath)
+	if stderr != "" || !strings.Contains(stdout, "  state: parked") {
+		t.Fatalf("S3 start stdout=%q stderr=%q", stdout, stderr)
+	}
+	stdout = answerRecoveryPlannerSummary(t, swornBinary, runID, journalPath, configPath, environment)
+	if !strings.Contains(stdout, "  state: awaiting_approval") {
+		t.Fatalf("S3 summary answer stdout=%q", stdout)
+	}
+	authorizePlan(t, journalPath, runID, plan)
+	installApprovedPlan(t, repository, planBytes)
+	stdout, stderr = runBinaryWithEnvironment(t, swornBinary, 0, environment,
+		"resume", "--run", runID, "--journal", journalPath,
+		"--command", "s3-resume-1", "--generation", "0", "--config", configPath)
+	// The injected first-try transport failure may log to stderr from the
+	// resume's background drive even as the automatic retry succeeds; the
+	// exit code (already asserted 0 by the helper) and the final complete
+	// state below are the assertions, not an empty stderr.
+	_ = stderr
+	_ = stdout
+	stdout, stderr = runBinaryWithEnvironment(t, swornBinary, 0, environment,
+		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath)
+	if !strings.Contains(stdout, "  state: complete") {
+		t.Fatalf("S3 run stdout=%q stderr=%q (want complete after automatic retry)", stdout, stderr)
+	}
+
+	statusBody, statusErr := runBinary(t, swornBinary, 0,
+		"status", "--run", runID, "--journal", journalPath, "--json")
+	var status swornruntime.RunStatus
+	if statusErr != "" || json.Unmarshal([]byte(statusBody), &status) != nil {
+		t.Fatalf("S3 status body=%q stderr=%q", statusBody, statusErr)
+	}
+	var failed, succeeded *swornruntime.EffectStatus
+	for i := range status.Effects {
+		effect := &status.Effects[i]
+		if effect.Kind != "driver.dispatch" || !strings.Contains(effect.ID, "/e1/t") {
+			continue
+		}
+		// The S3 Implementer dispatches are the only driver.dispatch
+		// effects with three tool turns; Planner/Lead/Verifier submit
+		// on turn 1 (or 2 for Verifier). Distinguish by context.
+		if effect.State == string(journal.OperationalFailed) && effect.FailureTurnContext != nil {
+			if failed != nil {
+				t.Fatalf("multiple failed effects with context: %#v vs %#v", failed, effect)
+			}
+			failed = effect
+		}
+		if effect.State == string(journal.Succeeded) && strings.HasSuffix(effect.ID, "/t2") {
+			// Candidate for the following successful try; refined below
+			// by matching its work to the failed effect's work.
+			if succeeded == nil {
+				succeeded = effect
+			}
+		}
+	}
+	if failed == nil {
+		t.Fatalf("no failed dispatch with context in %#v", status.Effects)
+	}
+	if failed.ErrorCode == "" {
+		t.Fatal("failed effect lost its failure code beside its context")
+	}
+	ctx := failed.FailureTurnContext
+	if ctx.SchemaVersion != "sworn.failure-turn-context/v1" || ctx.Status != "present" {
+		t.Fatalf("failed context = %#v, want present", ctx)
+	}
+	if len(ctx.Turns) != 3 {
+		t.Fatalf("failed turns = %d, want 3 tool turns", len(ctx.Turns))
+	}
+	for i, want := range []int64{1, 2, 3} {
+		if ctx.Turns[i].Turn != want {
+			t.Fatalf("failed turns out of order: %#v, want 1,2,3 increasing", ctx.Turns)
+		}
+		if ctx.Turns[i].Kind != "tool_result" || len(ctx.Turns[i].Results) == 0 {
+			t.Fatalf("failed turn %d = %#v, want tool_result with results", i, ctx.Turns[i])
+		}
+	}
+	if ctx.Omitted != 0 {
+		t.Fatalf("omitted = %d, want 0 (all 3 fit 5/48KiB)", ctx.Omitted)
+	}
+	// The following successful try of the same work shows no stale copy.
+	failedWork := ""
+	if parts := strings.Split(failed.ID, "/"); len(parts) == 4 {
+		failedWork = "sha256:" + parts[1]
+	}
+	var successMatch *swornruntime.EffectStatus
+	for i := range status.Effects {
+		effect := &status.Effects[i]
+		if effect.State != string(journal.Succeeded) || effect.Kind != "driver.dispatch" {
+			continue
+		}
+		parts := strings.Split(effect.ID, "/")
+		if len(parts) == 4 && "sha256:"+parts[1] == failedWork {
+			successMatch = effect
+			break
+		}
+	}
+	if successMatch == nil {
+		t.Fatalf("no successful try of %s in %#v", failedWork, status.Effects)
+	}
+	if successMatch.FailureTurnContext != nil {
+		t.Fatalf("successful try carries stale context: %#v", successMatch.FailureTurnContext)
+	}
+	if len(status.PinnedWork) != 0 {
+		t.Fatalf("pinned work remains on a healthy lane: %#v", status.PinnedWork)
+	}
+
+	boardBody, boardErr := runBinary(t, swornBinary, 0,
+		"board", "--run", runID, "--journal", journalPath, "--json")
+	var board cockpit.Snapshot
+	if boardErr != "" || json.Unmarshal([]byte(boardBody), &board) != nil {
+		t.Fatalf("S3 board body=%q stderr=%q", boardBody, boardErr)
+	}
+	var boardFailed, boardSuccess *cockpit.EffectView
+	for i := range board.Runtime.Effects {
+		view := &board.Runtime.Effects[i]
+		if view.ID == failed.ID {
+			boardFailed = view
+		}
+		if view.ID == successMatch.ID {
+			boardSuccess = view
+		}
+	}
+	if boardFailed == nil || boardFailed.FailureTurnContext == nil || boardFailed.FailureTurnContext.Status != "present" ||
+		len(boardFailed.FailureTurnContext.Turns) != 3 {
+		t.Fatalf("board failed effect = %#v", boardFailed)
+	}
+	if boardSuccess == nil || boardSuccess.FailureTurnContext != nil {
+		t.Fatalf("board successful effect carries stale context: %#v", boardSuccess)
+	}
+	for _, node := range board.Graph.Nodes {
+		if node.FailureTurnContext != nil {
+			t.Fatalf("board node %s carries context on a healthy lane: %#v", node.ID, node.FailureTurnContext)
+		}
+	}
+}
+
+type failureTurnContextProvider struct {
+	t         *testing.T
+	planBytes []byte
+	mu        sync.Mutex
+	turns     map[string]int
+	firstImpl string
+}
+
+func (provider *failureTurnContextProvider) serve(writer http.ResponseWriter, request *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(request.Body, driver.MaxProviderRequestBytes+1))
+	if err != nil || len(body) > driver.MaxProviderRequestBytes {
+		http.Error(writer, "invalid request", http.StatusBadRequest)
+		return
+	}
+	defer func() {
+		for index := range body {
+			body[index] = 0
+		}
+	}()
+	if request.Header.Get("Authorization") != "Bearer "+recoveryE2ESecret {
+		http.Error(writer, "credential mismatch", http.StatusUnauthorized)
+		return
+	}
+	promptBody, model, err := openAIJourneyPrompt(request, body)
+	if err != nil || model != "turn-recovery-model" {
+		provider.t.Errorf("S3 provider model=%q: %v", model, err)
+		http.Error(writer, "invalid request", http.StatusBadRequest)
+		return
+	}
+	var header struct {
+		SchemaVersion string `json:"schema_version"`
+	}
+	if err := json.Unmarshal([]byte(promptBody), &header); err != nil {
+		provider.t.Errorf("S3 prompt: %v", err)
+		http.Error(writer, "invalid prompt", http.StatusBadRequest)
+		return
+	}
+	if header.SchemaVersion != "sworn.model-prompt/v1" {
+		provider.t.Errorf("S3 unexpected prompt schema %q", header.SchemaVersion)
+		http.Error(writer, "invalid prompt", http.StatusBadRequest)
+		return
+	}
+	var prompt recoveryE2EModelPrompt
+	if err := json.Unmarshal([]byte(promptBody), &prompt); err != nil || prompt.InvocationID == "" || prompt.Responsibility == "" {
+		provider.t.Errorf("S3 model prompt=%q error=%v", promptBody, err)
+		http.Error(writer, "invalid prompt", http.StatusBadRequest)
+		return
+	}
+	provider.mu.Lock()
+	provider.turns[prompt.InvocationID]++
+	turn := provider.turns[prompt.InvocationID]
+	if prompt.Responsibility == driver.ImplementerImplementation && provider.firstImpl == "" {
+		provider.firstImpl = prompt.InvocationID
+	}
+	first := provider.firstImpl == prompt.InvocationID
+	provider.mu.Unlock()
+	toolName, arguments, err := provider.workerResponse(prompt, turn, first)
+	if err != nil {
+		// Injected S3 failure after three tool turns: the provider
+		// transport fails, so the dispatch fails operationally with its
+		// three observed turns beside it.
+		http.Error(writer, "injected S3 failure", http.StatusInternalServerError)
+		return
+	}
+	argumentBody, err := json.Marshal(arguments)
+	if err != nil {
+		provider.t.Errorf("S3 arguments: %v", err)
+		http.Error(writer, "invalid response", http.StatusInternalServerError)
+		return
+	}
+	provider.mu.Lock()
+	callTurn := provider.turns[prompt.InvocationID]
+	provider.mu.Unlock()
+	writer.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(writer).Encode(map[string]any{
+		"choices": []any{map[string]any{
+			"message": map[string]any{
+				"role": "assistant", "content": nil,
+				"tool_calls": []any{map[string]any{
+					"id":       journeyCallID(prompt.InvocationID, callTurn),
+					"type":     "function",
+					"function": map[string]any{"name": toolName, "arguments": string(argumentBody)},
+				}},
+			},
+			"finish_reason": "tool_calls",
+		}},
+		"usage": map[string]any{"prompt_tokens": 7, "completion_tokens": 5},
+	})
+}
+
+func (provider *failureTurnContextProvider) workerResponse(prompt recoveryE2EModelPrompt, turn int, first bool) (string, map[string]any, error) {
+	if prompt.Responsibility == driver.PlannerProposal {
+		if turn == 1 && prompt.Recovery == nil {
+			return "sworn_yield", map[string]any{"yield": map[string]any{
+				"schema_version": driver.YieldSchemaVersion,
+				"invocation_id":  prompt.InvocationID,
+				"kind":           string(driver.YieldHumanConfirmation),
+				"message":        recoveryE2ESummaryQuestion,
+			}}, nil
+		}
+		if prompt.Recovery == nil || prompt.Recovery.Kind != driver.RecoverableInputAnswer || prompt.Recovery.Content != recoveryE2ESummaryAnswer {
+			return "", nil, fmt.Errorf("S3 planner resume turn=%d", turn)
+		}
+		arguments, err := provider.submissionArguments(prompt)
+		return "sworn_submit", arguments, err
+	}
+	if prompt.Responsibility != driver.ImplementerImplementation {
+		if prompt.Responsibility == driver.WorkVerification {
+			if turn == 1 {
+				return "Bash", map[string]any{"script": "check one.txt || true"}, nil
+			}
+			arguments, err := provider.submissionArguments(prompt)
+			return "sworn_submit", arguments, err
+		}
+		if turn != 1 || prompt.Recovery != nil {
+			return "", nil, fmt.Errorf("S3 unexpected %s turn=%d", prompt.Responsibility, turn)
+		}
+		arguments, err := provider.submissionArguments(prompt)
+		return "sworn_submit", arguments, err
+	}
+	if first {
+		switch turn {
+		case 1:
+			return "Write", map[string]any{"path": "/workspace/one.txt", "content": "s3 turn one\n"}, nil
+		case 2:
+			return "Write", map[string]any{"path": "/workspace/one.txt", "content": "s3 turn two\n"}, nil
+		case 3:
+			return "Write", map[string]any{"path": "/workspace/one.txt", "content": "s3 turn three\n"}, nil
+		default:
+			return "", nil, fmt.Errorf("injected S3 failure after 3 turns")
+		}
+	}
+	switch {
+	case turn == 1 && prompt.Recovery == nil:
+		return "Write", map[string]any{"path": "/workspace/one.txt", "content": recoveryE2EContent}, nil
+	case turn == 2 && prompt.Recovery == nil:
+		arguments, err := provider.submissionArguments(prompt)
+		return "sworn_submit", arguments, err
+	default:
+		return "", nil, fmt.Errorf("S3 retry implementation turn=%d", turn)
+	}
+}
+
+func (provider *failureTurnContextProvider) submissionArguments(prompt recoveryE2EModelPrompt) (map[string]any, error) {
+	submission := driver.Submission{
+		SchemaVersion:  driver.SubmissionSchemaVersion,
+		InvocationID:   prompt.InvocationID,
+		Responsibility: prompt.Responsibility,
+		Summary:        "Deterministic S3 failure-turn-context fixture padded so every scripted responsibility this journey drives clears the submission content floor for its coverage.",
+		Detail:         "Bound to the admitted production responsibility, padded so every scripted responsibility this journey drives clears the submission detail content floor for its coverage, well past the two-hundred-byte bound.\n",
+	}
+	var err error
+	switch prompt.Responsibility {
+	case driver.PlannerProposal:
+		submission.Plan, err = driver.NewPlanBytes(provider.planBytes)
+	case driver.ImplementerDesign:
+	case driver.LeadReview:
+		submission.Decision, err = driver.NewDecision(driver.DecisionProceed)
+	case driver.ImplementerImplementation:
+		submission.Checks, err = driver.NewCheckBytes([]byte("matched implementation checks\n"))
+	case driver.WorkVerification:
+		submission.Checks, err = driver.NewCheckBytes([]byte("fresh recovery verification checks\n"))
+		if err == nil {
+			submission.Decision, err = driver.NewDecision(driver.DecisionPass)
+		}
+	case driver.AssemblyVerification:
+		submission.Checks, err = driver.NewCheckBytes([]byte("fresh recovery assembly checks\n"))
+		if err == nil {
+			submission.Decision, err = driver.NewDecision(driver.DecisionPass)
+		}
+	default:
+		err = fmt.Errorf("unknown responsibility %q", prompt.Responsibility)
+	}
+	if err != nil {
+		return nil, err
+	}
+	body, err := driver.EncodeSubmission(submission)
+	if err != nil {
+		return nil, err
+	}
+	var value map[string]any
+	if err := json.Unmarshal(body, &value); err != nil {
+		return nil, err
+	}
+	return map[string]any{"submission": value}, nil
+}

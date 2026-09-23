@@ -3,17 +3,20 @@
 package e2e
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -933,4 +936,222 @@ func mcpOpenTurnCount(t *testing.T, run *surfaceRun) []cockpit.AttentionView {
 		}
 	}
 	return open
+}
+
+// A6: in a built-product journey with a scripted worker that takes several
+// tool-calling turns, the activity route returns those turns in order while
+// the dispatch is still running, the stream delivers a later turn to an
+// already-connected client without a reconnect, and after the run completes
+// the journal-backed page returns the same turns the live stream delivered.
+func TestActivityLiveStreamDeliversWithoutReconnect(t *testing.T) {
+	root := t.TempDir()
+	binary := filepath.Join(root, "sworn")
+	buildBinary(t, binary, "./cmd/sworn", "")
+	run := newSurfaceRun(t, binary, "surface-activity-live")
+	run.startParked()
+	serve := run.startServe()
+	// While parked on the Implementer human turn the dispatch is still
+	// running (awaiting the answer); its turns are already ordered live.
+	parked := fetchActivityJSON(t, serve.address, run.runID, "?after=0&limit=128")
+	if len(parked.Turns) == 0 {
+		t.Fatalf("parked activity has no turns: %#v", parked)
+	}
+	for i := 1; i < len(parked.Turns); i++ {
+		if parked.Turns[i].Offset <= parked.Turns[i-1].Offset {
+			t.Fatalf("parked turns out of order: %#v", parked.Turns)
+		}
+	}
+	foundImplementer := false
+	for _, turn := range parked.Turns {
+		if turn.Responsibility == string(driver.ImplementerImplementation) {
+			foundImplementer = true
+			break
+		}
+	}
+	if !foundImplementer {
+		t.Fatalf("parked activity lacks an implementer turn: %#v", parked.Turns)
+	}
+	throughParked := parked.ThroughOffset
+	// Connect once before answering; the same connection must receive
+	// later turns without a reconnect.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var mu sync.Mutex
+	var live []cockpit.ActivityTurn
+	done := make(chan error, 1)
+	go func() {
+		done <- collectActivitySSE(ctx, serve.address, run.runID, throughParked, func(turn cockpit.ActivityTurn) {
+			mu.Lock()
+			live = append(live, turn)
+			mu.Unlock()
+		})
+	}()
+	time.Sleep(2 * time.Second)
+	turn := run.openHumanTurn()
+	_, stderr := runBinaryWithEnvironmentTimeout(
+		t, binary, 0, run.environment, 180*time.Second,
+		"answer", "--run", run.runID, "--journal", run.journalPath,
+		"--attention", turn.ID, "--generation", "1",
+		"--answer", surfaceAnswerCanary, "--config", run.configPath,
+	)
+	if stderr != "" {
+		t.Fatalf("activity answer stderr=%q", stderr)
+	}
+	stdout, stderr := runBinaryWithEnvironmentTimeout(
+		t, binary, 0, run.environment, 180*time.Second,
+		"run", "--manifest", run.manifestPath, "--journal", run.journalPath,
+		"--config", run.configPath,
+	)
+	if stderr != "" || !strings.Contains(stdout, "  state: complete") {
+		t.Fatalf("activity run stdout=%q stderr=%q", stdout, stderr)
+	}
+	// The serve poll is 1s; 5s is ample for the already-connected stream
+	// to deliver the post-answer turns.
+	time.Sleep(5 * time.Second)
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil && !errors.Is(err, context.Canceled) && err != io.EOF && !strings.Contains(err.Error(), "canceled") {
+			t.Fatalf("SSE collect: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("SSE collect did not finish after cancel")
+	}
+	mu.Lock()
+	liveTurns := append([]cockpit.ActivityTurn(nil), live...)
+	mu.Unlock()
+	if len(liveTurns) == 0 {
+		t.Fatal("live stream delivered no later turn without a reconnect")
+	}
+	for i := 1; i < len(liveTurns); i++ {
+		if liveTurns[i].Offset <= liveTurns[i-1].Offset {
+			t.Fatalf("live turns out of order: %#v", liveTurns)
+		}
+	}
+	seenLive := make(map[int64]bool)
+	for _, turn := range liveTurns {
+		if seenLive[turn.Offset] {
+			t.Fatalf("live stream duplicated offset %d", turn.Offset)
+		}
+		seenLive[turn.Offset] = true
+		if turn.Offset <= throughParked {
+			t.Fatalf("live turn offset %d not beyond parked through %d", turn.Offset, throughParked)
+		}
+	}
+	// After completion the journal-backed page returns the same turns the
+	// live stream delivered.
+	final := fetchActivityJSON(t, serve.address, run.runID, "?after=0&limit=256")
+	byOffset := make(map[int64]cockpit.ActivityTurn)
+	for _, turn := range final.Turns {
+		byOffset[turn.Offset] = turn
+	}
+	for _, turn := range liveTurns {
+		matched, found := byOffset[turn.Offset]
+		if !found {
+			t.Fatalf("live offset %d missing from journal page %#v", turn.Offset, final.Turns)
+		}
+		if matched.Turn != turn.Turn || matched.EffectID != turn.EffectID || len(matched.Content) != len(turn.Content) || len(matched.Results) != len(turn.Results) {
+			t.Fatalf("live turn %#v != journal turn %#v", turn, matched)
+		}
+	}
+	serve.stop(true)
+}
+
+func fetchActivityJSON(t *testing.T, address, runID, query string) cockpit.ActivityPage {
+	t.Helper()
+	url := fmt.Sprintf("http://%s/api/v2/runs/%s/activity%s", address, runID, query)
+	request, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Accept", "application/json")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(response.Body)
+		t.Fatalf("activity JSON %s = %d: %s", url, response.StatusCode, body)
+	}
+	var page cockpit.ActivityPage
+	if err := json.NewDecoder(response.Body).Decode(&page); err != nil {
+		t.Fatal(err)
+	}
+	if page.SchemaVersion != "sworn.activity/v1" || page.RunID != runID {
+		t.Fatalf("activity page = %#v", page)
+	}
+	return page
+}
+
+func collectActivitySSE(ctx context.Context, address, runID string, after int64, onTurn func(cockpit.ActivityTurn)) error {
+	url := fmt.Sprintf("http://%s/api/v2/runs/%s/activity?after=%d&limit=128", address, runID, after)
+	request, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Accept", "text/event-stream")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(response.Body)
+		return fmt.Errorf("activity SSE %s = %d: %s", url, response.StatusCode, body)
+	}
+	reader := bufio.NewReader(response.Body)
+	var id, event, data string
+	flush := func() error {
+		if event == "" {
+			id, event, data = "", "", ""
+			return nil
+		}
+		if event == "activity" {
+			var frame struct {
+				SchemaVersion string               `json:"schema_version"`
+				Turn          cockpit.ActivityTurn `json:"turn"`
+			}
+			if err := json.Unmarshal([]byte(data), &frame); err != nil {
+				return fmt.Errorf("activity frame: %w", err)
+			}
+			if frame.SchemaVersion != "sworn.activity/v1" {
+				return fmt.Errorf("activity frame schema %q", frame.SchemaVersion)
+			}
+			onTurn(frame.Turn)
+			_ = id
+		}
+		id, event, data = "", "", ""
+		return nil
+	}
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return err
+		}
+		line = strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
+		if line == "" {
+			if err := flush(); err != nil {
+				return err
+			}
+			continue
+		}
+		if strings.HasPrefix(line, ":") {
+			continue
+		}
+		if strings.HasPrefix(line, "id:") {
+			id = strings.TrimSpace(strings.TrimPrefix(line, "id:"))
+		} else if strings.HasPrefix(line, "event:") {
+			event = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+		} else if strings.HasPrefix(line, "data:") {
+			chunk := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			if data != "" {
+				data += "\n"
+			}
+			data += chunk
+		}
+	}
 }

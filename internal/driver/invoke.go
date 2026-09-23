@@ -102,6 +102,12 @@ type Invocation struct {
 	// fails a dispatch on it. A nil hook disables observation entirely
 	// (certification, capture, fake, and automation paths).
 	ToolResultHook ToolResultHook
+	// WorkerTurnHook is the runtime-provided durable callback for the
+	// bounded worker-turn projection (native CLI lanes only,
+	// S1-native-turn-journal). It follows the identical non-blocking,
+	// never-fails discipline as ToolResultHook: a nil hook disables
+	// observation entirely.
+	WorkerTurnHook WorkerTurnHook
 	// MaskNames are the workspace-relative names the containment mask must
 	// always protect, derived by the engine from the configured project roots
 	// (records and journals) plus .git. They are computed by the engine and

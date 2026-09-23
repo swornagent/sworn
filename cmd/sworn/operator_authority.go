@@ -111,6 +111,27 @@ func (p *operatorProjector) Events(
 	return p.delegate.Events(ctx, runID, after, limit, track...)
 }
 
+func (p *operatorProjector) Activity(
+	ctx context.Context,
+	runID string,
+	after int64,
+	limit int,
+	filter cockpit.ActivityFilter,
+) (cockpit.ActivityPage, error) {
+	if p == nil || p.authority == nil || p.delegate == nil ||
+		runID != p.authority.runID {
+		return cockpit.ActivityPage{}, errOperatorAuthorityUnavailable
+	}
+	if err := p.authority.require(ctx); err != nil {
+		return cockpit.ActivityPage{}, err
+	}
+	activity, ok := p.delegate.(cockpit.ActivityAPI)
+	if !ok {
+		return cockpit.ActivityPage{}, errOperatorAuthorityUnavailable
+	}
+	return activity.Activity(ctx, runID, after, limit, filter)
+}
+
 func (c *operatorCommands) Start(
 	ctx context.Context,
 	command cockpit.StartCommand,

@@ -26,6 +26,7 @@ const (
 	screenCatalog screen = iota
 	screenBoard
 	screenConfig
+	screenActivity
 )
 
 type overlay uint8
@@ -61,6 +62,11 @@ type model struct {
 	configView ConfigView
 	configErr  string
 
+	activity       cockpit.ActivityPage
+	activityFilter cockpit.ActivityFilter
+	activityNode   string
+	activityCursor int
+
 	generation uint64
 	loading    bool
 	executing  bool
@@ -86,6 +92,15 @@ type boardResultMsg struct {
 type configResultMsg struct {
 	generation uint64
 	config     ConfigView
+	err        error
+}
+
+type activityResultMsg struct {
+	generation uint64
+	selection  Selection
+	filter     cockpit.ActivityFilter
+	nodeID     string
+	page       cockpit.ActivityPage
 	err        error
 }
 
@@ -128,6 +143,8 @@ func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.acceptBoard(msg)
 	case configResultMsg:
 		return m, m.acceptConfig(msg)
+	case activityResultMsg:
+		return m, m.acceptActivity(msg)
 	case executeResultMsg:
 		return m, m.acceptExecution(msg)
 	case tea.KeyMsg:
@@ -193,6 +210,9 @@ func (m *model) handleKey(key tea.KeyMsg) tea.Cmd {
 	}
 	if m.screen == screenCatalog {
 		return m.handleCatalogKey(key)
+	}
+	if m.screen == screenActivity {
+		return m.handleActivityKey(key)
 	}
 	return m.handleBoardKey(key)
 }
@@ -261,6 +281,11 @@ func (m *model) handleBoardKey(key tea.KeyMsg) tea.Cmd {
 		}
 		m.actionCursor = 0
 		m.overlay = overlayActions
+	case "v":
+		if m.selection.RunID == "" {
+			return nil
+		}
+		return m.openActivity()
 	}
 	return nil
 }
@@ -417,6 +442,9 @@ func (m *model) beginRefresh() tea.Cmd {
 	if m.screen == screenBoard {
 		return m.beginBoard(false)
 	}
+	if m.screen == screenActivity {
+		return m.beginActivity(false)
+	}
 	return m.beginCatalog(false)
 }
 
@@ -445,6 +473,101 @@ func (m *model) beginConfig(supersede bool) tea.Cmd {
 	m.generation++
 	m.loading = true
 	return configCmd(m.ctx, m.backend, m.generation)
+}
+
+func (m *model) openActivity() tea.Cmd {
+	if m.selection.RunID == "" {
+		return nil
+	}
+	var node cockpit.Node
+	var nodeID string
+	if m.nodeCursor < len(m.board.Graph.Nodes) {
+		node = m.board.Graph.Nodes[m.nodeCursor]
+		nodeID = node.ID
+	}
+	m.activityFilter = activityFilterForNode(node)
+	m.activityNode = nodeID
+	m.activityCursor = 0
+	m.activity = cockpit.ActivityPage{}
+	m.screen = screenActivity
+	m.errMsg = ""
+	m.statusMsg = ""
+	return m.beginActivity(true)
+}
+
+func activityFilterForNode(node cockpit.Node) cockpit.ActivityFilter {
+	switch node.Kind {
+	case "slice":
+		return cockpit.ActivityFilter{Track: node.Track, Slice: node.Label}
+	case "track":
+		return cockpit.ActivityFilter{Track: node.Label}
+	default:
+		return cockpit.ActivityFilter{}
+	}
+}
+
+func (m *model) handleActivityKey(key tea.KeyMsg) tea.Cmd {
+	switch key.String() {
+	case "esc", "left":
+		m.screen = screenBoard
+		m.errMsg = ""
+		m.statusMsg = ""
+		return nil
+	case "j", "down":
+		if m.activityCursor+1 < len(m.activity.Turns) {
+			m.activityCursor++
+		}
+	case "k", "up":
+		if m.activityCursor > 0 {
+			m.activityCursor--
+		}
+	case "g":
+		m.activityCursor = 0
+	case "G":
+		if len(m.activity.Turns) > 0 {
+			m.activityCursor = len(m.activity.Turns) - 1
+		}
+	}
+	return nil
+}
+
+func (m *model) beginActivity(supersede bool) tea.Cmd {
+	if m.loading && !supersede {
+		return nil
+	}
+	m.generation++
+	m.loading = true
+	return activityCmd(m.ctx, m.backend, m.generation, m.selection, m.activityFilter, m.activityNode)
+}
+
+func (m *model) acceptActivity(msg activityResultMsg) tea.Cmd {
+	if msg.generation != m.generation || m.screen != screenActivity || msg.selection != m.selection || msg.nodeID != m.activityNode {
+		return nil
+	}
+	if msg.err != nil || msg.filter != m.activityFilter {
+		m.errMsg = "Live updates paused. Showing the last confirmed activity."
+		return m.finishRefresh()
+	}
+	selectedOffset := int64(-1)
+	if m.activityCursor < len(m.activity.Turns) {
+		selectedOffset = m.activity.Turns[m.activityCursor].Offset
+	}
+	m.activity = msg.page
+	if selectedOffset >= 0 {
+		for index, turn := range m.activity.Turns {
+			if turn.Offset == selectedOffset {
+				m.activityCursor = index
+				break
+			}
+		}
+		if m.activityCursor >= len(m.activity.Turns) {
+			m.activityCursor = max(0, len(m.activity.Turns)-1)
+		}
+	} else if m.activityCursor >= len(m.activity.Turns) {
+		m.activityCursor = max(0, len(m.activity.Turns)-1)
+	}
+	m.errMsg = ""
+	return m.finishRefresh()
 }
 
 func (m *model) finishRefresh() tea.Cmd {
@@ -566,6 +689,20 @@ func configCmd(
 	return func() tea.Msg {
 		config, err := backend.Config(ctx)
 		return configResultMsg{generation: generation, config: config, err: err}
+	}
+}
+
+func activityCmd(
+	ctx context.Context,
+	backend Backend,
+	generation uint64,
+	selection Selection,
+	filter cockpit.ActivityFilter,
+	nodeID string,
+) tea.Cmd {
+	return func() tea.Msg {
+		page, err := backend.Activity(ctx, selection, 0, 128, filter)
+		return activityResultMsg{generation: generation, selection: selection, filter: filter, nodeID: nodeID, page: page, err: err}
 	}
 }
 

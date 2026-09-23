@@ -1,6 +1,7 @@
 "use strict";
 
 const SCHEMA = "sworn.cockpit/v2";
+const ACTIVITY_SCHEMA = "sworn.activity/v1";
 const API = "/api/v2";
 const SNAPSHOT_POLL_MILLIS = 5_000;
 const MAX_ATTENTION_ANSWER_BYTES = 16 * 1024;
@@ -82,6 +83,9 @@ const state = {
   refreshing: false,
   connection: "connecting",
   pendingLeadAction: null,
+  activitySource: null,
+  activityNode: "",
+  activityAfter: 0,
 };
 
 const elements = {
@@ -107,6 +111,10 @@ const elements = {
   detail: document.querySelector("#detail-content"),
   actions: document.querySelector("#actions"),
   evidence: document.querySelector("#evidence-list"),
+  activityPane: document.querySelector("#activity-pane"),
+  activityTitle: document.querySelector("#activity-title"),
+  activityStatus: document.querySelector("#activity-status"),
+  activityList: document.querySelector("#activity-list"),
   outbox: document.querySelector("#outbox-list"),
   outboxWindow: document.querySelector("#outbox-window"),
   sheet: document.querySelector("#detail-sheet"),
@@ -659,9 +667,128 @@ function renderDetail() {
     ],
     ["Technical ID", node.id],
   ].forEach(([label, value]) => details.append(fact(label, value)));
-  elements.detail.replaceChildren(details.cloneNode(true));
-  elements.sheetContent.replaceChildren(details);
+  const failure = renderFailureTurnContext(node);
+  if (failure) {
+    elements.detail.replaceChildren(details.cloneNode(true), failure.cloneNode(true));
+    elements.sheetContent.replaceChildren(details, failure);
+  } else {
+    elements.detail.replaceChildren(details.cloneNode(true));
+    elements.sheetContent.replaceChildren(details);
+  }
   renderActions(elements.sheetActions, snapshot.actions);
+  refreshActivity();
+}
+
+function renderFailureTurnContext(node) {
+  const ctx = node && node.failure_turn_context;
+  if (!ctx || ctx.schema_version !== "sworn.failure-turn-context/v1") {
+    return null;
+  }
+  if (ctx.status !== "present" && ctx.status !== "empty" && ctx.status !== "unavailable") {
+    return null;
+  }
+  if (!Array.isArray(ctx.turns)) {
+    return null;
+  }
+  const section = document.createElement("section");
+  section.className = "failure-context";
+  const heading = document.createElement("p");
+  heading.className = "eyebrow";
+  heading.textContent = "Failure turns";
+  section.append(heading);
+  const status = document.createElement("p");
+  status.className = "quiet";
+  if (ctx.status === "empty") {
+    status.textContent = "No worker turns recorded (failed before any turn).";
+    section.append(status);
+    return section;
+  }
+  if (ctx.status === "unavailable") {
+    status.textContent = `Worker turns unavailable: ${ctx.reason || "unknown reason"}.`;
+    section.append(status);
+    return section;
+  }
+  const omitted = Number.isSafeInteger(ctx.omitted) ? ctx.omitted : 0;
+  const dropped = Number.isSafeInteger(ctx.dropped_max_visible) ? ctx.dropped_max_visible : 0;
+  const count = ctx.turns.length;
+  status.textContent = count === 1
+    ? `1 turn, ${omitted} omitted, ${dropped} dropped.`
+    : `${count} turns, ${omitted} omitted, ${dropped} dropped.`;
+  section.append(status);
+  const list = document.createElement("ol");
+  list.className = "failure-turn-list";
+  for (const turn of ctx.turns) {
+    if (!turn || !Number.isSafeInteger(turn.turn)) {
+      continue;
+    }
+    const item = document.createElement("li");
+    item.className = "failure-turn";
+    const header = document.createElement("p");
+    header.className = "eyebrow";
+    let title = `Turn ${turn.turn} \u00b7 ${turn.kind || "turn"}`;
+    if (Number.isSafeInteger(turn.parts) && turn.parts > 0) {
+      const part = Number.isSafeInteger(turn.part) ? turn.part : 0;
+      title += ` \u00b7 part ${part}/${turn.parts}`;
+    }
+    if (Number.isSafeInteger(turn.omitted_parts) && turn.omitted_parts > 0) {
+      title += ` \u00b7 +${turn.omitted_parts} parts omitted to fit`;
+    }
+    header.textContent = title;
+    item.append(header);
+    for (const part of turn.content || []) {
+      const text = document.createElement("p");
+      text.className = "activity-text";
+      let body = part.head || "";
+      if (part.tail) {
+        body += body ? ` \u2026 ${part.tail}` : part.tail;
+      }
+      if (!body) {
+        body = "(no text)";
+      }
+      text.textContent = `${part.kind || "text"}: ${body}`;
+      item.append(text);
+      if (part.tool) {
+        const called = document.createElement("p");
+        called.className = "node-meta";
+        called.textContent = `called ${part.tool}`;
+        item.append(called);
+      }
+      const meta = document.createElement("p");
+      meta.className = "quiet";
+      meta.textContent = `${part.total_bytes || 0} bytes \u00b7 +${part.omitted_bytes || 0} omitted, +${part.redacted_bytes || 0} redacted`;
+      item.append(meta);
+    }
+    for (const result of turn.results || []) {
+      const line = document.createElement("p");
+      line.className = "activity-result";
+      const verdict = result.failed ? "fail" : "pass";
+      line.textContent = `${result.tool || "tool"} ${verdict} ${result.total_bytes || 0} bytes`;
+      item.append(line);
+      if (result.head || result.tail) {
+        const snippet = document.createElement("p");
+        snippet.className = "quiet";
+        let body = result.head || "";
+        if (result.tail) {
+          body += body ? ` \u2026 ${result.tail}` : result.tail;
+        }
+        snippet.textContent = body;
+        item.append(snippet);
+      }
+      const meta = document.createElement("p");
+      meta.className = "quiet";
+      meta.textContent = `+${result.omitted_bytes || 0} omitted, +${result.redacted_bytes || 0} redacted`;
+      item.append(meta);
+    }
+    if (Number.isSafeInteger(turn.dropped_events) && turn.dropped_events > 0) {
+      const droppedLine = document.createElement("p");
+      droppedLine.className = "quiet";
+      droppedLine.textContent = `+${turn.dropped_events} dropped events`;
+      item.append(droppedLine);
+    }
+    list.append(item);
+  }
+  section.append(list);
+  return section;
 }
 
 function renderActions(container, actions) {
@@ -1133,6 +1260,237 @@ window.addEventListener("resize", () => {
     requestAnimationFrame(() => drawEdges(state.snapshot.graph.edges));
   }
 });
+
+
+function activityFilterForSelected() {
+  if (!state.snapshot || !state.selectedID) {
+    return "";
+  }
+  const node = state.snapshot.graph.nodes.find((item) => item.id === state.selectedID);
+  if (!node) {
+    return "";
+  }
+  if (node.kind === "slice" && node.label) {
+    let query = `&slice=${encodeURIComponent(node.label)}`;
+    if (node.track) {
+      query += `&track=${encodeURIComponent(node.track)}`;
+    }
+    return query;
+  }
+  if (node.kind === "track" && node.label) {
+    return `&track=${encodeURIComponent(node.label)}`;
+  }
+  return "";
+}
+
+function validActivityTurn(turn) {
+  return turn && Number.isSafeInteger(turn.offset) && turn.offset > 0 &&
+    Number.isSafeInteger(turn.turn) && turn.turn >= 0 &&
+    (turn.content === undefined || Array.isArray(turn.content)) &&
+    (turn.results === undefined || Array.isArray(turn.results));
+}
+
+function closeActivityStream() {
+  if (state.activitySource) {
+    state.activitySource.close();
+    state.activitySource = null;
+  }
+}
+
+function refreshActivity() {
+  if (!elements.activityList) {
+    return;
+  }
+  if (!state.runID || !state.selectedID) {
+    closeActivityStream();
+    state.activityNode = "";
+    return;
+  }
+  if (state.selectedID === state.activityNode && state.activitySource) {
+    return;
+  }
+  closeActivityStream();
+  state.activityNode = state.selectedID;
+  state.activityAfter = 0;
+  elements.activityList.replaceChildren();
+  if (elements.activityStatus) {
+    elements.activityStatus.textContent = "Loading worker turns…";
+  }
+  void loadActivityPage();
+}
+
+async function loadActivityPage() {
+  const nodeAtStart = state.selectedID;
+  const filter = activityFilterForSelected();
+  try {
+    const response = await fetch(`${API}/runs/${state.runID}/activity?after=0&limit=128${filter}`, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+      credentials: "same-origin",
+    });
+    if (!response.ok) {
+      throw new Error("activity unavailable");
+    }
+    const page = await response.json();
+    if (nodeAtStart !== state.selectedID) {
+      return;
+    }
+    if (!page || page.schema_version !== ACTIVITY_SCHEMA || page.run_id !== state.runID ||
+      !Array.isArray(page.turns) || !Number.isSafeInteger(page.through_offset)) {
+      throw new Error("activity schema mismatch");
+    }
+    elements.activityList.replaceChildren();
+    for (const turn of page.turns) {
+      if (!validActivityTurn(turn)) {
+        continue;
+      }
+      elements.activityList.append(renderActivityTurn(turn));
+      if (turn.offset > state.activityAfter) {
+        state.activityAfter = turn.offset;
+      }
+    }
+    if (page.through_offset > state.activityAfter) {
+      state.activityAfter = page.through_offset;
+    }
+    updateActivityStatus(elements.activityList.children.length);
+    followActivityList();
+    openActivityStream(state.activityAfter);
+  } catch {
+    if (nodeAtStart !== state.selectedID) {
+      return;
+    }
+    if (elements.activityStatus) {
+      elements.activityStatus.textContent = "Worker activity unavailable.";
+    }
+  }
+}
+
+function updateActivityStatus(count) {
+  if (!elements.activityStatus) {
+    return;
+  }
+  if (count === 0) {
+    elements.activityStatus.textContent = "No worker turns recorded yet.";
+  } else if (count === 1) {
+    elements.activityStatus.textContent = "1 turn in order.";
+  } else {
+    elements.activityStatus.textContent = `${count} turns in order.`;
+  }
+}
+
+function followActivityList() {
+  if (elements.activityList) {
+    elements.activityList.scrollTop = elements.activityList.scrollHeight;
+  }
+}
+
+function openActivityStream(after) {
+  closeActivityStream();
+  if (!state.runID || !state.selectedID) {
+    return;
+  }
+  const filter = activityFilterForSelected();
+  const source = new EventSource(
+    `${API}/runs/${state.runID}/activity?after=${after}&limit=128${filter}`,
+    { withCredentials: true },
+  );
+  state.activitySource = source;
+  source.addEventListener("activity", (event) => {
+    let value;
+    try {
+      value = JSON.parse(event.data);
+    } catch {
+      value = null;
+    }
+    const eventOffset = Number(event.lastEventId);
+    if (!value || value.schema_version !== ACTIVITY_SCHEMA ||
+      !validActivityTurn(value.turn) ||
+      !Number.isSafeInteger(eventOffset) ||
+      eventOffset !== value.turn.offset) {
+      void loadActivityPage();
+      return;
+    }
+    if (eventOffset <= state.activityAfter) {
+      return;
+    }
+    state.activityAfter = eventOffset;
+    elements.activityList.append(renderActivityTurn(value.turn));
+    updateActivityStatus(elements.activityList.children.length);
+    followActivityList();
+  });
+  source.addEventListener("unavailable", () => {
+    if (elements.activityStatus) {
+      elements.activityStatus.textContent = "Live updates paused.";
+    }
+  });
+  source.onerror = () => {
+    if (elements.activityStatus) {
+      elements.activityStatus.textContent = "Live updates paused. Reconnecting.";
+    }
+  };
+}
+
+function renderActivityTurn(turn) {
+  const item = document.createElement("li");
+  item.className = "activity-turn";
+  const header = document.createElement("p");
+  header.className = "eyebrow";
+  const role = turn.responsibility || turn.role || "worker";
+  const where = turn.slice || turn.track || "run";
+  header.textContent = `Turn ${turn.turn} · ${role} · ${where}`;
+  item.append(header);
+  for (const part of turn.content || []) {
+    const text = document.createElement("p");
+    text.className = "activity-text";
+    let body = part.head || "";
+    if (part.tail) {
+      body += body ? ` … ${part.tail}` : part.tail;
+    }
+    if (!body) {
+      body = "(no text)";
+    }
+    text.textContent = `${part.kind || "text"}: ${body}`;
+    item.append(text);
+    if (part.tool) {
+      const called = document.createElement("p");
+      called.className = "node-meta";
+      called.textContent = `called ${part.tool}`;
+      item.append(called);
+    }
+    if ((part.omitted_bytes || 0) > 0 || (part.redacted_bytes || 0) > 0) {
+      const note = document.createElement("p");
+      note.className = "quiet";
+      note.textContent = `+${part.omitted_bytes || 0} omitted, +${part.redacted_bytes || 0} redacted`;
+      item.append(note);
+    }
+  }
+  for (const result of turn.results || []) {
+    const line = document.createElement("p");
+    line.className = "activity-result";
+    const verdict = result.failed ? "fail" : "pass";
+    line.textContent = `${result.tool || "tool"} ${verdict} ${result.total_bytes || 0} bytes`;
+    item.append(line);
+    if (result.head) {
+      const snippet = document.createElement("p");
+      snippet.className = "quiet";
+      snippet.textContent = result.head;
+      item.append(snippet);
+    }
+    if ((result.omitted_bytes || 0) > 0 || (result.redacted_bytes || 0) > 0) {
+      const note = document.createElement("p");
+      note.className = "quiet";
+      note.textContent = `+${result.omitted_bytes || 0} omitted, +${result.redacted_bytes || 0} redacted`;
+      item.append(note);
+    }
+  }
+  if ((turn.dropped_events || 0) > 0) {
+    const dropped = document.createElement("p");
+    dropped.className = "quiet";
+    dropped.textContent = `+${turn.dropped_events} dropped events`;
+    item.append(dropped);
+  }
+  return item;
+}
 
 if (state.runID) {
   void refresh("");

@@ -69,6 +69,60 @@ func decodeRecordSpans(t *testing.T, record ToolResultRecord) ([]byte, []byte) {
 	return head, tail
 }
 
+// recordingWorkerTurnHook collects emitted worker turns in call order,
+// mirroring recordingToolResultHook.
+type recordingWorkerTurnHook struct {
+	mu    sync.Mutex
+	turns []WorkerTurn
+}
+
+func (recorder *recordingWorkerTurnHook) hook() WorkerTurnHook {
+	return func(_ context.Context, turn WorkerTurn) error {
+		recorder.mu.Lock()
+		defer recorder.mu.Unlock()
+		copyTurn := turn
+		copyTurn.Content = append([]WorkerTurnPart(nil), turn.Content...)
+		recorder.turns = append(recorder.turns, copyTurn)
+		return nil
+	}
+}
+
+func (recorder *recordingWorkerTurnHook) snapshot() []WorkerTurn {
+	recorder.mu.Lock()
+	defer recorder.mu.Unlock()
+	result := make([]WorkerTurn, len(recorder.turns))
+	copy(result, recorder.turns)
+	return result
+}
+
+func (recorder *recordingWorkerTurnHook) waitFor(t *testing.T, count int) []WorkerTurn {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		turns := recorder.snapshot()
+		if len(turns) >= count {
+			return turns
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("recorded worker turns = %d, want >= %d", len(turns), count)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func decodeWorkerTurnPartSpans(t *testing.T, part WorkerTurnPart) ([]byte, []byte) {
+	t.Helper()
+	head, err := base64.StdEncoding.DecodeString(part.Head)
+	if err != nil {
+		t.Fatalf("head is not standard base64: %v", err)
+	}
+	tail, err := base64.StdEncoding.DecodeString(part.Tail)
+	if err != nil {
+		t.Fatalf("tail is not standard base64: %v", err)
+	}
+	return head, tail
+}
+
 func TestToolResultProjectionBoundsGeometryAndRedaction(t *testing.T) {
 	// Under the bound: the full bytes ride with an explicit zero omitted.
 	short := []byte("hello worker")
@@ -220,6 +274,125 @@ func TestToolResultObservationRedactsBoundSecretsBeforeHook(t *testing.T) {
 	}
 	if !bytes.Contains(head, []byte(toolResultRedactedMarker)) {
 		t.Fatalf("marker missing from %q", head)
+	}
+}
+
+func TestWorkerTurnPartProjectionBoundsGeometryAndRedaction(t *testing.T) {
+	// Text under the bound: full bytes, zero omitted.
+	short := projectWorkerTurnPart(
+		WorkerTurnPartText, "", "", []byte("hello worker"), nil,
+	)
+	head, tail := decodeWorkerTurnPartSpans(t, short)
+	if !bytes.Equal(head, []byte("hello worker")) || len(tail) != 0 ||
+		short.TotalBytes != 12 || short.OmittedBytes != 0 ||
+		short.RedactedBytes != 0 || short.Kind != WorkerTurnPartText {
+		t.Fatalf("short part = %#v", short)
+	}
+
+	// A tool call over the bound: exact head/tail with a named omitted
+	// count, Tool and ToolCallID carried.
+	long := bytes.Repeat([]byte("x"), 5_000)
+	call := projectWorkerTurnPart(
+		WorkerTurnPartToolCall, "Read", "call-1", long, nil,
+	)
+	head, tail = decodeWorkerTurnPartSpans(t, call)
+	if len(head) != MaxToolResultHeadBytes ||
+		!bytes.Equal(head, long[:MaxToolResultHeadBytes]) ||
+		len(tail) != MaxToolResultTailBytes ||
+		!bytes.Equal(tail, long[len(long)-MaxToolResultTailBytes:]) ||
+		call.Tool != "Read" || call.ToolCallID != "call-1" ||
+		call.TotalBytes != 5_000 ||
+		call.OmittedBytes != 5_000-MaxToolResultHeadBytes-MaxToolResultTailBytes {
+		t.Fatalf("call part = %#v", call)
+	}
+
+	// A tool-result reference carries no content bytes by construction.
+	ref := projectWorkerTurnPart(
+		WorkerTurnPartToolResultRef, "", "call-1", nil, nil,
+	)
+	head, tail = decodeWorkerTurnPartSpans(t, ref)
+	if len(head) != 0 || len(tail) != 0 || ref.TotalBytes != 0 ||
+		ref.ToolCallID != "call-1" {
+		t.Fatalf("reference part = %#v", ref)
+	}
+
+	// Redaction replaces a held secret with the fixed marker.
+	secret := []byte("capability-secret-0123456789")
+	planted := append(append([]byte("pre "), secret...), []byte(" post")...)
+	redacted := projectWorkerTurnPart(
+		WorkerTurnPartReasoning, "", "", planted, [][]byte{secret},
+	)
+	head, _ = decodeWorkerTurnPartSpans(t, redacted)
+	if bytes.Contains(head, secret) {
+		t.Fatalf("secret survived redaction: %q", head)
+	}
+	if !bytes.Contains(head, []byte(toolResultRedactedMarker)) ||
+		redacted.RedactedBytes != int64(len(secret)) ||
+		redacted.TotalBytes != int64(len(planted)) {
+		t.Fatalf("redacted part = %#v (head %q)", redacted, head)
+	}
+}
+
+func TestWorkerTurnSplitsIntoNamedPartsUnderBudget(t *testing.T) {
+	content := bytes.Repeat([]byte("y"), MaxToolResultHeadBytes+MaxToolResultTailBytes)
+	parts := make([]WorkerTurnPart, 0, 64)
+	for index := 0; index < 64; index++ {
+		parts = append(parts, projectWorkerTurnPart(
+			WorkerTurnPartToolCall, "Read", "call-"+itoa(index+1), content, nil,
+		))
+	}
+	split := splitWorkerTurnParts(WorkerTurn{Turn: 9, Content: parts})
+	if len(split) < 2 {
+		t.Fatalf("split = %d, want a named split", len(split))
+	}
+	var total int
+	for index, part := range split {
+		if len(part.Content) == 0 {
+			t.Fatalf("part %d is empty", index)
+		}
+		if part.Part != int64(index+1) || part.Parts != int64(len(split)) ||
+			part.Turn != 9 {
+			t.Fatalf("part geometry = %#v", part)
+		}
+		body, err := json.Marshal(part)
+		if err != nil || len(body) > toolResultEventBudget {
+			t.Fatalf("part %d marshals %d bytes, budget %d", index, len(body), toolResultEventBudget)
+		}
+		total += len(part.Content)
+	}
+	if total != 64 {
+		t.Fatalf("content total = %d, want 64", total)
+	}
+}
+
+// TestWorkerTurnObservationDropCountRidesNextEmittedTurn pins A4's dropped
+// worker-turn events: a drop is counted, never retained raw, and its
+// cumulative count rides the next successfully emitted worker turn -
+// separately named from the tool-result observer's own drop count.
+func TestWorkerTurnObservationDropCountRidesNextEmittedTurn(t *testing.T) {
+	invocation, _, _ := memoryInvocationFixture(t)
+	recorder := &recordingWorkerTurnHook{}
+	invocation.WorkerTurnHook = recorder.hook()
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+
+	session.dropWorkerTurnEvent()
+	session.dropWorkerTurnEvent()
+	session.observeWorkerTurn(WorkerTurn{
+		Turn: 1,
+		Content: []WorkerTurnPart{
+			projectWorkerTurnPart(WorkerTurnPartText, "", "", []byte("ok"), nil),
+		},
+	})
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+	turns := recorder.waitFor(t, 1)
+	if turns[0].DroppedEvents != 2 {
+		t.Fatalf("dropped events = %d, want 2", turns[0].DroppedEvents)
 	}
 }
 
@@ -713,5 +886,73 @@ func TestToolResultHookFailuresAndBlocksNeverAlterDelivery(t *testing.T) {
 	if blockedElapsed > baselineElapsed+toolResultCloseDrainTotal+3*time.Second {
 		t.Fatalf("blocked-hook dispatch took %v vs baseline %v",
 			blockedElapsed, baselineElapsed)
+	}
+}
+
+// S3-failure-turn-context A2 regression: S1's projection, bounds and
+// redaction are reused exactly (no driver product change), and an
+// overflow-then-success still rides its loud drop count on the next
+// accepted turn, separately for the tool-result and worker-turn
+// observers. The runtime tail's max-visible dropped count is exactly as
+// honest as these journal-visible counts.
+func TestFailureTurnContextReusesS1ProjectionAndDropRiding(t *testing.T) {
+	if MaxToolResultHeadBytes != 2_048 || MaxToolResultTailBytes != 2_048 {
+		t.Fatalf("projection bounds = %d/%d, want 2048/2048", MaxToolResultHeadBytes, MaxToolResultTailBytes)
+	}
+	secret := []byte("capability-secret-0123456789")
+	planted := append(append([]byte("pre "), secret...), []byte(" post")...)
+	toolRecord := projectToolResult(
+		providerToolResult{ID: "c1", Name: "Read", Content: planted}, 1, [][]byte{secret},
+	)
+	head, _ := base64.StdEncoding.DecodeString(toolRecord.Head)
+	if bytes.Contains(head, secret) || !bytes.Contains(head, []byte(toolResultRedactedMarker)) ||
+		toolRecord.RedactedBytes != int64(len(secret)) || toolRecord.TotalBytes != int64(len(planted)) {
+		t.Fatalf("tool redaction changed: %#v", toolRecord)
+	}
+	workerPart := projectWorkerTurnPart(
+		WorkerTurnPartText, "", "", planted, [][]byte{secret},
+	)
+	head, _ = base64.StdEncoding.DecodeString(workerPart.Head)
+	if bytes.Contains(head, secret) || workerPart.RedactedBytes != int64(len(secret)) {
+		t.Fatalf("worker redaction changed: %#v", workerPart)
+	}
+	// Tool overflow-then-success: prior drops stamp the next accepted turn.
+	toolRecorder := &recordingToolResultHook{}
+	toolObserver := newToolResultObserver(toolRecorder.hook())
+	if toolObserver == nil {
+		t.Fatal("tool observer must exist")
+	}
+	toolObserver.noteDropped()
+	toolObserver.noteDropped()
+	toolObserver.enqueue(ToolResultTurn{Turn: 1, Results: []ToolResultRecord{{
+		Sequence: 1, ToolCallID: "c1", Tool: "Read", TotalBytes: 1,
+	}}})
+	toolTurns := toolRecorder.waitFor(t, 1)
+	if toolTurns[0].DroppedEvents != 2 {
+		t.Fatalf("tool dropped_events = %d, want 2", toolTurns[0].DroppedEvents)
+	}
+	toolObserver.close()
+	// Worker overflow-then-success through the session seam.
+	invocation, _, _ := memoryInvocationFixture(t)
+	workerRecorder := &recordingWorkerTurnHook{}
+	invocation.WorkerTurnHook = workerRecorder.hook()
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	session.dropWorkerTurnEvent()
+	session.observeWorkerTurn(WorkerTurn{
+		Turn: 1,
+		Content: []WorkerTurnPart{
+			projectWorkerTurnPart(WorkerTurnPartText, "", "", []byte("ok"), nil),
+		},
+	})
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+	workerTurns := workerRecorder.waitFor(t, 1)
+	if workerTurns[0].DroppedEvents != 1 {
+		t.Fatalf("worker dropped_events = %d, want 1", workerTurns[0].DroppedEvents)
 	}
 }

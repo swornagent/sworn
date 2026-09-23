@@ -162,6 +162,146 @@ sworn status \
   --json
 ```
 
+### Worker-turn journal
+
+Every dispatch, on every lane, journals one bounded, redacted record per
+worker turn as it happens. An HTTP-lane dispatch has always journaled a
+`tool_result_observed` event (schema `sworn.tool-result-turn/v1`) per turn's
+tool results; a native CLI-lane dispatch (Claude or Codex) now does the
+same, correctly keyed one turn at a time instead of collapsing onto turn 0.
+
+Native CLI lanes additionally journal what the worker said and which tools
+it called, as a `worker_turn_observed` event (schema `sworn.worker-turn/v1`)
+beside the tool-result event for the same turn. Each event carries the same
+identity fields as a tool-result event - run, track, slice, role,
+responsibility, attempt, epoch, try, work and effect identifiers, turn, and
+part/parts geometry for a turn split across multiple events - plus an
+ordered `content` list of bounded parts. Each part names a `kind` (`text`,
+`reasoning` where the CLI emits it, `tool_call` with the tool name and its
+bounded canonical-JSON input, or `tool_result_reference` naming the tool
+call a result belongs to rather than duplicating its bytes), `total_bytes`,
+`omitted_bytes`, `redacted_bytes`, and a `head`/`tail` pair of standard
+base64-encoded bytes bounded to 2,048 bytes each. Every capability,
+capture bearer, and credential fragment is redacted before it ever reaches
+the journal. `dropped_events` names any worker-turn event the reader could
+not decode or recognize, loudly, rather than silently discarding it.
+
+To profile one dispatch by turn, read the journal and filter both event
+kinds on that dispatch's identity fields (run, work, effect, attempt, epoch,
+try), then group by `turn`: a native-lane dispatch reads back exactly like
+an HTTP-lane dispatch, one row (or named part) per turn.
+
+### Live worker activity
+
+While a dispatch runs, its turns are visible turn by turn on every lane,
+in the browser board's activity pane and in the TUI's activity screen.
+Both render the same activity projection over the journaled worker-turn
+and tool-result events: for a run, optionally narrowed to a track, slice
+or dispatch, an ordered, paged list of turns, each with its identity
+(slice, role, responsibility, attempt, try, turn), the bounded decoded
+parts of the worker turn and the tool results keyed to that turn, with
+omitted and redacted byte counts and dropped-event counts shown rather
+than hidden.
+
+The browser board shows the live dispatch's turns in order for the
+selected work, each with the role, the turn number, the worker's bounded
+text, the tools it called and each tool result's pass or fail state and
+size, following new turns as they arrive. It opens the activity stream
+only while the pane is visible and closes it when the pane or run
+changes. The TUI's activity screen (`v` from the board for the selected
+work) is fed through the same projection over the journal, refreshed on
+the 2s cadence, scrollable with `j`/`k` (`g`/`G` for top and bottom), and
+honest about narrow terminals. The TUI never connects to the serve host;
+it stays a direct journal reader.
+
+The serve host exposes the same projection on a new route under the run's
+API:
+
+```text
+GET /api/v2/runs/<run>/activity?after=<offset>&limit=<n>&track=<t>&slice=<s>&effect_id=<e>&work_id=<w>
+```
+
+As JSON it returns one `sworn.activity/v1` page. When the client accepts
+`text/event-stream` it returns server-sent events whose `activity` frames
+carry the turn content (`{"schema_version":"sworn.activity/v1","turn":{...}}`)
+with `id` set to the turn's durable offset. The stream resumes exactly
+from `Last-Event-ID` or `after` with no gap and no duplicate, keeps the
+1s keepalive cadence, and shares the concurrent-stream gate and its
+`SSE_LIMIT` refusal with the existing events route. The existing events
+route keeps its contract byte for byte: `invalidate` frames that carry
+only the schema version and the through offset.
+
+What is retained: the journaled worker-turn and tool-result events
+themselves, bounded to 2,048 head and tail bytes each with omitted,
+redacted and dropped counts. What is not retained: the in-memory ring
+that shortens latency when the serve host drives the run. That ring is
+bounded to 64 turn events and 256 KiB per live dispatch, drops its
+oldest turn with a loud count when full, never blocks the dispatch, is
+dropped when the dispatch ends, and is never persisted. When the run is
+driven by another process the route serves the same content from the
+journal alone (`live:false`) and says nothing false about liveness; when
+the serve host drives the run in-process the route merges the ring ahead
+of the journal on the one durable cursor (`live:true`).
+
+### Failure turn context
+
+When a dispatch fails operationally, its durable failure record carries a
+bounded tail of the worker's last turns, so an operator or a Manager seat
+can see what the worker was doing when it failed without opening the
+journal. The context rides on the failure or uncertain event body in the
+same journal transaction as the failure itself, so a reader never sees a
+failure without its context or a context without its failure. It is read
+back through the digest-checked journal read, so tampering surfaces as
+`CORRUPT_JOURNAL` rather than shown.
+
+What it holds: the last turns of that dispatch attempt, at most 5
+turn-events and 48 KiB of context JSON, each as the same bounded redacted
+projection the worker-turn journal holds (2,048 head and tail bytes each,
+with omitted, redacted and dropped counts), with the count of earlier
+turns omitted. An HTTP-lane dispatch shows tool-result turns; a native
+CLI-lane dispatch shows interleaved worker and tool-result turns. The tail
+behind it holds the newest 16 turn-events and 128 KiB per live dispatch,
+fed only after the durable journal append, so it costs no second read of
+the provider stream and no journal scan at failure time.
+
+Empty, absent, and unavailable have one meaning each. `empty` (explicit
+`turns: []`) means the dispatch failed before any turn was observed in its
+live tail. Empty only ever means that: a dispatch that took turns always
+carries at least its newest turn, truncated by whole parts (latest kept,
+dropped counted on the turn) when that turn alone exceeds the byte bound,
+never an empty list with omitted turns. `absent` (no `failure_turn_context`
+key) means a record written before this release, or a sweep reconcile
+(`implementation_dispatch_uncertain` and its siblings) that never held the
+dispatch. `unavailable` with a named reason (`no_live_tail` for a
+prior-process or ownerless path with no live tail, `tail_encode_failed`
+and `context_over_budget` as defensive loud fallbacks) means the failure
+is journaled exactly as today but its tail could not be produced;
+assembling context never turns one failure into another and never alters
+the failure code, the refusal result, the observation digest, or the try
+accounting. Dropped turns are counted as `dropped_max_visible`: the maximum
+observer drop count visible in the retained tail, not an exact total, since
+a drop with no later success never rides onto a journaled turn.
+
+Where each surface shows it: `sworn status --json` carries
+`failure_turn_context` (schema `sworn.failure-turn-context/v1`) on each
+failed `driver.dispatch` effect beside its failure code, and on each pinned
+work beside its code and detail; `sworn board --json` (`sworn.cockpit/v2`)
+and the `sworn_status` tool carry the same field on effects and, for a
+pinned lane, on its actionable work-detail node (the track's ready slice,
+or the assembly node for the release lane); the browser board's work detail
+and the TUI's work detail render it in parity (the TUI truncates to its
+detail budget with an honest "+N more" line). A following successful try of
+the same work shows no context (absent, not a stale copy), and a healthy
+lane shows no pinned context.
+
+The driver-side causes are unchanged and still win: the CLI's own error
+result, the provider-limit classification, the redacted stderr tail, and
+every typed failure code keep their present precedence and text. The turn
+context is additional evidence beside the cause, never a replacement for
+it and never parsed to derive a cause, a park, or a retry decision. See
+"Pause, resume, cancel, or recover" below for the recovery verbs that use
+those causes.
+
 ## 4. Use the local browser board
 
 For an existing run:
@@ -270,6 +410,12 @@ sworn answer \
   --answer "YOUR ANSWER" \
   --config /absolute/path/drivers.json
 ```
+
+When a dispatch fails operationally, its failure record already carries
+the bounded tail described under "Failure turn context" above: read the
+failed work's `failure_turn_context` on the latest status or board before
+retrying, so the retry decision sees what the worker was doing when it
+failed.
 
 ## What the run statuses mean
 

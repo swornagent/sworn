@@ -87,10 +87,13 @@ type toolSession struct {
 	closed            bool
 	// observer emits the bounded tool-result projection on the
 	// runtime-provided hook; nil when the invocation carries no hook.
+	// workerTurnObserver emits the bounded worker-turn projection
+	// (native CLI lanes only) on the same discipline; nil identically.
 	// redaction holds the credentials bound by runNative; they are
 	// cleared with the session.
-	observer  *toolResultObserver
-	redaction [][]byte
+	observer           *toolResultObserver
+	workerTurnObserver *workerTurnObserver
+	redaction          [][]byte
 	// checkEvidence accumulates one protocol.CheckResultEntry per Bash call
 	// this session runs (S5-A3), bounded by checkEvidenceEntryLimit entries
 	// and checkEvidenceByteBudget bytes with oldest-first eviction: the
@@ -113,14 +116,16 @@ func newToolSession(invocation Invocation) (*toolSession, error) {
 		return nil, err
 	}
 	session := &toolSession{
-		invocation: invocation,
-		projection: projection,
-		observer:   newToolResultObserver(invocation.ToolResultHook),
+		invocation:         invocation,
+		projection:         projection,
+		observer:           newToolResultObserver(invocation.ToolResultHook),
+		workerTurnObserver: newWorkerTurnObserver(invocation.WorkerTurnHook),
 	}
 	ok := false
 	defer func() {
 		if !ok {
 			session.observer.close()
+			session.workerTurnObserver.close()
 			_ = projection.Close()
 			if session.scratch != "" {
 				_ = removeScratchTree(session.scratch)
@@ -1144,9 +1149,11 @@ func (session *toolSession) Close() error {
 	redaction := session.redaction
 	session.redaction = nil
 	session.mu.Unlock()
-	// Drain accepted tool-result events before the session tears down;
-	// the bounded drain never fails or stalls delivery beyond its cap.
+	// Drain accepted tool-result and worker-turn events before the session
+	// tears down; the bounded drain never fails or stalls delivery beyond
+	// its cap.
 	session.observer.close()
+	session.workerTurnObserver.close()
 	for _, secret := range redaction {
 		clearBytes(secret)
 	}

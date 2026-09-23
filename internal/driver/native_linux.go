@@ -201,6 +201,23 @@ type nativeEventState struct {
 	usage            Usage
 	hasUsage         bool
 	turns            int64
+	// observationTurn is the worker-turn ordinal (S1-native-turn-journal,
+	// A2): a separately named value from turns, which keeps its present
+	// meaning for usage and economy accounting untouched. For Claude it
+	// advances on every "assistant" event, the new turn-boundary signal
+	// tool calls between it and the next one belong to; for Codex it
+	// advances in lockstep with turns, in the same "turn.completed"
+	// branch, so Codex's existing tool-result turn keying stays
+	// byte-for-byte unchanged. broker.turnSource reads this field, never
+	// turns.
+	observationTurn int64
+	// pendingWorkerTurn buffers the current, not-yet-flushed worker turn's
+	// content parts: for Claude, from the "assistant" event that opened it
+	// through its paired "user" event; for Codex, across the
+	// "item.completed" events of one turn. It is flushed (and cleared) at
+	// the next turn boundary and, finally, once more at scanNativeEvents
+	// teardown for the dispatch's last turn.
+	pendingWorkerTurn *WorkerTurn
 	// streamBytes is the cumulative decoded event-stream byte total at an
 	// ECONOMY_OUTPUT_BUDGET_EXCEEDED crossing (S3-output-stream-economy
 	// A3): stamped by scanNativeEvents immediately before it returns that
@@ -346,6 +363,13 @@ func (session *nativeAutomationSession) observeToolResultTurn(
 	_ []providerToolResult,
 ) {
 }
+
+// observeWorkerTurn and dropWorkerTurnEvent are deliberate no-ops for the
+// identical reason observeToolResultTurn is: automation dispatches carry no
+// worker-turn hook by construction and journal nothing.
+func (session *nativeAutomationSession) observeWorkerTurn(_ WorkerTurn) {}
+
+func (session *nativeAutomationSession) dropWorkerTurnEvent() {}
 
 func (session *nativeAutomationSession) redactionSecrets() [][]byte {
 	return nil
@@ -2039,7 +2063,7 @@ func platformRunNative(
 		broker.bindTurnSource(func() int64 {
 			state.mu.Lock()
 			defer state.mu.Unlock()
-			return state.turns
+			return state.observationTurn
 		})
 	}
 	if err := command.Start(); err != nil {
@@ -3428,6 +3452,13 @@ func scanNativeEvents(
 	cumulativeBudget int64,
 	additionalSecrets ...[]byte,
 ) error {
+	// The dispatch's final buffered worker turn (S1-native-turn-journal) is
+	// flushed exactly once here, on every exit path - success, a refusal
+	// below, or the scanner's own transport-failure return - strictly
+	// before scanDone lets runNative proceed to the tool session close.
+	// flushPendingWorkerTurn is idempotent, so it is safe even though nil
+	// or empty pending turns are the common case.
+	defer state.flushPendingWorkerTurn()
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 64*1024), MaxProviderResponseBytes)
 	var total int64
@@ -3529,6 +3560,20 @@ func (state *nativeEventState) accept(body []byte) error {
 				state.identityAccepted = true
 			}
 		}
+		if eventType == "assistant" {
+			// The new worker-turn boundary (A1/A2): a tool call the
+			// broker sees between this event and the next "assistant"
+			// event belongs to the turn that starts here. turns itself
+			// is untouched - it still advances only on the terminal
+			// "result" event above, so usage/economy accounting keeps
+			// its present meaning exactly.
+			state.flushPendingWorkerTurnLocked(state.observationTurn)
+			state.observationTurn++
+			state.appendClaudeMessageContentLocked(root)
+		}
+		if eventType == "user" {
+			state.appendClaudeMessageContentLocked(root)
+		}
 		if eventType == "result" {
 			state.turns++
 			state.captureUsage(root["usage"])
@@ -3567,11 +3612,19 @@ func (state *nativeEventState) accept(body []byte) error {
 			); err != nil {
 				return refuse("event.codex_item_shape_invalid")
 			}
-			if item, itemOK := root["item"].(map[string]any); itemOK {
+			item, itemOK := root["item"].(map[string]any)
+			if itemOK {
 				switch item["type"] {
 				case "command_execution", "file_change", "web_search",
 					"image_generation", "collab_agent_tool_call":
 					return refuse("event.codex_item_type_disallowed")
+				}
+			}
+			if eventType == "item.completed" {
+				if !itemOK {
+					state.dropWorkerTurnEventLocked()
+				} else {
+					state.appendCodexItemLocked(item)
 				}
 			}
 		}
@@ -3583,6 +3636,12 @@ func (state *nativeEventState) accept(body []byte) error {
 			); err != nil {
 				return refuse("event.codex_turn_completed_invalid")
 			}
+			// The observation turn advances in lockstep with turns here
+			// (A2): Codex's existing tool-result turn keying (already
+			// correct) stays byte-for-byte unchanged, while the two
+			// values remain separately named fields.
+			state.flushPendingWorkerTurnLocked(state.observationTurn)
+			state.observationTurn++
 			state.turns++
 			state.captureUsage(root["usage"])
 		}
@@ -3590,6 +3649,185 @@ func (state *nativeEventState) accept(body []byte) error {
 		return refuse("event.unsupported_family")
 	}
 	return nil
+}
+
+// codexToolCallItemType names the Codex stream-json item type for a
+// completed MCP tool call. No captured Codex fixture or repository evidence
+// pins this literal against the real vendor CLI today (unlike the five
+// disallowed built-in item types above, which an earlier slice already
+// verified against the vendor); the built fake CLI fixture is the only
+// present source of truth for this slice's test suite. A completed item
+// that does not match it is counted as a dropped worker-turn event rather
+// than silently ignored or guessed past - see the implementation
+// submission for the host-verification note this requires.
+const codexToolCallItemType = "mcp_tool_call"
+
+// ensurePendingWorkerTurnLocked returns the current buffered worker turn,
+// creating an empty one if none is pending. Callers hold state.mu.
+func (state *nativeEventState) ensurePendingWorkerTurnLocked() *WorkerTurn {
+	if state.pendingWorkerTurn == nil {
+		state.pendingWorkerTurn = &WorkerTurn{}
+	}
+	return state.pendingWorkerTurn
+}
+
+// flushPendingWorkerTurnLocked emits the buffered worker turn under the
+// given turn ordinal and clears the buffer. It is idempotent: a second call
+// with nothing pending is a no-op, which is what makes the final teardown
+// flush in scanNativeEvents safe to run alongside every turn-boundary flush
+// this function also serves. Reaching directly into state.broker.session
+// (never a *nativeBroker method) is deliberate: it only ever locks
+// session's own mutex, so the lock order stays broker.mu -> state.mu ->
+// session.mu and can never deadlock against currentTurnLocked's
+// broker.mu -> state.mu path. Callers hold state.mu.
+func (state *nativeEventState) flushPendingWorkerTurnLocked(turn int64) {
+	pending := state.pendingWorkerTurn
+	state.pendingWorkerTurn = nil
+	if pending == nil || len(pending.Content) == 0 || state.broker == nil {
+		return
+	}
+	ready := *pending
+	ready.Turn = turn
+	state.broker.session.observeWorkerTurn(ready)
+}
+
+// flushPendingWorkerTurn is flushPendingWorkerTurnLocked's unlocked entry
+// point, deferred at scanNativeEvents' entry so the dispatch's final
+// buffered turn is flushed exactly once on every exit path - success,
+// refusal, or transport failure - strictly before the scanDone handshake
+// lets runNative proceed to broker.flushPending and the tool session close.
+func (state *nativeEventState) flushPendingWorkerTurn() {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	state.flushPendingWorkerTurnLocked(state.observationTurn)
+}
+
+// dropWorkerTurnEventLocked counts one worker-turn event whose shape the
+// reader could not decode or recognize (A4). Callers hold state.mu; the
+// call reaches session directly for the same lock-order reason
+// flushPendingWorkerTurnLocked does.
+func (state *nativeEventState) dropWorkerTurnEventLocked() {
+	if state.broker != nil {
+		state.broker.session.dropWorkerTurnEvent()
+	}
+}
+
+// appendClaudeMessageContentLocked walks one Claude "assistant" or "user"
+// event's message.content blocks (both events carry content under the same
+// field) and appends a bounded, redacted WorkerTurnPart to the pending
+// buffer for each recognized block: text, thinking/redacted_thinking
+// (reasoning), tool_use (a tool call), and tool_result (a reference to the
+// paired tool_result_observed record by tool_use_id, never its bytes). An
+// unparseable event or an unrecognized block is counted as a drop rather
+// than refused - worker-turn events are observation input only. Callers
+// hold state.mu.
+func (state *nativeEventState) appendClaudeMessageContentLocked(root map[string]any) {
+	if state.broker == nil {
+		return
+	}
+	message, ok := root["message"].(map[string]any)
+	if !ok {
+		state.dropWorkerTurnEventLocked()
+		return
+	}
+	content, ok := message["content"].([]any)
+	if !ok {
+		state.dropWorkerTurnEventLocked()
+		return
+	}
+	if len(content) == 0 {
+		return
+	}
+	secrets := state.broker.session.redactionSecrets()
+	turn := state.ensurePendingWorkerTurnLocked()
+	for _, raw := range content {
+		block, ok := raw.(map[string]any)
+		if !ok {
+			state.dropWorkerTurnEventLocked()
+			continue
+		}
+		switch block["type"] {
+		case "text":
+			text, ok := block["text"].(string)
+			if !ok {
+				state.dropWorkerTurnEventLocked()
+				continue
+			}
+			turn.Content = append(turn.Content, projectWorkerTurnPart(
+				WorkerTurnPartText, "", "", []byte(text), secrets,
+			))
+		case "thinking", "redacted_thinking":
+			text, textOK := block["thinking"].(string)
+			if !textOK {
+				text, _ = block["data"].(string)
+			}
+			turn.Content = append(turn.Content, projectWorkerTurnPart(
+				WorkerTurnPartReasoning, "", "", []byte(text), secrets,
+			))
+		case "tool_use":
+			name, nameOK := block["name"].(string)
+			id, idOK := block["id"].(string)
+			input, inputErr := canonicalJSON(block["input"])
+			if !nameOK || !idOK || inputErr != nil {
+				state.dropWorkerTurnEventLocked()
+				continue
+			}
+			turn.Content = append(turn.Content, projectWorkerTurnPart(
+				WorkerTurnPartToolCall, name, id, input, secrets,
+			))
+		case "tool_result":
+			id, idOK := block["tool_use_id"].(string)
+			if !idOK {
+				state.dropWorkerTurnEventLocked()
+				continue
+			}
+			turn.Content = append(turn.Content, projectWorkerTurnPart(
+				WorkerTurnPartToolResultRef, "", id, nil, secrets,
+			))
+		default:
+			state.dropWorkerTurnEventLocked()
+		}
+	}
+}
+
+// appendCodexItemLocked recognizes one completed Codex item as worker-turn
+// content: "agent_message" (confirmed against the built fake CLI fixture)
+// as text, and codexToolCallItemType as a tool call. Any other completed
+// item type is counted as a drop. Callers hold state.mu.
+func (state *nativeEventState) appendCodexItemLocked(item map[string]any) {
+	if state.broker == nil {
+		return
+	}
+	secrets := state.broker.session.redactionSecrets()
+	var part *WorkerTurnPart
+	switch item["type"] {
+	case "agent_message":
+		if text, ok := item["text"].(string); ok {
+			projected := projectWorkerTurnPart(
+				WorkerTurnPartText, "", "", []byte(text), secrets,
+			)
+			part = &projected
+		}
+	case codexToolCallItemType:
+		name, _ := item["name"].(string)
+		id, idOK := item["id"].(string)
+		if !idOK || id == "" {
+			id, _ = item["call_id"].(string)
+		}
+		argument, argErr := canonicalJSON(item["arguments"])
+		if name != "" && id != "" && argErr == nil {
+			projected := projectWorkerTurnPart(
+				WorkerTurnPartToolCall, name, id, argument, secrets,
+			)
+			part = &projected
+		}
+	}
+	if part == nil {
+		state.dropWorkerTurnEventLocked()
+		return
+	}
+	turn := state.ensurePendingWorkerTurnLocked()
+	turn.Content = append(turn.Content, *part)
 }
 
 func (state *nativeEventState) acceptSessionID(body []byte) error {

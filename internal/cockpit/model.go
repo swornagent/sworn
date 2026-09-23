@@ -103,6 +103,11 @@ type Node struct {
 	ContractDigest     string                       `json:"contract_digest,omitempty"`
 	BoundEvidence      []BoundEvidenceItem          `json:"bound_evidence,omitempty"`
 	Checkpoint         *runtimepkg.CheckpointStatus `json:"checkpoint,omitempty"`
+	// FailureTurnContext carries the pinned work's latest failed
+	// dispatch tail for the board/TUI/MCP detail, copied from PinnedWork
+	// via lane->actionable-node. Nil means absent. Evidence, never
+	// authority.
+	FailureTurnContext *runtimepkg.FailureTurnContext `json:"failure_turn_context,omitempty"`
 }
 
 // Touchpoint is the cockpit's read-only presentation of one
@@ -182,6 +187,9 @@ type EffectView struct {
 	State     string `json:"state"`
 	ErrorCode string `json:"error_code,omitempty"`
 	Derived   bool   `json:"derived,omitempty"`
+	// FailureTurnContext copies the runtime Effect's bounded tail
+	// field-for-field. Nil means absent. Evidence, never authority.
+	FailureTurnContext *runtimepkg.FailureTurnContext `json:"failure_turn_context,omitempty"`
 }
 
 type AttemptView struct {
