@@ -794,9 +794,20 @@ func (transport *bedrockTransport) roundTrip(
 		// Bedrock's error envelope is not the {"error":{"message":...}} shape
 		// the detail extractor anchors, so no message is read here: the
 		// stable code stays the only fact, and a bedrock 429 keeps
-		// HardLimit false so it stays on today's default-paced path.
+		// HardLimit false so it stays on today's default-paced path. The
+		// request id, when the provider names one, rides the response
+		// header allowlist alone - Bedrock's error body carries no
+		// recorded id field.
+		requestID := laneProbeRequestIDFromHeader(response.Header)
 		clearBytes(body)
-		return nil, providerHTTPStatusError(response.StatusCode, "")
+		err := providerHTTPStatusError(response.StatusCode, "")
+		if contractErr, ok := err.(*ContractError); ok {
+			contractErr.RequestID = requestID
+		}
+		return nil, err
+	}
+	if capture := laneProbeRequestIDCapture(ctx); capture != nil {
+		*capture = laneProbeRequestIDFromHeader(response.Header)
 	}
 	return body, nil
 }

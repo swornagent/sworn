@@ -129,6 +129,13 @@ type ContractError struct {
 	// per-site churn. A code this slice does not place classifies to the
 	// empty RefusalKind ("").
 	Kind RefusalKind
+	// RequestID is the provider's own request identifier, extracted from a
+	// closed header/body allowlist and bounded to 128 bytes of single-line,
+	// control-free text (S4-lane-live-probe C1). It is set only on the
+	// provider status codes an HTTP or Bedrock round trip can produce, and
+	// only the lane probe reads it today: dispatch, the journal, and every
+	// existing projection keep reading Code and Detail exactly as before.
+	RequestID string
 }
 
 // RefusalKind distinguishes the cause of a driver-boundary refusal from its

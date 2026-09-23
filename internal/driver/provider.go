@@ -193,6 +193,13 @@ type loopAdapter struct {
 	// quota; zero disables proactive pacing (reactive 429 pacing always
 	// applies).
 	pacingCap int64
+	// reasoningEffort is the OpenAI-family adapter's configured reasoning
+	// effort, set only for the responses dialects (where it is admission-
+	// required) and read only by the lane probe (S4-lane-live-probe) to
+	// build a minimal request the provider will not reject for a missing
+	// reasoning block; dispatch itself keeps reading it from the
+	// conversation factory's own closure, unchanged.
+	reasoningEffort string
 }
 
 func newLoopAdapter(

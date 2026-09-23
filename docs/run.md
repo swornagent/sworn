@@ -84,9 +84,11 @@ The checks are deliberately different:
 - `inspect` confirms that the profile, model, adapter, and configuration fit
   together. It does not contact the provider.
 - `doctor` checks the local executable or connection boundary. It does not make
-  a paid HTTP model request.
+  a paid HTTP model request. Its JSON output carries `"live_call": false`, so
+  a reader never has to infer that from the command name alone.
 - `certify` makes the separately authorized live check. It needs real
-  credentials and may consume provider usage.
+  credentials, runs the whole agent loop, and may consume provider usage.
+  Its JSON output carries `"live_call": true`.
 
 Run live certification only when that use is intended:
 
@@ -99,8 +101,14 @@ sworn driver certify \
 ```
 
 Use `--all` instead of `--profile` and `--model` only with a release-wide
-configuration that includes every supported production connection family and
-both Bedrock surfaces.
+configuration that includes every profile of the single declared production
+roster: the `codex_cli`, `claude_code_cli`, `openai_compatible_http`,
+`gemini_generate_content` and `bedrock` families, plus the
+`bedrock_runtime_converse` surface. `doctor --all` and `certify --all` name
+every missing family and surface in the refusal detail (for example
+`missing families: bedrock; missing surfaces: bedrock_runtime_converse`), with
+a note that `--all` checks the complete production roster while
+`--profile P --model M` checks one lane.
 
 Each JSON report has a `state` and a stable `code`:
 
@@ -111,6 +119,33 @@ Each JSON report has a `state` and a stable `code`:
 
 Read the result in the context of the command: an `inspect` pass confirms
 configuration, while only a `certify` pass confirms the live provider path.
+
+### Live lane probe
+
+`sworn driver probe` proves one configured lane is admitting requests right
+now, without running the agent loop or submitting a repository byte:
+
+```sh
+sworn driver probe \
+  --config /absolute/path/drivers.json \
+  --profile openai \
+  --model YOUR_EXACT_MODEL \
+  --json
+```
+
+Its cost is one minimal request per lane: no tools, a small declared output
+bound (16 tokens), the fixed literal prompt `sworn lane probe`, and no
+repository content. Unlike `inspect`, `doctor` and `certify`, `--json` is
+optional; the default is one human-readable line carrying the same typed
+code, provider message, provider request id and latency.
+
+Use `probe` instead of `certify` when the question is "is this lane admitting
+requests right now", not "does the whole submission contract still hold":
+probe checks admission only (a live 2xx response), never the agent loop or
+the submission contract certify proves. It is the check a Manager seat runs
+every few minutes while waiting out a provider stall (manager policy M4);
+`certify` stays the release-wide, separately authorized live check. `probe`
+always makes a live call (`"live_call": true`), just as `certify` does.
 
 ## 2. Start the run
 
@@ -609,7 +644,7 @@ report what happened but cannot approve, block, or advance work.
 
 Linux production execution requires root-owned `bwrap` discoverable on PATH
 (for example `/usr/bin/bwrap`) and unprivileged user namespaces. Live
-`driver certify` and production runs can
+`driver certify`, `driver probe`, and production runs can
 consume provider usage; the ordinary Go test suite does not make live provider
 requests.
 ## Host-check repair input

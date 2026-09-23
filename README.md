@@ -120,6 +120,7 @@ exact run control.
 | `sworn answer` | Answer a question that has paused one part of the work. |
 | `sworn status --json` | Return the stable run record for another program. |
 | `sworn driver inspect`, `doctor`, `certify` | Check configured AI connections at increasing depth. |
+| `sworn driver probe` | Send one minimal live request to prove one named lane is admitting requests right now. |
 
 Exact command syntax:
 
@@ -135,6 +136,7 @@ sworn status --run ID --journal ABS --json
 sworn board --run ID --journal ABS [--json]
 sworn serve --run ID --journal ABS [--manifest ABS] [--config ABS] [--operator-config ABS]
 sworn driver inspect|doctor|certify --config ABS (--profile PROFILE --model MODEL | --all) --json
+sworn driver probe --config ABS --profile PROFILE --model MODEL [--json]
 ```
 
 ## AI connections

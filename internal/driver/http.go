@@ -289,6 +289,10 @@ func (transport *httpTransport) roundTrip(
 		return nil, fail("OUTPUT_OVERFLOW")
 	}
 	if response.StatusCode < 200 || response.StatusCode > 299 {
+		requestID := laneProbeRequestIDFromHeader(response.Header)
+		if requestID == "" {
+			requestID = laneProbeRequestIDFromBody(body)
+		}
 		if response.StatusCode == http.StatusTooManyRequests {
 			retryAfter := response.Header.Get("Retry-After")
 			message := providerErrorDetail(body)
@@ -300,11 +304,19 @@ func (transport *httpTransport) roundTrip(
 				Detail:     message,
 				RetryAfter: delay,
 				HardLimit:  hard,
+				RequestID:  requestID,
 			}
 		}
 		detail := providerErrorDetail(body)
 		clearBytes(body)
-		return nil, providerHTTPStatusError(response.StatusCode, detail)
+		err := providerHTTPStatusError(response.StatusCode, detail)
+		if contractErr, ok := err.(*ContractError); ok {
+			contractErr.RequestID = requestID
+		}
+		return nil, err
+	}
+	if capture := laneProbeRequestIDCapture(ctx); capture != nil {
+		*capture = laneProbeRequestIDFromHeader(response.Header)
 	}
 	return body, nil
 }

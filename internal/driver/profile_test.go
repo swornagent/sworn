@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 )
@@ -218,6 +219,75 @@ func TestSubmissionAdapterErrorsRemainClassifiable(t *testing.T) {
 			certificationFailureCode(normalized) != "certification_submission_failed" {
 			t.Fatalf("%s normalized to %v", code, normalized)
 		}
+	}
+}
+
+// TestNewProductionRegistryNamesMissingRosterMembersFromOneDeclaration pins
+// A4: the registry build reads the single roster declaration
+// (ProductionRequiredFamilies/Surfaces) and names every missing family and
+// surface in the refusal detail, with the --all-vs-one-lane sentence.
+func TestNewProductionRegistryNamesMissingRosterMembersFromOneDeclaration(t *testing.T) {
+	t.Parallel()
+	key := "solo-adapter"
+	adapter := &familyAdapter{
+		identity: AdapterIdentity{
+			Key: key, ID: "driver." + key, Version: "1.0.0",
+			ConfigurationDigest: Digest([]byte(key)),
+		},
+		family: ProfileOpenAIHTTP, surface: ProfileSurfaceOpenAIResponses,
+		state: ReadinessPass, code: "fixture_ready",
+	}
+	ref := "solo-credential"
+	config := ProfileConfig{
+		Key: "solo-profile", Adapter: key, Network: NetworkRequired,
+		CredentialRef: &ref,
+	}
+	_, err := NewProductionRegistry([]ProfileConfig{config}, []Adapter{adapter})
+	if !IsCode(err, "MISSING_PROFILE_FAMILY") {
+		t.Fatalf("error = %v, want MISSING_PROFILE_FAMILY", err)
+	}
+	var contractErr *ContractError
+	if !errors.As(err, &contractErr) {
+		t.Fatalf("error = %v, want a *ContractError", err)
+	}
+	for _, family := range []ProfileFamily{ProfileCodex, ProfileClaude, ProfileGemini, ProfileBedrock} {
+		if !bytesContains([]byte(contractErr.Detail), []byte(family)) {
+			t.Fatalf("detail = %q, missing family %q", contractErr.Detail, family)
+		}
+	}
+	if bytesContains([]byte(contractErr.Detail), []byte(ProfileOpenAIHTTP)) {
+		t.Fatalf("detail = %q, named a family the build did require", contractErr.Detail)
+	}
+	if !bytesContains(
+		[]byte(contractErr.Detail),
+		[]byte("--all checks the complete production roster while --profile P --model M checks one lane"),
+	) {
+		t.Fatalf("detail = %q, missing the --all-vs-one-lane sentence", contractErr.Detail)
+	}
+}
+
+// TestMissingProductionMembersReflectsTheSingleRosterDeclaration pins the
+// roster helper directly: a registry that builds cannot then be reported
+// missing a family or surface the build did not require.
+func TestMissingProductionMembersReflectsTheSingleRosterDeclaration(t *testing.T) {
+	t.Parallel()
+	present := map[ProfileFamily]bool{
+		ProfileCodex: true, ProfileClaude: true, ProfileOpenAIHTTP: true,
+		ProfileGemini: true,
+	}
+	surfaces := map[ProfileSurface]bool{}
+	missingFamilies, missingSurfaces := MissingProductionMembers(present, surfaces)
+	if len(missingFamilies) != 1 || missingFamilies[0] != ProfileBedrock {
+		t.Fatalf("missing families = %v", missingFamilies)
+	}
+	if len(missingSurfaces) != 1 || missingSurfaces[0] != ProfileSurfaceBedrockRuntimeConverse {
+		t.Fatalf("missing surfaces = %v", missingSurfaces)
+	}
+	present[ProfileBedrock] = true
+	surfaces[ProfileSurfaceBedrockRuntimeConverse] = true
+	missingFamilies, missingSurfaces = MissingProductionMembers(present, surfaces)
+	if len(missingFamilies) != 0 || len(missingSurfaces) != 0 {
+		t.Fatalf("complete roster missing = %v, %v", missingFamilies, missingSurfaces)
 	}
 }
 

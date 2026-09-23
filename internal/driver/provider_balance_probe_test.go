@@ -259,3 +259,90 @@ func decodeProviderBalanceProbeEvent(t *testing.T, body []byte) ProviderBalanceP
 	}
 	return event
 }
+
+// TestProbeLaneNeverCallsAnUnrequestedProfilesTransport pins A3's no-
+// fallback promise at the registry level: a registry admitting two
+// explicit lanes calls only the one the caller named, never the other,
+// whichever order they were registered in.
+func TestProbeLaneNeverCallsAnUnrequestedProfilesTransport(t *testing.T) {
+	t.Parallel()
+	var calledA, calledB int
+	roundTripperA := roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		calledA++
+		return statusResponse(200, http.Header{}, `{"choices":[]}`), nil
+	})
+	roundTripperB := roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		calledB++
+		return statusResponse(200, http.Header{}, `{"choices":[]}`), nil
+	})
+	adapterA := laneProbeChatAdapterKeyed(t, "probe-lane-a-adapter", roundTripperA)
+	adapterB := laneProbeChatAdapterKeyed(t, "probe-lane-b-adapter", roundTripperB)
+	refA, refB := "probe-cred", "probe-cred"
+	registry, err := NewSelectionRegistry(
+		[]ProfileConfig{
+			{Key: "lane-a", Adapter: adapterA.Identity().Key, Network: NetworkRequired, CredentialRef: &refA},
+			{Key: "lane-b", Adapter: adapterB.Identity().Key, Network: NetworkRequired, CredentialRef: &refB},
+		},
+		[]Adapter{adapterA, adapterB},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configured := ConfiguredDriverRegistry{SelectionRegistry: registry}
+	result, err := ProbeLane(context.Background(), configured, "lane-a", "model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Ready || calledA != 1 || calledB != 0 {
+		t.Fatalf("result = %#v, calledA = %d, calledB = %d", result, calledA, calledB)
+	}
+	result, err = ProbeLane(context.Background(), configured, "lane-b", "model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Ready || calledA != 1 || calledB != 1 {
+		t.Fatalf("result = %#v, calledA = %d, calledB = %d", result, calledA, calledB)
+	}
+}
+
+// TestProbeLaneAdapterIdentityRidesTheResultWithNoSecretOrPathBytes proves
+// the exposed single-function result stays closed and secret-free, so a
+// Manager seat's CLI probe and S5's backoff wait can log or persist it
+// directly.
+func TestProbeLaneAdapterIdentityRidesTheResultWithNoSecretOrPathBytes(t *testing.T) {
+	t.Parallel()
+	// laneProbeChatAdapter's resolver always returns this exact secret.
+	const secret = "secret-canary"
+	roundTripper := roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		return statusResponse(200, http.Header{}, `{"choices":[]}`), nil
+	})
+	adapter := laneProbeChatAdapter(t, roundTripper)
+	ref := "probe-cred"
+	registry, err := NewSelectionRegistry(
+		[]ProfileConfig{{
+			Key: "identity-lane", Adapter: adapter.Identity().Key,
+			Network: NetworkRequired, CredentialRef: &ref,
+		}},
+		[]Adapter{adapter},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configured := ConfiguredDriverRegistry{SelectionRegistry: registry}
+	result, err := ProbeLane(context.Background(), configured, "identity-lane", "model")
+	if err != nil || !result.Ready {
+		t.Fatalf("result = %#v, err = %v", result, err)
+	}
+	if result.AdapterID != adapter.Identity().ID ||
+		result.AdapterVersion != adapter.Identity().Version ||
+		result.ConfigurationDigest != adapter.Identity().ConfigurationDigest {
+		t.Fatalf("identity = %#v, want %#v", result, adapter.Identity())
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytesContains(encoded, []byte(secret)) || bytesContains(encoded, []byte(ref)) {
+		t.Fatalf("probe result leaked private data: %s", encoded)
+	}
+}

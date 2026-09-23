@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
 )
 
 // ProfileFamily is a closed description of one production transport family.
@@ -168,6 +169,72 @@ func certificationFailureCode(err error) string {
 	}
 }
 
+// ProductionRequiredFamilies and ProductionRequiredSurfaces are the single
+// production roster declaration (S4-lane-live-probe A4): NewProductionRegistry
+// (registry build, below) and completeProductionReadiness (the readiness
+// report, cmd/sworn/driver.go) both read these vars, so a roster that
+// builds can never then be reported not ready for a family or surface the
+// build itself did not require.
+var ProductionRequiredFamilies = []ProfileFamily{
+	ProfileCodex, ProfileClaude, ProfileOpenAIHTTP, ProfileGemini, ProfileBedrock,
+}
+
+var ProductionRequiredSurfaces = []ProfileSurface{
+	ProfileSurfaceBedrockRuntimeConverse,
+}
+
+// ProductionRosterNote distinguishes --all's whole-roster readiness check
+// from a single --profile/--model lane check; it is appended to every
+// MISSING_PROFILE_FAMILY/SURFACE refusal detail.
+const ProductionRosterNote = "--all checks the complete production roster " +
+	"while --profile P --model M checks one lane."
+
+// MissingProductionMembers reports which members of the one production
+// roster declaration a built registry's observed families and surfaces
+// omit, in roster order.
+func MissingProductionMembers(
+	presentFamilies map[ProfileFamily]bool,
+	presentSurfaces map[ProfileSurface]bool,
+) (missingFamilies []ProfileFamily, missingSurfaces []ProfileSurface) {
+	for _, family := range ProductionRequiredFamilies {
+		if !presentFamilies[family] {
+			missingFamilies = append(missingFamilies, family)
+		}
+	}
+	for _, surface := range ProductionRequiredSurfaces {
+		if !presentSurfaces[surface] {
+			missingSurfaces = append(missingSurfaces, surface)
+		}
+	}
+	return missingFamilies, missingSurfaces
+}
+
+// productionRosterDetail renders the named-refusal detail A4 requires, for
+// example "missing families: bedrock; missing surfaces:
+// bedrock_runtime_converse (--all checks the complete production roster
+// while --profile P --model M checks one lane)".
+func productionRosterDetail(
+	missingFamilies []ProfileFamily,
+	missingSurfaces []ProfileSurface,
+) string {
+	var parts []string
+	if len(missingFamilies) > 0 {
+		names := make([]string, len(missingFamilies))
+		for index, family := range missingFamilies {
+			names[index] = string(family)
+		}
+		parts = append(parts, "missing families: "+strings.Join(names, ", "))
+	}
+	if len(missingSurfaces) > 0 {
+		names := make([]string, len(missingSurfaces))
+		for index, surface := range missingSurfaces {
+			names[index] = string(surface)
+		}
+		parts = append(parts, "missing surfaces: "+strings.Join(names, ", "))
+	}
+	return strings.Join(parts, "; ") + " (" + ProductionRosterNote + ")"
+}
+
 // NewProductionRegistry admits the complete W5 production-family set as one
 // common registry. The deterministic fake remains available to subset
 // registries and scripted manifests, but is not required for production
@@ -218,20 +285,28 @@ func NewProductionRegistry(
 			return SelectionRegistry{}, fail("INVALID_PROFILE")
 		}
 	}
-	for _, family := range []ProfileFamily{
-		ProfileCodex, ProfileClaude, ProfileOpenAIHTTP,
-		ProfileGemini, ProfileBedrock,
-	} {
-		if families[family] < 1 {
-			return SelectionRegistry{}, fail("MISSING_PROFILE_FAMILY")
-		}
+	presentFamilies := make(map[ProfileFamily]bool, len(families))
+	for family, count := range families {
+		presentFamilies[family] = count > 0
 	}
-	for _, surface := range []ProfileSurface{
-		ProfileSurfaceBedrockRuntimeConverse,
-	} {
-		if surfaces[surface] < 1 {
-			return SelectionRegistry{}, fail("MISSING_PROFILE_SURFACE")
-		}
+	presentSurfaces := make(map[ProfileSurface]bool, len(surfaces))
+	for surface, count := range surfaces {
+		presentSurfaces[surface] = count > 0
+	}
+	missingFamilies, missingSurfaces := MissingProductionMembers(
+		presentFamilies, presentSurfaces,
+	)
+	if len(missingFamilies) > 0 {
+		return SelectionRegistry{}, failWithDetail(
+			"MISSING_PROFILE_FAMILY",
+			productionRosterDetail(missingFamilies, missingSurfaces),
+		)
+	}
+	if len(missingSurfaces) > 0 {
+		return SelectionRegistry{}, failWithDetail(
+			"MISSING_PROFILE_SURFACE",
+			productionRosterDetail(missingFamilies, missingSurfaces),
+		)
 	}
 	return registry, nil
 }

@@ -62,6 +62,7 @@ Exact syntax:
   sworn board --run ID --journal ABS [--json]
   sworn serve --run ID --journal ABS [--manifest ABS] [--config ABS] [--operator-config ABS]
   sworn driver inspect|doctor|certify --config ABS (--profile PROFILE --model MODEL | --all) --json
+  sworn driver probe --config ABS --profile PROFILE --model MODEL [--json]
   sworn skill install [--home ABS]
   sworn plan pin --manifest ABS --project ABS [--commit OID] [--write]
   sworn plan lint --manifest ABS --project ABS [--commit OID]

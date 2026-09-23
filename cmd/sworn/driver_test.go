@@ -3,6 +3,9 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -188,5 +191,171 @@ func TestDriverAllRegistryFailureIsNotReportedAsProfileNotFound(t *testing.T) {
 	if !strings.Contains(message, "could not be built into a driver registry") ||
 		!strings.Contains(message, "MISSING_PROFILE_FAMILY") {
 		t.Fatalf("registry-build failure not reported honestly with its code: %s", message)
+	}
+	if !strings.Contains(message, "missing families:") ||
+		!strings.Contains(
+			message,
+			"--all checks the complete production roster while --profile P --model M checks one lane",
+		) {
+		t.Fatalf("registry-build failure did not name the missing roster members: %s", message)
+	}
+}
+
+func driverProbeConfigFixture(t *testing.T, endpoint string) string {
+	t.Helper()
+	credential := "probe-environment"
+	body, err := driver.EncodeDriverConfig(driver.DriverConfig{
+		SchemaVersion: driver.DriverConfigSchemaVersion,
+		Credentials: []driver.DriverCredentialSource{{
+			Key:       credential,
+			Kind:      driver.CredentialEnvironment,
+			Reference: "SWORN_TEST_PROBE_KEY",
+		}},
+		Adapters: []driver.DriverAdapterConfig{{
+			OpenAI: &driver.OpenAIProfileConfig{
+				HTTPProfileConfig: driver.HTTPProfileConfig{
+					Key:              "probe-adapter",
+					ID:               "sworn.probe",
+					Version:          "1.0.0",
+					Endpoint:         endpoint,
+					CredentialHeader: "Authorization",
+					CredentialPrefix: "Bearer ",
+					CredentialRefs:   []string{credential},
+					ResponseBytes:    driver.MaxProviderResponseBytes,
+				},
+				API: driver.OpenAIChatCompletionsAPI,
+			},
+		}},
+		Profiles: []driver.DriverProfile{{
+			Key:                 "probe",
+			Adapter:             "probe-adapter",
+			Network:             driver.NetworkRequired,
+			CredentialSource:    &credential,
+			CertificationModels: []string{"model-one"},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pathValue := filepath.Join(t.TempDir(), "drivers.json")
+	if err := os.WriteFile(pathValue, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return pathValue
+}
+
+// TestDriverProbeCLIRejectsMalformedShapeBeforeIO pins the probe command's
+// usage shape (--config, --profile and --model all required, --all never
+// admitted) without ever touching the named path.
+func TestDriverProbeCLIRejectsMalformedShapeBeforeIO(t *testing.T) {
+	t.Parallel()
+	for _, args := range [][]string{
+		{"driver", "probe", "--config", "/blocking"},
+		{"driver", "probe", "--config", "/blocking", "--profile", "p"},
+		{"driver", "probe", "--config", "/blocking", "--model", "m"},
+		{"driver", "probe", "--config", "/blocking", "--profile", "p", "--model", "m", "--all"},
+		{"driver", "probe", "--profile", "p", "--model", "m"},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := run(args, &stdout, &stderr); code != 2 {
+			t.Fatalf("run(%v) = %d", args, code)
+		}
+		if stdout.Len() != 0 ||
+			!bytes.HasPrefix(stderr.Bytes(), []byte("usage: sworn driver probe ")) ||
+			bytes.Contains(stderr.Bytes(), []byte("/blocking")) {
+			t.Fatalf("run(%v) stdout=%q stderr=%q", args, stdout.String(), stderr.String())
+		}
+	}
+}
+
+// TestDriverProbeCLIReportsReadyOnLiveResponseAndRefusalOtherwise pins A1:
+// the probe sends one minimal live request and reports ready or a closed
+// refusal code, in both the JSON and the default human-readable form.
+func TestDriverProbeCLIReportsReadyOnLiveResponseAndRefusalOtherwise(t *testing.T) {
+	t.Setenv("SWORN_TEST_PROBE_KEY", "probe-secret-canary")
+	status := http.StatusOK
+	server := httptest.NewServer(http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		request *http.Request,
+	) {
+		body, _ := io.ReadAll(request.Body)
+		if bytes.Contains(body, []byte("tools")) {
+			t.Errorf("probe request carried a tools field: %s", body)
+		}
+		if bytes.Contains(body, []byte("probe-secret-canary")) {
+			t.Errorf("probe request leaked the credential")
+		}
+		writer.Header().Set("X-Request-Id", "cli-probe-request-id")
+		writer.WriteHeader(status)
+		_, _ = writer.Write([]byte(`{"id":"resp-id","choices":[]}`))
+	}))
+	defer server.Close()
+	configPath := driverProbeConfigFixture(t, server.URL+"/v1/chat/completions")
+
+	var readyOut, readyErr bytes.Buffer
+	code := run([]string{
+		"driver", "probe", "--config", configPath,
+		"--profile", "probe", "--model", "model-one", "--json",
+	}, &readyOut, &readyErr)
+	if code != 0 || readyErr.Len() != 0 {
+		t.Fatalf("ready probe = %d, stdout=%q stderr=%q", code, readyOut.String(), readyErr.String())
+	}
+	var output driverProbeOutput
+	if err := json.Unmarshal(readyOut.Bytes(), &output); err != nil {
+		t.Fatal(err)
+	}
+	if output.SchemaVersion != driverProbeSchemaVersion ||
+		!output.Ready || output.Code != "live_probe_passed" ||
+		output.RequestID != "cli-probe-request-id" || !output.LiveCall ||
+		output.LatencyMillis < 0 {
+		t.Fatalf("ready probe output = %#v", output)
+	}
+
+	var textOut, textErr bytes.Buffer
+	if code := run([]string{
+		"driver", "probe", "--config", configPath,
+		"--profile", "probe", "--model", "model-one",
+	}, &textOut, &textErr); code != 0 || textErr.Len() != 0 {
+		t.Fatalf("ready text probe = %d, stdout=%q stderr=%q", code, textOut.String(), textErr.String())
+	}
+	if !strings.Contains(textOut.String(), "admitting requests") ||
+		!strings.Contains(textOut.String(), "Technical code: live_probe_passed") {
+		t.Fatalf("ready text output = %q", textOut.String())
+	}
+
+	status = http.StatusUnauthorized
+	var refusedOut, refusedErr bytes.Buffer
+	code = run([]string{
+		"driver", "probe", "--config", configPath,
+		"--profile", "probe", "--model", "model-one", "--json",
+	}, &refusedOut, &refusedErr)
+	if code != 1 || refusedErr.Len() != 0 {
+		t.Fatalf("refused probe = %d, stdout=%q stderr=%q", code, refusedOut.String(), refusedErr.String())
+	}
+	output = driverProbeOutput{}
+	if err := json.Unmarshal(refusedOut.Bytes(), &output); err != nil {
+		t.Fatal(err)
+	}
+	if output.Ready || output.Code != "certification_provider_authorization_failed" {
+		t.Fatalf("refused probe output = %#v", output)
+	}
+}
+
+// TestDriverProbeCLIUnknownProfileIsReportedAsNotFound pins the same
+// sworn#267 honesty the other driver commands keep: an unrecognized
+// profile is reported as "not found", not misreported as a registry
+// build failure or a probe transport failure.
+func TestDriverProbeCLIUnknownProfileIsReportedAsNotFound(t *testing.T) {
+	t.Setenv("SWORN_TEST_PROBE_KEY", "probe-secret-canary")
+	configPath := driverProbeConfigFixture(t, "https://example.invalid/v1/chat/completions")
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{
+		"driver", "probe", "--config", configPath,
+		"--profile", "unknown-profile", "--model", "model-one", "--json",
+	}, &stdout, &stderr); code != 1 {
+		t.Fatalf("unknown profile probe = %d, stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "Could not find that profile and model") {
+		t.Fatalf("unknown profile probe stderr = %q", stderr.String())
 	}
 }

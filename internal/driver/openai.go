@@ -318,7 +318,7 @@ func NewOpenAIAdapter(
 		OpenAIProfileConfig
 		Family ProfileFamily
 	}{config, ProfileOpenAIHTTP}
-	return newLoopAdapter(
+	adapter, err := newLoopAdapter(
 		config.Key,
 		config.ID,
 		config.Version,
@@ -329,6 +329,11 @@ func NewOpenAIAdapter(
 		factory,
 		transport,
 	)
+	if err != nil {
+		return nil, err
+	}
+	adapter.reasoningEffort = config.ReasoningEffort
+	return adapter, nil
 }
 
 func (config OpenAIProfileConfig) valid() bool {
