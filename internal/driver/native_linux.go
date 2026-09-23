@@ -3941,27 +3941,48 @@ func (state *nativeEventState) captureUsage(value any) {
 	state.hasUsage = true
 }
 
+// claudeRequiredCapabilities must all be advertised by the Claude CLI's init
+// event. claudeKnownOptionalCapabilities are capabilities a newer CLI
+// advertises that Sworn has reviewed and never uses (2.1.280 added the MCP
+// resource-read and tool-UI metadata capabilities): they are admitted when
+// present. Any other capability is unknown and fails closed, so a CLI that
+// grows a new control surface is refused until it is reviewed here.
+var (
+	claudeRequiredCapabilities = []string{
+		"interrupt_receipt_v1", "interrupt_cancel_queued_v1", "msg_lifecycle_v1",
+	}
+	claudeKnownOptionalCapabilities = []string{
+		"mcp_read_resource_v1", "mcp_tool_ui_meta_v1",
+	}
+)
+
 func exactClaudeCapabilities(value any) bool {
 	array, ok := value.([]any)
-	if !ok || len(array) != 3 {
+	if !ok {
 		return false
 	}
-	expected := map[string]struct{}{
-		"interrupt_receipt_v1":       {},
-		"interrupt_cancel_queued_v1": {},
-		"msg_lifecycle_v1":           {},
+	allowed := make(map[string]bool,
+		len(claudeRequiredCapabilities)+len(claudeKnownOptionalCapabilities))
+	for _, name := range claudeRequiredCapabilities {
+		allowed[name] = true
 	}
+	for _, name := range claudeKnownOptionalCapabilities {
+		allowed[name] = true
+	}
+	seen := make(map[string]bool, len(array))
 	for _, value := range array {
 		name, ok := value.(string)
-		if !ok {
+		if !ok || !allowed[name] || seen[name] {
 			return false
 		}
-		if _, present := expected[name]; !present {
-			return false
-		}
-		delete(expected, name)
+		seen[name] = true
 	}
-	return len(expected) == 0
+	for _, name := range claudeRequiredCapabilities {
+		if !seen[name] {
+			return false
+		}
+	}
+	return true
 }
 
 func exactClaudeTools(
