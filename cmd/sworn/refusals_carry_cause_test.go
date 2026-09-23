@@ -184,8 +184,10 @@ func TestGitExecutionFailedShowsGitArgsAndStderr(t *testing.T) {
 	}
 
 	// Provide a valid-syntax 40-character hex commit OID that does not exist in the repository.
-	// This drives protocol.PinManifest -> readGitFileAt -> gitx.Repository.ListTree -> real git ls-tree execution,
-	// which fails with GIT_EXECUTION_FAILED.
+	// After S1 the revision is resolved once at the boundary through the
+	// sanitized gitx resolver, so an unresolvable value is refused with
+	// REVISION_NOT_FOUND before the protocol is reached. The refusal names
+	// the flag and never echoes the value, a path, or raw git output.
 	nonexistentCommit := strings.Repeat("1", 40)
 	var stdout, stderr bytes.Buffer
 	code := runPlan([]string{
@@ -199,16 +201,20 @@ func TestGitExecutionFailedShowsGitArgsAndStderr(t *testing.T) {
 	}
 
 	stderrStr := stderr.String()
-	if !strings.Contains(stderrStr, "Technical code: GIT_EXECUTION_FAILED") {
-		t.Fatalf("stderr missing GIT_EXECUTION_FAILED:\n%s", stderrStr)
+	if !strings.Contains(stderrStr, "Technical code: REVISION_NOT_FOUND") {
+		t.Fatalf("stderr missing REVISION_NOT_FOUND:\n%s", stderrStr)
 	}
-	// Assert the executed git arguments (Op) are present in output
-	if !strings.Contains(stderrStr, "ls-tree") || !strings.Contains(stderrStr, nonexistentCommit) {
-		t.Fatalf("stderr missing git args (Op):\n%s", stderrStr)
+	if !strings.Contains(stderrStr, "--commit") {
+		t.Fatalf("stderr does not name the flag:\n%s", stderrStr)
 	}
-	// Assert the git stderr failure text (Err) is present in output
-	if !strings.Contains(stderrStr, "fatal: not a tree object") {
-		t.Fatalf("stderr missing git stderr text (Err):\n%s", stderrStr)
+	if strings.Contains(stderrStr, nonexistentCommit) {
+		t.Fatalf("stderr echoed the revision value:\n%s", stderrStr)
+	}
+	if strings.Contains(stderrStr, root) {
+		t.Fatalf("stderr echoed a path:\n%s", stderrStr)
+	}
+	if strings.Contains(stderrStr, "fatal:") || strings.Contains(stderrStr, "ls-tree") {
+		t.Fatalf("stderr echoed raw git output:\n%s", stderrStr)
 	}
 }
 

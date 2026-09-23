@@ -321,7 +321,9 @@ http://127.0.0.1:7337/runs/RUN_ID
 
 Add `--manifest` only when the operator service must accept a start request for
 that exact manifest. Without an operator configuration, there is no public
-listener, webhook delivery, or telemetry export.
+listener, webhook delivery, or telemetry export. See
+[docs/launch.md](launch.md) for the launch refusals `serve` prints and what
+to do about them.
 
 ## 5. Pause, resume, cancel, or recover
 

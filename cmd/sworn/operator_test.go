@@ -109,15 +109,19 @@ func TestServeArgumentsAreClosedAndContentFree(t *testing.T) {
 	); code != 1 {
 		t.Fatalf("missing existing run = %d, want 1", code)
 	}
+	want := "sworn serve: Could not open the local delivery board (journal). " +
+		"Check the run, journal, and operator settings.\n" +
+		"Technical code: JOURNAL_UNAVAILABLE\n" +
+		"journal (--journal)\n"
 	if stdout.Len() != 0 ||
-		stderr.String() !=
-			"sworn serve: Could not open the local delivery board. "+
-				"Check the run, journal, and operator settings.\n" ||
-		strings.Contains(stderr.String(), "TOP-SECRET") {
+		stderr.String() != want ||
+		strings.Contains(stderr.String(), "TOP-SECRET") ||
+		strings.Contains(stderr.String(), missing) {
 		t.Fatalf(
-			"missing existing run stdout=%q stderr=%q",
+			"missing existing run stdout=%q stderr=%q want=%q",
 			stdout.String(),
 			stderr.String(),
+			want,
 		)
 	}
 	if _, err := os.Lstat(missing); !os.IsNotExist(err) {
@@ -1902,4 +1906,354 @@ func operatorProjectManifestBody(t *testing.T, runID, repository, release, inten
 		t.Fatalf("manifest fixture: %v", err)
 	}
 	return body
+}
+func TestOperatorConfigTypedCodesDistinguishModeFromMalformed(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"schema_version":"sworn.operator-config/v1","local":{"listen":"127.0.0.1:7444"}}`)
+	write := func(t *testing.T, root, name string, mode os.FileMode) string {
+		t.Helper()
+		path := filepath.Join(root, name)
+		if err := os.WriteFile(path, body, mode); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(path, mode); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	good := write(t, t.TempDir(), "operator.json", 0o600)
+	if _, err := readPrivateOperatorFile(good, nil); err != nil {
+		t.Fatalf("0600 read: %v", err)
+	}
+	badMode := write(t, t.TempDir(), "operator.json", 0o644)
+	_, err := readPrivateOperatorFile(badMode, nil)
+	if err == nil {
+		t.Fatal("0644 admitted")
+	}
+	if commandErrorCode(err) != operatorConfigInsecureModeCode {
+		t.Fatalf("0644 code = %q, want %q", commandErrorCode(err), operatorConfigInsecureModeCode)
+	}
+	if !strings.Contains(commandErrorDetail(err), "0600") {
+		t.Fatalf("0644 detail = %q, want 0600", commandErrorDetail(err))
+	}
+	if !strings.Contains(err.Error(), "0600") {
+		t.Fatalf("0644 Error() = %q, want 0600", err.Error())
+	}
+	if strings.Contains(err.Error(), badMode) || strings.Contains(commandErrorDetail(err), badMode) {
+		t.Fatalf("0644 echoed path: %v", err)
+	}
+	if _, err := loadOperatorSettings(badMode); commandErrorCode(err) != operatorConfigInsecureModeCode {
+		t.Fatalf("load 0644 code = %q", commandErrorCode(err))
+	}
+	root := t.TempDir()
+	target := write(t, root, "target.json", 0o600)
+	link := filepath.Join(root, "operator.json")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readPrivateOperatorFile(link, nil); commandErrorCode(err) != operatorConfigUnavailableCode {
+		t.Fatalf("symlink code = %q, want UNAVAILABLE", commandErrorCode(err))
+	}
+	realDir := filepath.Join(t.TempDir(), "real")
+	if err := os.Mkdir(realDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	write(t, realDir, "operator.json", 0o600)
+	linked := filepath.Join(filepath.Dir(realDir), "linked")
+	if err := os.Symlink(realDir, linked); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readPrivateOperatorFile(filepath.Join(linked, "operator.json"), nil); commandErrorCode(err) != operatorConfigUnavailableCode {
+		t.Fatalf("parent symlink code = %q", commandErrorCode(err))
+	}
+	replaceRoot := t.TempDir()
+	replacePath := write(t, replaceRoot, "operator.json", 0o600)
+	replacement := write(t, replaceRoot, "replacement.json", 0o600)
+	if _, err := readPrivateOperatorFile(replacePath, func() {
+		if err := os.Rename(replacement, replacePath); err != nil {
+			t.Fatal(err)
+		}
+	}); commandErrorCode(err) != operatorConfigUnavailableCode {
+		t.Fatalf("replacement code = %q", commandErrorCode(err))
+	}
+	oversizePath := filepath.Join(t.TempDir(), "operator.json")
+	if err := os.WriteFile(oversizePath, bytes.Repeat([]byte{'x'}, maxOperatorConfigBytes+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readPrivateOperatorFile(oversizePath, nil); commandErrorCode(err) != operatorConfigUnavailableCode {
+		t.Fatalf("oversize code = %q", commandErrorCode(err))
+	}
+	if _, err := readPrivateOperatorFile("operator.json", nil); commandErrorCode(err) != operatorConfigUnavailableCode {
+		t.Fatalf("relative code = %q", commandErrorCode(err))
+	}
+	for _, malformed := range []string{
+		`{"schema_version":"sworn.operator-config/v1","local":{"listen":"127.0.0.1:7444"}} {}`,
+		`{"schema_version":"sworn.operator-config/v1","local":{"listen":"127.0.0.1:7444","extra":true}}`,
+		`{"schema_version":"sworn.operator-config/v1","LOCAL":{"listen":"127.0.0.1:7444"}}`,
+	} {
+		if _, err := parseOperatorConfig([]byte(malformed)); commandErrorCode(err) != operatorConfigInvalidCode {
+			t.Fatalf("malformed code = %q for %s", commandErrorCode(err), malformed)
+		}
+	}
+	certificate, key := operatorTestCertificate(t)
+	invalidPublic := operatorConfig{
+		SchemaVersion: operatorConfigSchemaVersion,
+		Local:         operatorLocalConfig{Listen: "127.0.0.1:7444"},
+		Public: &operatorPublicConfig{
+			Listen:         "127.0.0.1:7445",
+			Origin:         "https://sworn.example:7445",
+			CertificatePEM: certificate,
+			PrivateKeyPEM:  key,
+			Token:          strings.Repeat("t", 32),
+		},
+	}
+	invalidBody, err := json.Marshal(invalidPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parseOperatorConfig(invalidBody); commandErrorCode(err) != operatorConfigInvalidCode {
+		t.Fatalf("invalid public code = %q", commandErrorCode(err))
+	}
+}
+
+func TestServeManifestReportsRuntimeCodeNotCollapsed(t *testing.T) {
+	t.Parallel()
+	canonical := operatorManifestBody(t, "run-manifest-code", "manifest code")
+	var decoded map[string]any
+	if err := json.Unmarshal(canonical, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	pretty, err := json.MarshalIndent(decoded, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pretty = append(pretty, '\n')
+	if _, err := runtimepkg.ParseManifest(pretty); err == nil || !runtimepkg.IsCode(err, "NONCANONICAL_MANIFEST") {
+		t.Fatalf("pretty manifest err = %v, want NONCANONICAL_MANIFEST", err)
+	}
+	manifestPath := filepath.Join(t.TempDir(), "manifest.json")
+	if err := os.WriteFile(manifestPath, pretty, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	journalPath := filepath.Join(t.TempDir(), "run.sqlite")
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"serve", "--run", "run-manifest-code", "--journal", journalPath, "--manifest", manifestPath}, &stdout, &stderr); code != 1 {
+		t.Fatalf("serve noncanonical = %d, want 1; stderr=%s", code, stderr.String())
+	}
+	out := stderr.String()
+	if !strings.Contains(out, "Technical code: NONCANONICAL_MANIFEST") {
+		t.Fatalf("stderr missing NONCANONICAL_MANIFEST:\n%s", out)
+	}
+	if strings.Contains(out, "Technical code: INVALID_MANIFEST\n") {
+		t.Fatalf("stderr collapsed to INVALID_MANIFEST:\n%s", out)
+	}
+	if !strings.Contains(out, "(manifest)") || !strings.Contains(out, "manifest (--manifest)") {
+		t.Fatalf("stderr does not name manifest input:\n%s", out)
+	}
+	if strings.Contains(out, manifestPath) || strings.Contains(out, "pretty") {
+		t.Fatalf("stderr echoed a path:\n%s", out)
+	}
+	goodPath := filepath.Join(t.TempDir(), "good.json")
+	if err := os.WriteFile(goodPath, canonical, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"serve", "--run", "run-other", "--journal", journalPath, "--manifest", goodPath}, &stdout, &stderr); code != 1 {
+		t.Fatalf("serve mismatch = %d, want 1", code)
+	}
+	out = stderr.String()
+	if !strings.Contains(out, "Technical code: MANIFEST_RUN_MISMATCH") {
+		t.Fatalf("stderr missing MANIFEST_RUN_MISMATCH:\n%s", out)
+	}
+	if strings.Contains(out, "run-manifest-code") || strings.Contains(out, "run-other") {
+		t.Fatalf("stderr echoed a run id:\n%s", out)
+	}
+}
+
+func TestServeNamesEachFailingInputWithTypedCode(t *testing.T) {
+	// Not parallel: the Git-project subtest chdirs.
+	t.Run("journal", func(t *testing.T) {
+		t.Parallel()
+		missing := filepath.Join(t.TempDir(), "TOP-SECRET.sqlite")
+		var stdout, stderr bytes.Buffer
+		if code := run([]string{"serve", "--run", "run-1", "--journal", missing}, &stdout, &stderr); code != 1 {
+			t.Fatalf("code = %d", code)
+		}
+		out := stderr.String()
+		lines := strings.Split(strings.TrimSpace(out), "\n")
+		if len(lines) != 3 {
+			t.Fatalf("want 3 lines, got %d:\n%s", len(lines), out)
+		}
+		if !strings.Contains(lines[0], "Could not open the local delivery board") || !strings.Contains(lines[0], "(journal)") {
+			t.Fatalf("line0 = %q", lines[0])
+		}
+		if lines[1] != "Technical code: JOURNAL_UNAVAILABLE" {
+			t.Fatalf("line1 = %q", lines[1])
+		}
+		if lines[2] != "journal (--journal)" {
+			t.Fatalf("line2 = %q", lines[2])
+		}
+		if strings.Contains(out, "TOP-SECRET") || strings.Contains(out, missing) {
+			t.Fatalf("echoed path:\n%s", out)
+		}
+	})
+	t.Run("operator config", func(t *testing.T) {
+		t.Parallel()
+		configPath := filepath.Join(t.TempDir(), "TOP-SECRET-operator.json")
+		body := []byte(`{"schema_version":"sworn.operator-config/v1","local":{"listen":"127.0.0.1:7444"}}`)
+		if err := os.WriteFile(configPath, body, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		journalPath := filepath.Join(t.TempDir(), "run.sqlite")
+		var stdout, stderr bytes.Buffer
+		if code := run([]string{"serve", "--run", "run-1", "--journal", journalPath, "--operator-config", configPath}, &stdout, &stderr); code != 1 {
+			t.Fatalf("code = %d", code)
+		}
+		out := stderr.String()
+		if !strings.Contains(out, "(operator config)") || !strings.Contains(out, "Technical code: OPERATOR_CONFIG_INSECURE_MODE") {
+			t.Fatalf("missing input/code:\n%s", out)
+		}
+		if !strings.Contains(out, "0600") {
+			t.Fatalf("missing 0600:\n%s", out)
+		}
+		if !strings.Contains(out, "operator config (--operator-config)") {
+			t.Fatalf("missing detail:\n%s", out)
+		}
+		if strings.Contains(out, "TOP-SECRET") || strings.Contains(out, configPath) {
+			t.Fatalf("echoed path:\n%s", out)
+		}
+	})
+	t.Run("driver config", func(t *testing.T) {
+		t.Parallel()
+		journalPath := boardJournalFixture(t)
+		missing := filepath.Join(t.TempDir(), "TOP-SECRET-drivers.json")
+		var stdout, stderr bytes.Buffer
+		if code := run([]string{"serve", "--run", "run-1", "--journal", journalPath, "--config", missing}, &stdout, &stderr); code != 1 {
+			t.Fatalf("code = %d, stderr=%s", code, stderr.String())
+		}
+		out := stderr.String()
+		if !strings.Contains(out, "(driver config)") || !strings.Contains(out, "Technical code: CONFIG_UNAVAILABLE") {
+			t.Fatalf("missing input/code:\n%s", out)
+		}
+		if !strings.Contains(out, "driver config (--config)") {
+			t.Fatalf("missing detail:\n%s", out)
+		}
+		if strings.Contains(out, "TOP-SECRET") || strings.Contains(out, missing) {
+			t.Fatalf("echoed path:\n%s", out)
+		}
+	})
+	t.Run("Git project", func(t *testing.T) {
+		plain := t.TempDir()
+		t.Chdir(plain)
+		var stdout, stderr bytes.Buffer
+		if code := run([]string{"serve"}, &stdout, &stderr); code != 1 {
+			t.Fatalf("code = %d, stderr=%s", code, stderr.String())
+		}
+		out := stderr.String()
+		if !strings.Contains(out, "(Git project)") {
+			t.Fatalf("missing input:\n%s", out)
+		}
+		if !strings.Contains(out, "Technical code: ") {
+			t.Fatalf("missing code:\n%s", out)
+		}
+		if !strings.Contains(out, "Git project") {
+			t.Fatalf("missing detail:\n%s", out)
+		}
+		if strings.Contains(out, plain) {
+			t.Fatalf("echoed path:\n%s", out)
+		}
+	})
+	t.Run("listener", func(t *testing.T) {
+		t.Parallel()
+		occupied, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer occupied.Close()
+		configBody, err := json.Marshal(operatorConfig{
+			SchemaVersion: operatorConfigSchemaVersion,
+			Local:         operatorLocalConfig{Listen: occupied.Addr().String()},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		configPath := filepath.Join(t.TempDir(), "operator.json")
+		if err := os.WriteFile(configPath, configBody, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		manifestBody := operatorManifestBody(t, "run-listener", "listener")
+		manifestPath := filepath.Join(t.TempDir(), "manifest.json")
+		if err := os.WriteFile(manifestPath, manifestBody, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		journalPath := filepath.Join(t.TempDir(), "run.sqlite")
+		var stdout, stderr bytes.Buffer
+		if code := run([]string{"serve", "--run", "run-listener", "--journal", journalPath, "--manifest", manifestPath, "--operator-config", configPath}, &stdout, &stderr); code != 1 {
+			t.Fatalf("code = %d, stderr=%s", code, stderr.String())
+		}
+		out := stderr.String()
+		if !strings.Contains(out, "(listener)") || !strings.Contains(out, "Technical code: OPERATOR_UNAVAILABLE") {
+			t.Fatalf("missing input/code:\n%s", out)
+		}
+		if strings.Contains(out, occupied.Addr().String()) {
+			t.Fatalf("echoed listener address:\n%s", out)
+		}
+	})
+	t.Run("run authority", func(t *testing.T) {
+		t.Parallel()
+		manifestBody := operatorManifestBody(t, "run-auth", "authority")
+		manifest, err := cockpit.AdmitManifest(manifestBody)
+		if err != nil {
+			t.Fatal(err)
+		}
+		manifestPath := filepath.Join(t.TempDir(), "manifest.json")
+		if err := os.WriteFile(manifestPath, manifestBody, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		journalPath := filepath.Join(t.TempDir(), "run.sqlite")
+		store, err := journal.Open(context.Background(), journalPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		parsed, err := runtimepkg.ParseManifest(manifestBody)
+		if err != nil {
+			t.Fatal(err)
+		}
+		otherBody := operatorManifestBody(t, "run-auth", "conflict")
+		other, err := cockpit.AdmitManifest(otherBody)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if other.Digest() == manifest.Digest() {
+			t.Fatal("conflict fixture has same digest")
+		}
+		if err := store.RegisterRun(context.Background(), journal.Run{
+			ID:             parsed.RunID,
+			ManifestDigest: other.Digest(),
+			Repository:     parsed.Repository,
+			Release:        parsed.Release,
+			TargetRef:      parsed.TargetRef,
+			CreatedAt:      time.Now().UTC(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.Close(); err != nil {
+			t.Fatal(err)
+		}
+		var stdout, stderr bytes.Buffer
+		if code := run([]string{"serve", "--run", "run-auth", "--journal", journalPath, "--manifest", manifestPath}, &stdout, &stderr); code != 1 {
+			t.Fatalf("code = %d, stderr=%s", code, stderr.String())
+		}
+		out := stderr.String()
+		if !strings.Contains(out, "(run authority)") || !strings.Contains(out, "Technical code: ") {
+			t.Fatalf("missing input/code:\n%s", out)
+		}
+		if !strings.Contains(out, "run authority (--run)") {
+			t.Fatalf("missing detail:\n%s", out)
+		}
+		if strings.Contains(out, manifest.Digest()) || strings.Contains(out, other.Digest()) {
+			t.Fatalf("echoed a digest:\n%s", out)
+		}
+	})
 }

@@ -28,6 +28,62 @@ var operatorTokenPattern = regexp.MustCompile(
 	`^[A-Za-z0-9._~-]{32,512}$`,
 )
 
+// Operator-config refusal codes, enumerated in one place.
+//
+//   - OPERATOR_CONFIG_UNAVAILABLE: the file cannot be admitted (path, parent,
+//     symlink, replacement, read or size failure).
+//   - OPERATOR_CONFIG_INSECURE_MODE: a regular, non-symlink file with an
+//     in-range size whose mode is not 0600.
+//   - OPERATOR_CONFIG_INVALID: the bytes are not an admitted operator config
+//     (ambiguous JSON, non-exact fields, schema, listen, public, webhook,
+//     otel or share validation).
+//
+// All reasons are fixed and value-free: no path, content or secret is echoed.
+const (
+	operatorConfigUnavailableCode  = "OPERATOR_CONFIG_UNAVAILABLE"
+	operatorConfigInsecureModeCode = "OPERATOR_CONFIG_INSECURE_MODE"
+	operatorConfigInvalidCode      = "OPERATOR_CONFIG_INVALID"
+)
+
+type operatorConfigError struct {
+	Code   string
+	reason string
+}
+
+func (e *operatorConfigError) Error() string {
+	if e == nil {
+		return operatorConfigUnavailableCode
+	}
+	if e.reason != "" {
+		return e.Code + ": " + e.reason
+	}
+	return e.Code
+}
+
+func operatorConfigUnavailableErr() error {
+	return &operatorConfigError{Code: operatorConfigUnavailableCode}
+}
+
+func operatorConfigInsecureModeErr() error {
+	return &operatorConfigError{
+		Code:   operatorConfigInsecureModeCode,
+		reason: "operator config file mode must be 0600",
+	}
+}
+
+func operatorConfigInvalidErr() error {
+	return &operatorConfigError{Code: operatorConfigInvalidCode}
+}
+
+func isInsecureModeFile(info os.FileInfo) bool {
+	return info != nil &&
+		info.Mode().IsRegular() &&
+		info.Mode()&os.ModeSymlink == 0 &&
+		info.Mode().Perm() != 0o600 &&
+		info.Size() >= 2 &&
+		info.Size() <= maxOperatorConfigBytes
+}
+
 type operatorConfig struct {
 	SchemaVersion string                  `json:"schema_version"`
 	Local         operatorLocalConfig     `json:"local"`
@@ -80,7 +136,7 @@ func loadOperatorSettings(path string) (operatorSettings, error) {
 	}
 	body, err := readPrivateOperatorFile(path, nil)
 	if err != nil {
-		return operatorSettings{}, errors.New("operator config unavailable")
+		return operatorSettings{}, err
 	}
 	return parseOperatorConfig(body)
 }
@@ -94,29 +150,43 @@ func readPrivateOperatorFile(
 	if path == "" || !filepath.IsAbs(path) ||
 		filepath.Clean(path) != path ||
 		strings.ContainsRune(path, 0) {
-		return nil, errors.New("operator config unavailable")
+		return nil, operatorConfigUnavailableErr()
 	}
 	parent := filepath.Dir(path)
 	resolvedParent, err := filepath.EvalSymlinks(parent)
 	if err != nil || filepath.Clean(resolvedParent) != parent {
-		return nil, errors.New("operator config unavailable")
+		return nil, operatorConfigUnavailableErr()
 	}
 	before, err := os.Lstat(path)
-	if err != nil || !validOperatorFileInfo(before) {
-		return nil, errors.New("operator config unavailable")
+	if err != nil {
+		return nil, operatorConfigUnavailableErr()
+	}
+	if !validOperatorFileInfo(before) {
+		if isInsecureModeFile(before) {
+			return nil, operatorConfigInsecureModeErr()
+		}
+		return nil, operatorConfigUnavailableErr()
 	}
 	if beforeOpen != nil {
 		beforeOpen()
 	}
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, errors.New("operator config unavailable")
+		return nil, operatorConfigUnavailableErr()
 	}
 	defer file.Close()
 	opened, err := file.Stat()
-	if err != nil || !validOperatorFileInfo(opened) ||
-		!os.SameFile(before, opened) {
-		return nil, errors.New("operator config unavailable")
+	if err != nil {
+		return nil, operatorConfigUnavailableErr()
+	}
+	if !os.SameFile(before, opened) {
+		return nil, operatorConfigUnavailableErr()
+	}
+	if !validOperatorFileInfo(opened) {
+		if isInsecureModeFile(opened) {
+			return nil, operatorConfigInsecureModeErr()
+		}
+		return nil, operatorConfigUnavailableErr()
 	}
 	body, err := io.ReadAll(
 		io.LimitReader(file, maxOperatorConfigBytes+1),
@@ -124,18 +194,26 @@ func readPrivateOperatorFile(
 	if err != nil || len(body) < 2 ||
 		len(body) > maxOperatorConfigBytes ||
 		int64(len(body)) != opened.Size() {
-		return nil, errors.New("operator config unavailable")
+		return nil, operatorConfigUnavailableErr()
 	}
 	afterOpen, err := file.Stat()
 	if err != nil || !os.SameFile(opened, afterOpen) ||
 		afterOpen.Size() != opened.Size() ||
 		!afterOpen.ModTime().Equal(opened.ModTime()) {
-		return nil, errors.New("operator config unavailable")
+		return nil, operatorConfigUnavailableErr()
 	}
 	afterPath, err := os.Lstat(path)
-	if err != nil || !validOperatorFileInfo(afterPath) ||
-		!os.SameFile(opened, afterPath) {
-		return nil, errors.New("operator config unavailable")
+	if err != nil {
+		return nil, operatorConfigUnavailableErr()
+	}
+	if !os.SameFile(opened, afterPath) {
+		return nil, operatorConfigUnavailableErr()
+	}
+	if !validOperatorFileInfo(afterPath) {
+		if isInsecureModeFile(afterPath) {
+			return nil, operatorConfigInsecureModeErr()
+		}
+		return nil, operatorConfigUnavailableErr()
 	}
 	return body, nil
 }
@@ -153,30 +231,30 @@ func parseOperatorConfig(body []byte) (operatorSettings, error) {
 	if len(body) < 2 || len(body) > maxOperatorConfigBytes ||
 		rejectAmbiguousOperatorJSON(body) != nil ||
 		validateExactOperatorFields(body) != nil {
-		return operatorSettings{}, errors.New("operator config unavailable")
+		return operatorSettings{}, operatorConfigInvalidErr()
 	}
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
 	var config operatorConfig
 	if err := decoder.Decode(&config); err != nil {
-		return operatorSettings{}, errors.New("operator config unavailable")
+		return operatorSettings{}, operatorConfigInvalidErr()
 	}
 	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
-		return operatorSettings{}, errors.New("operator config unavailable")
+		return operatorSettings{}, operatorConfigInvalidErr()
 	}
 	if config.SchemaVersion != operatorConfigSchemaVersion ||
 		len(config.Webhooks) > 32 {
-		return operatorSettings{}, errors.New("operator config unavailable")
+		return operatorSettings{}, operatorConfigInvalidErr()
 	}
 	local, err := literalListen(config.Local.Listen, true)
 	if err != nil {
-		return operatorSettings{}, errors.New("operator config unavailable")
+		return operatorSettings{}, operatorConfigInvalidErr()
 	}
 	result := operatorSettings{localListen: local}
 	if config.Public != nil {
 		public, err := parsePublicSettings(*config.Public)
 		if err != nil {
-			return operatorSettings{}, errors.New("operator config unavailable")
+			return operatorSettings{}, operatorConfigInvalidErr()
 		}
 		result.public = &public
 	}
@@ -185,10 +263,10 @@ func parseOperatorConfig(body []byte) (operatorSettings, error) {
 		if len(webhook.ID) < 1 || len(webhook.ID) > 120 ||
 			len(webhook.URL) < 1 || len(webhook.URL) > 1024 ||
 			len(webhook.Secret) < 32 || len(webhook.Secret) > 512 {
-			return operatorSettings{}, errors.New("operator config unavailable")
+			return operatorSettings{}, operatorConfigInvalidErr()
 		}
 		if _, duplicate := seenDestinations[webhook.ID]; duplicate {
-			return operatorSettings{}, errors.New("operator config unavailable")
+			return operatorSettings{}, operatorConfigInvalidErr()
 		}
 		seenDestinations[webhook.ID] = struct{}{}
 		result.webhooks = append(
@@ -203,22 +281,22 @@ func parseOperatorConfig(body []byte) (operatorSettings, error) {
 	if config.OTel != nil {
 		body, err := json.Marshal(config.OTel)
 		if err != nil {
-			return operatorSettings{}, errors.New("operator config unavailable")
+			return operatorSettings{}, operatorConfigInvalidErr()
 		}
 		otelConfig, err := observe.ParseConfig(body)
 		if err != nil {
-			return operatorSettings{}, errors.New("operator config unavailable")
+			return operatorSettings{}, operatorConfigInvalidErr()
 		}
 		result.otel = &otelConfig
 	}
 	if config.Share != nil {
 		body, err := json.Marshal(config.Share)
 		if err != nil {
-			return operatorSettings{}, errors.New("operator config unavailable")
+			return operatorSettings{}, operatorConfigInvalidErr()
 		}
 		shareConfig, err := observe.ParseShareConfig(body)
 		if err != nil {
-			return operatorSettings{}, errors.New("operator config unavailable")
+			return operatorSettings{}, operatorConfigInvalidErr()
 		}
 		result.share = &shareConfig
 	}

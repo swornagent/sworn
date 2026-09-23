@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"github.com/swornagent/sworn/internal/cockpit"
+	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
 	"github.com/swornagent/sworn/internal/observe"
@@ -37,6 +39,92 @@ const (
 var operatorIdentityPattern = regexp.MustCompile(
 	`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`,
 )
+
+// Serve failing inputs, exactly the seven A1 names. The detail for each is
+// the input kind (and flag where one carries it) only, never a path, value
+// or raw provider body.
+const (
+	serveInputManifest       = "manifest"
+	serveInputJournal        = "journal"
+	serveInputRunAuthority   = "run authority"
+	serveInputOperatorConfig = "operator config"
+	serveInputDriverConfig   = "driver config"
+	serveInputGitProject     = "Git project"
+	serveInputListener       = "listener"
+
+	manifestRunMismatchCode = "MANIFEST_RUN_MISMATCH"
+)
+
+type serveInputError struct {
+	input string
+	err   error
+}
+
+func (e *serveInputError) Error() string {
+	if e == nil || e.input == "" {
+		return "serve unavailable"
+	}
+	return "serve " + e.input + " unavailable"
+}
+
+func (e *serveInputError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.err
+}
+
+func serveInputDetail(input string) string {
+	switch input {
+	case serveInputManifest:
+		return "manifest (--manifest)"
+	case serveInputJournal:
+		return "journal (--journal)"
+	case serveInputRunAuthority:
+		return "run authority (--run)"
+	case serveInputOperatorConfig:
+		return "operator config (--operator-config)"
+	case serveInputDriverConfig:
+		return "driver config (--config)"
+	case serveInputGitProject:
+		return "Git project"
+	case serveInputListener:
+		return "listener"
+	default:
+		return input
+	}
+}
+
+func serveFallbackUnavailable(input string) error {
+	return &serveInputError{input: input, err: &cockpit.Error{Code: "OPERATOR_UNAVAILABLE"}}
+}
+
+func classifyOpenRuntimeServiceError(err error) string {
+	var driverErr *driver.ContractError
+	if errors.As(err, &driverErr) {
+		return serveInputDriverConfig
+	}
+	var runtimeErr *runtimepkg.Error
+	if errors.As(err, &runtimeErr) {
+		switch runtimeErr.Code {
+		case "JOURNAL_UNAVAILABLE":
+			return serveInputJournal
+		case "GIT_UNAVAILABLE":
+			return serveInputGitProject
+		case "INVALID_DRIVER_CONFIG":
+			return serveInputDriverConfig
+		}
+	}
+	var journalErr *journal.Error
+	if errors.As(err, &journalErr) {
+		return serveInputJournal
+	}
+	var gitxErr *gitx.Error
+	if errors.As(err, &gitxErr) {
+		return serveInputGitProject
+	}
+	return serveInputJournal
+}
 
 type serveOptions struct {
 	runID          string
@@ -95,11 +183,19 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	)
 	defer stop()
 	if err := serveOperator(ctx, options, stdout); err != nil {
-		writeKnownFailure(
+		friendly := "Could not open the local delivery board. Check the run, journal, and operator settings."
+		var serveErr *serveInputError
+		if errors.As(err, &serveErr) {
+			friendly = fmt.Sprintf("Could not open the local delivery board (%s). Check the run, journal, and operator settings.", serveErr.input)
+			if commandErrorCode(err) == operatorConfigInsecureModeCode {
+				friendly += " Operator config file mode must be 0600."
+			}
+		}
+		writeCommandFailure(
 			stderr,
 			"serve",
-			"Could not open the local delivery board. Check the run, journal, and operator settings.",
-			"",
+			friendly,
+			err,
 		)
 		return 1
 	}
@@ -207,11 +303,11 @@ func serveOperator(
 	stdout io.Writer,
 ) error {
 	if parent == nil || stdout == nil {
-		return errors.New("operator unavailable")
+		return serveFallbackUnavailable(serveInputListener)
 	}
 	settings, err := loadOperatorSettings(options.operatorConfig)
 	if err != nil {
-		return err
+		return &serveInputError{input: serveInputOperatorConfig, err: err}
 	}
 	if options.runID == "" {
 		return serveProjectOperator(parent, options, settings, stdout)
@@ -537,19 +633,23 @@ func serveProjectOperator(
 ) error {
 	gitExecutable, err := resolveGitExecutable()
 	if err != nil {
-		return errors.New("operator unavailable")
+		return &serveInputError{input: serveInputGitProject, err: err}
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
-		return errors.New("operator unavailable")
+		return serveFallbackUnavailable(serveInputGitProject)
 	}
 	repo, err := gitx.Open(filepath.Clean(cwd), gitExecutable)
 	if err != nil {
-		return errors.New("operator unavailable")
+		return &serveInputError{input: serveInputGitProject, err: err}
 	}
 	paths, err := resolveProjectPaths(repo.Root(), "", options.driverConfig, "")
 	if err != nil {
-		return errors.New("operator unavailable")
+		var gitxErr *gitx.Error
+		if errors.As(err, &gitxErr) {
+			return &serveInputError{input: serveInputGitProject, err: err}
+		}
+		return serveFallbackUnavailable(serveInputGitProject)
 	}
 	service := &projectOperatorService{
 		paths:         paths,
@@ -559,7 +659,7 @@ func serveProjectOperator(
 
 	listeners, err := bindOperatorListeners(settings)
 	if err != nil {
-		return errors.New("operator unavailable")
+		return serveFallbackUnavailable(serveInputListener)
 	}
 	defer listeners.close()
 
@@ -571,7 +671,7 @@ func serveProjectOperator(
 			swornVersion,
 		)
 		if err != nil {
-			return errors.New("operator unavailable")
+			return &serveInputError{input: serveInputListener, err: err}
 		}
 	}
 	telemetryOpen := true
@@ -596,7 +696,7 @@ func serveProjectOperator(
 		},
 	)
 	if err != nil {
-		return errors.New("operator unavailable")
+		return &serveInputError{input: serveInputListener, err: err}
 	}
 	localServer := newOperatorHTTPServer(localHandler)
 	var publicServer *http.Server
@@ -613,7 +713,7 @@ func serveProjectOperator(
 			},
 		)
 		if err != nil {
-			return errors.New("operator unavailable")
+			return &serveInputError{input: serveInputListener, err: err}
 		}
 		publicServer = newOperatorHTTPServer(publicHandler)
 	}
@@ -656,7 +756,7 @@ func serveProjectOperator(
 
 	var serveErr error
 	if _, err := io.WriteString(stdout, "sworn serve: ready\n"); err != nil {
-		serveErr = errors.New("operator unavailable")
+		serveErr = serveFallbackUnavailable(serveInputListener)
 		cancel()
 	}
 
@@ -703,7 +803,14 @@ func serveProjectOperator(
 	shutdownTelemetry(telemetry.Shutdown, operatorShutdownTimeout)
 	telemetryOpen = false
 	if serveErr != nil || shutdownErr != nil {
-		return errors.New("operator unavailable")
+		if serveErr != nil {
+			var serveInputErr *serveInputError
+			if errors.As(serveErr, &serveInputErr) {
+				return serveErr
+			}
+			return serveFallbackUnavailable(serveInputListener)
+		}
+		return serveFallbackUnavailable(serveInputListener)
 	}
 	return nil
 }
@@ -729,15 +836,18 @@ func serveRunOperator(
 			options.journalPath,
 		)
 		if err != nil {
-			return errors.New("operator unavailable")
+			return &serveInputError{input: serveInputJournal, err: err}
 		}
 		status, statusErr := statusReader.Status(
 			parent,
 			options.runID,
 		)
 		closeErr := statusReader.Close()
-		if statusErr != nil || closeErr != nil {
-			return errors.New("operator unavailable")
+		if statusErr != nil {
+			return &serveInputError{input: serveInputJournal, err: statusErr}
+		}
+		if closeErr != nil {
+			return &serveInputError{input: serveInputJournal, err: closeErr}
 		}
 		expectedDigest = status.ManifestDigest
 	}
@@ -748,13 +858,13 @@ func serveRunOperator(
 		options.driverConfig,
 	)
 	if err != nil {
-		return errors.New("operator unavailable")
+		return &serveInputError{input: classifyOpenRuntimeServiceError(err), err: err}
 	}
 	defer runtimeService.Close()
 	defer driverFactory.Close()
 	operatorStore, err := journal.Open(parent, options.journalPath)
 	if err != nil {
-		return errors.New("operator unavailable")
+		return &serveInputError{input: serveInputJournal, err: err}
 	}
 	defer operatorStore.Close()
 	authority := &operatorRunAuthority{
@@ -765,20 +875,20 @@ func serveRunOperator(
 	}
 	matched, err := authority.matches(parent)
 	if err != nil || (!matched && !allowAbsent) {
-		return errors.New("operator unavailable")
+		return serveFallbackUnavailable(serveInputRunAuthority)
 	}
 	if matched {
 		if err := runtimeService.ReconcileLeadDelegations(parent, options.runID); err != nil {
-			return errors.New("operator unavailable")
+			return &serveInputError{input: serveInputRunAuthority, err: err}
 		}
 		if err := runtimeService.ReconcileLeadDecisions(parent, options.runID); err != nil && !runtimepkg.IsCode(err, "LEAD_DECISION_RECOVERY_PENDING") {
-			return errors.New("operator unavailable")
+			return &serveInputError{input: serveInputRunAuthority, err: err}
 		}
 		if err := runtimeService.ReconcileApprovals(
 			parent,
 			options.runID,
 		); err != nil && !runtimepkg.IsCode(err, "APPROVAL_RECOVERY_PENDING") {
-			return errors.New("operator unavailable")
+			return &serveInputError{input: serveInputRunAuthority, err: err}
 		}
 	}
 	manifests := make([]cockpit.AdmittedManifest, 0, 1)
@@ -788,11 +898,11 @@ func serveRunOperator(
 
 	gitExecutable, err := resolveGitExecutable()
 	if err != nil {
-		return errors.New("operator unavailable")
+		return &serveInputError{input: serveInputGitProject, err: err}
 	}
 	stateReader, err := cockpit.NewGitStateReader(gitExecutable)
 	if err != nil {
-		return errors.New("operator unavailable")
+		return &serveInputError{input: serveInputGitProject, err: err}
 	}
 	baseProjector, err := cockpit.NewProjector(
 		operatorStore,
@@ -800,7 +910,7 @@ func serveRunOperator(
 		stateReader,
 	)
 	if err != nil {
-		return errors.New("operator unavailable")
+		return &serveInputError{input: serveInputJournal, err: err}
 	}
 	// S2 live worker stream: the run-scoped serve host drives the run
 	// in-process, so it owns one ephemeral activity ring. The ring is
@@ -821,7 +931,7 @@ func serveRunOperator(
 		manifests,
 	)
 	if err != nil {
-		return errors.New("operator unavailable")
+		return &serveInputError{input: serveInputRunAuthority, err: err}
 	}
 	commands := &operatorCommands{
 		authority: authority,
@@ -833,7 +943,7 @@ func serveRunOperator(
 		swornVersion,
 	)
 	if err != nil {
-		return errors.New("operator unavailable")
+		return &serveInputError{input: serveInputListener, err: err}
 	}
 	var webhookService *cockpit.WebhookService
 	if len(settings.webhooks) != 0 {
@@ -842,13 +952,13 @@ func serveRunOperator(
 			settings.webhooks,
 		)
 		if err != nil {
-			return errors.New("operator unavailable")
+			return &serveInputError{input: serveInputOperatorConfig, err: err}
 		}
 	}
 
 	listeners, err := bindOperatorListeners(settings)
 	if err != nil {
-		return errors.New("operator unavailable")
+		return serveFallbackUnavailable(serveInputListener)
 	}
 	defer listeners.close()
 
@@ -861,7 +971,7 @@ func serveRunOperator(
 		settings,
 	)
 	if err != nil {
-		return errors.New("operator unavailable")
+		return &serveInputError{input: serveInputListener, err: err}
 	}
 	telemetryOpen := true
 	defer func() {
@@ -888,7 +998,7 @@ func serveRunOperator(
 		},
 	)
 	if err != nil {
-		return errors.New("operator unavailable")
+		return &serveInputError{input: serveInputListener, err: err}
 	}
 	localServer := newOperatorHTTPServer(localHandler)
 	var publicServer *http.Server
@@ -904,7 +1014,7 @@ func serveRunOperator(
 			},
 		)
 		if err != nil {
-			return errors.New("operator unavailable")
+			return &serveInputError{input: serveInputListener, err: err}
 		}
 		publicServer = newOperatorHTTPServer(publicHandler)
 	}
@@ -976,7 +1086,7 @@ func serveRunOperator(
 	}
 	var serveErr error
 	if _, err := io.WriteString(stdout, "sworn serve: ready\n"); err != nil {
-		serveErr = errors.New("operator unavailable")
+		serveErr = serveFallbackUnavailable(serveInputListener)
 		cancel()
 	}
 
@@ -1024,7 +1134,14 @@ func serveRunOperator(
 	shutdownTelemetry(shareTelemetry.Shutdown, operatorShutdownTimeout)
 	telemetryOpen = false
 	if serveErr != nil || shutdownErr != nil {
-		return errors.New("operator unavailable")
+		if serveErr != nil {
+			var serveInputErr *serveInputError
+			if errors.As(serveErr, &serveInputErr) {
+				return serveErr
+			}
+			return serveFallbackUnavailable(serveInputListener)
+		}
+		return serveFallbackUnavailable(serveInputListener)
 	}
 	return nil
 }
@@ -1037,11 +1154,17 @@ func admitOperatorManifest(
 	}
 	body, err := readManifest(options.manifestPath)
 	if err != nil {
-		return nil, errors.New("operator unavailable")
+		return nil, &serveInputError{input: serveInputManifest, err: &runtimepkg.Error{Code: "INVALID_MANIFEST"}}
+	}
+	if _, err := runtimepkg.ParseManifest(body); err != nil {
+		return nil, &serveInputError{input: serveInputManifest, err: err}
 	}
 	manifest, err := cockpit.AdmitManifest(body)
-	if err != nil || manifest.RunID() != options.runID {
-		return nil, errors.New("operator unavailable")
+	if err != nil {
+		return nil, &serveInputError{input: serveInputManifest, err: err}
+	}
+	if manifest.RunID() != options.runID {
+		return nil, &serveInputError{input: serveInputManifest, err: &cockpit.Error{Code: manifestRunMismatchCode}}
 	}
 	return &manifest, nil
 }

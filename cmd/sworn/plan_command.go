@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -62,11 +61,21 @@ func runPlanPin(args []string, stdout, stderr io.Writer) int {
 		writeKnownFailure(stderr, "plan pin", "Could not open the Git project.", commandErrorCode(err), commandErrorDetail(err))
 		return 1
 	}
+	commit := options["--commit"]
+	var resolved string
+	if commit != "" {
+		resolved, err = resolvePlanRevisionFlag(repo, "--commit", commit)
+		if err != nil {
+			writeCommandFailure(stderr, "plan pin", "Could not resolve --commit to exactly one commit.", err)
+			return 1
+		}
+		commit = resolved
+	}
 	gitRepo := protocol.UseGitRepository(repo)
 	pinned, err := protocol.PinManifest(protocol.PinManifestInput{
 		ManifestBytes: manifestBytes,
 		Repository:    gitRepo,
-		Commit:        options["--commit"],
+		Commit:        commit,
 	})
 	if err != nil {
 		writeCommandFailure(stderr, "plan pin", "Could not pin the manifest.", err)
@@ -75,6 +84,9 @@ func runPlanPin(args []string, stdout, stderr io.Writer) int {
 	if _, err := stdout.Write(pinned); err != nil {
 		fmt.Fprintln(stderr, "sworn plan pin: output failed")
 		return 1
+	}
+	if resolved != "" {
+		fmt.Fprintf(stderr, "commit: %s\n", resolved)
 	}
 	return 0
 }
@@ -95,11 +107,21 @@ func runPlanLint(args []string, stdout, stderr io.Writer) int {
 		writeKnownFailure(stderr, "plan lint", "Could not open the Git project.", commandErrorCode(err), commandErrorDetail(err))
 		return 1
 	}
+	commit := options["--commit"]
+	var resolved string
+	if commit != "" {
+		resolved, err = resolvePlanRevisionFlag(repo, "--commit", commit)
+		if err != nil {
+			writeCommandFailure(stderr, "plan lint", "Could not resolve --commit to exactly one commit.", err)
+			return 1
+		}
+		commit = resolved
+	}
 	gitRepo := protocol.UseGitRepository(repo)
 	results, err := protocol.RunPlanScopeLint(protocol.RunPlanScopeLintInput{
 		ManifestBytes: manifestBytes,
 		Repository:    gitRepo,
-		Commit:        options["--commit"],
+		Commit:        commit,
 	})
 	if err != nil {
 		writeCommandFailure(stderr, "plan lint", "Scope lint failed.", err)
@@ -112,6 +134,9 @@ func runPlanLint(args []string, stdout, stderr io.Writer) int {
 	}
 	for _, r := range results {
 		fmt.Fprintf(stdout, "%s: %s\n", r.Slice, r.Status)
+	}
+	if resolved != "" {
+		fmt.Fprintf(stdout, "commit: %s\n", resolved)
 	}
 	return 0
 }
@@ -138,20 +163,38 @@ func runPlanRecord(args []string, stdout, stderr io.Writer) int {
 	}
 
 	// Resolve the contract tree: --contract-tree takes priority, then
-	// --commit, then the working repository's HEAD. A3 pins the default as
-	// "the working repository's head as ContractTree", so the default must
-	// resolve without operator input.
-	contractTree := options["--contract-tree"]
-	if contractTree == "" {
-		contractTree = options["--commit"]
-	}
-	if contractTree == "" {
-		head, headErr := resolveRepositoryHEAD(repo)
-		if headErr != nil {
-			writeKnownFailure(stderr, "plan record", "Could not resolve the working repository HEAD.", commandErrorCode(headErr), commandErrorDetail(headErr))
+	// --commit, then the working repository's HEAD. Every revision is
+	// resolved once at the boundary through the sanitized gitx resolver;
+	// only full ids reach the protocol.
+	var commitResolved string
+	if options["--commit"] != "" {
+		var err error
+		commitResolved, err = resolvePlanRevisionFlag(repo, "--commit", options["--commit"])
+		if err != nil {
+			writeCommandFailure(stderr, "plan record", "Could not resolve --commit to exactly one commit.", err)
 			return 1
 		}
-		contractTree = head
+	}
+	var contractTree, contractTreeSource string
+	if options["--contract-tree"] != "" {
+		resolved, err := resolvePlanRevisionFlag(repo, "--contract-tree", options["--contract-tree"])
+		if err != nil {
+			writeCommandFailure(stderr, "plan record", "Could not resolve --contract-tree to exactly one commit.", err)
+			return 1
+		}
+		contractTree = resolved
+		contractTreeSource = "--contract-tree"
+	} else if commitResolved != "" {
+		contractTree = commitResolved
+		contractTreeSource = "--commit"
+	} else {
+		headOID, headErr := repo.ResolveCommitRevision("HEAD")
+		if headErr != nil {
+			writeCommandFailure(stderr, "plan record", "Could not resolve the working repository HEAD.", headErr)
+			return 1
+		}
+		contractTree = headOID.String()
+		contractTreeSource = "HEAD"
 	}
 
 	var detail []byte
@@ -192,6 +235,10 @@ func runPlanRecord(args []string, stdout, stderr io.Writer) int {
 	gitRepo := protocol.UseGitRepository(repo)
 	state, stateErr := protocol.ReadState(gitRepo, result.Release, inertness)
 	fmt.Fprintf(stdout, "Recorded plan revision %d for release %s.\n", result.Revision, result.Release)
+	if commitResolved != "" {
+		fmt.Fprintf(stdout, "  commit: %s\n", commitResolved)
+	}
+	fmt.Fprintf(stdout, "  contract-tree: %s (from %s)\n", contractTree, contractTreeSource)
 	fmt.Fprintf(stdout, "  plan: %s\n", result.Plan)
 	fmt.Fprintf(stdout, "  ref: %s\n", result.Ref)
 	fmt.Fprintf(stdout, "  head: %s\n", result.Head)
@@ -243,37 +290,20 @@ func openPlanRepository(project string) (*gitx.Repository, error) {
 	return gitx.Open(project, gitExecutable)
 }
 
-// resolveRepositoryHEAD resolves the working repository's HEAD commit OID by
-// running the resolved Git executable directly. gitx.Repository.run is
-// unexported and CaptureHeadRefs rejects HEAD via ValidateHeadRef's
-// refs/heads/ prefix requirement (Correction 1), so the head is resolved inside
-// cmd/sworn using the exported gitx surface (Root, GitExecutable,
-// ObjectFormat) and the same sanitized git execution pattern as
-// cmd/sworn/init_command.go. The pattern follows the exact precedent of
-// MigrateLegacyRecords (migrate.go:83: rev-parse --verify HEAD^{commit}).
-func resolveRepositoryHEAD(repo *gitx.Repository) (string, error) {
+// resolvePlanRevisionFlag resolves one --commit or --contract-tree value
+// through the sanitized gitx resolver. An empty value resolves to an empty
+// id (working-tree mode for pin/lint); otherwise the full resolved id is
+// returned. Failures are typed gitx errors with fixed, value-free detail.
+func resolvePlanRevisionFlag(repo *gitx.Repository, flag, value string) (string, error) {
+	if value == "" {
+		return "", nil
+	}
 	if repo == nil {
-		return "", fmt.Errorf("one admitted Git repository is required")
+		return "", fmt.Errorf("one admitted Git repository is required for %s", flag)
 	}
-	command := exec.Command(repo.GitExecutable(), "-C", repo.Root(),
-		"rev-parse", "--verify", "HEAD^{commit}")
-	command.Env = []string{
-		"HOME=/tmp", "LANG=C", "LC_ALL=C", "TZ=UTC",
-		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_SYSTEM=/dev/null",
-		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_NO_REPLACE_OBJECTS=1",
-		"GIT_LITERAL_PATHSPECS=1", "GIT_TERMINAL_PROMPT=0",
-	}
-	output, err := command.Output()
+	oid, err := repo.ResolveCommitRevision(value)
 	if err != nil {
-		return "", fmt.Errorf("could not resolve HEAD: %w", err)
+		return "", err
 	}
-	head := strings.TrimSpace(string(output))
-	if head == "" {
-		return "", fmt.Errorf("HEAD resolved to an empty identity")
-	}
-	// Validate the OID is well-formed for the repository's object format.
-	if _, err := gitx.ParseOID(repo.ObjectFormat(), head); err != nil {
-		return "", fmt.Errorf("HEAD resolved to an invalid OID: %w", err)
-	}
-	return head, nil
+	return oid.String(), nil
 }

@@ -385,3 +385,344 @@ func TestPlanRecordRecordsRevisionEndToEnd(t *testing.T) {
 		t.Fatal("release-wt ref was not created")
 	}
 }
+func planHeadOID(t *testing.T, root string) string {
+	t.Helper()
+	git, err := gitExecutablePath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(git, "-C", root, "rev-parse", "HEAD")
+	cmd.Env = planGitEnv(root)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("rev-parse HEAD: %v: %s", err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func planSetupContractAndManifest(t *testing.T, root, release string) (contractPath, manifestPath, pinnedPath string) {
+	t.Helper()
+	contractPath = "contracts/S1.json"
+	contractRaw := planContractRaw(t, planContractBody("S1", "one/file.go"))
+	if err := os.MkdirAll(filepath.Join(root, filepath.Dir(contractPath)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, contractPath), contractRaw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath = filepath.Join(root, "manifest.md")
+	drifted := planManifestBytes(t, release, contractPath, "one/file.go", "sha256:"+strings.Repeat("0", 64))
+	if err := os.WriteFile(manifestPath, drifted, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var pinOut, pinErr bytes.Buffer
+	if code := runPlan([]string{"pin", "--manifest", manifestPath, "--project", root}, &pinOut, &pinErr); code != 0 {
+		t.Fatalf("setup pin: code=%d stderr=%s", code, pinErr.String())
+	}
+	pinnedPath = filepath.Join(root, "pinned.md")
+	if err := os.WriteFile(pinnedPath, pinOut.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return contractPath, manifestPath, pinnedPath
+}
+
+func TestPlanPinAcceptsAbbreviatedAndRefRevisions(t *testing.T) {
+	t.Parallel()
+	root := planTestRepo(t)
+	contractPath, _, pinnedPath := planSetupContractAndManifest(t, root, "pin-abbrev")
+	git, err := gitExecutablePath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := planGitEnv(root)
+	for _, args := range [][]string{
+		{"-C", root, "add", "--", contractPath},
+		{"-C", root, "commit", "--quiet", "-m", "add contract"},
+	} {
+		cmd := exec.Command(git, args...)
+		cmd.Env = env
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	head := planHeadOID(t, root)
+	abbrev := head[:7]
+	for _, rev := range []string{head, abbrev, "HEAD", "main"} {
+		var stdout, stderr bytes.Buffer
+		code := runPlan([]string{"pin", "--manifest", pinnedPath, "--project", root, "--commit", rev}, &stdout, &stderr)
+		if code != 0 {
+			t.Fatalf("pin --commit %q: code=%d stderr=%s", rev, code, stderr.String())
+		}
+		if !bytes.Contains(stdout.Bytes(), []byte("one/file.go")) {
+			t.Fatalf("pin --commit %q stdout missing manifest", rev)
+		}
+		if strings.Contains(stdout.String(), "commit:") {
+			t.Fatalf("pin --commit %q stdout must stay pure manifest bytes", rev)
+		}
+		want := "commit: " + head + "\n"
+		if stderr.String() != want {
+			t.Fatalf("pin --commit %q stderr=%q want=%q", rev, stderr.String(), want)
+		}
+	}
+}
+
+func TestPlanLintAcceptsAbbreviatedAndPrintsFullID(t *testing.T) {
+	t.Parallel()
+	root := planTestRepo(t)
+	contractPath, _, pinnedPath := planSetupContractAndManifest(t, root, "lint-abbrev")
+	git, err := gitExecutablePath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := planGitEnv(root)
+	for _, args := range [][]string{
+		{"-C", root, "add", "--", contractPath},
+		{"-C", root, "commit", "--quiet", "-m", "add contract"},
+	} {
+		cmd := exec.Command(git, args...)
+		cmd.Env = env
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	head := planHeadOID(t, root)
+	abbrev := head[:7]
+	for _, rev := range []string{abbrev, "HEAD"} {
+		var stdout, stderr bytes.Buffer
+		code := runPlan([]string{"lint", "--manifest", pinnedPath, "--project", root, "--commit", rev}, &stdout, &stderr)
+		if code != 0 {
+			t.Fatalf("lint --commit %q: code=%d stderr=%s", rev, code, stderr.String())
+		}
+		if !strings.Contains(stdout.String(), "S1: PASS") {
+			t.Fatalf("lint --commit %q missing PASS: %s", rev, stdout.String())
+		}
+		if !strings.Contains(stdout.String(), "commit: "+head) {
+			t.Fatalf("lint --commit %q missing full id: %s", rev, stdout.String())
+		}
+		if stderr.Len() != 0 {
+			t.Fatalf("lint --commit %q stderr=%q, want empty", rev, stderr.String())
+		}
+	}
+}
+
+func TestPlanRecordAcceptsAbbreviatedContractTreeAndPrintsSource(t *testing.T) {
+	t.Parallel()
+	root := planTestRepo(t)
+	git, err := gitExecutablePath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := planGitEnv(root)
+	contractPath := "contracts/S1.json"
+	contractRaw := planContractRaw(t, planContractBody("S1", "one/file.go"))
+	if err := os.MkdirAll(filepath.Join(root, filepath.Dir(contractPath)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, contractPath), contractRaw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit := func(args ...string) string {
+		cmd := exec.Command(git, append([]string{"-C", root}, args...)...)
+		cmd.Env = env
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	runGit("add", "--", contractPath)
+	runGit("commit", "--quiet", "-m", "add contract")
+	head := runGit("rev-parse", "HEAD")
+	abbrev := head[:7]
+	manifestPath := filepath.Join(root, "manifest.md")
+	drifted := planManifestBytes(t, "record-abbrev", contractPath, "one/file.go", "sha256:"+strings.Repeat("0", 64))
+	if err := os.WriteFile(manifestPath, drifted, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var pinOut, pinErr bytes.Buffer
+	if code := runPlan([]string{"pin", "--manifest", manifestPath, "--project", root}, &pinOut, &pinErr); code != 0 {
+		t.Fatalf("pin: %s", pinErr.String())
+	}
+	pinnedPath := filepath.Join(root, "pinned.md")
+	if err := os.WriteFile(pinnedPath, pinOut.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Via --commit abbreviation.
+	var stdout, stderr bytes.Buffer
+	code := runPlan([]string{"record", "--manifest", pinnedPath, "--project", root, "--summary", "Record via abbrev.", "--commit", abbrev}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("record --commit abbrev: code=%d stderr=%s", code, stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "Recorded plan revision 1") {
+		t.Fatalf("missing revision: %s", out)
+	}
+	if !strings.Contains(out, "commit: "+head) {
+		t.Fatalf("missing commit full id: %s", out)
+	}
+	if !strings.Contains(out, "contract-tree: "+head+" (from --commit)") {
+		t.Fatalf("missing contract-tree from --commit: %s", out)
+	}
+	// Via --contract-tree ref name on a second release.
+	manifestPath2 := filepath.Join(root, "manifest2.md")
+	drifted2 := planManifestBytes(t, "record-abbrev-2", contractPath, "one/file.go", "sha256:"+strings.Repeat("0", 64))
+	if err := os.WriteFile(manifestPath2, drifted2, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pinOut.Reset()
+	pinErr.Reset()
+	if code := runPlan([]string{"pin", "--manifest", manifestPath2, "--project", root}, &pinOut, &pinErr); code != 0 {
+		t.Fatalf("pin2: %s", pinErr.String())
+	}
+	pinnedPath2 := filepath.Join(root, "pinned2.md")
+	if err := os.WriteFile(pinnedPath2, pinOut.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	code = runPlan([]string{"record", "--manifest", pinnedPath2, "--project", root, "--summary", "Record via ref.", "--contract-tree", "HEAD"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("record --contract-tree HEAD: code=%d stderr=%s", code, stderr.String())
+	}
+	out = stdout.String()
+	if !strings.Contains(out, "contract-tree: "+head+" (from --contract-tree)") {
+		t.Fatalf("missing contract-tree from --contract-tree: %s", out)
+	}
+	// HEAD default still works and prints its source.
+	manifestPath3 := filepath.Join(root, "manifest3.md")
+	drifted3 := planManifestBytes(t, "record-abbrev-3", contractPath, "one/file.go", "sha256:"+strings.Repeat("0", 64))
+	if err := os.WriteFile(manifestPath3, drifted3, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pinOut.Reset()
+	pinErr.Reset()
+	if code := runPlan([]string{"pin", "--manifest", manifestPath3, "--project", root}, &pinOut, &pinErr); code != 0 {
+		t.Fatalf("pin3: %s", pinErr.String())
+	}
+	pinnedPath3 := filepath.Join(root, "pinned3.md")
+	if err := os.WriteFile(pinnedPath3, pinOut.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	code = runPlan([]string{"record", "--manifest", pinnedPath3, "--project", root, "--summary", "Record via HEAD default."}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("record HEAD default: code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "contract-tree: "+head+" (from HEAD)") {
+		t.Fatalf("missing contract-tree from HEAD: %s", stdout.String())
+	}
+}
+
+func TestPlanRevisionRefusalsNameFlagWithoutEchoingValue(t *testing.T) {
+	t.Parallel()
+	root := planTestRepo(t)
+	_, _, pinnedPath := planSetupContractAndManifest(t, root, "pin-refuse")
+	badValue := "bad-revision-TOP-SECRET-xyz"
+	for _, args := range [][]string{
+		{"pin", "--manifest", pinnedPath, "--project", root, "--commit", badValue},
+		{"lint", "--manifest", pinnedPath, "--project", root, "--commit", badValue},
+		{"record", "--manifest", pinnedPath, "--project", root, "--summary", "Bad.", "--commit", badValue},
+		{"record", "--manifest", pinnedPath, "--project", root, "--summary", "Bad.", "--contract-tree", badValue},
+	} {
+		var stdout, stderr bytes.Buffer
+		code := runPlan(args, &stdout, &stderr)
+		if code != 1 {
+			t.Fatalf("runPlan(%v) = %d, want 1; stderr=%s", args, code, stderr.String())
+		}
+		out := stderr.String()
+		flag := "--commit"
+		if args[0] == "record" && args[len(args)-2] == "--contract-tree" {
+			flag = "--contract-tree"
+		}
+		if !strings.Contains(out, flag) {
+			t.Fatalf("runPlan(%v) stderr does not name %s:\n%s", args, flag, out)
+		}
+		if !strings.Contains(out, "Technical code: REVISION_NOT_FOUND") {
+			t.Fatalf("runPlan(%v) missing REVISION_NOT_FOUND:\n%s", args, out)
+		}
+		if strings.Contains(out, "TOP-SECRET") || strings.Contains(out, badValue) {
+			t.Fatalf("runPlan(%v) echoed value:\n%s", args, out)
+		}
+		if strings.Contains(out, root) {
+			t.Fatalf("runPlan(%v) echoed path:\n%s", args, out)
+		}
+		if stdout.Len() != 0 {
+			t.Fatalf("runPlan(%v) stdout=%q, want empty", args, stdout.String())
+		}
+	}
+}
+
+func TestPlanPinRefusesAmbiguousRevision(t *testing.T) {
+	root := planTestRepo(t)
+	_, _, pinnedPath := planSetupContractAndManifest(t, root, "pin-ambiguous")
+	git, err := gitExecutablePath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Find a colliding 4-char blob prefix as in the gitx test.
+	var oids []string
+	for i := 0; i < 1200; i++ {
+		content := []byte("collide-plan-ambiguous-" + strings.Repeat("y", i%16) + "-" + string(rune('0'+i%10)) + "\n")
+		// Use a deterministic varying payload.
+		content = []byte("collide-plan-" + strings.Repeat("z", i%8) + "-" + itoaPlan(i) + "\n")
+		cmd := exec.Command(git, "-C", root, "hash-object", "-w", "--stdin")
+		cmd.Env = planGitEnv(root)
+		cmd.Stdin = bytes.NewReader(content)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("hash-object: %v: %s", err, out)
+		}
+		oids = append(oids, strings.TrimSpace(string(out)))
+	}
+	prefixes := make(map[string]int)
+	var ambiguous string
+	for _, oid := range oids {
+		prefix := oid[:4]
+		prefixes[prefix]++
+		if prefixes[prefix] > 1 {
+			ambiguous = prefix
+			break
+		}
+	}
+	if ambiguous == "" {
+		t.Fatal("no colliding prefix found")
+	}
+	var stdout, stderr bytes.Buffer
+	code := runPlan([]string{"pin", "--manifest", pinnedPath, "--project", root, "--commit", ambiguous}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("pin ambiguous = %d, want 1", code)
+	}
+	out := stderr.String()
+	if !strings.Contains(out, "Technical code: AMBIGUOUS_REVISION") {
+		t.Fatalf("missing AMBIGUOUS_REVISION:\n%s", out)
+	}
+	if !strings.Contains(out, "--commit") {
+		t.Fatalf("does not name flag:\n%s", out)
+	}
+	if strings.Contains(out, ambiguous) && !strings.Contains(out, "resolve revision") {
+		// The fixed detail must not echo the value; the full-id print does
+		// not happen on refusal, so any occurrence is an echo.
+		t.Fatalf("echoed ambiguous value:\n%s", out)
+	}
+	// The fixed detail echoes nothing; assert the value is absent unless it
+	// collides with fixed vocabulary (it cannot: hex vs words).
+	if strings.Contains(out, ambiguous) {
+		t.Fatalf("echoed ambiguous value:\n%s", out)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout=%q, want empty", stdout.String())
+	}
+}
+
+func itoaPlan(i int) string {
+	if i == 0 {
+		return "0"
+	}
+	var digits []byte
+	for i > 0 {
+		digits = append([]byte{byte('0' + i%10)}, digits...)
+		i /= 10
+	}
+	return string(digits)
+}

@@ -17,6 +17,7 @@ import (
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/observe"
 	"github.com/swornagent/sworn/internal/protocol"
 	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 )
@@ -1158,6 +1159,14 @@ func commandErrorDetail(err error) string {
 	if err == nil {
 		return ""
 	}
+	var serveErr *serveInputError
+	if errors.As(err, &serveErr) {
+		return sanitizeErrorDetail(serveInputDetail(serveErr.input))
+	}
+	var operatorErr *operatorConfigError
+	if errors.As(err, &operatorErr) {
+		return sanitizeErrorDetail(operatorErr.reason)
+	}
 	var gitxErr *gitx.Error
 	if errors.As(err, &gitxErr) {
 		var raw string
@@ -1220,39 +1229,49 @@ func writeCommandFailure(
 ) {
 	code := commandErrorCode(err)
 	message := fallback
-	switch code {
-	case "OWNER_TRANSITION_PENDING":
-		if expiry, ok := runtimepkg.OwnerLeaseExpiry(err); ok {
-			remaining := time.Until(expiry).Round(time.Second)
-			if remaining > 0 {
-				message = fmt.Sprintf("The previous Sworn process has not released its owner lease yet. Wait %s for the lease to expire before retrying.", remaining)
+	var serveErr *serveInputError
+	isServe := errors.As(err, &serveErr)
+	if !isServe {
+		switch code {
+		case "OWNER_TRANSITION_PENDING":
+			if expiry, ok := runtimepkg.OwnerLeaseExpiry(err); ok {
+				remaining := time.Until(expiry).Round(time.Second)
+				if remaining > 0 {
+					message = fmt.Sprintf("The previous Sworn process has not released its owner lease yet. Wait %s for the lease to expire before retrying.", remaining)
+				} else {
+					message = "The previous Sworn process has not released its owner lease yet. Wait for the lease to expire before retrying."
+				}
 			} else {
 				message = "The previous Sworn process has not released its owner lease yet. Wait for the lease to expire before retrying."
 			}
-		} else {
-			message = "The previous Sworn process has not released its owner lease yet. Wait for the lease to expire before retrying."
+		case "APPROVAL_PENDING":
+			message = "The plan is waiting for approval."
+		case "RECOVERY_UNCERTAIN":
+			message = "Cannot confirm whether the last external action finished. Recover the run before retrying it."
+		case "EFFECT_PARKED":
+			message = "The work stopped after repeated failures. Review the latest board before retrying."
+		case "RUN_NOT_FOUND", "INVALID_RUN":
+			message = "Could not find that run in the saved record."
+		case "PROTOCOL_UNAVAILABLE":
+			message = "Could not confirm the current release records."
+		case "GIT_UNAVAILABLE":
+			message = "Could not find or use Git."
 		}
-	case "APPROVAL_PENDING":
-		message = "The plan is waiting for approval."
-	case "RECOVERY_UNCERTAIN":
-		message = "Cannot confirm whether the last external action finished. Recover the run before retrying it."
-	case "EFFECT_PARKED":
-		message = "The work stopped after repeated failures. Review the latest board before retrying."
-	case "RUN_NOT_FOUND", "INVALID_RUN":
-		message = "Could not find that run in the saved record."
-	case "PROTOCOL_UNAVAILABLE":
-		message = "Could not confirm the current release records."
-	case "GIT_UNAVAILABLE":
-		message = "Could not find or use Git."
 	}
 	var details []string
-	switch code {
-	case "OWNER_TRANSITION_PENDING", "APPROVAL_PENDING", "RECOVERY_UNCERTAIN",
-		"EFFECT_PARKED", "RUN_NOT_FOUND", "INVALID_RUN", "PROTOCOL_UNAVAILABLE", "GIT_UNAVAILABLE":
-		// Custom messages do not append detail.
-	default:
+	if isServe {
 		if detail := commandErrorDetail(err); detail != "" {
 			details = append(details, detail)
+		}
+	} else {
+		switch code {
+		case "OWNER_TRANSITION_PENDING", "APPROVAL_PENDING", "RECOVERY_UNCERTAIN",
+			"EFFECT_PARKED", "RUN_NOT_FOUND", "INVALID_RUN", "PROTOCOL_UNAVAILABLE", "GIT_UNAVAILABLE":
+			// Custom messages do not append detail.
+		default:
+			if detail := commandErrorDetail(err); detail != "" {
+				details = append(details, detail)
+			}
 		}
 	}
 	writeKnownFailure(out, command, message, code, details...)
@@ -1282,6 +1301,14 @@ func commandErrorCode(err error) string {
 	var protocolErr *protocol.RecordError
 	if errors.As(err, &protocolErr) {
 		return protocolErr.Code
+	}
+	var operatorErr *operatorConfigError
+	if errors.As(err, &operatorErr) {
+		return operatorErr.Code
+	}
+	var observeErr *observe.Error
+	if errors.As(err, &observeErr) {
+		return observeErr.Code
 	}
 	return ""
 }
