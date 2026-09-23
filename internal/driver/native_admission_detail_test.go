@@ -104,18 +104,20 @@ func TestNativeAdmissionDetail19TermsClosedVocabulary(t *testing.T) {
 		},
 		// 5. version
 		{
-			name: "5. version (claude exact version mismatch)",
+			name: "5. version (claude malformed version)",
 			configure: func(t *testing.T, c *NativeAdapterConfig) {
-				c.CLIVersion = "9.9.9"
+				c.CLIVersion = "latest"
+				c.VersionOutput = "latest (Claude Code)"
 			},
 			wantDetail: "version",
 			testDirect: true,
 		},
 		{
-			name: "5. version (claude minor mismatch)",
+			name: "5. version (claude minor malformed version)",
 			configure: func(t *testing.T, c *NativeAdapterConfig) {
 				c.PinMode = NativePinModeMinor
-				c.CLIVersion = "9.9.9"
+				c.CLIVersion = "2.1"
+				c.VersionOutput = "2.1 (Claude Code)"
 			},
 			wantDetail: "version",
 			testDirect: true,
@@ -138,15 +140,9 @@ func TestNativeAdmissionDetail19TermsClosedVocabulary(t *testing.T) {
 			wantDetail: "version_output",
 			testDirect: true,
 		},
-		// 7. digest
-		{
-			name: "7. digest (claude CLI digest mismatch)",
-			configure: func(t *testing.T, c *NativeAdapterConfig) {
-				c.CLI.Digest = "sha256:" + strings.Repeat("0", 64)
-			},
-			wantDetail: "digest",
-			testDirect: true,
-		},
+		// 7. digest: retired. A configured CLI digest other than the tested
+		// one is admitted (see the digest subtests below); the binary's own
+		// bytes are bound to the configured digest at every launch.
 		// 8. family
 		{
 			name: "8. family (unknown family)",
@@ -369,9 +365,10 @@ func TestNativeAdmissionDetail19TermsClosedVocabulary(t *testing.T) {
 		}
 	})
 
-	t.Run("Codex version mismatch", func(t *testing.T) {
+	t.Run("Codex malformed version", func(t *testing.T) {
 		cfg := validCodexTestConfig(t)
-		cfg.CLIVersion = "9.9.9"
+		cfg.CLIVersion = "v9"
+		cfg.VersionOutput = "codex-cli v9"
 		err := validateNativeConfig(cfg)
 		var contractErr *ContractError
 		if !errors.As(err, &contractErr) || contractErr.Detail != "version" {
@@ -389,13 +386,12 @@ func TestNativeAdmissionDetail19TermsClosedVocabulary(t *testing.T) {
 		}
 	})
 
-	t.Run("Codex digest mismatch", func(t *testing.T) {
-		cfg := validCodexTestConfig(t)
-		cfg.CLI.Digest = "sha256:" + strings.Repeat("0", 64)
-		err := validateNativeConfig(cfg)
-		var contractErr *ContractError
-		if !errors.As(err, &contractErr) || contractErr.Detail != "digest" {
-			t.Fatalf("expected detail digest, got %v", err)
+	t.Run("an untested CLI digest is admitted for both families", func(t *testing.T) {
+		for _, cfg := range []NativeAdapterConfig{validClaudeTestConfig(t), validCodexTestConfig(t)} {
+			cfg.CLI.Digest = "sha256:" + strings.Repeat("0", 64)
+			if err := validateNativeConfig(cfg); err != nil {
+				t.Fatalf("%s: an untested CLI digest was refused: %v", cfg.Family, err)
+			}
 		}
 	})
 }
