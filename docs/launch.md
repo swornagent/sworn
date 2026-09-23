@@ -1,9 +1,10 @@
 # Launch a release
 
 This guide walks an operator through launching a release with the commands
-as they stand after the launch-legibility track: `plan pin`, `plan lint`,
-`plan record` (with abbreviated ids), the canonical manifest, operator
-config (mode `0600`) and `serve`. Every refusal names its cause: one
+as they stand after the launch-legibility track: `plan pin` (`--write`),
+`plan lint`, `plan record` (with abbreviated ids), `sworn manifest
+canonical` for runtime manifests and driver configs, the canonical manifest,
+operator config (mode `0600`) and `serve`. Every refusal names its cause: one
 friendly line, then `Technical code: <CODE>`, then at most one bounded
 detail line. No secret, credential, absolute operator path or raw provider
 body is echoed; where a message names an input it names the kind and flag,
@@ -16,11 +17,20 @@ Lint proves every slice contract against the chosen source and runs the
 recording-time scope lint. Record writes a plan revision.
 
 ```sh
-sworn plan pin --manifest /abs/manifest.md --project /abs/project [--commit REV]
+sworn plan pin --manifest /abs/manifest.md --project /abs/project [--commit REV] [--write]
 sworn plan lint --manifest /abs/manifest.md --project /abs/project [--commit REV]
 sworn plan record --manifest /abs/manifest.md --project /abs/project --summary TEXT \
   [--detail-file /abs/detail.md] [--commit REV] [--contract-tree REV]
 ```
+
+Without `--write`, `pin` prints the pinned bytes to stdout so they can be
+piped, and says on stderr that it printed. With `--write`, `pin` replaces
+the plan file named by `--manifest` with the pinned bytes atomically (a
+sibling temporary file in the same directory, then rename) and prints the
+plan digest `plan: sha256:...` to stdout. The write refuses a non-regular
+or symlinked target, keeps the target's existing permission bits, and
+enforces the same size limit the reader uses. Re-running `pin` on its own
+output is byte-stable: the pinned bytes and the digest do not change.
 
 `--commit` (pin, lint, record) and `--contract-tree` (record) accept any
 revision Git resolves to exactly one commit: a full id, an unambiguous
@@ -33,8 +43,11 @@ is typed.
 
 The full resolved id is printed in the command output:
 
-- `pin` prints `commit: <full-id>` on stderr so stdout stays the pure
-  manifest bytes for piping.
+- `pin` prints `commit: <full-id>` on stderr so stdout stays pure for
+  piping: the pinned bytes without `--write`, or `plan: sha256:...` with
+  `--write`. A second stderr line confirms the action: `pinned manifest
+  printed to stdout (--manifest)` without `--write`, or `wrote pinned
+  manifest (--manifest)` with `--write`.
 - `lint` prints `commit: <full-id>` on stdout alongside the `PASS` lines.
 - `record` prints `commit: <full-id>` (when `--commit` was given) and
   `contract-tree: <full-id> (from --contract-tree|--commit|HEAD)` on stdout
@@ -51,6 +64,27 @@ Refusals name the flag that carried the bad value and never echo the value:
 | `REVISION_NOT_FOUND` | The revision does not resolve to exactly one commit (unknown ref, unknown abbreviation, empty, over-length, NUL/control characters or a leading `-`). | Check the flag value; use a full id, `HEAD` or an existing branch. |
 | `NON_COMMIT_OBJECT` | The revision resolves but not to a commit (a blob or tree id). | Use a commit id or a ref that points to a commit. |
 | `GIT_EXECUTION_FAILED` | The resolution transport failed (deadline, overflow or unquiesced process group). | Retry; if it persists, check Git and the repository. |
+| `STALE_BINDING` | The manifest's mirrored slice facts do not match the contract bytes (digest, outcome, dependencies, consumed products, touchpoints or waivers). | Run `sworn plan pin --write --manifest ABS --project ABS` first to refresh the pinned facts. |
+
+When `plan lint` or `plan record` refuses with `STALE_BINDING`, the message
+tells the operator to run `sworn plan pin --write` first. The hint appears
+only on those two verbs; no other `STALE_BINDING` (assembly, receipts)
+names `pin`.
+
+## plan pin --write
+
+```sh
+sworn plan pin --manifest /abs/manifest.md --project /abs/project --write
+sworn plan pin --manifest /abs/manifest.md --project /abs/project --commit REV --write
+```
+
+`--write` replaces the file named by `--manifest` with the exact pinned
+bytes and prints the plan digest (`protocol.DigestBytes` of those bytes) as
+`plan: sha256:...` on stdout. The digest is the same identity the run
+record uses for the plan, not a Git object id. The write is atomic and
+preserves the target's mode; a `0600` plan file stays `0600`. Pinning an
+already-pinned file returns identical bytes, so the second run changes
+nothing and prints the same digest.
 
 ## Canonical manifest
 
@@ -66,11 +100,45 @@ admission returns.
 
 | Code | Cause | Remedy |
 | --- | --- | --- |
-| `NONCANONICAL_MANIFEST` | Valid JSON but not the exact canonical bytes (whitespace, key order or newline differs). | Ensure the file is compact JSON with exactly one final newline. |
+| `NONCANONICAL_MANIFEST` | Valid JSON but not the exact canonical bytes (whitespace, key order or newline differs). | Run `sworn manifest canonical --manifest ABS` to rewrite it in canonical form. |
 | `MIGRATION_REQUIRED` | Legacy `v2`/`v3`/`v4` manifest. | Migrate the manifest to `v5`. |
 | `INVALID_MANIFEST_VERSION` | Unknown `schema_version`. | Use `sworn.runtime-manifest/v5`. |
 | `INVALID_MANIFEST` | The `--manifest` file cannot be read as an admitted regular file, or its content is invalid. | Check `--manifest` points to an absolute regular file and the content is a current canonical manifest. |
 | `MANIFEST_RUN_MISMATCH` | The manifest's `run_id` differs from `--run`. Neither id is echoed. | Use a matching `--run` and `--manifest`. |
+| `NONCANONICAL_JSON` | The driver config (`--config`) is valid JSON but not the exact canonical bytes. | Run `sworn manifest canonical --driver-config ABS` to rewrite it in canonical form. |
+
+## sworn manifest canonical
+
+Every canonical launch input is produced by command instead of
+reverse-engineering the encoder:
+
+```sh
+sworn manifest canonical --manifest /abs/manifest.json
+sworn manifest canonical --manifest /abs/manifest.json --write
+sworn manifest canonical --driver-config /abs/drivers.json
+sworn manifest canonical --driver-config /abs/drivers.json --write
+```
+
+Exactly one of `--manifest` or `--driver-config` is required, plus an
+optional `--write`. Without `--write`, the command prints the exact bytes
+admission accepts to stdout (pure for piping) and says on stderr that it
+printed. With `--write`, it replaces the named file atomically (a sibling
+temporary file in the same directory, then rename), leaves stdout empty,
+and says on stderr that it wrote. Writes refuse a non-regular or symlinked
+target, keep the target's existing permission bits, and enforce the same
+size limit the reader uses for that input.
+
+The two canonical rules stay as they are and the command applies the right
+one per input so the operator never needs to know the difference: the
+runtime manifest ends with one newline (`json.Marshal` plus `\n`), the
+driver config has none (`canonicalJSON` without a newline). Admission is
+the only judge of canonicality: the manifest path accepts its result only
+if `runtime.ParseManifest` admits it, the driver path only if
+`driver.DecodeDriverConfig` admits it, so the command cannot drift from
+the engine. The digest of any manifest or driver config that admission
+accepts today is unchanged, and the command produces those same bytes from
+it. A validation refusal carries admission's own code (for example
+`INVALID_ROLES` or `INVALID_DRIVER_CONFIG`), never a generic line.
 
 ## Operator config
 
@@ -122,11 +190,11 @@ names the required mode `0600`, since the detail stays the input kind.
 
 | Input | Representative codes | Remedy |
 | --- | --- | --- |
-| `manifest` (`--manifest`) | `NONCANONICAL_MANIFEST`, `MIGRATION_REQUIRED`, `INVALID_MANIFEST_VERSION`, `INVALID_MANIFEST`, `MANIFEST_RUN_MISMATCH` (above). | Fix the manifest bytes or match `--run` to the manifest. |
+| `manifest` (`--manifest`) | `NONCANONICAL_MANIFEST`, `MIGRATION_REQUIRED`, `INVALID_MANIFEST_VERSION`, `INVALID_MANIFEST`, `MANIFEST_RUN_MISMATCH` (above). | Run `sworn manifest canonical --manifest ABS` for `NONCANONICAL_MANIFEST`; otherwise fix the manifest bytes or match `--run` to the manifest. |
 | `journal` (`--journal`) | `JOURNAL_UNAVAILABLE` (wrapping `INVALID_PATH`, `INSECURE_PERMISSIONS`, `OPEN_FAILED`, `IDENTITY_MISMATCH` and similar), `RUN_NOT_FOUND`, `INVALID_RUN`. | Check `--journal` is absolute and clean, its parent exists without symlinks, an existing file is a regular `0600` file, and the run exists in it. |
 | `run authority` (`--run`) | `OPERATOR_UNAVAILABLE` for a mismatched or unavailable binding; the `Reconcile*` runtime codes where a reconcile fails. | Ensure the journal binding's manifest digest matches the served manifest, or serve with `--manifest` for a run not yet started. A conflicting binding never activates background work. |
 | `operator config` (`--operator-config`) | `OPERATOR_CONFIG_UNAVAILABLE`, `OPERATOR_CONFIG_INSECURE_MODE`, `OPERATOR_CONFIG_INVALID` (above); webhook-destination cockpit codes for invalid webhook endpoints. | Fix the file admission, mode or JSON as above. |
-| `driver config` (`--config`) | `INVALID_CONFIG_PATH`, `CONFIG_UNAVAILABLE`, `RESOURCE_LIMIT`, `INVALID_DRIVER_CONFIG`, `FACTORY_UNAVAILABLE` and the driver contract codes from admission. | Check `--config` is absolute and clean and the file is a canonical secret-free driver config. |
+| `driver config` (`--config`) | `NONCANONICAL_JSON`, `INVALID_CONFIG_PATH`, `CONFIG_UNAVAILABLE`, `RESOURCE_LIMIT`, `INVALID_DRIVER_CONFIG`, `FACTORY_UNAVAILABLE` and the driver contract codes from admission. | Run `sworn manifest canonical --driver-config ABS` for `NONCANONICAL_JSON`; otherwise check `--config` is absolute and clean and the file is a canonical secret-free driver config. |
 | `Git project` | `GIT_UNAVAILABLE`, `INVALID_REPOSITORY`, `INVALID_GIT_EXECUTABLE`, `INVALID_PROJECT_CONFIG` and the `gitx` codes from opening the project. | Install Git or make it available on `PATH`, run inside an admitted Git project, and check the committed project config. |
 | `listener` | `OPERATOR_UNAVAILABLE` for a bind, serve, readiness-write or shutdown failure; `INVALID_HTTP_CONFIG` for handler config; `INVALID_TELEMETRY`, `OTEL_EXPORTER_START_FAILED`, `INVALID_EVALUATOR` for telemetry startup. | Check the listen address is free and canonical, the public TLS/origin/token block is valid, and telemetry exporters can start. A later listener failure leaves no phantom run. |
 

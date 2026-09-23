@@ -43,6 +43,7 @@ Commands:
   driver    Check configured AI connections.
   skill     Install or upgrade the one supported Sworn agent skill.
   plan      Author a release manifest: pin, lint, or record a plan revision.
+  manifest  Print or write canonical launch inputs.
   version   Show the Sworn version and embedded role-asset identity.
   help      Show this help.
 
@@ -62,9 +63,10 @@ Exact syntax:
   sworn serve --run ID --journal ABS [--manifest ABS] [--config ABS] [--operator-config ABS]
   sworn driver inspect|doctor|certify --config ABS (--profile PROFILE --model MODEL | --all) --json
   sworn skill install [--home ABS]
-  sworn plan pin --manifest ABS --project ABS [--commit OID]
+  sworn plan pin --manifest ABS --project ABS [--commit OID] [--write]
   sworn plan lint --manifest ABS --project ABS [--commit OID]
   sworn plan record --manifest ABS --project ABS --summary TEXT [--detail-file ABS] [--commit OID] [--contract-tree OID]
+  sworn manifest canonical (--manifest ABS | --driver-config ABS) [--write]
 `
 
 const (
@@ -106,6 +108,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runSkill(args[1:], stdout, stderr)
 	case "plan":
 		return runPlan(args[1:], stdout, stderr)
+	case "manifest":
+		return runManifest(args[1:], stdout, stderr)
 	case "resume":
 		return runControl(journal.Resume, args[1:], stdout, stderr)
 	case "pause":
@@ -1002,7 +1006,7 @@ func openRuntimeService(
 	}
 	loaded, err := driver.LoadDriverConfig(configPath)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, &driverConfigError{err: err}
 	}
 	factory, err := driver.NewProductionDriverFactory(loaded)
 	if err != nil {
@@ -1020,6 +1024,40 @@ func openRuntimeService(
 	}
 	return service, factory, nil
 }
+
+// driverConfigError marks an error that came from loading the driver config
+// file (--config) through driver.LoadDriverConfig. It unwraps to the
+// underlying admission error so commandErrorCode and commandErrorDetail keep
+// reporting the true code and detail, while isDriverConfigSource lets
+// writeCommandFailure scope the NONCANONICAL_JSON hint to exactly those
+// errors instead of every command that happens to load a config.
+type driverConfigError struct {
+	err error
+}
+
+func (e *driverConfigError) Error() string {
+	if e == nil || e.err == nil {
+		return "driver config unavailable"
+	}
+	return e.err.Error()
+}
+
+func (e *driverConfigError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.err
+}
+
+func isDriverConfigSource(err error) bool {
+	var marked *driverConfigError
+	return errors.As(err, &marked)
+}
+
+const (
+	manifestCanonicalHint = "Run `sworn manifest canonical --manifest ABS` to rewrite it in canonical form."
+	driverCanonicalHint   = "Run `sworn manifest canonical --driver-config ABS` to rewrite it in canonical form."
+)
 
 func resolveGitExecutable() (string, error) {
 	return gitx.ResolveGitExecutable()
@@ -1272,6 +1310,17 @@ func writeCommandFailure(
 			if detail := commandErrorDetail(err); detail != "" {
 				details = append(details, detail)
 			}
+		}
+	}
+	if code == "NONCANONICAL_MANIFEST" {
+		details = append(details, manifestCanonicalHint)
+	} else if code == "NONCANONICAL_JSON" && isDriverConfigSource(err) {
+		if isServe {
+			if serveErr.input == serveInputDriverConfig {
+				details = append(details, driverCanonicalHint)
+			}
+		} else {
+			details = append(details, driverCanonicalHint)
 		}
 	}
 	writeKnownFailure(out, command, message, code, details...)

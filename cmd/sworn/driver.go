@@ -43,7 +43,7 @@ func runDriver(args []string, stdout, stderr io.Writer) int {
 			stderr,
 			"driver "+command,
 			"Could not read the AI connection configuration.",
-			err,
+			&driverConfigError{err: err},
 		)
 		return 1
 	}

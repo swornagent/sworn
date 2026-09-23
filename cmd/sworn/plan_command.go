@@ -25,6 +25,28 @@ var planEngineIdentity = gitx.Identity{
 	Email: "plan@" + engineIdentityDomain,
 }
 
+const planStaleBindingHint = "Run `sworn plan pin --write --manifest ABS --project ABS` first to refresh the pinned facts."
+
+// parsePlanPinOptions parses pin's required and optional value flags plus the
+// optional --write switch. It mirrors parsePlanManifestOptions validation and
+// refuses a duplicated or misplaced switch with the same closed usage path.
+func parsePlanPinOptions(args []string) (map[string]string, bool, bool) {
+	options, ok := parseOptionsWithOptionalValues(
+		args, []string{"--manifest", "--project"}, []string{"--commit"}, nil, []string{"--write"},
+	)
+	if !ok {
+		return nil, false, false
+	}
+	for _, key := range []string{"--manifest", "--project"} {
+		if val := options[key]; val != "" {
+			if !filepath.IsAbs(val) || filepath.Clean(val) != val || strings.ContainsRune(val, 0) {
+				return nil, false, false
+			}
+		}
+	}
+	return options, options["--write"] == "true", true
+}
+
 func runPlan(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "usage: sworn plan pin|lint|record ...")
@@ -46,9 +68,9 @@ func runPlan(args []string, stdout, stderr io.Writer) int {
 }
 
 func runPlanPin(args []string, stdout, stderr io.Writer) int {
-	options, ok := parsePlanManifestOptions(args, []string{"--manifest", "--project"}, []string{"--commit"})
+	options, write, ok := parsePlanPinOptions(args)
 	if !ok {
-		fmt.Fprintln(stderr, "usage: sworn plan pin --manifest ABS --project ABS [--commit OID]")
+		fmt.Fprintln(stderr, "usage: sworn plan pin --manifest ABS --project ABS [--commit OID] [--write]")
 		return 2
 	}
 	manifestBytes, err := readManifest(options["--manifest"])
@@ -81,6 +103,21 @@ func runPlanPin(args []string, stdout, stderr io.Writer) int {
 		writeCommandFailure(stderr, "plan pin", "Could not pin the manifest.", err)
 		return 1
 	}
+	if write {
+		if err := writeFileAtomic(options["--manifest"], pinned, protocol.MaxPlanBytes); err != nil {
+			writeKnownFailure(stderr, "plan pin", "Could not write the pinned manifest. Check that --manifest points to an absolute regular file.", "")
+			return 1
+		}
+		if _, err := fmt.Fprintf(stdout, "plan: %s\n", protocol.DigestBytes(pinned)); err != nil {
+			fmt.Fprintln(stderr, "sworn plan pin: output failed")
+			return 1
+		}
+		if resolved != "" {
+			fmt.Fprintf(stderr, "commit: %s\n", resolved)
+		}
+		fmt.Fprintln(stderr, "wrote pinned manifest (--manifest)")
+		return 0
+	}
 	if _, err := stdout.Write(pinned); err != nil {
 		fmt.Fprintln(stderr, "sworn plan pin: output failed")
 		return 1
@@ -88,6 +125,7 @@ func runPlanPin(args []string, stdout, stderr io.Writer) int {
 	if resolved != "" {
 		fmt.Fprintf(stderr, "commit: %s\n", resolved)
 	}
+	fmt.Fprintln(stderr, "pinned manifest printed to stdout (--manifest)")
 	return 0
 }
 
@@ -125,6 +163,9 @@ func runPlanLint(args []string, stdout, stderr io.Writer) int {
 	})
 	if err != nil {
 		writeCommandFailure(stderr, "plan lint", "Scope lint failed.", err)
+		if protocol.ErrorCode(err) == "STALE_BINDING" {
+			fmt.Fprintln(stderr, planStaleBindingHint)
+		}
 		for _, r := range results {
 			if r.Status == "FAIL" && len(r.Paths) > 0 {
 				fmt.Fprintf(stderr, "  missing: %s\n", strings.Join(r.Paths, ", "))
@@ -226,6 +267,9 @@ func runPlanRecord(args []string, stdout, stderr io.Writer) int {
 	})
 	if err != nil {
 		writeCommandFailure(stderr, "plan record", "Could not record the plan revision.", err)
+		if protocol.ErrorCode(err) == "STALE_BINDING" {
+			fmt.Fprintln(stderr, planStaleBindingHint)
+		}
 		return 1
 	}
 

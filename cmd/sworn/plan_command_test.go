@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/swornagent/sworn/internal/protocol"
 )
 
 func planTestRepo(t *testing.T) string {
@@ -459,7 +461,7 @@ func TestPlanPinAcceptsAbbreviatedAndRefRevisions(t *testing.T) {
 		if strings.Contains(stdout.String(), "commit:") {
 			t.Fatalf("pin --commit %q stdout must stay pure manifest bytes", rev)
 		}
-		want := "commit: " + head + "\n"
+		want := "commit: " + head + "\n" + "pinned manifest printed to stdout (--manifest)\n"
 		if stderr.String() != want {
 			t.Fatalf("pin --commit %q stderr=%q want=%q", rev, stderr.String(), want)
 		}
@@ -725,4 +727,258 @@ func itoaPlan(i int) string {
 		i /= 10
 	}
 	return string(digits)
+}
+
+func TestPlanPinWithoutWriteSaysItPrinted(t *testing.T) {
+	t.Parallel()
+	root := planTestRepo(t)
+	_, manifestPath, _ := planSetupContractAndManifest(t, root, "pin-printed")
+	var stdout, stderr bytes.Buffer
+	if code := runPlan([]string{"pin", "--manifest", manifestPath, "--project", root}, &stdout, &stderr); code != 0 {
+		t.Fatalf("pin = %d, stderr=%s", code, stderr.String())
+	}
+	if stdout.Len() == 0 || !bytes.Contains(stdout.Bytes(), []byte("one/file.go")) {
+		t.Fatalf("pin stdout missing pinned bytes")
+	}
+	want := "pinned manifest printed to stdout (--manifest)\n"
+	if stderr.String() != want {
+		t.Fatalf("pin stderr=%q want=%q", stderr.String(), want)
+	}
+	if strings.Contains(stdout.String(), "pinned manifest") {
+		t.Fatalf("pin stdout must stay pure manifest bytes")
+	}
+}
+
+func TestPlanPinWriteReplacesAtomicallyPrintsDigestAndIsStable(t *testing.T) {
+	t.Parallel()
+	root := planTestRepo(t)
+	_, manifestPath, _ := planSetupContractAndManifest(t, root, "pin-write")
+	// Start from a drifted manifest with 0600 mode to prove preservation.
+	drifted, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writePath := filepath.Join(root, "write.md")
+	if err := os.WriteFile(writePath, drifted, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runPlan([]string{"pin", "--manifest", writePath, "--project", root, "--write"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("pin --write = %d, stderr=%s", code, stderr.String())
+	}
+	written, err := os.ReadFile(writePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDigest := protocol.DigestBytes(written)
+	if stdout.String() != "plan: "+wantDigest+"\n" {
+		t.Fatalf("pin --write stdout=%q want plan digest", stdout.String())
+	}
+	if stderr.String() != "wrote pinned manifest (--manifest)\n" {
+		t.Fatalf("pin --write stderr=%q", stderr.String())
+	}
+	if !bytes.Contains(written, []byte("one/file.go")) || bytes.Contains(written, []byte("wrong/path.go")) {
+		t.Fatalf("written bytes not pinned")
+	}
+	info, err := os.Stat(writePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("pin --write preserved mode %o, want 600", info.Mode().Perm())
+	}
+	// Re-running pin on its own output is byte-stable, both modes.
+	var secondOut, secondErr bytes.Buffer
+	if code := runPlan([]string{"pin", "--manifest", writePath, "--project", root}, &secondOut, &secondErr); code != 0 {
+		t.Fatalf("second pin = %d", code)
+	}
+	if !bytes.Equal(secondOut.Bytes(), written) {
+		t.Fatalf("re-pin without --write changed bytes")
+	}
+	secondOut.Reset()
+	secondErr.Reset()
+	if code := runPlan([]string{"pin", "--manifest", writePath, "--project", root, "--write"}, &secondOut, &secondErr); code != 0 {
+		t.Fatalf("second pin --write = %d", code)
+	}
+	if secondOut.String() != "plan: "+wantDigest+"\n" {
+		t.Fatalf("second pin --write digest changed: %q", secondOut.String())
+	}
+	rewritten, err := os.ReadFile(writePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(rewritten, written) {
+		t.Fatalf("second pin --write changed bytes")
+	}
+	// With --commit, the commit line comes first on stderr, exactly.
+	git, err := gitExecutablePath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := planGitEnv(root)
+	contractPath := "contracts/S1.json"
+	for _, args := range [][]string{
+		{"-C", root, "add", "--", contractPath},
+		{"-C", root, "commit", "--quiet", "-m", "add contract"},
+	} {
+		cmd := exec.Command(git, args...)
+		cmd.Env = env
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	head := planHeadOID(t, root)
+	stdout.Reset()
+	stderr.Reset()
+	if code := runPlan([]string{"pin", "--manifest", writePath, "--project", root, "--commit", head, "--write"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("pin --write --commit = %d, stderr=%s", code, stderr.String())
+	}
+	wantStderr := "commit: " + head + "\n" + "wrote pinned manifest (--manifest)\n"
+	if stderr.String() != wantStderr {
+		t.Fatalf("pin --write --commit stderr=%q want=%q", stderr.String(), wantStderr)
+	}
+}
+
+func TestPlanPinWriteRefusesSymlinkAndNonRegular(t *testing.T) {
+	t.Parallel()
+	root := planTestRepo(t)
+	_, manifestPath, _ := planSetupContractAndManifest(t, root, "pin-write-refuse")
+	target := filepath.Join(root, "target.md")
+	body, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "link.md")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runPlan([]string{"pin", "--manifest", link, "--project", root, "--write"}, &stdout, &stderr); code != 1 {
+		t.Fatalf("pin symlink --write = %d, want 1", code)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("symlink stdout must be empty")
+	}
+	if strings.Contains(stderr.String(), link) || strings.Contains(stderr.String(), target) {
+		t.Fatalf("symlink stderr echoed a path:\n%s", stderr.String())
+	}
+	after, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, body) {
+		t.Fatalf("symlink write clobbered target")
+	}
+	// A direct atomic-write unit check for symlink refusal without clobber.
+	if err := writeFileAtomic(link, []byte("x"), protocol.MaxPlanBytes); err == nil {
+		t.Fatalf("writeFileAtomic symlink admitted")
+	}
+	subdir := filepath.Join(root, "subdir")
+	if err := os.Mkdir(subdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFileAtomic(subdir, []byte("x"), protocol.MaxPlanBytes); err == nil {
+		t.Fatalf("writeFileAtomic directory admitted")
+	}
+}
+
+func TestPlanPinWriteRejectsBadShapes(t *testing.T) {
+	t.Parallel()
+	root := planTestRepo(t)
+	_, manifestPath, _ := planSetupContractAndManifest(t, root, "pin-write-shape")
+	for _, args := range [][]string{
+		{"pin", "--manifest", manifestPath, "--project", root, "--write", "--write"},
+		{"pin", "--manifest", manifestPath, "--project", root, "--write", "--unknown"},
+		{"pin", "--manifest", manifestPath, "--project", "relative", "--write"},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := runPlan(args, &stdout, &stderr); code != 2 {
+			t.Fatalf("runPlan(%v) = %d, want 2", args, code)
+		}
+		if stdout.Len() != 0 {
+			t.Fatalf("runPlan(%v) stdout must be empty", args)
+		}
+	}
+}
+
+func TestPlanLintStaleBindingNamesPinWrite(t *testing.T) {
+	t.Parallel()
+	root := planTestRepo(t)
+	contractPath := "contracts/S1.json"
+	contractRaw := planContractRaw(t, planContractBody("S1", "one/file.go"))
+	if err := os.MkdirAll(filepath.Join(root, filepath.Dir(contractPath)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, contractPath), contractRaw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(root, "manifest.md")
+	stale := planManifestBytes(t, "lint-stale-hint", contractPath, "one/file.go", "sha256:"+strings.Repeat("9", 64))
+	if err := os.WriteFile(manifestPath, stale, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runPlan([]string{"lint", "--manifest", manifestPath, "--project", root}, &stdout, &stderr); code == 0 {
+		t.Fatal("stale lint should fail")
+	}
+	out := stderr.String()
+	if !strings.Contains(out, "STALE_BINDING") {
+		t.Fatalf("stderr missing STALE_BINDING:\n%s", out)
+	}
+	if !strings.Contains(out, "sworn plan pin --write") {
+		t.Fatalf("stderr missing pin --write hint:\n%s", out)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stale lint stdout must be empty: %q", stdout.String())
+	}
+}
+
+func TestPlanRecordStaleBindingNamesPinWrite(t *testing.T) {
+	t.Parallel()
+	root := planTestRepo(t)
+	contractPath := "contracts/S1.json"
+	contractRaw := planContractRaw(t, planContractBody("S1", "one/file.go"))
+	if err := os.MkdirAll(filepath.Join(root, filepath.Dir(contractPath)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, contractPath), contractRaw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git, err := gitExecutablePath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := planGitEnv(root)
+	for _, args := range [][]string{
+		{"-C", root, "add", "--", contractPath},
+		{"-C", root, "commit", "--quiet", "-m", "add contract"},
+	} {
+		cmd := exec.Command(git, args...)
+		cmd.Env = env
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	manifestPath := filepath.Join(root, "manifest.md")
+	stale := planManifestBytes(t, "record-stale-hint", contractPath, "one/file.go", "sha256:"+strings.Repeat("9", 64))
+	if err := os.WriteFile(manifestPath, stale, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runPlan([]string{"record", "--manifest", manifestPath, "--project", root, "--summary", "Stale."}, &stdout, &stderr); code == 0 {
+		t.Fatalf("stale record should fail; stdout=%s stderr=%s", stdout.String(), stderr.String())
+	}
+	out := stderr.String()
+	if !strings.Contains(out, "STALE_BINDING") {
+		t.Fatalf("stderr missing STALE_BINDING:\n%s", out)
+	}
+	if !strings.Contains(out, "sworn plan pin --write") {
+		t.Fatalf("stderr missing pin --write hint:\n%s", out)
+	}
+	if strings.Contains(out, root) {
+		t.Fatalf("stderr echoed a path:\n%s", out)
+	}
 }

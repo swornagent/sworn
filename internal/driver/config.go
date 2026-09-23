@@ -155,6 +155,50 @@ func EncodeDriverConfig(config DriverConfig) ([]byte, error) {
 	return canonicalJSON(config)
 }
 
+// CanonicalDriverConfigBytes strictly decodes body through the same
+// decodeTyped lists DecodeDriverConfig uses (with the legacy migrate
+// fallback), encodes it via EncodeDriverConfig (validate plus canonicalJSON
+// with no trailing newline), and accepts the result only if
+// DecodeDriverConfig admits it. It is the admission-preserving canonicalizer
+// behind `sworn manifest canonical --driver-config`: formatting-only
+// differences (whitespace, key order, trailing newline) are accepted and
+// rewritten, while every validation refusal carries admission's own code.
+func CanonicalDriverConfigBytes(body []byte) ([]byte, error) {
+	var config DriverConfig
+	if _, err := decodeTyped(
+		body,
+		MaxDriverConfigBytes,
+		[]string{"schema_version", "credentials", "adapters", "profiles"},
+		[]string{"presets", "variables"},
+		&config,
+	); err != nil {
+		legacy, legacyErr := decodeLegacyDriverConfig(body)
+		if legacyErr != nil {
+			return nil, err
+		}
+		migrated, migrationErr := migrateDriverConfig(legacy)
+		if migrationErr != nil {
+			return nil, migrationErr
+		}
+		canonical, encodeErr := EncodeDriverConfig(migrated)
+		if encodeErr != nil {
+			return nil, encodeErr
+		}
+		if _, decodeErr := DecodeDriverConfig(canonical); decodeErr != nil {
+			return nil, decodeErr
+		}
+		return canonical, nil
+	}
+	canonical, err := EncodeDriverConfig(config)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := DecodeDriverConfig(canonical); err != nil {
+		return nil, err
+	}
+	return canonical, nil
+}
+
 func DecodeDriverConfig(body []byte) (LoadedDriverConfig, error) {
 	var config DriverConfig
 	if _, err := decodeTyped(

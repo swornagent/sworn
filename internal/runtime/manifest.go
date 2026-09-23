@@ -208,6 +208,63 @@ func ParseManifest(body []byte) (Manifest, error) {
 	return admitted.value, nil
 }
 
+// CanonicalManifestBytes strictly decodes body into the exported Manifest
+// type, encodes it in the runtime's canonical form (json.Marshal plus one
+// newline), and accepts the result only if ParseManifest admits it. It is
+// the admission-preserving canonicalizer behind `sworn manifest canonical
+// --manifest`: formatting-only differences (whitespace, key order, final
+// newline) are accepted and rewritten, while every validation refusal
+// carries admission's own code. Legacy and unknown versions return
+// admission's version codes without attempting a full decode.
+func CanonicalManifestBytes(body []byte) ([]byte, error) {
+	if len(body) < 2 || len(body) > MaxManifestBytes {
+		return nil, runtimeFail("INVALID_MANIFEST", nil)
+	}
+	if !utf8.Valid(body) || bytes.ContainsRune(body, '\r') {
+		return nil, runtimeFail("INVALID_MANIFEST", nil)
+	}
+	if err := rejectDuplicateJSONKeys(body); err != nil {
+		return nil, err
+	}
+	var envelope struct {
+		SchemaVersion string `json:"schema_version"`
+	}
+	versionDecoder := json.NewDecoder(bytes.NewReader(body))
+	if err := versionDecoder.Decode(&envelope); err != nil || envelope.SchemaVersion == "" {
+		return nil, runtimeFail("INVALID_MANIFEST", nil)
+	}
+	if err := requireJSONEOF(versionDecoder); err != nil {
+		return nil, err
+	}
+	switch envelope.SchemaVersion {
+	case ManifestVersionV2, ManifestVersionV3, ManifestVersionV4:
+		return nil, runtimeFail("MIGRATION_REQUIRED", nil)
+	case ManifestVersion:
+	default:
+		return nil, runtimeFail("INVALID_MANIFEST_VERSION", nil)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	var manifest Manifest
+	if err := decoder.Decode(&manifest); err != nil {
+		return nil, runtimeFail("INVALID_MANIFEST", nil)
+	}
+	if err := requireJSONEOF(decoder); err != nil {
+		return nil, err
+	}
+	if err := validateManifest(manifest); err != nil {
+		return nil, err
+	}
+	canonical, err := canonicalManifest(manifest)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := ParseManifest(canonical); err != nil {
+		return nil, err
+	}
+	return canonical, nil
+}
+
 func admitManifest(body []byte) (admittedManifest, error) {
 	version, err := classifyManifestVersion(body)
 	if err != nil {
