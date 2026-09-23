@@ -32,7 +32,10 @@ Three rules that keep this seat affordable:
 - Release worktree: `/home/brad/projects/sworn-worktrees/<release>` on
   `refs/heads/release/<release>`; record ref `release-wt/<release>`.
 - The approved plan: its digest is the only authority you start from.
-- Journal: `<project>/.sworn/runs/<run-id>.journal`.
+- Journal: `<ops>/journals/<run>.journal`, in the ops home, never inside
+  the release worktree. Pass that absolute path as `--journal` to serve,
+  status and every control command. A journal under the worktree's ignored
+  `.sworn/` is deleted when the worktree is removed (sworn#351).
 - Policy: `docs/policy/manager.md` at the release worktree's head.
 
 If any artefact is missing, say which and stop; do not improvise one.
@@ -64,6 +67,7 @@ attention from `sworn board --run ... --journal ... --json`. Drop the rest.
 | `parked`, cause `identical_failure` or `exhaustion` | tries spent | M5 or M6 by what the failures were |
 | `parked`, cause `economy_*` | budget crossed | `sworn grant` only when the spend is honest work; else Type-1 |
 | `parked`, cause `human_authority` | | Type-1 |
+| `parked`, cause `bootstrap_authority`, outcome `blocked` | an assembly BLOCKED names an engine gap since fixed | M9 (the Principal still approves the revision) |
 | `complete`, outcome merged | release done | end-of-release below |
 | `cancelled` | | report and stop |
 
@@ -124,12 +128,25 @@ whose target ref has moved since it parked.
 
 ## End of release
 
-When `outcome` is merged: run the full suite on the merged head in a verify
-worktree (one package at a time on this host), write the run report in
-`docs/captures/<date>-<release>-run-report.md` from the journal's numbers,
-push, open the promotion PR to main as a merge commit (never squash a
-release), hand-grep the diff for private terms, then hand the PR to the
-Principal. Stop there: merging to main is Type-1.
+When `outcome` is merged:
+
+1. Stop the serve unit, then archive the run journal: copy
+   `<ops>/journals/<run>.journal` (and any journal of an earlier run of this
+   release) to `<ops>/archive/` and record its SHA-256 in the decision
+   journal. Nothing below may remove the last copy of a journal.
+2. `protocol.merge` moves the release ref but not the release worktree's
+   checkout. Run `git reset --hard <release branch head>` in the release
+   worktree before committing anything to it, or the next commit reverts the
+   release.
+3. Run the full suite on the merged head in a verify worktree (one package
+   at a time on this host).
+4. Write the run report in `docs/captures/<date>-<release>-run-report.md`
+   from the journal's numbers, push, and open the promotion PR to main as a
+   merge commit (never squash a release).
+5. Hand-grep the diff for private terms, then hand the PR to the Principal.
+   Stop there: merging to main is Type-1.
+6. After the Principal merges, remove the release and plan worktrees only
+   once step 1's archive exists.
 
 ## Hard rules
 
