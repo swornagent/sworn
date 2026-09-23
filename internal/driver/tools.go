@@ -94,6 +94,12 @@ type toolSession struct {
 	observer           *toolResultObserver
 	workerTurnObserver *workerTurnObserver
 	redaction          [][]byte
+	// lastInputTokens is the latest turn's reported input-token count
+	// (S6-context-window-clamp A4), stamped by noteReportedInputTokens
+	// wherever runConversation already handles providerTurn.Usage, and
+	// read-and-cleared once by the next observeToolResultTurn call so it
+	// rides exactly the turn it was reported on.
+	lastInputTokens *int64
 	// checkEvidence accumulates one protocol.CheckResultEntry per Bash call
 	// this session runs (S5-A3), bounded by checkEvidenceEntryLimit entries
 	// and checkEvidenceByteBudget bytes with oldest-first eviction: the

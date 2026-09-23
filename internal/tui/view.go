@@ -340,6 +340,9 @@ func activityTurnDetails(turn cockpit.ActivityTurn, width, maxLines int) []strin
 		}
 		lines = append(lines, truncate(line, width))
 	}
+	if turn.InputTokens != nil && len(lines) < maxLines {
+		lines = append(lines, truncate("input tokens: "+itoaOffset(*turn.InputTokens), width))
+	}
 	if turn.DroppedEvents > 0 && len(lines) < maxLines {
 		lines = append(lines, truncate("+"+itoaOffset(turn.DroppedEvents)+" dropped events", width))
 	}

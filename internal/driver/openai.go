@@ -20,6 +20,13 @@ type openAIConversation struct {
 	// emitted as max_completion_tokens on every chat-completions dialect
 	// with recorded vocabulary. Zero omits the field entirely.
 	maxOutputTokens int64
+	// contextWindowTokens is the profile's declared total context window
+	// (S6-context-window-clamp A1). Zero disables the clamp.
+	contextWindowTokens int64
+	// lastInputTokens is the previous turn's reported input-token count,
+	// nil until accept() has processed a turn carrying usage. The clamp
+	// never applies before the first accepted turn (A2).
+	lastInputTokens *int64
 }
 
 type openAIMessage struct {
@@ -275,6 +282,7 @@ func NewOpenAIAdapter(
 				config.Stream,
 				dialect,
 				config.outputLimit(limits.OutputBytes),
+				config.ContextWindowTokens,
 			)
 			if err != nil {
 				return nil, err
@@ -309,6 +317,7 @@ func NewOpenAIAdapter(
 				dialect,
 				config.ReasoningEffort,
 				config.outputLimit(limits.OutputBytes),
+				config.ContextWindowTokens,
 			)
 		}
 	default:
@@ -342,7 +351,9 @@ func (config OpenAIProfileConfig) valid() bool {
 		err != nil || parsed.RawQuery != "" ||
 		!validReasoningEfforts(config.ReasoningEfforts) ||
 		config.MaxOutputTokens < 0 ||
-		config.MaxOutputTokens > MaxProviderOutputBytes {
+		config.MaxOutputTokens > MaxProviderOutputBytes ||
+		config.ContextWindowTokens < 0 ||
+		config.ContextWindowTokens > MaxContextWindowTokensLimit {
 		return false
 	}
 	// The vendor dialects are an explicit one-per-adapter choice: a profile
@@ -423,7 +434,7 @@ func newOpenAIConversation(
 			dialect != providerDialectXAIChat) {
 		return nil, fail("INVALID_ADAPTER")
 	}
-	outputLimit, err := optionalOutputLimit(maxOutputTokens)
+	outputLimit, contextWindowTokens, err := optionalOutputLimits(maxOutputTokens)
 	if err != nil {
 		return nil, err
 	}
@@ -433,14 +444,15 @@ func newOpenAIConversation(
 	}
 	content, _ := json.Marshal(string(prompt))
 	return &openAIConversation{
-		endpoint:        endpoint,
-		model:           model,
-		dialect:         dialect,
-		reasoningEffort: reasoningEffort,
-		tools:           tools,
-		messages:        []openAIMessage{{Role: "user", Content: content}},
-		ledger:          newContinuationLedger(),
-		maxOutputTokens: outputLimit,
+		endpoint:            endpoint,
+		model:               model,
+		dialect:             dialect,
+		reasoningEffort:     reasoningEffort,
+		tools:               tools,
+		messages:            []openAIMessage{{Role: "user", Content: content}},
+		ledger:              newContinuationLedger(),
+		maxOutputTokens:     outputLimit,
+		contextWindowTokens: contextWindowTokens,
 	}, nil
 }
 
@@ -474,7 +486,22 @@ func (conversation *openAIConversation) request() (providerRequest, error) {
 	// field for it, and inventing vocabulary would be a lie.
 	maxCompletionTokens := int64(0)
 	if conversation.dialect != providerDialectXAIChat {
-		maxCompletionTokens = conversation.maxOutputTokens
+		clamped, exhausted := contextWindowClamp(
+			conversation.maxOutputTokens,
+			conversation.contextWindowTokens,
+			conversation.lastInputTokens,
+		)
+		if exhausted {
+			return providerRequest{}, failWithDetail(
+				"ECONOMY_CONTEXT_EXHAUSTED",
+				contextWindowExhaustedDetail(
+					conversation.contextWindowTokens,
+					*conversation.lastInputTokens,
+					conversation.maxOutputTokens,
+				),
+			)
+		}
+		maxCompletionTokens = clamped
 	}
 	body, err := json.Marshal(struct {
 		Model               string          `json:"model"`
@@ -594,6 +621,7 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 			}
 			turn.Usage = usage
 			turn.Cost = cost
+			conversation.lastInputTokens = &usage.InputTokens
 		}
 		return turn, nil
 	}
@@ -872,6 +900,7 @@ func (conversation *openAIConversation) accept(body []byte) (providerTurn, error
 		}
 		turn.Usage = usage
 		turn.Cost = cost
+		conversation.lastInputTokens = &usage.InputTokens
 	}
 	return turn, nil
 }

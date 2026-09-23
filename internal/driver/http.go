@@ -70,6 +70,17 @@ type HTTPProfileConfig struct {
 	// field. Omission changes nothing: no thinkingConfig is emitted unless a
 	// thinking knob is set.
 	IncludeThoughts bool `json:"include_thoughts,omitempty"`
+	// ContextWindowTokens is the operator-declared total context window
+	// size, in tokens, of the model behind this profile
+	// (S6-context-window-clamp A1). When set, each request after the
+	// first clamps its output ceiling to the room left in the window
+	// after the previous turn's reported input tokens, never raising it.
+	// Zero (the default) disables the clamp entirely: every request stays
+	// byte-identical to today's. OpenAI-compatible chat-completions and
+	// responses surfaces both read it (OpenAIProfileConfig embeds this
+	// struct); Gemini and Bedrock adapters admit-and-ignore it exactly
+	// like ThinkingLevel and Stream.
+	ContextWindowTokens int64 `json:"context_window_tokens,omitempty"`
 	// BalanceProbe is the additive, operator-configured admission-time
 	// balance/quota probe surface (S5-preflight-probes A3(b)). It carries
 	// no in-tree consumer today: no shipped adapter configuration sets it,
@@ -114,7 +125,9 @@ func newHTTPTransport(
 		!driverIdentityPattern.MatchString(config.ID) ||
 		!versionPattern.MatchString(config.Version) ||
 		validateEndpoint(config.Endpoint) != nil ||
-		config.ResponseBytes < 1 || config.ResponseBytes > MaxProviderResponseBytes {
+		config.ResponseBytes < 1 || config.ResponseBytes > MaxProviderResponseBytes ||
+		config.ContextWindowTokens < 0 ||
+		config.ContextWindowTokens > MaxContextWindowTokensLimit {
 		return nil, fail("INVALID_ADAPTER")
 	}
 	switch auth {

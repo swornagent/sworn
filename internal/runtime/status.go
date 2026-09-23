@@ -112,6 +112,10 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	// S3: one digest-checked pass over the failure/uncertain events keyed
 	// by effect ID; every failed dispatch below reuses it.
 	failureContexts := failureContextsForSnapshot(snapshot)
+	// S6-context-window-clamp A4: the latest reported input tokens for
+	// every driver.dispatch effect, in flight or failed alike, from the
+	// same tool-result observation events the failure tail already reads.
+	lastInputTokens := lastInputTokensForSnapshot(snapshot)
 	commandsByReplay := make(map[string]journal.Command, len(snapshot.Commands))
 	for _, command := range snapshot.Commands {
 		if _, duplicate := commandsByReplay[command.ReplayKey]; !duplicate {
@@ -136,6 +140,9 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		}
 		if effect.Kind == "check.host" {
 			status.CheckOutcome = checkOutcomeForEffect(effect, commandsByReplay)
+		}
+		if effect.Kind == "driver.dispatch" {
+			status.LastInputTokens = lastInputTokens[effect.ID]
 		}
 		result.Effects = append(result.Effects, status)
 		if state, deliberate := recoveryClaims[effect.ID]; deliberate {
@@ -230,6 +237,15 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	if len(identicalCrossings) != 0 {
 		identicalPark = &identicalCrossings[0]
 	}
+	economyContextCrossings := economyContextParkCrossings(snapshot, control)
+	var economyContextPark *economyContextParkFacts
+	if len(economyContextCrossings) != 0 {
+		economyContextPark = &economyContextParkFacts{
+			work:   economyContextCrossings[0].work,
+			code:   "ECONOMY_CONTEXT_EXHAUSTED",
+			detail: economyContextCrossings[0].detail,
+		}
+	}
 	// S5: unlike economy/identical-failure/exhaustion, a provider-stall
 	// park is never predicted ahead of its own write - providerStallGate
 	// writes the typed park event synchronously, before the failing try
@@ -245,7 +261,8 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	exhaustionApplies := len(exhausted) != 0
 	var exhaustionCode, exhaustionDetail string
 	parked := attentionParked || degradationBudgetExceeded ||
-		economyPark != nil || identicalPark != nil || providerStallPark != nil ||
+		economyPark != nil || economyContextPark != nil ||
+		identicalPark != nil || providerStallPark != nil ||
 		exhaustionApplies
 	if len(snapshot.Events) != 0 {
 		result.EventOffset = snapshot.Events[len(snapshot.Events)-1].Offset
@@ -373,7 +390,8 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 				exhaustionCode, exhaustionDetail = facts.code, facts.detail
 			}
 			parked = attentionParked || degradationBudgetExceeded ||
-				economyPark != nil || identicalPark != nil ||
+				economyPark != nil || economyContextPark != nil ||
+				identicalPark != nil ||
 				providerStallPark != nil || exhaustionApplies
 			parked = parked || humanAuthorityRequired || bootstrapAuthorityParked
 		}
@@ -421,6 +439,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 			bootstrapAuthority:        bootstrapAuthorityParked,
 			bootstrapReason:           bootstrapParkReason,
 			economy:                   economyPark,
+			economyContext:            economyContextPark,
 			identicalFailure:          identicalPark,
 			providerStall:             providerStallPark,
 			exhaustionApplies:         exhaustionApplies,
@@ -495,6 +514,17 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 			identicalByOwner[owner] = crossing
 		}
 	}
+	economyContextByOwner := make(
+		map[string]economyContextParkFacts, len(economyContextCrossings),
+	)
+	for _, crossing := range economyContextCrossings {
+		owner := ownerWorkForDispatch(snapshot, crossing.work)
+		if _, exists := economyContextByOwner[owner]; !exists {
+			economyContextByOwner[owner] = economyContextParkFacts{
+				work: owner, code: "ECONOMY_CONTEXT_EXHAUSTED", detail: crossing.detail,
+			}
+		}
+	}
 	// A standing exhaustion park is matched by the slice lineage the journal
 	// attributes it to, not by the exact work identity: every candidate work
 	// identity binds the target head, so a commit on the target branch moves
@@ -504,7 +534,8 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		manifest, snapshot, exhausted, exhaustionRefusals,
 	)
 	pinnedWork, laneParks, allLanesPinned := resolveLanePins(
-		lanes, exhausted, exhaustionRefusals, economyByOwner, identicalByOwner,
+		lanes, exhausted, exhaustionRefusals, economyByOwner,
+		economyContextByOwner, identicalByOwner,
 		providerStallParked, exhaustionParksByLane(state, exhaustionParks),
 	)
 	// Zero candidate lanes is not progress: short of a merged release, Protocol
@@ -1099,6 +1130,7 @@ func resolveLanePins(
 	exhausted map[string]struct{},
 	exhaustionRefusals map[string]exhaustionRefusalFacts,
 	economyByOwner map[string]economyParkFacts,
+	economyContextByOwner map[string]economyContextParkFacts,
 	identicalByOwner map[string]identicalFailureFacts,
 	providerStallByOwner map[string]providerStallParkFacts,
 	exhaustionByLane map[string]exhaustionParkFacts,
@@ -1124,6 +1156,23 @@ func resolveLanePins(
 			})
 			pinned = true
 			break
+		}
+		if !pinned {
+			for work := range lane.works {
+				facts, ok := economyContextByOwner[work]
+				if !ok {
+					continue
+				}
+				pinnedWork = append(pinnedWork, PinnedWork{
+					WorkID: work, Lane: lane.lane, Cause: ParkCauseEconomyContext,
+					Code: facts.code, Detail: facts.detail,
+				})
+				laneParks = append(laneParks, lanePinFacts{
+					work: work, facts: parkFacts{economyContext: &facts},
+				})
+				pinned = true
+				break
+			}
 		}
 		if !pinned {
 			for work := range lane.works {
@@ -1272,6 +1321,7 @@ type parkFacts struct {
 	bootstrapAuthority        bool
 	bootstrapReason           string
 	economy                   *economyParkFacts
+	economyContext            *economyContextParkFacts
 	identicalFailure          *identicalFailureFacts
 	providerStall             *providerStallParkFacts
 	exhaustionApplies         bool
@@ -1281,7 +1331,8 @@ type parkFacts struct {
 
 // parkStatusFor names the park cause with the same precedence the final park
 // computation uses: human authority, attention, degradation, bootstrap
-// authority, economy, identical failure, exhaustion. A degradation park
+// authority, economy, economy context window, identical failure, provider
+// stall, exhaustion. A degradation park
 // carries the gated fallback count, the effective budget, and the manifest
 // knob that unblocks it; a bootstrap-authority park carries its Reason; an
 // economy park carries spent-versus-budget and its knob; an
@@ -1313,6 +1364,10 @@ func parkStatusFor(
 		status.Spent = facts.economy.spent
 		status.Budget = facts.economy.budget
 		status.UnblockKnob = facts.economy.knob
+	case facts.economyContext != nil:
+		status.Cause = ParkCauseEconomyContext
+		status.FailureCode = facts.economyContext.code
+		status.FailureDetail = facts.economyContext.detail
 	case facts.identicalFailure != nil:
 		status.Cause = ParkCauseIdenticalFailure
 		status.Consecutive = facts.identicalFailure.consecutive

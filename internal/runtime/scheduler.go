@@ -6263,6 +6263,23 @@ func (s *Service) pinCrossingLanes(
 			pinned[lane] = struct{}{}
 		}
 	}
+	for _, crossing := range economyContextParkCrossings(snapshot, control) {
+		owner := ownerWorkForDispatch(snapshot, crossing.work)
+		body, err := economyContextParkEventBody(runID, owner, economyContextParkFacts{
+			work: owner, code: "ECONOMY_CONTEXT_EXHAUSTED", detail: crossing.detail,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if err := s.appendParkEventOnce(
+			ctx, runID, ParkCauseEconomyContext, body,
+		); err != nil {
+			return nil, err
+		}
+		if lane, ok := laneFor(owner); ok {
+			pinned[lane] = struct{}{}
+		}
+	}
 	for _, crossing := range identicalFailureParkCrossings(
 		engine.manifest, snapshot, control,
 		engine.manifest.value.EffectiveIdenticalFailureParkAfter(),

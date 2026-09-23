@@ -846,6 +846,17 @@ func safeActions(
 		if isEconomyErrorCode(effect.ErrorCode) {
 			continue
 		}
+		// A context-window exhaustion parks on any try, not only the
+		// third, and always names its owner via status.PinnedWork, never
+		// this per-effect t3 scan (S6-context-window-clamp A3): skipping
+		// it here, exactly as isEconomyErrorCode's codes are skipped
+		// above, keeps this loop from ever offering a second, differently
+		// (dispatch-identity-)named Retry action for the same crossing a
+		// nested dispatch's PinnedWork branch below already names by its
+		// owner.
+		if effect.ErrorCode == "ECONOMY_CONTEXT_EXHAUSTED" {
+			continue
+		}
 		work, epoch, ok := exhaustedAttempt(effect)
 		currentEpoch := control.RetryEpochs[work]
 		if currentEpoch == 0 {
@@ -859,6 +870,29 @@ func safeActions(
 				ExpectedEpoch:      epoch,
 			})
 		}
+	}
+	for _, pinned := range status.PinnedWork {
+		if pinned.Cause != runtimepkg.ParkCauseEconomyContext {
+			continue
+		}
+		// economy_context_window is never Grant-eligible (economyGrantUnit
+		// returns "" for it): there is no manifest Limits value a Grant
+		// could raise to fix a fixed driver-config context window. A bare
+		// Retry naming pinned.WorkID (the owner) is the only verb, admitted
+		// at any try by the runtime's EconomyContextRetry stamp
+		// (S6-context-window-clamp A3), so this dedicated branch - not the
+		// t3-only loop above, which skips this code entirely - is this
+		// cause's sole source of a board action.
+		epoch := control.RetryEpochs[pinned.WorkID]
+		if epoch == 0 {
+			epoch = 1
+		}
+		result = append(result, Action{
+			Kind:               string(journal.Retry),
+			ExpectedGeneration: generation,
+			WorkID:             pinned.WorkID,
+			ExpectedEpoch:      epoch,
+		})
 	}
 	for _, pinned := range status.PinnedWork {
 		unit := economyGrantUnit(pinned.Cause)

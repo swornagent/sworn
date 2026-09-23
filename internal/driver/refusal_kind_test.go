@@ -30,6 +30,7 @@ func TestClassifyKindCoversEveryNamedBucket(t *testing.T) {
 		{"native surface invalid", "NATIVE_SURFACE_INVALID", false, KindSurfaceIntegrity},
 		{"economy turn budget", "ECONOMY_TURN_BUDGET_EXCEEDED", false, KindEconomy},
 		{"economy output budget", "ECONOMY_OUTPUT_BUDGET_EXCEEDED", false, KindEconomy},
+		{"economy context exhausted", "ECONOMY_CONTEXT_EXHAUSTED", false, KindEconomy},
 		{"unclassified stays empty", "PROCESS_FAILED", false, ""},
 		{"unadmitted code stays empty", "ADAPTER_FAILURE", false, ""},
 	}

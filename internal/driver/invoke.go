@@ -522,7 +522,8 @@ func classifyKind(code string, hardLimit bool) RefusalKind {
 		return KindTransport
 	case "NATIVE_SURFACE_INVALID":
 		return KindSurfaceIntegrity
-	case "ECONOMY_TURN_BUDGET_EXCEEDED", "ECONOMY_OUTPUT_BUDGET_EXCEEDED":
+	case "ECONOMY_TURN_BUDGET_EXCEEDED", "ECONOMY_OUTPUT_BUDGET_EXCEEDED",
+		"ECONOMY_CONTEXT_EXHAUSTED":
 		return KindEconomy
 	default:
 		return ""
@@ -668,6 +669,7 @@ func validAdapterErrorCode(code string) bool {
 		"PROVIDER_TRANSPORT_FAILED",
 		"ECONOMY_TURN_BUDGET_EXCEEDED",
 		"ECONOMY_OUTPUT_BUDGET_EXCEEDED",
+		"ECONOMY_CONTEXT_EXHAUSTED",
 		"INVALID_PROVIDER_REQUEST",
 		"HTTP_REDIRECT_REFUSED",
 		"CONTINUATION_INVALID",

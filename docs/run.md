@@ -599,6 +599,28 @@ integer from 1 to 1048576, when the provider's output ceiling is lower than
 the limit Sworn would send. Certification and dispatch then send the smaller
 of the two; leaving the field out changes nothing.
 
+Either OpenAI-compatible surface (chat completions or responses) may also
+declare `context_window_tokens`, an optional integer up to 10,000,000
+naming the model's total context window. When set, every request after the
+first clamps the output ceiling actually sent to the room left in that
+window after the previous turn's reported input tokens, minus a small fixed
+safety margin: `min(max_output_tokens, context_window_tokens -
+last_input_tokens - margin)`. This only ever lowers what would have been
+sent; the first request of a dispatch carries no prior turn to clamp
+against and is unaffected, and leaving the field out changes nothing. When
+the room left cannot fit even a minimal reply, the adapter refuses the turn
+before sending it with the typed code `ECONOMY_CONTEXT_EXHAUSTED`, naming
+the window, the last input tokens, and the ceiling. That refusal parks the
+work under the `economy_context_window` cause: unlike a turn- or
+output-token economy park, it is never Grant-eligible (there is no
+manifest limit to raise for a fixed context window), so its only unblock
+verb is a bare retry, admitted immediately on any try. A retry issued
+without first editing `context_window_tokens` or `max_output_tokens` in the
+driver config will simply reach the same refusal again. The status
+projection's dispatch view and the live activity stream also show the
+latest turn's reported input tokens for an in-flight or failed dispatch, so
+a context approaching its window is visible before it is exhausted.
+
 A Responses adapter may also declare `reasoning_summary` (`auto`, `concise`
 or `detailed`), which asks the provider to stream a reasoning summary while
 the model thinks. Set it when a provider cuts a streaming request whose first

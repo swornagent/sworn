@@ -277,6 +277,39 @@ func TestToolResultObservationRedactsBoundSecretsBeforeHook(t *testing.T) {
 	}
 }
 
+// TestObserveToolResultTurnCarriesAndClearsReportedInputTokens anchors A4:
+// noteReportedInputTokens' pending value rides exactly the first named part
+// of the next observeToolResultTurn call, then is cleared - a second turn
+// with no intervening report carries none.
+func TestObserveToolResultTurnCarriesAndClearsReportedInputTokens(t *testing.T) {
+	invocation, _, _ := memoryInvocationFixture(t)
+	recorder := &recordingToolResultHook{}
+	invocation.ToolResultHook = recorder.hook()
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+
+	result := providerToolResult{ID: "call-1", Name: "Read", Content: []byte("ok")}
+	session.noteReportedInputTokens(4_200)
+	session.observeToolResultTurn(1, []providerToolResult{result})
+	session.observeToolResultTurn(2, []providerToolResult{result})
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+	turns := recorder.snapshot()
+	if len(turns) != 2 {
+		t.Fatalf("turns = %#v, want 2", turns)
+	}
+	if turns[0].InputTokens == nil || *turns[0].InputTokens != 4_200 {
+		t.Fatalf("first turn InputTokens = %#v, want *4200", turns[0].InputTokens)
+	}
+	if turns[1].InputTokens != nil {
+		t.Fatalf("second turn InputTokens = %#v, want nil (cleared, no new report)", turns[1].InputTokens)
+	}
+}
+
 func TestWorkerTurnPartProjectionBoundsGeometryAndRedaction(t *testing.T) {
 	// Text under the bound: full bytes, zero omitted.
 	short := projectWorkerTurnPart(

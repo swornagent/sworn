@@ -469,6 +469,30 @@ func TestNormalizeAdapterErrorPreservesBoundedProviderDetail(t *testing.T) {
 	})
 }
 
+// TestNormalizeAdapterErrorPreservesContextExhaustedDetail anchors A3: the
+// bounded ECONOMY_CONTEXT_EXHAUSTED detail (the window, the last input
+// tokens, the ceiling, and the fixing knob) survives normalizeAdapterError
+// intact, admitted as a KindEconomy failure - never a provider status code,
+// so it carries no HardLimit and never enters the provider retry/pacing
+// path.
+func TestNormalizeAdapterErrorPreservesContextExhaustedDetail(t *testing.T) {
+	t.Parallel()
+	if !validAdapterErrorCode("ECONOMY_CONTEXT_EXHAUSTED") {
+		t.Fatal("ECONOMY_CONTEXT_EXHAUSTED is not in the adapter error allowlist")
+	}
+	detail := contextWindowExhaustedDetail(50_000, 49_900, 100_000)
+	in := &ContractError{Code: "ECONOMY_CONTEXT_EXHAUSTED", Detail: detail}
+	out := normalizeAdapterError(in)
+	got, ok := out.(*ContractError)
+	if !ok || got.Code != "ECONOMY_CONTEXT_EXHAUSTED" ||
+		got.Detail != detail || got.Kind != KindEconomy || got.HardLimit {
+		t.Fatalf("normalized = %#v", out)
+	}
+	if validateText(got.Detail, maxProviderErrorDetailBytes, false) != nil {
+		t.Fatalf("detail fails the bounded provider-detail re-validation: %q", got.Detail)
+	}
+}
+
 func TestStreamRendererDriverErrorCarriesProviderDetail(t *testing.T) {
 	t.Parallel()
 	var buffer bytes.Buffer

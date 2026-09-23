@@ -425,6 +425,68 @@ func TestOpenAIAdapterOutputCeilingConfigValidationAndCanonicalForm(t *testing.T
 	}
 }
 
+// TestOpenAIAdapterContextWindowTokensConfigValidationAndCanonicalForm
+// anchors A1: the field is absent-by-default (byte-identical canonical
+// form to today), admits its declared bound, and an explicit zero is not
+// the canonical spelling of absence, on the same discipline
+// TestOpenAIAdapterOutputCeilingConfigValidationAndCanonicalForm already
+// pins for max_output_tokens.
+func TestOpenAIAdapterContextWindowTokensConfigValidationAndCanonicalForm(t *testing.T) {
+	config := completeDriverConfigFixture(t)
+	before, err := EncodeDriverConfig(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(before, []byte("context_window_tokens")) {
+		t.Fatalf("absent context window leaked into canonical form: %s", before)
+	}
+	setWindow := func(value int64) DriverConfig {
+		clone := config
+		clone.Adapters = append([]DriverAdapterConfig(nil), config.Adapters...)
+		for index := range clone.Adapters {
+			if clone.Adapters[index].OpenAI != nil &&
+				clone.Adapters[index].OpenAI.Key == "a-openai" {
+				openAI := cloneOpenAIProfileConfig(*clone.Adapters[index].OpenAI)
+				openAI.ContextWindowTokens = value
+				clone.Adapters[index].OpenAI = &openAI
+			}
+		}
+		return clone
+	}
+	body, err := EncodeDriverConfig(setWindow(200_000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(body, []byte(`"context_window_tokens":200000`)) {
+		t.Fatalf("context window missing from canonical form: %s", body)
+	}
+	loaded, err := DecodeDriverConfig(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.ConfigurationDigest() != Digest(body) ||
+		loaded.ConfigurationDigest() == Digest(before) {
+		t.Fatalf("context window digest = %s", loaded.ConfigurationDigest())
+	}
+	if _, err := EncodeDriverConfig(setWindow(MaxContextWindowTokensLimit)); err != nil {
+		t.Fatalf("context window at the maximum error = %v", err)
+	}
+	for _, value := range []int64{-1, MaxContextWindowTokensLimit + 1} {
+		if _, err := EncodeDriverConfig(setWindow(value)); !IsCode(err, "INVALID_DRIVER_CONFIG") {
+			t.Fatalf("context window %d error = %v", value, err)
+		}
+	}
+	zero := bytes.Replace(
+		body,
+		[]byte(`"context_window_tokens":200000`),
+		[]byte(`"context_window_tokens":0`),
+		1,
+	)
+	if _, err := DecodeDriverConfig(zero); !IsCode(err, "NONCANONICAL_JSON") {
+		t.Fatalf("explicit zero context window error = %v", err)
+	}
+}
+
 func TestOpenAIAdapterReasoningSummaryThreadsToResponsesRequest(t *testing.T) {
 	t.Parallel()
 	resolver := func(context.Context, string) ([]byte, error) {

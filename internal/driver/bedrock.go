@@ -163,7 +163,7 @@ func newBedrockConversation(
 	if validateText(model, 500, false) != nil || validateEndpoint(config.Endpoint) != nil {
 		return nil, fail("INVALID_ADAPTER")
 	}
-	outputLimit, err := optionalOutputLimit(maxOutputTokens)
+	outputLimit, _, err := optionalOutputLimits(maxOutputTokens)
 	if err != nil {
 		return nil, err
 	}

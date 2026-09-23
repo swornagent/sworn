@@ -194,6 +194,14 @@ func TestCertificationFailureCodesAreClosedAndSecretFree(t *testing.T) {
 		{"wrapped", fmt.Errorf("secret-canary: %w", fail("PROVIDER_ERROR")), "certification_provider_rejected"},
 		{"arbitrary error", fmt.Errorf("secret-canary"), "certification_contract_failed"},
 		{"arbitrary contract", fail("SECRET_CANARY"), "certification_contract_failed"},
+		// S6-context-window-clamp A3: no new case is added for the
+		// context-exhaustion economy code, exactly like its two existing
+		// economy siblings (ECONOMY_TURN_BUDGET_EXCEEDED,
+		// ECONOMY_OUTPUT_BUDGET_EXCEEDED, neither of which has a case of
+		// its own either) - all three fall through to the same default,
+		// regardless of where in a multi-turn certify loop they fire.
+		{"economy turn budget falls through", fail("ECONOMY_TURN_BUDGET_EXCEEDED"), "certification_contract_failed"},
+		{"economy context exhausted falls through", fail("ECONOMY_CONTEXT_EXHAUSTED"), "certification_contract_failed"},
 	}
 	for _, test := range tests {
 		test := test

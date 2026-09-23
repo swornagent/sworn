@@ -353,6 +353,50 @@ func TestProjectNeedsYouNamesProviderStallPark(t *testing.T) {
 	}
 }
 
+// TestProjectNeedsYouNamesRetryForEconomyContextExhaustedPinnedWork anchors
+// A3's own named catalog test: economy_context_window is never
+// Grant-eligible (economyGrantUnit returns "" for it, unlike the two
+// Grant-gated economy causes), so the needs-you row names "retry", never
+// "grant" - structurally identical to how a provider_stall park is
+// projected, with zero change to catalog.go's action-selection logic.
+func TestProjectNeedsYouNamesRetryForEconomyContextExhaustedPinnedWork(t *testing.T) {
+	t.Parallel()
+
+	exhausted := []DiscoveredRunStatus{
+		{
+			Binding: journal.Run{
+				ID:      "run-economy-context",
+				Release: "release-economy-context",
+			},
+			Status: runtimepkg.RunStatus{
+				RunID: "run-economy-context",
+				State: "parked",
+				PinnedWork: []runtimepkg.PinnedWork{
+					{
+						WorkID: "sha256:" + strings.Repeat("a", 64),
+						Lane:   "T1",
+						Cause:  runtimepkg.ParkCauseEconomyContext,
+						Code:   "ECONOMY_CONTEXT_EXHAUSTED",
+						Detail: "context_window_tokens=50000 last_input_tokens=49900 ceiling=100000",
+					},
+				},
+			},
+		},
+	}
+	needsYou := ProjectNeedsYou(exhausted)
+	if len(needsYou) != 1 {
+		t.Fatalf("needsYou = %#v", needsYou)
+	}
+	item := needsYou[0]
+	if item.Action != "retry" ||
+		item.State != "parked" ||
+		item.WorkID != "sha256:"+strings.Repeat("a", 64) ||
+		!strings.Contains(item.Reason, "economy_context_window") ||
+		!strings.Contains(item.Reason, "ECONOMY_CONTEXT_EXHAUSTED") {
+		t.Fatalf("economy-context needs-you item = %#v", item)
+	}
+}
+
 func TestBuildProjectCatalogIncludesReleasesRunsAndNeedsYou(t *testing.T) {
 	t.Parallel()
 

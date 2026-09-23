@@ -226,6 +226,12 @@ func detailPreservingCode(code string) bool {
 		"PROVIDER_TRANSPORT_FAILED",
 		"NATIVE_SURFACE_INVALID",
 		"PROCESS_START_FAILED",
+		// ECONOMY_CONTEXT_EXHAUSTED carries the same plain, single-line,
+		// control-free text validateText governs (the window, the last
+		// input tokens, the ceiling, and the fixing knob), built entirely
+		// inside this package and never adapter-provided wrapping text
+		// (S6-context-window-clamp A3).
+		"ECONOMY_CONTEXT_EXHAUSTED",
 		// CONTINUATION_INVALID carries engine vocabulary only: a site label
 		// or the correlate envelope, both structurally re-validated by
 		// revalidateContinuationDetail at the funnel. It is here so a

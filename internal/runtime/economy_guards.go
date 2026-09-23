@@ -73,6 +73,24 @@ func (s *Service) economyGuardsParked(
 			return true, nil
 		}
 	}
+	for _, crossing := range economyContextParkCrossings(snapshot, control) {
+		if ownerWorkForDispatch(snapshot, crossing.work) == work {
+			// A context-window crossing parks on any try (S6-context-
+			// window-clamp A3): a fixed, unfixed context window is
+			// deterministic given the conversation's own growth, so there
+			// is no reason to spend further tries reaching the same wall.
+			// This gate can return directly out of the drive loop, so the
+			// park is persisted here too, exactly like the
+			// identical-failure gate below.
+			body, err := economyContextParkEventBody(runID, work, economyContextParkFacts{
+				work: work, code: "ECONOMY_CONTEXT_EXHAUSTED", detail: crossing.detail,
+			})
+			if err != nil {
+				return false, err
+			}
+			return true, s.appendParkEventOnce(ctx, runID, ParkCauseEconomyContext, body)
+		}
+	}
 	for _, crossing := range identicalFailureParkCrossings(
 		manifest,
 		snapshot,
@@ -209,25 +227,190 @@ func dispatchAttemptIsCurrentEpoch(
 	work string,
 	epoch int64,
 ) bool {
-	owner, outerEpoch, nested, epochKnown := dispatchCycleOwner(snapshot, work)
-	if !nested {
-		current := control.RetryEpochs[work]
-		if current == 0 {
-			current = 1
-		}
-		return epoch == current
+	owner, builtEpoch, ok := dispatchBuiltEpoch(snapshot, work, epoch)
+	if !ok {
+		// The malformed-journal fail-closed rule this function has always
+		// applied: treat the attempt as current, which keeps a crossing
+		// parked rather than silently dropping it (fails open otherwise).
+		return true
 	}
 	current := control.RetryEpochs[owner]
 	if current == 0 {
 		current = 1
 	}
-	if workIdentity(owner, "driver.dispatch") == work {
-		return epoch == current
+	return builtEpoch == current
+}
+
+// dispatchBuiltEpoch resolves the owner work identity a dispatch-work's
+// park or retry admission gate is scoped to, and the exact epoch that
+// dispatch was actually built under - by the same three-way convention
+// split dispatchAttemptIsCurrentEpoch's own doc comment above describes in
+// full - independent of any comparison against a "current" epoch. Factoring
+// this out keeps dispatchAttemptIsCurrentEpoch's live-current comparison and
+// economyContextCrossingAtEpoch's fixed-epoch comparison
+// (S6-context-window-clamp A3) from ever computing the built epoch two
+// different ways.
+//
+// ok is false only when the built epoch cannot be recovered at all (an
+// unparseable nested per-attempt git.seal ReplayKey): callers must fail
+// closed by their own convention rather than assume epoch 0, exactly as
+// dispatchAttemptIsCurrentEpoch's fail-closed branch above already did
+// before this factoring.
+func dispatchBuiltEpoch(
+	snapshot journal.Snapshot,
+	work string,
+	parsedEpoch int64,
+) (owner string, builtEpoch int64, ok bool) {
+	resolvedOwner, outerEpoch, nested, epochKnown := dispatchCycleOwner(snapshot, work)
+	if !nested {
+		return work, parsedEpoch, true
+	}
+	if workIdentity(resolvedOwner, "driver.dispatch") == work {
+		return resolvedOwner, parsedEpoch, true
 	}
 	if !epochKnown {
-		return true
+		return resolvedOwner, 0, false
 	}
-	return outerEpoch == current
+	return resolvedOwner, outerEpoch, true
+}
+
+// economyContextCrossingAtEpoch reports whether any driver.dispatch effect
+// owned by work failed ECONOMY_CONTEXT_EXHAUSTED at exactly the epoch that
+// effect was built under (S6-context-window-clamp A3), using the identical
+// three-way built-epoch derivation dispatchAttemptIsCurrentEpoch shares
+// (dispatchBuiltEpoch), so a nested git.seal-wrapped dispatch resolves
+// exactly like every other lane-scoped park or retry admission gate.
+//
+// Unlike dispatchAttemptIsCurrentEpoch, this compares the built epoch
+// against the caller-supplied epoch parameter directly, never against
+// control.RetryEpochs' live "current" value: a live comparison would change
+// value the moment the very Retry it originally justified succeeds and
+// advances that counter, which would break an exact replay of that same
+// command (see Service.admitEconomyControl's EconomyContextRetry stamp).
+// Comparing against the fixed parameter instead makes this a pure function
+// of already-durable, immutable effect facts, so it reproduces identically
+// on any replay of the exact same command. A nested dispatch whose built
+// epoch cannot be recovered (dispatchBuiltEpoch's own fail-closed case) is
+// excluded here - the opposite fail-closed direction from
+// dispatchAttemptIsCurrentEpoch's, because here "found" means "admit a
+// bypass of the ordinary try-exhaustion check", so an uncertain resolution
+// must never contribute a match.
+func economyContextCrossingAtEpoch(
+	snapshot journal.Snapshot,
+	work string,
+	epoch int64,
+) bool {
+	for _, effect := range snapshot.Effects {
+		if effect.Kind != "driver.dispatch" ||
+			effect.State != journal.OperationalFailed ||
+			effect.ErrorCode != "ECONOMY_CONTEXT_EXHAUSTED" {
+			continue
+		}
+		dispatchWork, parsedEpoch, _, coordErr := attemptCoordinates(effect.ID)
+		if coordErr != nil {
+			continue
+		}
+		owner, builtEpoch, ok := dispatchBuiltEpoch(snapshot, dispatchWork, parsedEpoch)
+		if !ok || owner != work {
+			continue
+		}
+		if builtEpoch == epoch {
+			return true
+		}
+	}
+	return false
+}
+
+// economyContextGuardCrossing names one current-epoch driver.dispatch
+// effect whose failure proves a context-window crossing (A3): the code is
+// always ECONOMY_CONTEXT_EXHAUSTED, and detail is the durable refusal
+// detail the driver's own failWithDetail plumbing already lands on the
+// failed effect's productionRefusalBinding result (the same refusalDetail
+// helper identicalFailureParkCrossings already uses).
+type economyContextGuardCrossing struct {
+	work     string
+	epoch    int64
+	try      int64
+	effectID string
+	detail   string
+}
+
+// economyContextParkCrossings scans every driver.dispatch effect for a
+// current-epoch ECONOMY_CONTEXT_EXHAUSTED failure, structurally mirroring
+// economyParkCrossings exactly (same effect walk, same
+// dispatchAttemptIsCurrentEpoch current-epoch filter, same
+// highest-try-per-work reduction), returning one crossing per distinct
+// work in first-encountered order (S6-context-window-clamp A3). Unlike
+// economyContextCrossingAtEpoch, this is the live "is it still current"
+// projection every status/park surface reads, not the replay-stable
+// admission stamp.
+func economyContextParkCrossings(
+	snapshot journal.Snapshot,
+	control journal.ControlProjection,
+) []economyContextGuardCrossing {
+	byWork := make(map[string]*economyContextGuardCrossing)
+	var order []string
+	for _, effect := range snapshot.Effects {
+		if effect.Kind != "driver.dispatch" ||
+			effect.State != journal.OperationalFailed ||
+			effect.ErrorCode != "ECONOMY_CONTEXT_EXHAUSTED" {
+			continue
+		}
+		work, epoch, try, coordErr := attemptCoordinates(effect.ID)
+		if coordErr != nil {
+			continue
+		}
+		if !dispatchAttemptIsCurrentEpoch(snapshot, control, work, epoch) {
+			continue
+		}
+		existing, found := byWork[work]
+		if !found {
+			order = append(order, work)
+		}
+		if !found || try > existing.try {
+			byWork[work] = &economyContextGuardCrossing{
+				work:     work,
+				epoch:    epoch,
+				try:      try,
+				effectID: effect.ID,
+				detail:   refusalDetail(effect.Result, "ECONOMY_CONTEXT_EXHAUSTED"),
+			}
+		}
+	}
+	result := make([]economyContextGuardCrossing, 0, len(order))
+	for _, work := range order {
+		result = append(result, *byWork[work])
+	}
+	return result
+}
+
+// economyContextParkFacts carries everything a park surface names for a
+// context-window crossing: the owning work, the stable failure code
+// (always ECONOMY_CONTEXT_EXHAUSTED), and the durable detail naming the
+// window, the last input tokens, and the ceiling.
+type economyContextParkFacts struct {
+	work   string
+	code   string
+	detail string
+}
+
+// economyContextParkEventBody builds the canonical typed park event body
+// for a context-window crossing, work-scoped by the crossing's own owning
+// work, structurally mirroring providerStallParkDetail's event shape (no
+// unblock knob - no manifest Limits value fixes a fixed driver-config
+// context window).
+func economyContextParkEventBody(
+	runID, work string,
+	facts economyContextParkFacts,
+) ([]byte, error) {
+	return canonicalDegradationParkEvent(DegradationParkEvent{
+		SchemaVersion: ParkEventVersion,
+		RunID:         runID,
+		Cause:         ParkCauseEconomyContext,
+		FailureCode:   facts.code,
+		FailureDetail: facts.detail,
+		Work:          work,
+	})
 }
 
 // economyGuardCrossing names one current-epoch driver.dispatch effect whose

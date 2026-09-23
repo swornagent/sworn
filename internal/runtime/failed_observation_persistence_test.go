@@ -417,6 +417,48 @@ func TestFailureTurnContextInvalidHandoffCarriesTail(t *testing.T) {
 // S3 A1: a dispatch that failed before any turn carries explicit empty,
 // not an absent field. Old bodies without the key decode as absent, not
 // corrupt.
+// TestStatusEffectCarriesLastReportedInputTokens anchors A4: the same
+// tool-result observation events the failure tail already reads carry the
+// latest turn's reported input tokens for a failed driver.dispatch effect,
+// through a real production dispatch and journal round trip - the exact
+// fact Status.EffectStatus.LastInputTokens is a direct three-line
+// projection of (status.go's lastInputTokens := lastInputTokensForSnapshot
+// (snapshot); status.LastInputTokens = lastInputTokens[effect.ID]) - the
+// same-shape TestFailureTurnContext*-pattern test A4's design commits to.
+func TestStatusEffectCarriesLastReportedInputTokens(t *testing.T) {
+	t.Parallel()
+	reportedInputTokens := int64(12_345)
+	dispatcher := fixtureDriver(func(ctx context.Context, inv driver.Invocation) (driver.Observation, error) {
+		if inv.ToolResultHook != nil {
+			_ = inv.ToolResultHook(ctx, driver.ToolResultTurn{
+				Turn: 1, InputTokens: &reportedInputTokens,
+				Results: []driver.ToolResultRecord{{Sequence: 1, ToolCallID: "c1", Tool: "Read", TotalBytes: 1}},
+			})
+		}
+		return driver.Observation{
+			TransportStatus: driver.RunnerError,
+			Usage:           driver.UsageReceipt{TokenStatus: driver.UsageUnavailable, CostStatus: driver.UsageUnavailable},
+		}, &driver.ContractError{Code: "ADAPTER_UNAVAILABLE"}
+	})
+	fixture := newProductionImplementationRecoveryFixture(t, dispatcher)
+	_, _, dispatchErr := fixture.service.runProductionImplementationDispatch(
+		fixture.ctx, fixture.engine, fixture.owner, fixture.workspace, fixture.cycle, fixture.coordinates,
+	)
+	if dispatchErr == nil {
+		t.Fatal("expected dispatch to fail")
+	}
+	snapshot, err := fixture.store.Snapshot(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokens := lastInputTokensForSnapshot(snapshot)
+	got := tokens[fixture.cycle.DispatchEffect]
+	if got == nil || *got != reportedInputTokens {
+		t.Fatalf("lastInputTokensForSnapshot[%s] = %#v, want *%d",
+			fixture.cycle.DispatchEffect, got, reportedInputTokens)
+	}
+}
+
 func TestFailureTurnContextEmptyVsAbsent(t *testing.T) {
 	t.Parallel()
 	dispatcher := fixtureDriver(func(context.Context, driver.Invocation) (driver.Observation, error) {

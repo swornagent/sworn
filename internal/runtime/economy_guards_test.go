@@ -1881,6 +1881,170 @@ func TestDispatchAttemptIsCurrentEpochFailsClosedOnUnparseableReplayKey(t *testi
 	}
 }
 
+// TestEconomyContextCrossingAtEpochResolvesLikeDispatchAttemptIsCurrentEpoch
+// proves economyContextCrossingAtEpoch (S6-context-window-clamp A3, the
+// Lead's required correction) resolves nested identity exactly the way
+// dispatchAttemptIsCurrentEpoch does, via the shared dispatchBuiltEpoch
+// derivation, but compares against a caller-fixed epoch instead of the
+// live "current" one - so the same work/epoch pair still matches after
+// the owner's RetryEpochs has since advanced past it (the exact
+// replay-stability property Service.admitEconomyControl's stamp depends
+// on).
+func TestEconomyContextCrossingAtEpochResolvesLikeDispatchAttemptIsCurrentEpoch(t *testing.T) {
+	t.Parallel()
+
+	t.Run("direct dispatch matches its own epoch only", func(t *testing.T) {
+		t.Parallel()
+		work := testWork()
+		snapshot := journal.Snapshot{
+			Effects: []journal.Effect{{
+				ID: journal.AttemptEffectID(work, 1, 1), Kind: "driver.dispatch",
+				State: journal.OperationalFailed, ErrorCode: "ECONOMY_CONTEXT_EXHAUSTED",
+			}},
+		}
+		if !economyContextCrossingAtEpoch(snapshot, work, 1) {
+			t.Fatal("direct dispatch crossing at its own epoch not found")
+		}
+		if economyContextCrossingAtEpoch(snapshot, work, 2) {
+			t.Fatal("direct dispatch crossing matched a different epoch")
+		}
+	})
+
+	t.Run("stable nested identity matches the outer epoch it was built under, at any try", func(t *testing.T) {
+		t.Parallel()
+		outerBefore := "outer-before-fingerprint"
+		owner := workIdentity(outerBefore, "git.seal")
+		dispatchWork := workIdentity(owner, "driver.dispatch")
+		payload, err := json.Marshal(struct {
+			Before       string `json:"before"`
+			DispatchWork string `json:"dispatch_work"`
+		}{Before: outerBefore, DispatchWork: dispatchWork})
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The stable identity is constant across every epoch: the same
+		// git.seal command names it at owner epoch 2, and the dispatch
+		// effect's own parsed epoch carries that outer epoch directly
+		// (childEpoch is set to it at build time, per this convention).
+		snapshot := journal.Snapshot{
+			Commands: []journal.Command{{Kind: "git.seal", Payload: payload}},
+			Effects: []journal.Effect{{
+				ID: journal.AttemptEffectID(dispatchWork, 2, 1), Kind: "driver.dispatch",
+				State: journal.OperationalFailed, ErrorCode: "ECONOMY_CONTEXT_EXHAUSTED",
+			}},
+		}
+		if !economyContextCrossingAtEpoch(snapshot, owner, 2) {
+			t.Fatal("stable nested identity crossing at owner epoch 2, try 1 not found")
+		}
+		if economyContextCrossingAtEpoch(snapshot, owner, 1) {
+			t.Fatal("stable nested identity crossing matched the wrong owner epoch")
+		}
+	})
+
+	t.Run("replay-stable: a since-advanced live epoch never changes the fixed-epoch answer", func(t *testing.T) {
+		t.Parallel()
+		work := testWork()
+		snapshot := journal.Snapshot{
+			Effects: []journal.Effect{{
+				ID: journal.AttemptEffectID(work, 1, 1), Kind: "driver.dispatch",
+				State: journal.OperationalFailed, ErrorCode: "ECONOMY_CONTEXT_EXHAUSTED",
+			}},
+		}
+		// dispatchAttemptIsCurrentEpoch would now report this attempt
+		// stale (RetryEpochs[work] has advanced to 2), which is exactly
+		// why economyContextCrossingAtEpoch must never consult a live
+		// ControlProjection at all: it takes none, and the fixed-epoch
+		// comparison against the original ExpectedEpoch (1) still holds.
+		control := journal.ControlProjection{RetryEpochs: map[string]int64{work: 2}}
+		if dispatchAttemptIsCurrentEpoch(snapshot, control, work, 1) {
+			t.Fatal("test setup: expected the live comparison to report stale after the epoch advanced")
+		}
+		if !economyContextCrossingAtEpoch(snapshot, work, 1) {
+			t.Fatal("fixed-epoch crossing check changed its answer after the live epoch advanced")
+		}
+	})
+
+	t.Run("unparseable nested owning ReplayKey fails closed: never contributes a match", func(t *testing.T) {
+		t.Parallel()
+		outerBefore := "outer-before-fingerprint"
+		dispatchWork := workIdentity("some-malformed-owner-key", "driver.dispatch")
+		payload, err := json.Marshal(struct {
+			Before       string `json:"before"`
+			DispatchWork string `json:"dispatch_work"`
+		}{Before: outerBefore, DispatchWork: dispatchWork})
+		if err != nil {
+			t.Fatal(err)
+		}
+		snapshot := journal.Snapshot{
+			Commands: []journal.Command{
+				{Kind: "git.seal", ReplayKey: "not-a-valid-attempt-effect-id", Payload: payload},
+			},
+			Effects: []journal.Effect{{
+				ID: journal.AttemptEffectID(dispatchWork, 1, 1), Kind: "driver.dispatch",
+				State: journal.OperationalFailed, ErrorCode: "ECONOMY_CONTEXT_EXHAUSTED",
+			}},
+		}
+		owner := workIdentity(outerBefore, "git.seal")
+		if economyContextCrossingAtEpoch(snapshot, owner, 1) {
+			t.Fatal("unparseable nested ReplayKey contributed a match (fails open); want no match (fails closed)")
+		}
+	})
+
+	t.Run("wrong error code never matches", func(t *testing.T) {
+		t.Parallel()
+		work := testWork()
+		snapshot := journal.Snapshot{
+			Effects: []journal.Effect{{
+				ID: journal.AttemptEffectID(work, 1, 1), Kind: "driver.dispatch",
+				State: journal.OperationalFailed, ErrorCode: "ECONOMY_TURN_BUDGET_EXCEEDED",
+			}},
+		}
+		if economyContextCrossingAtEpoch(snapshot, work, 1) {
+			t.Fatal("a different error code matched the context-exhaustion crossing check")
+		}
+	})
+}
+
+// TestEconomyContextParkCrossingsMirrorsEconomyParkCrossingsShape proves
+// economyContextParkCrossings (the live, current-epoch projection status
+// and pinCrossingLanes read) finds a current-epoch ECONOMY_CONTEXT_EXHAUSTED
+// failure, carries its durable refusal detail, and - unlike
+// economyContextCrossingAtEpoch - excludes a crossing whose epoch is no
+// longer current.
+func TestEconomyContextParkCrossingsMirrorsEconomyParkCrossingsShape(t *testing.T) {
+	t.Parallel()
+	work := testWork()
+	refusal, err := json.Marshal(productionRefusalBinding{
+		Code: "ECONOMY_CONTEXT_EXHAUSTED",
+		Detail: "context_window_tokens=50000 last_input_tokens=49900 ceiling=100000 " +
+			"fix: raise context_window_tokens or lower max_output_tokens in the driver config",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := journal.Snapshot{
+		Effects: []journal.Effect{{
+			ID: journal.AttemptEffectID(work, 1, 1), Kind: "driver.dispatch",
+			State: journal.OperationalFailed, ErrorCode: "ECONOMY_CONTEXT_EXHAUSTED",
+			Result: refusal,
+		}},
+	}
+	control := journal.ControlProjection{}
+	crossings := economyContextParkCrossings(snapshot, control)
+	if len(crossings) != 1 || crossings[0].work != work {
+		t.Fatalf("economyContextParkCrossings = %#v, want exactly one crossing naming %s", crossings, work)
+	}
+	if !strings.Contains(crossings[0].detail, "context_window_tokens=50000") {
+		t.Fatalf("crossing detail = %q, want the durable refusal detail", crossings[0].detail)
+	}
+	// Advancing the owner's epoch past the crossing's own drops it: this
+	// is the live projection, not the replay-stable admission check.
+	advanced := journal.ControlProjection{RetryEpochs: map[string]int64{work: 2}}
+	if crossings := economyContextParkCrossings(snapshot, advanced); len(crossings) != 0 {
+		t.Fatalf("economyContextParkCrossings after epoch advance = %#v, want none", crossings)
+	}
+}
+
 // TestEconomyParkFactsForCarriesCrossingWorkAndDispatchedBudget pins C6/V1:
 // the reported budget is the exact per-work ceiling the crossing's own
 // attempt was dispatched under - never a live, cumulative recomputation
@@ -2046,6 +2210,84 @@ func TestGrantAdmissionUnblocksCrossingAndReplaysOnce(t *testing.T) {
 	conflict.Amount = 999
 	if _, err := fixture.service.Control(fixture.ctx, conflict); !IsCode(err, "CONTROL_REJECTED") {
 		t.Fatalf("conflicting grant = %v, want CONTROL_REJECTED (REPLAY_CONFLICT)", err)
+	}
+}
+
+// TestServiceControlAdmitsContextExhaustionRetryAtTryOneAndAdvancesEpoch is
+// this attempt's own required end-to-end proof (S6-context-window-clamp
+// A3, closing the Lead's exact gap): a work parked by economy_context_window
+// at try 1 (not the third) gets a bare Retry admitted through the full
+// Service.Control stack, the epoch advances, the next epoch's try 1
+// dispatches, and an exact replay of the same command still returns the
+// cached receipt after the live epoch has since moved past the crossing's
+// own - the replay-stability property the internal EconomyContextRetry
+// stamp is designed to preserve.
+func TestServiceControlAdmitsContextExhaustionRetryAtTryOneAndAdvancesEpoch(t *testing.T) {
+	t.Parallel()
+	fixture := newEconomyGuardFixture(t, driver.Limits{
+		TimeoutMillis: 30_000,
+		OutputBytes:   65_536,
+	})
+	work := fixture.readyWork(t)
+	detail := "context_window_tokens=50000 last_input_tokens=49900 ceiling=100000 " +
+		"fix: raise context_window_tokens or lower max_output_tokens in the driver config"
+	fixture.failedDispatchAttempt(
+		t, work, 1, 1, "ECONOMY_CONTEXT_EXHAUSTED", detail,
+		economyUsageReceipt(t, "sworn.openai", 49_900, 5, 1, 0),
+	)
+
+	before, err := fixture.service.Status(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.State != "parked" || before.Park == nil ||
+		before.Park.Cause != ParkCauseEconomyContext {
+		t.Fatalf("status before retry = %#v", before)
+	}
+
+	command := journal.ControlCommand{
+		RunID: fixture.manifest.value.RunID, ID: "retry-context-1", Kind: journal.Retry,
+		ExpectedGeneration: 0, WorkID: work, ExpectedEpoch: 1,
+	}
+	if _, err := fixture.service.Control(fixture.ctx, command); err != nil {
+		t.Fatalf("retry at try 1 (not t3) = %v, want admitted", err)
+	}
+	projection, err := fixture.store.ControlProjection(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projection.RetryEpochs[work] != 2 {
+		t.Fatalf("retry epoch after retry = %d, want 2", projection.RetryEpochs[work])
+	}
+	after, err := fixture.service.Status(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Park != nil {
+		t.Fatalf("status after retry still parks = %#v", after.Park)
+	}
+
+	nextID := journal.AttemptEffectID(work, 2, 1)
+	if err := fixture.store.EnsureAttempt(fixture.ctx, journal.Command{
+		RunID: fixture.manifest.value.RunID, ReplayKey: nextID, Kind: "driver.dispatch",
+		Payload: []byte("epoch-2-try-1"), CreatedAt: fixture.now,
+	}, journal.Effect{
+		RunID: fixture.manifest.value.RunID, ID: nextID, ReplayKey: nextID, Kind: "driver.dispatch",
+		BeforeDigest: sha256Digest([]byte("before-2")), ExpectedDigest: sha256Digest([]byte("after-2")),
+		UpdatedAt: fixture.now,
+	}, journal.EffectAttempt{WorkID: work, Epoch: 2, Try: 1}); err != nil {
+		t.Fatalf("next epoch try 1 refused: %v", err)
+	}
+
+	if _, err := fixture.service.Control(fixture.ctx, command); err != nil {
+		t.Fatalf("replayed retry = %v, want nil (idempotent replay)", err)
+	}
+	replayed, err := fixture.store.ControlProjection(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replayed.RetryEpochs[work] != 2 {
+		t.Fatalf("retry epoch after replay = %d, want unchanged 2", replayed.RetryEpochs[work])
 	}
 }
 
@@ -2610,6 +2852,12 @@ func TestProviderStallGateIgnoresOtherFailureCodes(t *testing.T) {
 
 	for _, code := range []string{
 		"INVOCATION_TIMEOUT", "PROVIDER_TRANSPORT_FAILED", "PROVIDER_AUTHORIZATION_FAILED",
+		// S6-context-window-clamp A3: an economy context-exhaustion never
+		// enters S5's provider-stall backoff. provider_stall.go's own
+		// guard already excludes any code but PROVIDER_UNAVAILABLE and
+		// PROVIDER_LIMITED; this pins that fact against regression for the
+		// new code specifically.
+		"ECONOMY_CONTEXT_EXHAUSTED",
 	} {
 		stalled, err := fixture.service.providerStallGuardsParked(
 			fixture.ctx, fixture.engine, fixture.manifest.value.RunID, work,

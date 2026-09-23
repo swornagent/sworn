@@ -85,6 +85,16 @@ type ControlCommand struct {
 	// dispatch work is built from, exactly like Retry's WorkID already
 	// does. Empty means "same as WorkID".
 	RetryWorkID string `json:"retry_work_id,omitempty"`
+	// EconomyContextRetry is an internal-only Retry field
+	// (S6-context-window-clamp A3): set exclusively by
+	// Service.admitEconomyControl, from an immutable per-epoch fact,
+	// before ApplyControl ever runs — never accepted from any external
+	// command DTO. When true, it admits a Retry naming a work whose
+	// current-epoch dispatch failed ECONOMY_CONTEXT_EXHAUSTED, on any try,
+	// bypassing the ordinary WORK_NOT_EXHAUSTED try-exhaustion check below
+	// exactly the way Grant already bypasses it for the Grant-eligible
+	// economy causes; every other Retry admissibility rule is unchanged.
+	EconomyContextRetry bool `json:"economy_context_retry,omitempty"`
 }
 
 // retryEpochKey returns the work identity a Grant's retry-epoch check and
@@ -220,7 +230,8 @@ func validControl(command ControlCommand) error {
 	case Pause, Resume, Cancel, Takeover:
 		if command.WorkID != "" || command.ExpectedEpoch != 0 ||
 			command.Unit != "" || command.Amount != 0 ||
-			command.AcknowledgeUnknownUsage || command.RetryWorkID != "" {
+			command.AcknowledgeUnknownUsage || command.RetryWorkID != "" ||
+			command.EconomyContextRetry {
 			return fail("INVALID_CONTROL", nil)
 		}
 	case Retry:
@@ -231,7 +242,8 @@ func validControl(command ControlCommand) error {
 		}
 	case Grant:
 		if err := validateDigest(command.WorkID); err != nil || command.ExpectedEpoch < 1 ||
-			!validGrantUnit(command.Unit) || command.Amount <= 0 {
+			!validGrantUnit(command.Unit) || command.Amount <= 0 ||
+			command.EconomyContextRetry {
 			return fail("INVALID_CONTROL", nil)
 		}
 		if command.RetryWorkID != "" {
@@ -450,27 +462,36 @@ func (s *Store) ApplyControl(ctx context.Context, command ControlCommand, at tim
 				// Retry stays admissible when the same predicate the board
 				// guidance evaluates sees a current-epoch dispatch whose
 				// outcome is uncertain, or whose claim has expired while no
-				// runtime owner is active. Nothing else admits a payment.
-				owner, ownerPresent, ownerErr :=
-					currentOwnerOnConnection(ctx, conn, command.RunID)
-				if ownerErr != nil {
-					return ownerErr
-				}
-				ownerActive := ownerPresent && owner.ExpiresAt.After(at)
-				admissible, admissibleErr := retryAdmissibleOnConnection(
-					ctx,
-					conn,
-					command.RunID,
-					command.WorkID,
-					epoch,
-					at,
-					ownerActive,
-				)
-				if admissibleErr != nil {
-					return admissibleErr
-				}
-				if !admissible {
-					return fail("WORK_NOT_EXHAUSTED", nil)
+				// runtime owner is active, or when the runtime-layer
+				// admission gate already proved this exact work's
+				// current-epoch dispatch failed ECONOMY_CONTEXT_EXHAUSTED
+				// (EconomyContextRetry, S6-context-window-clamp A3): that
+				// crossing is deterministic given a fixed, unfixed
+				// driver-config context window, so it admits a Retry on
+				// any try, not only the third. Nothing else admits a
+				// payment.
+				if !command.EconomyContextRetry {
+					owner, ownerPresent, ownerErr :=
+						currentOwnerOnConnection(ctx, conn, command.RunID)
+					if ownerErr != nil {
+						return ownerErr
+					}
+					ownerActive := ownerPresent && owner.ExpiresAt.After(at)
+					admissible, admissibleErr := retryAdmissibleOnConnection(
+						ctx,
+						conn,
+						command.RunID,
+						command.WorkID,
+						epoch,
+						at,
+						ownerActive,
+					)
+					if admissibleErr != nil {
+						return admissibleErr
+					}
+					if !admissible {
+						return fail("WORK_NOT_EXHAUSTED", nil)
+					}
 				}
 			}
 			receipt.Epoch = epoch + 1

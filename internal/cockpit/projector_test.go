@@ -941,6 +941,165 @@ func TestSafeActionsOffersGrantActionForEconomyPinnedWorkOnly(t *testing.T) {
 	}
 }
 
+// TestSafeActionsOffersRetryForEconomyContextPinnedWorkAtAnyTry anchors
+// S6-context-window-clamp A3's board action: economy_context_window is
+// never Grant-eligible (there is no manifest Limits value a Grant could
+// raise to fix a fixed driver-config context window), so a PinnedWork of
+// that cause offers a bare Retry naming the owner and its current epoch -
+// at try 1, not only the third - and never a grant action.
+func TestSafeActionsOffersRetryForEconomyContextPinnedWorkAtAnyTry(t *testing.T) {
+	t.Parallel()
+
+	owner := "sha256:" + strings.Repeat("a", 64)
+	control := journal.ControlProjection{
+		Generation: 3, Desired: "running",
+		RetryEpochs: map[string]int64{owner: 2},
+	}
+	status := runtimepkg.RunStatus{
+		State: "parked", ControlGeneration: 3,
+		PinnedWork: []runtimepkg.PinnedWork{{
+			WorkID: owner, Lane: "T1", Cause: runtimepkg.ParkCauseEconomyContext,
+			Code: "ECONOMY_CONTEXT_EXHAUSTED", Detail: "context_window_tokens=50000",
+		}},
+	}
+	actions := safeActions(status, control)
+	if hasAction(actions, string(journal.Grant)) {
+		t.Fatalf("economy_context_window pinned work offered a grant action: %#v", actions)
+	}
+	var retries []Action
+	for _, action := range actions {
+		if action.Kind == string(journal.Retry) {
+			retries = append(retries, action)
+		}
+	}
+	if len(retries) != 1 {
+		t.Fatalf("retry actions = %#v, want exactly 1", retries)
+	}
+	if retries[0].WorkID != owner || retries[0].ExpectedEpoch != 2 ||
+		retries[0].ExpectedGeneration != 3 {
+		t.Fatalf("retry action = %#v, want work=%s epoch=2 generation=3", retries[0], owner)
+	}
+}
+
+// TestSafeActionsDedupesEconomyContextRetryAgainstTryThreeLoop proves the
+// t3 exhaustedAttempt loop and the new PinnedWork branch never both offer a
+// Retry for the same economy_context_window crossing: the t3 loop skips
+// ECONOMY_CONTEXT_EXHAUSTED-coded effects entirely (mirroring how
+// isEconomyErrorCode's codes are skipped there), so PinnedWork is this
+// cause's sole source of a board action even when the crossing happens to
+// land exactly on try 3.
+func TestSafeActionsDedupesEconomyContextRetryAgainstTryThreeLoop(t *testing.T) {
+	t.Parallel()
+
+	owner := "sha256:" + strings.Repeat("a", 64)
+	control := journal.ControlProjection{
+		Generation: 1, Desired: "running",
+		RetryEpochs: map[string]int64{owner: 1},
+	}
+	status := runtimepkg.RunStatus{
+		State: "parked", ControlGeneration: 1,
+		Effects: []runtimepkg.EffectStatus{{
+			ID:   "attempt/" + strings.Repeat("a", 64) + "/e1/t3",
+			Kind: "driver.dispatch", State: string(journal.OperationalFailed),
+			ErrorCode: "ECONOMY_CONTEXT_EXHAUSTED",
+		}},
+		PinnedWork: []runtimepkg.PinnedWork{{
+			WorkID: owner, Lane: "T1", Cause: runtimepkg.ParkCauseEconomyContext,
+			Code: "ECONOMY_CONTEXT_EXHAUSTED",
+		}},
+	}
+	actions := safeActions(status, control)
+	var retries []Action
+	for _, action := range actions {
+		if action.Kind == string(journal.Retry) {
+			retries = append(retries, action)
+		}
+	}
+	if len(retries) != 1 {
+		t.Fatalf("retry actions = %#v, want exactly 1 (deduped against the t3 loop)", retries)
+	}
+	if retries[0].WorkID != owner {
+		t.Fatalf("retry action = %#v, want work=%s", retries[0], owner)
+	}
+}
+
+// TestIsEconomyErrorCodeExcludesContextExhausted pins the Lead's explicit
+// allowance: isEconomyErrorCode stays unchanged for this release, since a
+// t3 economy_context_window crossing is admissible as a bare Retry (unlike
+// the two Grant-gated economy codes it names), so it must never be
+// classified alongside them.
+func TestIsEconomyErrorCodeExcludesContextExhausted(t *testing.T) {
+	t.Parallel()
+	if isEconomyErrorCode("ECONOMY_CONTEXT_EXHAUSTED") {
+		t.Fatal("isEconomyErrorCode(ECONOMY_CONTEXT_EXHAUSTED) = true, want false")
+	}
+	if economyGrantUnit(runtimepkg.ParkCauseEconomyContext) != "" {
+		t.Fatalf(
+			"economyGrantUnit(%s) = %q, want empty (never Grant-eligible)",
+			runtimepkg.ParkCauseEconomyContext, economyGrantUnit(runtimepkg.ParkCauseEconomyContext),
+		)
+	}
+}
+
+// TestActivityTurnCarriesReportedInputTokens anchors A4's live-activity-
+// stream half: a tool_result_observed event's input_tokens field rides
+// unchanged onto the projected ActivityTurn.
+func TestActivityTurnCarriesReportedInputTokens(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, err := journal.Open(ctx, filepath.Join(t.TempDir(), "activity-input-tokens.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	now := time.Unix(1_700_300_000, 0).UTC()
+	run := journal.Run{
+		ID: "run-activity-input-tokens", ManifestDigest: "sha256:" + strings.Repeat("a", 64),
+		Repository: t.TempDir(), Release: "release-activity-input-tokens",
+		TargetRef: "refs/heads/main", CreatedAt: now,
+	}
+	if err := store.RegisterRun(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(map[string]any{
+		"schema_version": "sworn.tool-result-turn/v1", "run_id": run.ID,
+		"track": "T1", "slice": "S1", "role": "implementer",
+		"responsibility": "implementer_implementation",
+		"attempt":        int64(1), "epoch": int64(1), "try": int64(1),
+		"work_id": "work-1", "effect_id": "attempt/work-1/e1/t1",
+		"turn": int64(1), "encoding": "base64", "input_tokens": int64(4_200),
+		"results": []map[string]any{{
+			"sequence": int64(1), "tool_call_id": "call-1", "tool": "Read",
+			"failed": false, "total_bytes": int64(2),
+			"omitted_bytes": int64(0), "redacted_bytes": int64(0),
+			"head": base64.StdEncoding.EncodeToString([]byte("ok")), "tail": "",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AppendEvent(ctx, run.ID, "tool_result_observed", body, now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	var calls []string
+	projector, err := NewProjector(
+		store,
+		&fakeRuntime{statuses: []runtimepkg.RunStatus{{}}, calls: &calls},
+		&fakeStateReader{states: []protocol.State{{}}, errs: []error{nil}, calls: &calls},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := projector.Activity(ctx, run.ID, 0, 128, ActivityFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Turns) != 1 || page.Turns[0].InputTokens == nil ||
+		*page.Turns[0].InputTokens != 4_200 {
+		t.Fatalf("turns = %#v, want one turn with InputTokens=*4200", page.Turns)
+	}
+}
+
 // A1: the activity projection joins journaled worker-turn and tool-result
 // events by (effect_id, turn), merges parts, decodes spans, and pages with
 // one cursor. It reads only what S1 journaled, performs no new redaction,

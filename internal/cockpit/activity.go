@@ -83,22 +83,25 @@ type ActivityPage struct {
 // DroppedEvents is the max dropped_events count across contributing
 // events, surfaced rather than hidden.
 type ActivityTurn struct {
-	Offset         int64            `json:"offset"`
-	EffectID       string           `json:"effect_id,omitempty"`
-	WorkID         string           `json:"work_id,omitempty"`
-	Track          string           `json:"track,omitempty"`
-	Slice          string           `json:"slice,omitempty"`
-	Role           string           `json:"role,omitempty"`
-	Responsibility string           `json:"responsibility,omitempty"`
-	Attempt        int64            `json:"attempt"`
-	Epoch          int64            `json:"epoch"`
-	Try            int64            `json:"try"`
-	Turn           int64            `json:"turn"`
-	Parts          int64            `json:"parts,omitempty"`
-	DroppedEvents  int64            `json:"dropped_events,omitempty"`
-	Content        []ActivityPart   `json:"content,omitempty"`
-	Results        []ActivityResult `json:"results,omitempty"`
-	CreatedAt      time.Time        `json:"created_at"`
+	Offset         int64  `json:"offset"`
+	EffectID       string `json:"effect_id,omitempty"`
+	WorkID         string `json:"work_id,omitempty"`
+	Track          string `json:"track,omitempty"`
+	Slice          string `json:"slice,omitempty"`
+	Role           string `json:"role,omitempty"`
+	Responsibility string `json:"responsibility,omitempty"`
+	Attempt        int64  `json:"attempt"`
+	Epoch          int64  `json:"epoch"`
+	Try            int64  `json:"try"`
+	Turn           int64  `json:"turn"`
+	Parts          int64  `json:"parts,omitempty"`
+	DroppedEvents  int64  `json:"dropped_events,omitempty"`
+	// InputTokens is the latest turn's reported input-token count
+	// (S6-context-window-clamp A4), nil when absent.
+	InputTokens *int64           `json:"input_tokens,omitempty"`
+	Content     []ActivityPart   `json:"content,omitempty"`
+	Results     []ActivityResult `json:"results,omitempty"`
+	CreatedAt   time.Time        `json:"created_at"`
 }
 
 // ActivityPart is one bounded, decoded content block of a worker turn.
@@ -147,24 +150,28 @@ type ActivityAPI interface {
 // the projection fails closed on kind and schema version, never on
 // forward-compatible additions.
 type activityEnvelope struct {
-	SchemaVersion  string                    `json:"schema_version"`
-	RunID          string                    `json:"run_id"`
-	Track          string                    `json:"track"`
-	Slice          string                    `json:"slice"`
-	Role           string                    `json:"role"`
-	Responsibility string                    `json:"responsibility"`
-	Attempt        int64                     `json:"attempt"`
-	Epoch          int64                     `json:"epoch"`
-	Try            int64                     `json:"try"`
-	WorkID         string                    `json:"work_id"`
-	EffectID       string                    `json:"effect_id"`
-	Turn           int64                     `json:"turn"`
-	Part           int64                     `json:"part"`
-	Parts          int64                     `json:"parts"`
-	DroppedEvents  int64                     `json:"dropped_events"`
-	Encoding       string                    `json:"encoding"`
-	Results        []driver.ToolResultRecord `json:"results"`
-	Content        []driver.WorkerTurnPart   `json:"content"`
+	SchemaVersion  string `json:"schema_version"`
+	RunID          string `json:"run_id"`
+	Track          string `json:"track"`
+	Slice          string `json:"slice"`
+	Role           string `json:"role"`
+	Responsibility string `json:"responsibility"`
+	Attempt        int64  `json:"attempt"`
+	Epoch          int64  `json:"epoch"`
+	Try            int64  `json:"try"`
+	WorkID         string `json:"work_id"`
+	EffectID       string `json:"effect_id"`
+	Turn           int64  `json:"turn"`
+	Part           int64  `json:"part"`
+	Parts          int64  `json:"parts"`
+	DroppedEvents  int64  `json:"dropped_events"`
+	Encoding       string `json:"encoding"`
+	// InputTokens carries the latest turn's reported input-token count
+	// through unchanged (S6-context-window-clamp A4); nil when absent or
+	// on a worker-turn envelope, which never carries it.
+	InputTokens *int64                    `json:"input_tokens,omitempty"`
+	Results     []driver.ToolResultRecord `json:"results"`
+	Content     []driver.WorkerTurnPart   `json:"content"`
 }
 
 // activityEvent is one journaled or ring-held event considered for one
@@ -595,6 +602,7 @@ func newActivityTurn(builder *activityBuilder, worker, tool []envelopeWithMeta) 
 	})
 	var maxOffset int64
 	var parts, dropped int64
+	var inputTokens *int64
 	var createdAt time.Time
 	first := true
 	consider := func(meta envelopeWithMeta) {
@@ -606,6 +614,10 @@ func newActivityTurn(builder *activityBuilder, worker, tool []envelopeWithMeta) 
 		}
 		if meta.envelope.DroppedEvents > dropped {
 			dropped = meta.envelope.DroppedEvents
+		}
+		if meta.envelope.InputTokens != nil {
+			value := *meta.envelope.InputTokens
+			inputTokens = &value
 		}
 		if first || meta.createdAt.After(createdAt) {
 			createdAt = meta.createdAt
@@ -632,6 +644,7 @@ func newActivityTurn(builder *activityBuilder, worker, tool []envelopeWithMeta) 
 		Turn:           builder.turn,
 		Parts:          parts,
 		DroppedEvents:  dropped,
+		InputTokens:    inputTokens,
 		CreatedAt:      createdAt,
 	}
 	for _, meta := range orderedWorker {

@@ -86,11 +86,17 @@ type ToolResultRecord struct {
 // stay global to the turn across parts. DroppedEvents carries the
 // observer's cumulative loud drop count at acceptance time.
 type ToolResultTurn struct {
-	Turn          int64              `json:"turn"`
-	Part          int64              `json:"part,omitempty"`
-	Parts         int64              `json:"parts,omitempty"`
-	DroppedEvents int64              `json:"dropped_events,omitempty"`
-	Results       []ToolResultRecord `json:"results"`
+	Turn          int64 `json:"turn"`
+	Part          int64 `json:"part,omitempty"`
+	Parts         int64 `json:"parts,omitempty"`
+	DroppedEvents int64 `json:"dropped_events,omitempty"`
+	// InputTokens is the latest turn's reported input-token count
+	// (S6-context-window-clamp A4), nil until the provider has reported
+	// usage for this dispatch. It rides only the first named part of a
+	// coalesced turn: observeToolResultTurn reads and clears the session's
+	// pending value once, so a multi-part turn never repeats it.
+	InputTokens *int64             `json:"input_tokens,omitempty"`
+	Results     []ToolResultRecord `json:"results"`
 }
 
 // projectToolResult builds the canonical bounded projection for one tool
@@ -499,6 +505,23 @@ func (observer *turnObserver[T]) close() {
 	}
 }
 
+// noteReportedInputTokens records the latest turn's reported input-token
+// count (S6-context-window-clamp A4), overwriting any prior pending value:
+// only the most recent report matters until the next observeToolResultTurn
+// call reads and clears it.
+func (session *toolSession) noteReportedInputTokens(tokens int64) {
+	if session == nil {
+		return
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if session.closed {
+		return
+	}
+	value := tokens
+	session.lastInputTokens = &value
+}
+
 // observeToolResultTurn projects one turn of results that crossed into a
 // model and enqueues the coalesced event (or its named parts). Sequences
 // are per turn, in call order, global across parts.
@@ -513,6 +536,10 @@ func (session *toolSession) observeToolResultTurn(
 	if observer == nil {
 		return
 	}
+	session.mu.Lock()
+	inputTokens := session.lastInputTokens
+	session.lastInputTokens = nil
+	session.mu.Unlock()
 	secrets := session.redactionSecrets()
 	records := make([]ToolResultRecord, 0, len(results))
 	for index, result := range results {
@@ -521,9 +548,11 @@ func (session *toolSession) observeToolResultTurn(
 			projectToolResult(result, int64(index+1), secrets),
 		)
 	}
-	for _, part := range splitToolResultParts(
-		ToolResultTurn{Turn: turn, Results: records},
-	) {
+	parts := splitToolResultParts(ToolResultTurn{Turn: turn, Results: records})
+	if len(parts) != 0 {
+		parts[0].InputTokens = inputTokens
+	}
+	for _, part := range parts {
 		observer.enqueue(part)
 	}
 }

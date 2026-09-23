@@ -297,6 +297,13 @@ type EffectStatus struct {
 	// effect state. Empty means absent: not a check.host effect, or a
 	// binding mismatch. Journal effect states are unchanged.
 	CheckOutcome string `json:"check_outcome,omitempty"`
+	// LastInputTokens carries the latest turn's reported input-token
+	// count for a driver.dispatch effect, in flight or failed
+	// (S6-context-window-clamp A4), from the worker turn events the
+	// tool-result observation pipeline already journals. Nil means
+	// absent: no turn of this dispatch has reported usage yet, or the
+	// effect is not a driver.dispatch.
+	LastInputTokens *int64 `json:"last_input_tokens,omitempty"`
 }
 
 type engine struct {
@@ -1683,6 +1690,20 @@ func (s *Service) admitEconomyControl(
 		if outer := ownerWorkForDispatch(snapshot, command.WorkID); outer != command.WorkID {
 			command.RetryWorkID = outer
 		}
+	}
+	if command.Kind == journal.Retry {
+		// Stamped before the replay short-circuit below, from an immutable
+		// per-epoch fact (an already-durable effect's State and ErrorCode
+		// never change once written) that stays fixed against
+		// command.ExpectedEpoch regardless of how the journal's live
+		// current epoch has since moved: an exact replay must marshal the
+		// identical command body journal.ApplyControl already has on
+		// file, EconomyContextRetry included, exactly the same reasoning
+		// the Grant RetryWorkID stamp above already relies on
+		// (S6-context-window-clamp A3).
+		command.EconomyContextRetry = economyContextCrossingAtEpoch(
+			snapshot, command.WorkID, command.ExpectedEpoch,
+		)
 	}
 	if controlCommandReplayed(snapshot, command) {
 		// An exact (or conflicting) replay of an already-recorded control

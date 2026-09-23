@@ -210,6 +210,100 @@ func TestProbeLaneHTTPResponsesCarriesConfiguredReasoningEffort(t *testing.T) {
 	}
 }
 
+// TestProbeLaneNeverAppliesContextWindowClamp anchors A3's split correction:
+// a probe's dispatch is genuinely a fresh, single, first request of its own
+// conversation, so the context-window clamp cannot fire there - structurally,
+// because ProbeLane's request builders never construct an openAIConversation
+// or responsesConversation at all. A profile whose declared context window
+// is tiny enough to force ECONOMY_CONTEXT_EXHAUSTED on any ordinary dispatch
+// still probes successfully, unclamped, on both surfaces.
+func TestProbeLaneNeverAppliesContextWindowClamp(t *testing.T) {
+	t.Parallel()
+	buildAdapter := func(t *testing.T, api OpenAIAPI, endpoint string, roundTripper http.RoundTripper) Adapter {
+		t.Helper()
+		config := HTTPProfileConfig{
+			Key: "probe-context-window-adapter", ID: "sworn.probe-context-window", Version: "1.0.0",
+			Endpoint:         endpoint,
+			CredentialHeader: "Authorization", CredentialPrefix: "Bearer ",
+			CredentialRefs:      []string{"probe-cred"},
+			ResponseBytes:       MaxProviderResponseBytes,
+			ContextWindowTokens: 1,
+		}
+		profile := OpenAIProfileConfig{HTTPProfileConfig: config, API: api}
+		if api == OpenAIResponsesAPI {
+			profile.ReasoningEffort = "medium"
+		}
+		resolver := func(context.Context, string) ([]byte, error) {
+			return []byte("secret-canary"), nil
+		}
+		adapter, err := NewOpenAIAdapter(profile, resolver, nil, nil, roundTripper)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return adapter
+	}
+
+	t.Run("chat completions", func(t *testing.T) {
+		t.Parallel()
+		var captured []byte
+		roundTripper := roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+			body, err := ioReadAllBounded(request.Body, MaxProviderRequestBytes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			captured = body
+			return statusResponse(200, http.Header{}, `{"id":"resp-1","choices":[]}`), nil
+		})
+		ref := "probe-cred"
+		registry := laneProbeSelectionRegistry(
+			t, "chat-profile",
+			buildAdapter(t, OpenAIChatCompletionsAPI, "https://provider.test/v1/chat/completions", roundTripper),
+			&ref,
+		)
+		result, err := ProbeLane(context.Background(), registry, "chat-profile", "model-x")
+		if err != nil || !result.Ready {
+			t.Fatalf("result = %#v, err = %v, want a passing probe unaffected by the tiny context window", result, err)
+		}
+		var decoded map[string]any
+		if err := json.Unmarshal(captured, &decoded); err != nil {
+			t.Fatal(err)
+		}
+		if tokens, ok := decoded["max_completion_tokens"].(float64); !ok || tokens != laneProbeMaxOutputTokens {
+			t.Fatalf("max_completion_tokens = %v, want the unclamped probe ceiling %d", decoded["max_completion_tokens"], laneProbeMaxOutputTokens)
+		}
+	})
+
+	t.Run("responses", func(t *testing.T) {
+		t.Parallel()
+		var captured []byte
+		roundTripper := roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+			body, err := ioReadAllBounded(request.Body, MaxProviderRequestBytes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			captured = body
+			return statusResponse(200, http.Header{}, `{"id":"resp-1","output":[]}`), nil
+		})
+		ref := "probe-cred"
+		registry := laneProbeSelectionRegistry(
+			t, "responses-profile",
+			buildAdapter(t, OpenAIResponsesAPI, "https://provider.test/v1/responses", roundTripper),
+			&ref,
+		)
+		result, err := ProbeLane(context.Background(), registry, "responses-profile", "model-y")
+		if err != nil || !result.Ready {
+			t.Fatalf("result = %#v, err = %v, want a passing probe unaffected by the tiny context window", result, err)
+		}
+		var decoded map[string]any
+		if err := json.Unmarshal(captured, &decoded); err != nil {
+			t.Fatal(err)
+		}
+		if tokens, ok := decoded["max_output_tokens"].(float64); !ok || tokens != laneProbeMaxOutputTokens {
+			t.Fatalf("max_output_tokens = %v, want the unclamped probe ceiling %d", decoded["max_output_tokens"], laneProbeMaxOutputTokens)
+		}
+	})
+}
+
 // TestProbeLaneHTTPProviderRefusalsMapToClosedCodesWithMessageAndRequestID
 // pins A1's closed-code mapping and C1's request-id capture across the
 // authorization, limited and unavailable provider statuses, and proves no
