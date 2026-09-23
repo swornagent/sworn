@@ -313,6 +313,12 @@ func degradationParkEvent(
 const (
 	maxParkReasonBytes            = 240 * 1024
 	bootstrapParkUnblockDirective = "Revise the contract, run sworn plan record to record the next revision, then relaunch the run."
+	// assemblyBlockedUnblockDirective is the bootstrap-authority park
+	// advice for an assembly verification BLOCKED receipt (manager
+	// policy M9). It names the route that fits it: a byte-identical
+	// plan revision, approved, then relaunch. It never advises revising
+	// the contract.
+	assemblyBlockedUnblockDirective = "Manager policy M9: record a plan revision whose slice contracts are byte-identical to the approved revision, have it approved, then relaunch the run."
 )
 
 func bootstrapAuthorityParkEvent(runID, reason string) ([]byte, error) {

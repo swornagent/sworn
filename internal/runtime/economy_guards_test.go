@@ -2294,3 +2294,77 @@ func TestProductionWorkContextV1RefusesAnEffectiveGrantDowngrade(t *testing.T) {
 		t.Fatalf("v1 downgrade of an effective-grant work context = %v, want ECONOMY_GRANT_INCOMPATIBLE_V1", err)
 	}
 }
+
+func testHostRepairForRefusalDetail(t *testing.T, check string, exitCode int) []byte {
+	t.Helper()
+	candidate := strings.Repeat("c", 40)
+	contractDigest := "sha256:" + strings.Repeat("d", 64)
+	work := hostCheckWork("S1", candidate, contractDigest, check)
+	output := "check output for " + check + "\n"
+	result := hostCheckResult{
+		Slice: "S1", Candidate: candidate, ContractDigest: contractDigest,
+		Check: check, Outcome: protocol.CheckOutcomeFail, ExitCode: exitCode,
+		Output: output, OutputDigest: protocol.DigestBytes([]byte(output)),
+		EffectID: hostCheckEffectID(work),
+	}
+	invocationID := "test-run/S1/implementer_implementation/1/1/1"
+	checks, err := driver.NewCheckBytes([]byte("test checks\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repair := productionHostRepair{
+		SchemaVersion: hostRepairVersion,
+		Before:        "sha256:" + strings.Repeat("a", 64),
+		Plan:          strings.Repeat("b", 40),
+		PreparedBase:  strings.Repeat("e", 40),
+		ProductTree:   "sha256:" + strings.Repeat("f", 64),
+		SourceEpoch:   1, SourceTry: 1,
+		Submission: driver.Submission{
+			SchemaVersion:  driver.SubmissionSchemaVersion,
+			InvocationID:   invocationID,
+			Responsibility: driver.ImplementerImplementation,
+			Summary:        "Test submission.",
+			Detail:         "Test detail.",
+			Checks:         checks,
+		},
+		FailedCheck: result,
+	}
+	if err := validateHostRepair(repair, invocationID, "S1"); err != nil {
+		t.Fatalf("test repair does not validate: %v", err)
+	}
+	return mustJSON(repair)
+}
+
+// S3-host-check-failure-facts A2: the HOST_CHECK_FAILED refusal detail
+// names the check command and exit code, not only the outcome and
+// candidate, and stays within validParkDetail, including a long-command
+// truncation case.
+func TestHostCheckFailedRefusalDetailNamesCheckCommandAndExit(t *testing.T) {
+	t.Parallel()
+	check := "grep -q repaired one.txt || exit 7"
+	detail := refusalDetail(testHostRepairForRefusalDetail(t, check, 7), "HOST_CHECK_FAILED")
+	if !strings.Contains(detail, check) {
+		t.Fatalf("detail does not name check command: %q", detail)
+	}
+	if !strings.Contains(detail, "exit 7") {
+		t.Fatalf("Detail does not name exit code: %q", detail)
+	}
+	if !strings.Contains(detail, "retained unverified candidate") {
+		t.Fatalf("Detail lost retained-candidate diagnostic: %q", detail)
+	}
+	if !validParkDetail(detail) {
+		t.Fatalf("Detail violates validParkDetail: %q", detail)
+	}
+
+	longCheck := "printf '" + strings.Repeat("x", 3000) + "'"
+	longDetail := refusalDetail(testHostRepairForRefusalDetail(t, longCheck, 3), "HOST_CHECK_FAILED")
+	if !validParkDetail(longDetail) {
+		t.Fatalf("long-command detail violates validParkDetail (len %d)", len(longDetail))
+	}
+	if len(longDetail) > 2_048 {
+		t.Fatalf("long-command detail len %d exceeds 2048", len(longDetail))
+	}
+	if !strings.Contains(longDetail, "exit 3") || !strings.Contains(longDetail, "Host check") {
+		t.Fatalf("truncated detail lost outcome/exit: %q", longDetail)
+	}
+}

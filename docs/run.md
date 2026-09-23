@@ -10,7 +10,7 @@ Sworn does not yet create a delivery plan, run manifest, or AI connection file.
 The release or deployment process must provide:
 
 - a repository with the required release records;
-- an approved, canonical `sworn.runtime-manifest/v3` file;
+- an approved, canonical `sworn.runtime-manifest/v5` file;
 - a canonical, secret-free `sworn.driver-config/v1` file whose digest matches
   the manifest; and
 - an absolute path for the private SQLite journal that will hold this run.
@@ -628,6 +628,41 @@ gate, with a retained-candidate diagnostic, so configured notification
 consumers can observe the stop without waiting for another scheduler tick.
 This does not invent a human approval question or authorize an automatic
 budget increase.
+
+### Host-check failure fact
+
+For the latest failed host check of a work, the status projection shared by
+`sworn status --json`, `sworn_status`, the board and the TUI carries one
+bounded host-check failure fact (`sworn.host-check-failure-fact/v1`): the
+check command as declared in the contract, its outcome and exit code,
+whether it was re-executed and that re-execution's outcome, the declared
+checks that were not run because this one failed, and a bounded output
+excerpt taken from the same stored result the implementer's repair context
+already holds.
+
+The fact is derived at Status time from the already-journaled,
+digest-checked `check.host` results; it adds no journal write and no new
+field on the repair, result or work-context records. It is evidence, never
+authority: nothing in the engine reads it to decide a retry, a park, a
+verdict or a repair, and the repair context the implementer receives is
+unchanged. Records written before this release report the fact as absent
+rather than corrupt.
+
+Bounds: the excerpt carries at most 4096 bytes of the stored output with a
+truthful truncation marker; the whole fact is capped at about 8 KiB;
+`not_run` is bounded by the declared contract length and is derived as the
+checks after the failed check's position in the phase order the engine used
+(quick checks first, long suites after). When the resolved contract does not
+match the stored result's contract digest, the failed check is not in its
+list, or the contract cannot be resolved at Status time, `not_run` is
+absent and marked unknown rather than guessed. A later terminal dispatch
+for the same work clears the fact; an in-flight next try does not.
+
+Each `check.host` effect in the projection also reports the check's outcome
+(`pass`, `fail`, `timeout`, `overflow`) beside the effect state, so an
+executed-and-failed check no longer reads only as `succeeded`. Journal
+effect states are unchanged. The `HOST_CHECK_FAILED` refusal detail names
+the check command and exit code alongside the outcome and candidate.
 
 ## Assembly host-check evidence
 

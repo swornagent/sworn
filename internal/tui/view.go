@@ -486,6 +486,10 @@ func (m *model) detailLines(width, height int) []string {
 		remaining := height - len(lines)
 		lines = append(lines, failureContextLines(node.FailureTurnContext, width, remaining)...)
 	}
+	if node.HostCheckFailure != nil {
+		remaining := height - len(lines)
+		lines = append(lines, hostCheckFailureLines(node.HostCheckFailure, width, remaining)...)
+	}
 	if len(lines) > height {
 		lines = lines[:height]
 	}
@@ -584,6 +588,63 @@ func failureContextLines(ctx *runtimepkg.FailureTurnContext, width, budget int) 
 			if turn.DroppedEvents > 0 {
 				all = append(all, quietStyle.Render(truncate("+"+itoaOffset(turn.DroppedEvents)+" dropped events", width)))
 			}
+		}
+	}
+	if len(all) > budget {
+		omitted := len(all) - (budget - 1)
+		all = all[:budget-1]
+		all = append(all, quietStyle.Render(truncate("+"+itoaOffset(int64(omitted))+" more", width)))
+	}
+	return all
+}
+
+func hostCheckFailureLines(fact *runtimepkg.HostCheckFailureFact, width, budget int) []string {
+	if fact == nil || budget <= 0 {
+		return nil
+	}
+	if fact.SchemaVersion != "sworn.host-check-failure-fact/v1" {
+		return nil
+	}
+	var all []string
+	all = append(all, swornStyle.Render(truncate("HOST CHECK FAILURE", width)))
+	if width < 60 {
+		all = append(all, quietStyle.Render(truncate("Narrow terminal: check output truncated. Widen to see more.", width)))
+	}
+	all = append(all, truncate("check: "+safeText(fact.Check), width))
+	outcome := "outcome: " + safeText(fact.Outcome) + " (exit " + itoaOffset(int64(fact.ExitCode)) + ")"
+	all = append(all, truncate(outcome, width))
+	if fact.Reran {
+		rerun := "re-executed: yes"
+		if fact.RerunOutcome != "" {
+			rerun += " (" + safeText(fact.RerunOutcome)
+			if fact.RerunExitCode != nil {
+				rerun += " exit " + itoaOffset(int64(*fact.RerunExitCode))
+			}
+			rerun += ")"
+		}
+		all = append(all, truncate(rerun, width))
+	} else {
+		all = append(all, truncate("re-executed: no", width))
+	}
+	switch {
+	case fact.NotRunUnknown:
+		all = append(all, quietStyle.Render(truncate("not run: unknown (contract unavailable)", width)))
+	case len(fact.NotRun) == 0:
+		all = append(all, quietStyle.Render(truncate("not run: none", width)))
+	default:
+		joined := strings.Join(fact.NotRun, ", ")
+		all = append(all, truncate("not run: "+safeText(joined), width))
+	}
+	excerptLabel := "output excerpt:"
+	if fact.ExcerptTruncated {
+		excerptLabel += " (truncated)"
+	}
+	all = append(all, quietStyle.Render(truncate(excerptLabel, width)))
+	if fact.Excerpt == "" {
+		all = append(all, quietStyle.Render(truncate("(no output)", width)))
+	} else {
+		for _, line := range strings.Split(fact.Excerpt, "\n") {
+			all = append(all, quietStyle.Render(truncate(safeText(line), width)))
 		}
 	}
 	if len(all) > budget {

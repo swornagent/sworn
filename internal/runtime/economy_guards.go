@@ -767,7 +767,20 @@ func refusalDetail(result []byte, code string) string {
 	if code == "HOST_CHECK_FAILED" {
 		var repair productionHostRepair
 		if json.Unmarshal(result, &repair) == nil && validateHostRepair(repair, repair.Submission.InvocationID, repair.FailedCheck.Slice) == nil {
-			return fmt.Sprintf("Host check %s for retained unverified candidate %s (exit %d). Inspect host_repair.failed_check before retrying.", repair.FailedCheck.Outcome, repair.FailedCheck.Candidate, repair.FailedCheck.ExitCode)
+			detail := fmt.Sprintf("Host check %s for retained unverified candidate %s (exit %d): %s. Inspect host_repair.failed_check before retrying.", repair.FailedCheck.Outcome, repair.FailedCheck.Candidate, repair.FailedCheck.ExitCode, repair.FailedCheck.Check)
+			cleaned := strings.Map(func(character rune) rune {
+				if character < 0x20 || character == 0x7f {
+					return ' '
+				}
+				return character
+			}, detail)
+			if len(cleaned) > 2_048 {
+				cleaned = truncateUTF8(cleaned, 2_048)
+			}
+			if !validParkDetail(cleaned) {
+				return ""
+			}
+			return cleaned
 		}
 	}
 	var refusal productionRefusalBinding

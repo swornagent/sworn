@@ -55,6 +55,12 @@ type journeyProvider struct {
 	// submit boundary, no dispatch try consumed) before submitting the real,
 	// anchor-touching body that clears every declared check.
 	anchorGateFault bool
+	// hostCheckFailureFactFault drives S3-host-check-failure-facts' A6
+	// built-product journey: A1's epoch-1 tries write without the repaired
+	// marker (failing the declared grep host check), while epoch-2+ tries
+	// (after a retry) write with it, so the first phase parks with the
+	// fact present and the following passing candidate clears it.
+	hostCheckFailureFactFault bool
 	// slicePaths overrides the slice -> product path table this Planner's plan
 	// promises. It stays nil for the original production journey, which keeps
 	// using journeySlicePaths(); a journey whose plan declares different
@@ -260,6 +266,16 @@ func (provider *journeyProvider) serve(
 					"test ! -f /workspace/base.txt && " +
 					"test -x /workspace/exec.sh"
 				arguments = map[string]any{"command": script}
+			}
+		} else if provider.hostCheckFailureFactFault && parts[1] == "A1" {
+			toolName = "Write"
+			content := "A1 production journey\n"
+			if len(parts) == 6 && parts[4] != "1" {
+				content = "A1 production journey\nrepaired\n"
+			}
+			arguments = map[string]any{
+				"path":    "/workspace/one-a.txt",
+				"content": content,
 			}
 		} else {
 			pathValue, ok := provider.paths()[parts[1]]
@@ -1773,6 +1789,268 @@ func TestConfiguredProductionAnchorGateAndDegenerateBodyRefuseThenCorrect(
 	}
 }
 
+// TestConfiguredProductionHostCheckFailureFactShowsThenClears is
+// S3-host-check-failure-facts' A6 built-product journey: a scripted
+// candidate fails a declared host check, `sworn status --json` for that
+// work shows the failing check command, its exit code, the not-run checks
+// and the excerpt, and the check effect shows its failing outcome; after a
+// following passing candidate (a retry on a fresh epoch that writes the
+// repaired marker) no stale fact remains and the run completes.
+func TestConfiguredProductionHostCheckFailureFactShowsThenClears(
+	t *testing.T,
+) {
+	t.Parallel()
+	repository := newProductRepository(t)
+	planBytes, plan := productionHostCheckFailureFactPlan(t, repository)
+	provider := &journeyProvider{
+		t: t, planBytes: planBytes, hostCheckFailureFactFault: true,
+		turns:    make(map[string]int),
+		families: make(map[string]driver.ProfileFamily),
+		models:   make(map[string]string),
+		access:   make(map[string]driver.WorkspaceAccess),
+	}
+	providerHTTP := httptest.NewServer(http.HandlerFunc(provider.serve))
+	defer providerHTTP.Close()
+
+	configBody, loaded := productionJourneyConfig(t, providerHTTP.URL)
+	root := t.TempDir()
+	configPath := filepath.Join(root, "drivers.json")
+	if err := os.WriteFile(configPath, configBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifestBody := productionJourneyManifest(t, repository, loaded)
+	// The host-check journey scripts identical HOST_CHECK_FAILED failures
+	// to reach genuine try-exhaustion; the identical-failure guard would
+	// park at two and offer no retry (WORK_NOT_EXHAUSTED), so the fixture
+	// raises it to the cap exactly as the topology scenarios do.
+	var hostCheckManifest swornruntime.Manifest
+	if err := json.Unmarshal(manifestBody, &hostCheckManifest); err != nil {
+		t.Fatal(err)
+	}
+	hostCheckManifest.Limits.IdenticalFailureParkAfter = driver.MaxIdenticalFailureParkAfter
+	encodedManifest, err := json.Marshal(hostCheckManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestBody = append(encodedManifest, '\n')
+	if _, err := swornruntime.ParseManifest(manifestBody); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := writeManifest(t, root, manifestBody)
+	journalPath := filepath.Join(root, "run.sqlite")
+	swornBinary := filepath.Join(root, "sworn")
+	buildBinary(t, swornBinary, "./cmd/sworn", "")
+
+	journeyEnv := map[string]string{
+		"SWORN_JOURNEY_OPENAI_KEY": journeyOpenAISecret,
+		"SWORN_JOURNEY_GEMINI_KEY": journeyGeminiSecret,
+	}
+
+	stdout, stderr := runBinaryWithEnvironment(
+		t, swornBinary, 0, journeyEnv,
+		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
+	)
+	if stderr != "" || !strings.Contains(stdout, "  state: parked") {
+		t.Fatalf("production start stdout=%q stderr=%q", stdout, stderr)
+	}
+	attention := openPlannerSummaryAttention(t, swornBinary, "production-journey", journalPath)
+	_, stderr = runBinaryWithEnvironmentTimeout(
+		t, swornBinary, 0, journeyEnv, 180*time.Second,
+		"answer", "--run", "production-journey", "--journal", journalPath,
+		"--attention", attention.ID, "--generation", "1", "--answer", journeySummaryAnswer,
+		"--config", configPath,
+	)
+	if stderr != "" {
+		t.Fatalf("production summary answer stderr=%q", stderr)
+	}
+	stdout, stderr = runBinaryWithEnvironmentTimeout(
+		t, swornBinary, 0, journeyEnv, 180*time.Second,
+		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
+	)
+	if stderr != "" || !strings.Contains(stdout, "  state: awaiting_approval") {
+		t.Fatalf("production plan proposal stdout=%q stderr=%q", stdout, stderr)
+	}
+	authorizePlan(t, journalPath, "production-journey", plan)
+	installApprovedPlan(t, repository, planBytes)
+	_, stderr = runBinaryWithEnvironmentTimeout(
+		t, swornBinary, 0, journeyEnv, 180*time.Second,
+		"resume", "--run", "production-journey", "--journal", journalPath,
+		"--command", "resume-1", "--generation", "0", "--config", configPath,
+	)
+	if stderr != "" {
+		t.Fatalf("production resume stderr=%q", stderr)
+	}
+	// First phase: A1's epoch-1 tries all fail the grep host check (the
+	// identical-failure guard is raised to three so the epoch exhausts),
+	// so the run parks with the fact present and a retry available.
+	stdout, stderr = runBinaryWithEnvironmentTimeout(
+		t, swornBinary, 0, journeyEnv, 180*time.Second,
+		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
+	)
+	if stderr != "" {
+		t.Fatalf("first-phase run stderr=%q", stderr)
+	}
+	if !strings.Contains(stdout, "  state: parked") {
+		t.Fatalf("first-phase run stdout=%q, want parked", stdout)
+	}
+	statusOut, _ := runBinary(t, swornBinary, 0, "status", "--run", "production-journey", "--journal", journalPath, "--json")
+	var parked swornruntime.RunStatus
+	if err := json.Unmarshal([]byte(statusOut), &parked); err != nil {
+		t.Fatalf("parse parked status: %v\n%s", err, statusOut)
+	}
+	var pinned *swornruntime.PinnedWork
+	for index := range parked.PinnedWork {
+		if parked.PinnedWork[index].Lane == "T1" {
+			pinned = &parked.PinnedWork[index]
+		}
+	}
+	if pinned == nil || pinned.HostCheckFailure == nil {
+		t.Fatalf("parked status pinned work = %#v, want T1 pin with host-check fact", parked.PinnedWork)
+	}
+	fact := pinned.HostCheckFailure
+	if fact.SchemaVersion != "sworn.host-check-failure-fact/v1" {
+		t.Fatalf("fact schema = %q", fact.SchemaVersion)
+	}
+	if !strings.Contains(fact.Check, "grep -q repaired one-a.txt") {
+		t.Fatalf("fact check = %q", fact.Check)
+	}
+	if fact.Outcome != "fail" || fact.ExitCode != 7 {
+		t.Fatalf("fact outcome/exit = %q/%d, want fail/7", fact.Outcome, fact.ExitCode)
+	}
+	if len(fact.NotRun) != 1 || fact.NotRun[0] != "printf 'hostcheck-third\\n'" {
+		t.Fatalf("fact not_run = %v, want third check", fact.NotRun)
+	}
+	if fact.NotRunUnknown {
+		t.Fatalf("fact not_run marked unknown, want known: %#v", fact)
+	}
+	if !strings.Contains(fact.Excerpt, "one-a.txt needs repair") {
+		t.Fatalf("fact excerpt = %q", fact.Excerpt)
+	}
+	foundFailingEffect := false
+	foundPassingEffect := false
+	foundDispatchFact := false
+	for _, effect := range parked.Effects {
+		if effect.Kind == "check.host" && effect.State == "succeeded" && effect.CheckOutcome == "fail" {
+			foundFailingEffect = true
+		}
+		if effect.Kind == "check.host" && effect.State == "succeeded" && effect.CheckOutcome == "pass" {
+			foundPassingEffect = true
+		}
+		if effect.Kind == "driver.dispatch" && effect.ErrorCode == "HOST_CHECK_FAILED" && effect.HostCheckFailure != nil {
+			foundDispatchFact = true
+			if effect.HostCheckFailure.Check != fact.Check || effect.HostCheckFailure.ExitCode != fact.ExitCode {
+				t.Fatalf("dispatch fact %#v != pinned fact %#v", effect.HostCheckFailure, fact)
+			}
+		}
+	}
+	if !foundFailingEffect {
+		t.Fatalf("no check.host effect shows failing outcome (effects %#v)", parked.Effects)
+	}
+	if !foundPassingEffect {
+		t.Fatalf("no check.host effect shows passing outcome")
+	}
+	if !foundDispatchFact {
+		t.Fatalf("no failed dispatch carries the fact")
+	}
+	// Journal effect states are unchanged: every check.host effect reads
+	// succeeded, with the outcome beside it.
+	store, err := journal.OpenReadOnly(context.Background(), journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.Snapshot(context.Background(), "production-journey")
+	_ = store.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, effect := range snapshot.Effects {
+		if effect.Kind == "check.host" && effect.State != journal.Succeeded {
+			t.Fatalf("journal check.host state changed: %#v", effect)
+		}
+	}
+	// Board parity (A4): the board's effect views carry the same fact
+	// even though its actions are suppressed while T3 is absent.
+	boardOut, _ := runBinary(t, swornBinary, 0, "board", "--run", "production-journey", "--journal", journalPath, "--json")
+	var board cockpit.Snapshot
+	if err := json.Unmarshal([]byte(boardOut), &board); err != nil {
+		t.Fatalf("parse board: %v\n%s", err, boardOut)
+	}
+	foundBoardFact := false
+	for _, effect := range board.Runtime.Effects {
+		if effect.Kind == "driver.dispatch" && effect.ErrorCode == "HOST_CHECK_FAILED" && effect.HostCheckFailure != nil {
+			if effect.HostCheckFailure.Check == fact.Check && effect.HostCheckFailure.ExitCode == fact.ExitCode {
+				foundBoardFact = true
+			}
+		}
+	}
+	if !foundBoardFact {
+		t.Fatalf("board effects carry no host-check fact matching status")
+	}
+	// Second phase: retry the pinned T1 work on a fresh epoch, whose
+	// provider writes the repaired marker, so the following candidate
+	// passes every declared check and the run completes with no stale fact.
+	// The retry is driven directly from the status pin, not via a board
+	// retry action: the board suppresses all actions while any track ref
+	// is absent (TRACK_REF_ABSENT for T3, which cannot materialize until
+	// T1 completes), so no board retry action exists even though the T1
+	// work is exhausted and retryable. The topology scenarios use the
+	// same direct retry (parkedWork + retry --epoch 1) for identical
+	// try-exhaustion parks.
+	// Exhaustion proof: the pinned work must have a failed third try,
+	// otherwise the retry below would correctly refuse WORK_NOT_EXHAUSTED.
+	exhausted := false
+	for _, effect := range parked.Effects {
+		if effect.State == string(journal.OperationalFailed) && strings.HasSuffix(effect.ID, "/t3") {
+			parts := strings.Split(effect.ID, "/")
+			if len(parts) == 4 && "sha256:"+parts[1] == pinned.WorkID {
+				exhausted = true
+			}
+		}
+	}
+	if !exhausted {
+		t.Fatalf("pinned work %s has no exhausted t3 effect", pinned.WorkID)
+	}
+	_, stderr = runBinaryWithEnvironmentTimeout(
+		t, swornBinary, 0, journeyEnv, 180*time.Second,
+		"retry", "--run", "production-journey", "--journal", journalPath,
+		"--command", "retry-hostcheck-1", "--generation", fmt.Sprintf("%d", parked.ControlGeneration),
+		"--work", pinned.WorkID, "--epoch", "1",
+		"--config", configPath,
+	)
+	if stderr != "" {
+		t.Fatalf("retry stderr=%q", stderr)
+	}
+	stdout, stderr = runBinaryWithEnvironmentTimeout(
+		t, swornBinary, 0, journeyEnv, 180*time.Second,
+		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
+	)
+	if stderr != "" {
+		t.Fatalf("second-phase run stderr=%q", stderr)
+	}
+	if !strings.Contains(stdout, "  state: complete") {
+		t.Fatalf("second-phase run stdout=%q, want complete", stdout)
+	}
+	statusOut, _ = runBinary(t, swornBinary, 0, "status", "--run", "production-journey", "--journal", journalPath, "--json")
+	var completed swornruntime.RunStatus
+	if err := json.Unmarshal([]byte(statusOut), &completed); err != nil {
+		t.Fatalf("parse completed status: %v\n%s", err, statusOut)
+	}
+	for _, effect := range completed.Effects {
+		if effect.HostCheckFailure != nil {
+			t.Fatalf("stale fact remains on %s after passing candidate: %#v", effect.ID, effect.HostCheckFailure)
+		}
+	}
+	for _, pin := range completed.PinnedWork {
+		if pin.HostCheckFailure != nil {
+			t.Fatalf("stale pinned fact remains: %#v", pin)
+		}
+	}
+	if got, err := exec.Command(e2eGit, "-C", repository, "show", "main:one-a.txt").Output(); err != nil ||
+		!strings.Contains(string(got), "repaired") {
+		t.Fatalf("one-a.txt product = %q, want repaired marker", got)
+	}
+}
+
 func TestConfiguredProductionFirstCheckpointFaultFencesWorkspace(
 	t *testing.T,
 ) {
@@ -2041,6 +2319,104 @@ func productionAnchorGatePlan(
 	body := []byte(
 		"```protocol-plan-v2\n" + string(metadataBody) +
 			"\n```\n\nDeterministic production anchor-gate journey for " + repository +
+			".\nOwned surface read from the repository: " +
+			journeyRepositoryCanary + ".\n",
+	)
+	plan, err := protocol.ParsePlan(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return body, plan
+}
+
+// productionHostCheckFailureFactChecks are A1's three declared host checks
+// in productionHostCheckFailureFactPlan: a passing quick check, a grep
+// that fails with exit 7 until the repaired marker is present, and a third
+// quick check that is therefore not run. They are distinct, quick and
+// side-effect-free, so a failed candidate journals exactly two check.host
+// effects and a repaired candidate journals all three.
+var productionHostCheckFailureFactChecks = []string{
+	"printf 'hostcheck-first\\n'",
+	"grep -q repaired one-a.txt || { echo 'one-a.txt needs repair'; exit 7; }",
+	"printf 'hostcheck-third\\n'",
+}
+
+// productionHostCheckFailureFactPlan is productionJourneyPlan's own
+// four-slice, three-track shape with one change: A1 alone declares real
+// host_checks (the three checks above) so S3-host-check-failure-facts' A6
+// built-product journey measures the failure fact against real host-check
+// identity. A2, B1 and C1 keep worker-runnable checks only and proceed
+// through their default scripted behaviour.
+func productionHostCheckFailureFactPlan(
+	t *testing.T,
+	repository string,
+) ([]byte, protocol.Plan) {
+	t.Helper()
+	slice := func(id string) protocol.Slice {
+		return protocol.Slice{
+			ID:      id,
+			Outcome: "Deliver deterministic production slice " + id + ".",
+			Scope: protocol.Scope{
+				Include: []string{journeySlicePaths()[id]},
+				Exclude: []string{},
+			},
+			Acceptance: []protocol.Criterion{{
+				ID:   "A-" + id,
+				Text: id + " is present in the exact product tree.",
+			}},
+			Checks:      []string{"check " + id},
+			Constraints: []string{"deterministic local provider"},
+			DependsOn:   []string{},
+			Consumes:    []string{},
+		}
+	}
+	factSlice := protocol.Slice{
+		ID:      "A1",
+		Outcome: "Deliver deterministic production slice A1.",
+		Scope: protocol.Scope{
+			Include: []string{"one-a.txt"},
+			Exclude: []string{},
+		},
+		Acceptance: []protocol.Criterion{{
+			ID:   "A-A1",
+			Text: "A1 is present in the exact product tree.",
+		}},
+		Checks:      productionHostCheckFailureFactChecks,
+		HostChecks:  productionHostCheckFailureFactChecks,
+		Constraints: []string{"deterministic local provider"},
+		DependsOn:   []string{},
+		Consumes:    []string{},
+	}
+	metadata := protocol.Metadata{
+		SchemaVersion: protocol.PlanVersion,
+		Release:       "production-journey-release",
+		Revision:      1,
+		PreviousPlan:  nil,
+		Repository:    "acme-repo",
+		TargetRef:     "refs/heads/main",
+		ApprovalRef:   "operator://production-journey-release/1",
+		Tracks: []protocol.Track{
+			{
+				ID: "T1", DependsOn: []string{},
+				Slices: []protocol.Slice{factSlice, slice("A2")},
+			},
+			{
+				ID: "T2", DependsOn: []string{},
+				Slices: []protocol.Slice{slice("B1")},
+			},
+			{
+				ID: "T3", DependsOn: []string{"T1"},
+				Slices: []protocol.Slice{slice("C1")},
+			},
+		},
+	}
+	metadataBody, err := json.MarshalIndent(metadata, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := []byte(
+		"```protocol-plan-v2\n" + string(metadataBody) +
+			"\n```\n\nDeterministic production host-check-failure-fact journey for " + repository +
 			".\nOwned surface read from the repository: " +
 			journeyRepositoryCanary + ".\n",
 	)

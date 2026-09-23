@@ -5867,10 +5867,17 @@ func truncateUTF8(s string, maxBytes int) string {
 }
 
 func formatBootstrapParkReason(summary string) string {
+	return formatBootstrapParkReasonWithDirective(summary, bootstrapParkUnblockDirective)
+}
+
+func formatBootstrapParkReasonWithDirective(summary, directive string) string {
 	if summary == "" {
 		summary = "Planner revision required."
 	}
-	suffix := "\n\n" + bootstrapParkUnblockDirective
+	if directive == "" {
+		directive = bootstrapParkUnblockDirective
+	}
+	suffix := "\n\n" + directive
 	maxSummary := maxParkReasonBytes - len(suffix)
 	if len(summary) > maxSummary {
 		summary = truncateUTF8(summary, maxSummary)
@@ -5890,11 +5897,32 @@ func triggeringPlannerReceipt(state protocol.State) *protocol.ReceiptEntry {
 	return nil
 }
 
+// isAssemblyBlockedBootstrapPark reports whether a bootstrap-authority park
+// is caused by an assembly verification BLOCKED receipt. The predicate is
+// typed, never a summary substring: no slice is planner-bound (so the
+// triggering receipt is the assembly receipt), the assembly needs the
+// planner, and its outcome is blocked. Every other planner-needed state
+// keeps the slice directive.
+func isAssemblyBlockedBootstrapPark(state protocol.State) bool {
+	for _, slice := range state.Slices {
+		if slice.NextRole == "planner" {
+			return false
+		}
+	}
+	if state.Assembly.NextRole != "planner" || state.Assembly.Outcome != "blocked" {
+		return false
+	}
+	return state.Assembly.CurrentReceipt != nil
+}
+
 func bootstrapParkReasonForState(state protocol.State) string {
 	receipt := triggeringPlannerReceipt(state)
 	summary := ""
 	if receipt != nil {
 		summary = receipt.Receipt.Summary
+	}
+	if isAssemblyBlockedBootstrapPark(state) {
+		return formatBootstrapParkReasonWithDirective(summary, assemblyBlockedUnblockDirective)
 	}
 	return formatBootstrapParkReason(summary)
 }

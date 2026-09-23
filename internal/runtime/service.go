@@ -175,6 +175,12 @@ type PinnedWork struct {
 	// It is evidence for the human and the seat to read, never authority:
 	// nothing in the engine parses it to classify, park, retry, or judge.
 	FailureTurnContext *FailureTurnContext `json:"failure_turn_context,omitempty"`
+	// HostCheckFailure carries the bounded host-check failure fact for
+	// the pinned work's latest failed host check, beside Code and Detail.
+	// Nil means absent: no failed host check, a pre-release record, or a
+	// pin with no failed dispatch to show. It is evidence, never
+	// authority.
+	HostCheckFailure *HostCheckFailureFact `json:"host_check_failure,omitempty"`
 }
 
 // RecoveryAction names the one control verb currently admissible for a run
@@ -243,6 +249,15 @@ type EffectStatus struct {
 	// dispatch, or an effect that is not a failed dispatch. It is
 	// evidence, never authority.
 	FailureTurnContext *FailureTurnContext `json:"failure_turn_context,omitempty"`
+	// HostCheckFailure carries the bounded host-check failure fact for
+	// the latest terminal HOST_CHECK_FAILED dispatch of its owner work.
+	// Nil means absent. It is evidence, never authority.
+	HostCheckFailure *HostCheckFailureFact `json:"host_check_failure,omitempty"`
+	// CheckOutcome reports the journaled check's outcome for a
+	// check.host effect (pass, fail, timeout, overflow), beside the
+	// effect state. Empty means absent: not a check.host effect, or a
+	// binding mismatch. Journal effect states are unchanged.
+	CheckOutcome string `json:"check_outcome,omitempty"`
 }
 
 type engine struct {

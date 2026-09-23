@@ -349,6 +349,8 @@ func buildSnapshot(
 			ErrorCode:          effect.ErrorCode,
 			Derived:            effect.Derived,
 			FailureTurnContext: effect.FailureTurnContext,
+			HostCheckFailure:   effect.HostCheckFailure,
+			CheckOutcome:       effect.CheckOutcome,
 		})
 	}
 	for _, attempt := range observation.Attempts {
@@ -493,13 +495,18 @@ func buildSnapshot(
 	// release lane maps to the assembly node. Same pointer, no re-decode,
 	// so board/TUI/MCP detail stay in parity with Effects/PinnedWork.
 	for _, pinned := range status.PinnedWork {
-		if pinned.FailureTurnContext == nil {
+		if pinned.FailureTurnContext == nil && pinned.HostCheckFailure == nil {
 			continue
 		}
 		if pinned.Lane == "release" {
 			for i := range result.Graph.Nodes {
 				if result.Graph.Nodes[i].Kind == "assembly" {
-					result.Graph.Nodes[i].FailureTurnContext = pinned.FailureTurnContext
+					if pinned.FailureTurnContext != nil {
+						result.Graph.Nodes[i].FailureTurnContext = pinned.FailureTurnContext
+					}
+					if pinned.HostCheckFailure != nil {
+						result.Graph.Nodes[i].HostCheckFailure = pinned.HostCheckFailure
+					}
 				}
 			}
 			continue
@@ -507,7 +514,12 @@ func buildSnapshot(
 		for i := range result.Graph.Nodes {
 			node := &result.Graph.Nodes[i]
 			if node.Kind == "slice" && node.Track == pinned.Lane && node.HasProtocol {
-				node.FailureTurnContext = pinned.FailureTurnContext
+				if pinned.FailureTurnContext != nil {
+					node.FailureTurnContext = pinned.FailureTurnContext
+				}
+				if pinned.HostCheckFailure != nil {
+					node.HostCheckFailure = pinned.HostCheckFailure
+				}
 			}
 		}
 	}

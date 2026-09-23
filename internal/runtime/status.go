@@ -112,6 +112,12 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	// S3: one digest-checked pass over the failure/uncertain events keyed
 	// by effect ID; every failed dispatch below reuses it.
 	failureContexts := failureContextsForSnapshot(snapshot)
+	commandsByReplay := make(map[string]journal.Command, len(snapshot.Commands))
+	for _, command := range snapshot.Commands {
+		if _, duplicate := commandsByReplay[command.ReplayKey]; !duplicate {
+			commandsByReplay[command.ReplayKey] = command
+		}
+	}
 	for _, effect := range snapshot.Effects {
 		if effect.ID == "runtime.owner" || effect.Kind == "runtime.control" {
 			continue
@@ -127,6 +133,9 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		if effect.Kind == "driver.dispatch" &&
 			(effect.State == journal.OperationalFailed || effect.State == journal.Uncertain) {
 			status.FailureTurnContext = failureContexts[effect.ID]
+		}
+		if effect.Kind == "check.host" {
+			status.CheckOutcome = checkOutcomeForEffect(effect, commandsByReplay)
 		}
 		result.Effects = append(result.Effects, status)
 		if state, deliberate := recoveryClaims[effect.ID]; deliberate {
@@ -174,6 +183,11 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 			}
 		}
 	}
+	// Host-check failure facts are evidence, never authority. Attach them
+	// with an unknown contract first so every early return below still
+	// carries the check, outcome, exit and excerpt; the proposal-selected
+	// contract refines NotRun once it is available.
+	attachHostCheckFailureFacts(&result, snapshot, nil)
 	// Exhaustion is journal-derived, in the one place the drive loop reads it
 	// from too, so both surfaces name the same spent try budgets.
 	exhausted, exhaustionRefusals = exhaustedWorks(snapshot, control, recoveryClaims)
@@ -247,6 +261,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	if selectErr != nil {
 		return RunStatus{}, selectErr
 	}
+	attachHostCheckFailureFacts(&result, snapshot, statusContractHostChecksResolver(proposal, proposalFound, statusEngine, state, stateErr))
 	bootstrapAuthorityParked := !proposalFound && stateErr == nil &&
 		isBootstrapOnlyAuthority(manifest, snapshot) && isPlannerNeeded(state)
 	var bootstrapParkReason string
@@ -517,6 +532,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	// Node stay in parity.
 	for index := range result.PinnedWork {
 		result.PinnedWork[index].FailureTurnContext = failureContextForPinnedWork(snapshot, result.Effects, result.PinnedWork[index])
+		result.PinnedWork[index].HostCheckFailure = hostCheckFailureForPinnedWork(snapshot, result.Effects, result.PinnedWork[index])
 	}
 	if result.State == "parked" {
 		switch {
