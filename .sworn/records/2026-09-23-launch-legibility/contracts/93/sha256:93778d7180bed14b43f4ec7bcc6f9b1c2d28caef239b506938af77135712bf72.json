@@ -1,0 +1,77 @@
+{
+  "outcome": "One cheap, bounded live probe proves a configured lane is admitting requests right now, and the whole-roster readiness check names what it is missing: `sworn driver probe` sends one minimal request for an explicitly named profile and model and reports the provider's typed refusal and request id, and `doctor --all` and `certify --all` name every missing production family and surface from one roster declaration.",
+  "scope": {
+    "include": [
+      "cmd/sworn",
+      "internal/runtime",
+      "internal/journal",
+      "internal/gitx",
+      "internal/driver",
+      "internal/cockpit",
+      "internal/observe",
+      "internal/tui",
+      "internal/skill",
+      "internal/protocol",
+      "tools/protocolgolden",
+      "test/e2e",
+      "docs/run.md",
+      "docs/launch.md",
+      "docs/policy/manager.md",
+      "README.md"
+    ],
+    "exclude": []
+  },
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "`sworn driver probe --config C --profile P --model M [--json]` sends one minimal live request through the lane's own transport, with no tools, a small declared output bound and a bounded timeout long enough to observe a provider's own admission timeout. It reports ready or a closed readiness code reusing the certification failure mapping (authorization failed, request rejected, limited, unavailable, transport), the provider's bounded message and request id where the provider returns one, and the latency. Anchor: internal/driver/profile_test.go and cmd/sworn/driver_test.go."
+    },
+    {
+      "id": "A2",
+      "text": "HTTP lanes probe through the same endpoint-authority-checked round trip dispatch uses; Bedrock lanes through their runtime client; native CLI lanes reuse the existing credential liveness probe. No lane is reported ready by the probe without a live response. `sworn driver doctor` output states that it made no live call. Anchor: internal/driver/http_test.go and internal/driver/native_admission_probe_linux_test.go."
+    },
+    {
+      "id": "A3",
+      "text": "The probe is exposed to the runtime as one function that takes an explicit profile and model and returns a typed result, so the provider-stall backoff in S5 and a Manager seat use the identical request. It never falls back to another profile or model. Anchor: internal/driver/provider_balance_probe_test.go."
+    },
+    {
+      "id": "A4",
+      "text": "`sworn driver doctor --all` and `certify --all` name every missing production family and surface in the refusal detail (for example `missing families: bedrock; missing surfaces: bedrock_runtime_converse`), and the message says that `--all` checks the complete production roster while `--profile P --model M` checks one lane. The production roster is declared once: the registry build (NewProductionRegistry) and the readiness report (completeProductionReadiness in cmd/sworn/driver.go) read the same declaration, so a roster that builds cannot then be reported not ready for a family the build did not require. Anchor: cmd/sworn/driver_test.go."
+    },
+    {
+      "id": "A5",
+      "text": "docs/run.md documents probe, its cost (one minimal request per lane), when to use it instead of certify, and the doctor --all roster; docs/policy/manager.md M4 names `sworn driver probe` as the live probe. Anchor: docs/run.md and docs/policy/manager.md."
+    }
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race -timeout=20m ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "test -z \"$(gofmt -l ./cmd ./internal ./tools)\"",
+    "go mod tidy -diff",
+    "git diff --check",
+    "GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build ./..."
+  ],
+  "host_checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race -timeout=20m ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "test -z \"$(gofmt -l ./cmd ./internal ./tools)\"",
+    "go mod tidy -diff",
+    "git diff --check",
+    "GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build ./..."
+  ],
+  "constraints": [
+    "Probe is not certify: it checks admission, not the submission contract, and it never runs the agent loop. It sends no repository content.",
+    "Every model-facing call names its profile and model explicitly; there are no default lanes. Probe results are observations, never authority over a verdict.",
+    "Every listed check is a host check: contained implementers and verifiers consume engine-bound host evidence and never attempt nested containment or claim to have executed these commands. Each long process suite runs once per candidate in the phase order the engine defines.",
+    "This release changes no roster, model selection, budget, retry cap or fallback behaviour except where an acceptance criterion of this slice names the change exactly. The broad supporting package scope admits only this promised mechanism and its affected regression fixtures, adapters, status projections and documentation.",
+    "Known contained-workspace facts, not defects of this slice: cmd/sworn's TestTUIActionDriveSurvivesActionReturn fails in the sandbox with CREDENTIAL_UNAVAILABLE and prints roughly 90 KB of DEBUG output; it passes on the host. Do not chase it and do not run it in the workspace. internal/runtime exceeds Go's implicit 10-minute package deadline in the sandbox; pass -timeout=20m on your own package runs. The sandbox shell is dash without `which`. Never build a binary into the workspace root: an out-of-scope file at the root makes checkpoint capture refuse with CHECKPOINT_SCOPE_VIOLATION and fences the workspace; build into a temporary directory.",
+    "internal/protocol is the embedded protocol package. This slice needs no change to its receipt vocabulary, check outcomes, operation assets, snapshot or pinned digests (internal/protocol/assets.go, release.json, tools/protocolgolden); if a design appears to need one, report it rather than re-pinning the bundle.",
+    "No secret, credential, absolute operator path or raw provider body reaches any message, journal record or projection this slice adds. Existing content-free guarantees (for example the serve and operator-config tests that assert no secret or path is echoed) keep holding; where a message now names an input, it names the input kind and flag, not its contents."
+  ],
+  "depends_on": [],
+  "consumes": []
+}

@@ -1,0 +1,73 @@
+{
+  "outcome": "Every launch refusal names its cause: serve prints the typed code and which input failed instead of one generic line, the operator config refusal distinguishes an unsafe file mode from a malformed file, and plan record, pin and lint accept an abbreviated object id resolved through Git or name the flag that carried a bad one, so no launch failure has to be diagnosed by probing the code.",
+  "scope": {
+    "include": [
+      "cmd/sworn",
+      "internal/runtime",
+      "internal/journal",
+      "internal/gitx",
+      "internal/driver",
+      "internal/cockpit",
+      "internal/observe",
+      "internal/tui",
+      "internal/skill",
+      "internal/protocol",
+      "tools/protocolgolden",
+      "test/e2e",
+      "docs/run.md",
+      "docs/launch.md",
+      "docs/policy/manager.md",
+      "README.md"
+    ],
+    "exclude": []
+  },
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "`sworn serve` keeps its friendly first line but, like every other command, then prints `Technical code: <CODE>` and names which input failed: manifest, journal, run authority, operator config, driver config, Git project or listener. A manifest refusal reports the runtime's own admission code (NONCANONICAL_MANIFEST, MIGRATION_REQUIRED, INVALID_MANIFEST_VERSION, INVALID_MANIFEST) rather than the collapsed INVALID_MANIFEST that cockpit's manifest admission returns: serve obtains it by running runtime.ParseManifest on the same bytes before cockpit admission. Anchor: cmd/sworn/operator_test.go."
+    },
+    {
+      "id": "A2",
+      "text": "The operator config loader returns typed failures instead of one untyped `operator config unavailable` error at every site, with its codes enumerated in one place, and the refusal tells the operator the required mode (0600) when the mode is the cause. No path or config content is echoed. Anchor: cmd/sworn/operator_config.go and cmd/sworn/operator_test.go."
+    },
+    {
+      "id": "A3",
+      "text": "`--commit` and `--contract-tree` on `sworn plan record`, and `--commit` on `plan pin` and `plan lint`, accept any revision Git resolves to exactly one commit (a full id, an unambiguous abbreviation or a ref name), resolved through one exported, sanitized internal/gitx resolver that also replaces the ad hoc `git rev-parse` in cmd/sworn/plan_command.go (resolveRepositoryHEAD). The full resolved id is what is recorded and is printed in the command's output. An ambiguous or unresolvable value is refused with a typed code whose message names the flag. Anchor: internal/gitx/repository_test.go and cmd/sworn/plan_command_test.go."
+    },
+    {
+      "id": "A4",
+      "text": "A new docs/launch.md walks an operator through launching a release with the commands as they stand after this track: plan pin, plan lint, plan record (with abbreviated ids), the canonical manifest, operator config (mode 0600) and serve, with each refusal code this slice prints and what to do about it. README.md links it where it describes serve. Anchor: docs/launch.md."
+    }
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race -timeout=20m ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "test -z \"$(gofmt -l ./cmd ./internal ./tools)\"",
+    "go mod tidy -diff",
+    "git diff --check",
+    "GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build ./..."
+  ],
+  "host_checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race -timeout=20m ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "test -z \"$(gofmt -l ./cmd ./internal ./tools)\"",
+    "go mod tidy -diff",
+    "git diff --check",
+    "GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build ./..."
+  ],
+  "constraints": [
+    "Refusal text stays one friendly line, then the technical code, then at most one bounded detail line, through the existing writeKnownFailure and writeCommandFailure formatters in cmd/sworn/main.go. Do not add a second formatter.",
+    "Object identity stays exact: resolution happens once at the command boundary and every downstream record, digest and receipt receives the full id, exactly as when a full id is typed. internal/gitx remains the only owner of Git invocations and its sanitized environment; after this slice cmd/sworn runs no git command of its own.",
+    "Every listed check is a host check: contained implementers and verifiers consume engine-bound host evidence and never attempt nested containment or claim to have executed these commands. Each long process suite runs once per candidate in the phase order the engine defines.",
+    "This release changes no roster, model selection, budget, retry cap or fallback behaviour except where an acceptance criterion of this slice names the change exactly. The broad supporting package scope admits only this promised mechanism and its affected regression fixtures, adapters, status projections and documentation.",
+    "Known contained-workspace facts, not defects of this slice: cmd/sworn's TestTUIActionDriveSurvivesActionReturn fails in the sandbox with CREDENTIAL_UNAVAILABLE and prints roughly 90 KB of DEBUG output; it passes on the host. Do not chase it and do not run it in the workspace. internal/runtime exceeds Go's implicit 10-minute package deadline in the sandbox; pass -timeout=20m on your own package runs. The sandbox shell is dash without `which`. Never build a binary into the workspace root: an out-of-scope file at the root makes checkpoint capture refuse with CHECKPOINT_SCOPE_VIOLATION and fences the workspace; build into a temporary directory.",
+    "internal/protocol is the embedded protocol package. This slice needs no change to its receipt vocabulary, check outcomes, operation assets, snapshot or pinned digests (internal/protocol/assets.go, release.json, tools/protocolgolden); if a design appears to need one, report it rather than re-pinning the bundle.",
+    "No secret, credential, absolute operator path or raw provider body reaches any message, journal record or projection this slice adds. Existing content-free guarantees (for example the serve and operator-config tests that assert no secret or path is echoed) keep holding; where a message now names an input, it names the input kind and flag, not its contents."
+  ],
+  "depends_on": [],
+  "consumes": []
+}

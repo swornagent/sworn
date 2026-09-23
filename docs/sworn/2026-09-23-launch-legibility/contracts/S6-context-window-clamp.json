@@ -1,0 +1,77 @@
+{
+  "outcome": "An HTTP lane never sends a request whose output ceiling cannot fit in the model's context window: an operator-declared context window lets the adapter clamp max_output_tokens to the room left after the previous turn's input, a turn that cannot fit a minimal output stops with a typed context-exhaustion cause before sending, and the status projection shows the latest turn's input tokens so the seat can see a context approaching its window.",
+  "scope": {
+    "include": [
+      "cmd/sworn",
+      "internal/runtime",
+      "internal/journal",
+      "internal/gitx",
+      "internal/driver",
+      "internal/cockpit",
+      "internal/observe",
+      "internal/tui",
+      "internal/skill",
+      "internal/protocol",
+      "tools/protocolgolden",
+      "test/e2e",
+      "docs/run.md",
+      "docs/launch.md",
+      "docs/policy/manager.md",
+      "README.md"
+    ],
+    "exclude": []
+  },
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "OpenAI-compatible HTTP profiles (both the chat completions and the responses surfaces) accept an optional `context_window_tokens` field, validated and part of the canonical driver config and its digest. A config without it encodes and digests exactly as today. Anchor: internal/driver/http_test.go."
+    },
+    {
+      "id": "A2",
+      "text": "When the field is set, each request after the first sends max_output_tokens = min(configured ceiling, context_window_tokens - previous turn's reported input tokens - a declared safety margin), never more than today's value. When the field is unset, requests are byte-identical to today's. Anchor: internal/driver/http_test.go."
+    },
+    {
+      "id": "A3",
+      "text": "When the remaining room is below a declared minimal output, the adapter does not send the request and the dispatch fails with a new typed economy code (for example ECONOMY_CONTEXT_EXHAUSTED) whose detail names the window, the last input tokens and the ceiling. The code is admitted everywhere economy codes are enumerated (adapter error allowlist, kind classification, certification mapping, status economy crossing, cockpit projector, command and catalog) and is an economy failure, not a provider failure, so it never triggers S5's provider-stall backoff. Anchor: internal/driver/provider_limit_evidence_test.go and internal/cockpit/catalog_test.go."
+    },
+    {
+      "id": "A4",
+      "text": "The status projection's dispatch view and the live activity stream carry the latest turn's reported input tokens for an in-flight or failed dispatch, from the worker turn events the previous release journals. Anchor: internal/runtime/failed_observation_persistence_test.go."
+    },
+    {
+      "id": "A5",
+      "text": "docs/run.md documents context_window_tokens, the clamp and the new code in the driver configuration section. Anchor: docs/run.md."
+    }
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race -timeout=20m ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "test -z \"$(gofmt -l ./cmd ./internal ./tools)\"",
+    "go mod tidy -diff",
+    "git diff --check",
+    "GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build ./..."
+  ],
+  "host_checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race -timeout=20m ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "test -z \"$(gofmt -l ./cmd ./internal ./tools)\"",
+    "go mod tidy -diff",
+    "git diff --check",
+    "GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build ./..."
+  ],
+  "constraints": [
+    "Only reported usage is used as the input estimate: no tokenizer, no local token counting and no new dependency. The first request of a dispatch is unchanged because no usage has been reported yet.",
+    "The configured max_output_tokens remains the ceiling and the manifest's output byte budget keeps its meaning; the clamp only ever lowers the value sent.",
+    "Every listed check is a host check: contained implementers and verifiers consume engine-bound host evidence and never attempt nested containment or claim to have executed these commands. Each long process suite runs once per candidate in the phase order the engine defines.",
+    "This release changes no roster, model selection, budget, retry cap or fallback behaviour except where an acceptance criterion of this slice names the change exactly. The broad supporting package scope admits only this promised mechanism and its affected regression fixtures, adapters, status projections and documentation.",
+    "Known contained-workspace facts, not defects of this slice: cmd/sworn's TestTUIActionDriveSurvivesActionReturn fails in the sandbox with CREDENTIAL_UNAVAILABLE and prints roughly 90 KB of DEBUG output; it passes on the host. Do not chase it and do not run it in the workspace. internal/runtime exceeds Go's implicit 10-minute package deadline in the sandbox; pass -timeout=20m on your own package runs. The sandbox shell is dash without `which`. Never build a binary into the workspace root: an out-of-scope file at the root makes checkpoint capture refuse with CHECKPOINT_SCOPE_VIOLATION and fences the workspace; build into a temporary directory.",
+    "internal/protocol is the embedded protocol package. This slice needs no change to its receipt vocabulary, check outcomes, operation assets, snapshot or pinned digests (internal/protocol/assets.go, release.json, tools/protocolgolden); if a design appears to need one, report it rather than re-pinning the bundle.",
+    "No secret, credential, absolute operator path or raw provider body reaches any message, journal record or projection this slice adds. Existing content-free guarantees (for example the serve and operator-config tests that assert no secret or path is echoed) keep holding; where a message now names an input, it names the input kind and flag, not its contents."
+  ],
+  "depends_on": [],
+  "consumes": []
+}

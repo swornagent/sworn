@@ -1,0 +1,82 @@
+{
+  "outcome": "A transient provider stall no longer burns the try budget: after a try fails with PROVIDER_UNAVAILABLE, or PROVIDER_LIMITED with no reset time, the engine waits with a bounded backoff and starts the next try only once a live probe of the same lane passes, journaling every wait and probe, and parks with a typed provider-stall cause naming the probe results when the stall outlasts its bound.",
+  "scope": {
+    "include": [
+      "cmd/sworn",
+      "internal/runtime",
+      "internal/journal",
+      "internal/gitx",
+      "internal/driver",
+      "internal/cockpit",
+      "internal/observe",
+      "internal/tui",
+      "internal/skill",
+      "internal/protocol",
+      "tools/protocolgolden",
+      "test/e2e",
+      "docs/run.md",
+      "docs/launch.md",
+      "docs/policy/manager.md",
+      "README.md"
+    ],
+    "exclude": []
+  },
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "After an operationally failed dispatch try whose code is PROVIDER_UNAVAILABLE, or PROVIDER_LIMITED without a provider-named reset time, the next try of that work does not start immediately. The engine waits a bounded backoff (60, 120, 240, then 240 seconds), probes the dispatch's own profile and model with S4's probe after each wait, and starts the next try when a probe passes. A PROVIDER_LIMITED failure with a reset time waits until that time (within the same total bound) before probing. Anchor: internal/runtime/economy_guards_test.go."
+    },
+    {
+      "id": "A2",
+      "text": "Every wait and every probe is journaled as a typed event (work, epoch, try, wait duration, probe readiness code, provider request id) under the journal's event bound, and the status projection shows a work waiting on a provider stall, its next probe time and the last probe result, so the seat does not mistake a wait for a hang. Anchor: internal/cockpit/projector_test.go."
+    },
+    {
+      "id": "A3",
+      "text": "If no probe has passed within a declared total bound of 30 minutes, the run parks with a new typed cause (provider stall) whose detail names the failure code, the wait so far and the last probe result; manager policy M4 applies to it unchanged. Anchor: internal/runtime/economy_guards_test.go and internal/cockpit/catalog_test.go."
+    },
+    {
+      "id": "A4",
+      "text": "The try budget, identical_failure_park_after and its cap, the identical-failure rule and every other failure code's handling are unchanged: this slice changes only when the next try of a transient provider failure starts. Waiting survives interruption: after a restart the engine resumes the pending wait from the journaled events rather than starting a try at once or waiting afresh. Anchor: internal/runtime/claimed_dispatch_recovery_test.go."
+    },
+    {
+      "id": "A5",
+      "text": "A built-product journey with a scripted provider that answers 5xx for a window and then recovers shows the waits and probes in the journal and the work completing on its next try, with no identical_failure park. docs/run.md documents the backoff, the bound and the new park cause where it documents retries and parks. Anchor: test/e2e/production_journey_linux_test.go and docs/run.md."
+    }
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race -timeout=20m ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "test -z \"$(gofmt -l ./cmd ./internal ./tools)\"",
+    "go mod tidy -diff",
+    "git diff --check",
+    "GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build ./..."
+  ],
+  "host_checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race -timeout=20m ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "test -z \"$(gofmt -l ./cmd ./internal ./tools)\"",
+    "go mod tidy -diff",
+    "git diff --check",
+    "GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build ./..."
+  ],
+  "constraints": [
+    "The provider's reset time is currently dropped when adapter errors are normalized (internal/driver/invoke.go) and the refusal binding has no time field. If the reset time is carried, carry it as a bounded typed field added compatibly: records written before this release must still parse under the strict canonical comparisons.",
+    "The backoff is engine-owned, deterministic and journaled; it is not a model decision and not a fallback. It never switches profile or model and never changes a verdict.",
+    "Tests must not sleep for real backoff durations: inject the clock and the probe, and assert on journaled waits.",
+    "Every listed check is a host check: contained implementers and verifiers consume engine-bound host evidence and never attempt nested containment or claim to have executed these commands. Each long process suite runs once per candidate in the phase order the engine defines.",
+    "This release changes no roster, model selection, budget, retry cap or fallback behaviour except where an acceptance criterion of this slice names the change exactly. The broad supporting package scope admits only this promised mechanism and its affected regression fixtures, adapters, status projections and documentation.",
+    "Known contained-workspace facts, not defects of this slice: cmd/sworn's TestTUIActionDriveSurvivesActionReturn fails in the sandbox with CREDENTIAL_UNAVAILABLE and prints roughly 90 KB of DEBUG output; it passes on the host. Do not chase it and do not run it in the workspace. internal/runtime exceeds Go's implicit 10-minute package deadline in the sandbox; pass -timeout=20m on your own package runs. The sandbox shell is dash without `which`. Never build a binary into the workspace root: an out-of-scope file at the root makes checkpoint capture refuse with CHECKPOINT_SCOPE_VIOLATION and fences the workspace; build into a temporary directory.",
+    "internal/protocol is the embedded protocol package. This slice needs no change to its receipt vocabulary, check outcomes, operation assets, snapshot or pinned digests (internal/protocol/assets.go, release.json, tools/protocolgolden); if a design appears to need one, report it rather than re-pinning the bundle.",
+    "No secret, credential, absolute operator path or raw provider body reaches any message, journal record or projection this slice adds. Existing content-free guarantees (for example the serve and operator-config tests that assert no secret or path is echoed) keep holding; where a message now names an input, it names the input kind and flag, not its contents."
+  ],
+  "depends_on": [
+    "S4-lane-live-probe"
+  ],
+  "consumes": [
+    "S4-lane-live-probe"
+  ]
+}
