@@ -72,6 +72,10 @@ const (
 	// its authority is a bootstrap-approved plan digest and a planner revision
 	// is needed.
 	ParkCauseBootstrapAuthority = "bootstrap_authority"
+	// ParkCauseProviderStall is the park cause for a work whose transient
+	// provider failure (PROVIDER_UNAVAILABLE, or PROVIDER_LIMITED with no
+	// usable reset time) outlasted the bounded wait-and-probe backoff.
+	ParkCauseProviderStall = "provider_stall"
 )
 
 // DegradationFallback is one counted fallback fact inside a degradation park
@@ -231,6 +235,24 @@ func canonicalDegradationParkEvent(event DegradationParkEvent) ([]byte, error) {
 			!validParkDetail(event.FailureDetail) ||
 			event.Count != 0 || event.Budget != 0 ||
 			len(event.Fallbacks) != 0 || event.Spent != 0 ||
+			event.Reason != "" {
+			return nil, runtimeFail("INVALID_PARK_EVENT", nil)
+		}
+	case event.SchemaVersion == ParkEventVersion &&
+		event.Cause == ParkCauseProviderStall:
+		// A provider-stall park names the work whose transient provider
+		// failure outlasted the bound. FailureCode is always one of the
+		// two qualifying codes; FailureDetail renders the elapsed wait and
+		// the last probe's closed code. There is no unblock knob: a retry
+		// control clears this park, not a manifest value.
+		if event.UnblockKnob != "" ||
+			!runtimeDigestPattern.MatchString(event.Work) ||
+			(event.FailureCode != "PROVIDER_UNAVAILABLE" &&
+				event.FailureCode != "PROVIDER_LIMITED") ||
+			!validParkDetail(event.FailureDetail) ||
+			event.Count != 0 || event.Budget != 0 ||
+			len(event.Fallbacks) != 0 || event.Spent != 0 ||
+			event.Consecutive != 0 || event.Threshold != 0 ||
 			event.Reason != "" {
 			return nil, runtimeFail("INVALID_PARK_EVENT", nil)
 		}

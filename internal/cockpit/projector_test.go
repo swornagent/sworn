@@ -1619,6 +1619,82 @@ func TestProjectorHostCheckFailureCopiesEffectAndNode(t *testing.T) {
 	}
 }
 
+func TestProjectorProviderStallCopiesToNode(t *testing.T) {
+	t.Parallel()
+	run, observation, status, state := projectionFixture()
+	stall := runtimepkg.ProviderStallStatus{
+		WorkID: "sha256:" + strings.Repeat("b", 64), Lane: "T1",
+		FailureCode: "PROVIDER_UNAVAILABLE", Profile: "openai", Model: "gpt",
+		Index: 2, NextProbeAt: run.CreatedAt, LastProbeCode: "certification_provider_unavailable",
+		ElapsedMillis: 180_000, BoundMillis: 1_800_000,
+	}
+	status.ProviderStall = []runtimepkg.ProviderStallStatus{stall}
+	var calls []string
+	projector, err := NewProjector(
+		&fakeJournal{binding: run, observations: []journal.Observation{observation}, calls: &calls},
+		&fakeRuntime{statuses: []runtimepkg.RunStatus{status, status}, calls: &calls},
+		&fakeStateReader{states: []protocol.State{state, state}, errs: []error{nil, nil}, calls: &calls},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projector.now = func() time.Time { return run.CreatedAt }
+	snapshot, err := projector.Snapshot(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sliceNode, assemblyNode *Node
+	for i := range snapshot.Graph.Nodes {
+		node := &snapshot.Graph.Nodes[i]
+		if node.ID == "slice:S1" {
+			sliceNode = node
+		}
+		if node.Kind == "assembly" {
+			assemblyNode = node
+		}
+	}
+	if sliceNode == nil || sliceNode.ProviderStall == nil ||
+		sliceNode.ProviderStall.FailureCode != "PROVIDER_UNAVAILABLE" ||
+		sliceNode.ProviderStall.LastProbeCode != "certification_provider_unavailable" {
+		t.Fatalf("slice node provider stall = %#v", sliceNode)
+	}
+	if assemblyNode != nil && assemblyNode.ProviderStall != nil {
+		t.Fatalf("assembly node provider stall = %#v, want nil (release lane not waiting)", assemblyNode.ProviderStall)
+	}
+}
+
+func TestProjectorProviderStallReleaseLaneMapsToAssembly(t *testing.T) {
+	t.Parallel()
+	run, observation, status, state := projectionFixture()
+	status.ProviderStall = []runtimepkg.ProviderStallStatus{{
+		WorkID: "sha256:" + strings.Repeat("f", 64), Lane: "release",
+		FailureCode: "PROVIDER_LIMITED", Index: 1, NextProbeAt: run.CreatedAt,
+	}}
+	var calls []string
+	projector, err := NewProjector(
+		&fakeJournal{binding: run, observations: []journal.Observation{observation}, calls: &calls},
+		&fakeRuntime{statuses: []runtimepkg.RunStatus{status, status}, calls: &calls},
+		&fakeStateReader{states: []protocol.State{state, state}, errs: []error{nil, nil}, calls: &calls},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projector.now = func() time.Time { return run.CreatedAt }
+	snapshot, err := projector.Snapshot(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, node := range snapshot.Graph.Nodes {
+		if node.Kind == "assembly" {
+			if node.ProviderStall == nil || node.ProviderStall.FailureCode != "PROVIDER_LIMITED" {
+				t.Fatalf("assembly provider stall = %#v", node.ProviderStall)
+			}
+			return
+		}
+	}
+	t.Fatal("assembly node missing")
+}
+
 func TestProjectorHostCheckFailureReleaseLaneMapsToAssembly(t *testing.T) {
 	t.Parallel()
 	run, observation, status, state := projectionFixture()

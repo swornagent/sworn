@@ -570,15 +570,18 @@ func normalizeAdapterError(err error) error {
 				// Bounded, re-validated provider or native-stderr words ride
 				// the stable code.
 				return &ContractError{
-					Code:      contractErr.Code,
-					Detail:    contractErr.Detail,
-					HardLimit: contractErr.HardLimit,
-					Kind:      kind,
+					Code:       contractErr.Code,
+					Detail:     contractErr.Detail,
+					HardLimit:  contractErr.HardLimit,
+					RetryAfter: contractErr.RetryAfter,
+					Kind:       kind,
 				}
 			}
 		}
 		// Recreate the error so adapter-provided wrapping text cannot escape.
-		return &ContractError{Code: contractErr.Code, Kind: kind}
+		return &ContractError{
+			Code: contractErr.Code, RetryAfter: contractErr.RetryAfter, Kind: kind,
+		}
 	}
 	return &ContractError{Code: "ADAPTER_FAILURE", Kind: classifyKind("ADAPTER_FAILURE", false)}
 }

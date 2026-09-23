@@ -67,7 +67,11 @@ Origin: sworn#310 (2026-09-12); refined 2026-09-22 from run
 hour; a retry three minutes after a passing probe recovered the run);
 refined 2026-09-23 from S4-lane-live-probe (`sworn driver probe` replaces
 `certify` as the cheap, bounded admission probe the seat runs by hand;
-`certify` remains the release-wide, separately authorized live check).
+`certify` remains the release-wide, separately authorized live check);
+refined 2026-09-23 from S5-transient-provider-backoff (the engine now waits
+and probes the same lane automatically before the next try, so this park
+only fires once that automatic wait-and-probe window is exhausted; the
+Decision above is otherwise unchanged and still applies once it does).
 
 ### M5. An identical candidate tree resubmitted after a plain host-check fail
 

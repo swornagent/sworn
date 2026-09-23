@@ -311,6 +311,48 @@ func TestProjectNeedsYouNamesGrantForEconomyPinnedWork(t *testing.T) {
 	}
 }
 
+// A3: a terminal provider_stall park is a plain PinnedWork like exhaustion
+// or identical-failure, not an economy crossing - pinnedWorkNeedsYouReason
+// needs no change to name it, and the row stays a "retry", never "grant".
+func TestProjectNeedsYouNamesProviderStallPark(t *testing.T) {
+	t.Parallel()
+
+	stalled := []DiscoveredRunStatus{
+		{
+			Binding: journal.Run{
+				ID:      "run-provider-stall",
+				Release: "release-provider-stall",
+			},
+			Status: runtimepkg.RunStatus{
+				RunID: "run-provider-stall",
+				State: "parked",
+				PinnedWork: []runtimepkg.PinnedWork{
+					{
+						WorkID: "sha256:" + strings.Repeat("a", 64),
+						Lane:   "T1",
+						Cause:  runtimepkg.ParkCauseProviderStall,
+						Code:   "PROVIDER_UNAVAILABLE",
+						Detail: "PROVIDER_UNAVAILABLE: waited 30m0s, last probe live_probe_passed",
+					},
+				},
+			},
+		},
+	}
+	needsYou := ProjectNeedsYou(stalled)
+	if len(needsYou) != 1 {
+		t.Fatalf("needsYou = %#v", needsYou)
+	}
+	item := needsYou[0]
+	if item.Action != "retry" ||
+		item.State != "parked" ||
+		item.WorkID != "sha256:"+strings.Repeat("a", 64) ||
+		!strings.Contains(item.Reason, "provider_stall") ||
+		!strings.Contains(item.Reason, "PROVIDER_UNAVAILABLE") ||
+		!strings.Contains(item.Reason, "waited 30m0s") {
+		t.Fatalf("provider-stall needs-you item = %#v", item)
+	}
+}
+
 func TestBuildProjectCatalogIncludesReleasesRunsAndNeedsYou(t *testing.T) {
 	t.Parallel()
 

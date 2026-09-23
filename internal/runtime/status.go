@@ -230,6 +230,13 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	if len(identicalCrossings) != 0 {
 		identicalPark = &identicalCrossings[0]
 	}
+	// S5: unlike economy/identical-failure/exhaustion, a provider-stall
+	// park is never predicted ahead of its own write - providerStallGate
+	// writes the typed park event synchronously, before the failing try
+	// loop it gates ever returns, so a direct scan of already-written park
+	// events is the exact fact, not a forecast.
+	providerStallParked := providerStallParkedWorks(snapshot)
+	_, providerStallPark := firstProviderStallPark(providerStallParked)
 	// Raw exhaustion is fail-closed until Protocol state can tell us whether the
 	// exhausted work is still applicable. Recovery attention is independent.
 	// The diagnostic code/detail stay empty here: they name a specific
@@ -238,7 +245,8 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	exhaustionApplies := len(exhausted) != 0
 	var exhaustionCode, exhaustionDetail string
 	parked := attentionParked || degradationBudgetExceeded ||
-		economyPark != nil || identicalPark != nil || exhaustionApplies
+		economyPark != nil || identicalPark != nil || providerStallPark != nil ||
+		exhaustionApplies
 	if len(snapshot.Events) != 0 {
 		result.EventOffset = snapshot.Events[len(snapshot.Events)-1].Offset
 	}
@@ -365,7 +373,8 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 				exhaustionCode, exhaustionDetail = facts.code, facts.detail
 			}
 			parked = attentionParked || degradationBudgetExceeded ||
-				economyPark != nil || identicalPark != nil || exhaustionApplies
+				economyPark != nil || identicalPark != nil ||
+				providerStallPark != nil || exhaustionApplies
 			parked = parked || humanAuthorityRequired || bootstrapAuthorityParked
 		}
 	}
@@ -413,6 +422,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 			bootstrapReason:           bootstrapParkReason,
 			economy:                   economyPark,
 			identicalFailure:          identicalPark,
+			providerStall:             providerStallPark,
 			exhaustionApplies:         exhaustionApplies,
 			exhaustionCode:            exhaustionCode,
 			exhaustionDetail:          exhaustionDetail,
@@ -495,7 +505,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	)
 	pinnedWork, laneParks, allLanesPinned := resolveLanePins(
 		lanes, exhausted, exhaustionRefusals, economyByOwner, identicalByOwner,
-		exhaustionParksByLane(state, exhaustionParks),
+		providerStallParked, exhaustionParksByLane(state, exhaustionParks),
 	)
 	// Zero candidate lanes is not progress: short of a merged release, Protocol
 	// state offers no work at all, so a standing exhaustion is the run's
@@ -527,6 +537,15 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	// (B2): it is the run-level summary, nil whenever the run is not
 	// parked, never a partial one.
 	result.PinnedWork = pinnedWork
+	result.ProviderStall = providerStallWaitingStatuses(snapshot, providerStallParked)
+	for index := range result.ProviderStall {
+		for _, lane := range lanes {
+			if _, ok := lane.works[result.ProviderStall[index].WorkID]; ok {
+				result.ProviderStall[index].Lane = lane.lane
+				break
+			}
+		}
+	}
 	// S3: each pin reuses its latest failed dispatch's already-decoded
 	// context (same pointer, no re-decode) so Effects, PinnedWork and
 	// Node stay in parity.
@@ -1081,6 +1100,7 @@ func resolveLanePins(
 	exhaustionRefusals map[string]exhaustionRefusalFacts,
 	economyByOwner map[string]economyParkFacts,
 	identicalByOwner map[string]identicalFailureFacts,
+	providerStallByOwner map[string]providerStallParkFacts,
 	exhaustionByLane map[string]exhaustionParkFacts,
 ) ([]PinnedWork, []lanePinFacts, bool) {
 	var pinnedWork []PinnedWork
@@ -1117,6 +1137,23 @@ func resolveLanePins(
 				})
 				laneParks = append(laneParks, lanePinFacts{
 					work: work, facts: parkFacts{identicalFailure: &facts},
+				})
+				pinned = true
+				break
+			}
+		}
+		if !pinned {
+			for work := range lane.works {
+				facts, ok := providerStallByOwner[work]
+				if !ok {
+					continue
+				}
+				pinnedWork = append(pinnedWork, PinnedWork{
+					WorkID: work, Lane: lane.lane, Cause: ParkCauseProviderStall,
+					Code: facts.code, Detail: facts.detail,
+				})
+				laneParks = append(laneParks, lanePinFacts{
+					work: work, facts: parkFacts{providerStall: &facts},
 				})
 				pinned = true
 				break
@@ -1236,6 +1273,7 @@ type parkFacts struct {
 	bootstrapReason           string
 	economy                   *economyParkFacts
 	identicalFailure          *identicalFailureFacts
+	providerStall             *providerStallParkFacts
 	exhaustionApplies         bool
 	exhaustionCode            string
 	exhaustionDetail          string
@@ -1282,6 +1320,10 @@ func parkStatusFor(
 		status.FailureCode = facts.identicalFailure.code
 		status.FailureDetail = facts.identicalFailure.detail
 		status.UnblockKnob = IdenticalFailureUnblockKnob
+	case facts.providerStall != nil:
+		status.Cause = ParkCauseProviderStall
+		status.FailureCode = facts.providerStall.code
+		status.FailureDetail = facts.providerStall.detail
 	case facts.exhaustionApplies:
 		status.Cause = ParkCauseExhaustion
 		status.FailureCode = facts.exhaustionCode

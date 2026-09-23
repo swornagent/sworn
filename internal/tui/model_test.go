@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -1169,6 +1170,38 @@ func TestHostCheckFailureDetailRendersBesideFailureContext(t *testing.T) {
 	joined = strings.Join(m.detailLines(100, 30), "\n")
 	if !strings.Contains(joined, "unknown") {
 		t.Fatalf("unknown not-run detail = %q", joined)
+	}
+}
+
+// S5-transient-provider-backoff A2: the TUI work detail renders a
+// currently-waiting provider stall beside failure context and the
+// host-check fact, so a live wait reads as a wait, not a hang.
+func TestProviderStallDetailRendersWaitStatus(t *testing.T) {
+	selection := Selection{Release: "release", RunID: "run", Source: "source"}
+	nextProbe := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
+	_, m := readyBoardModel(selection)
+	m.board.Graph.Nodes[1].ProviderStall = &runtimepkg.ProviderStallStatus{
+		WorkID: "sha256:" + strings.Repeat("b", 64), Lane: "T1",
+		FailureCode: "PROVIDER_UNAVAILABLE", Index: 2, NextProbeAt: nextProbe,
+		LastProbeCode: "certification_provider_unavailable",
+		ElapsedMillis: 180_000, BoundMillis: 1_800_000,
+	}
+	m.nodeCursor = 1
+	joined := strings.Join(m.detailLines(100, 40), "\n")
+	for _, required := range []string{
+		"PROVIDER STALL", "PROVIDER_UNAVAILABLE", "next probe: 2026-09-23T12:00:00Z",
+		"elapsed: 180s of 1800s bound", "last probe: certification_provider_unavailable",
+	} {
+		if !strings.Contains(joined, required) {
+			t.Fatalf("detail omits %q:\n%s", required, joined)
+		}
+	}
+	// Absent (nil) renders no provider-stall section.
+	_, m = readyBoardModel(selection)
+	m.nodeCursor = 1
+	joined = strings.Join(m.detailLines(100, 30), "\n")
+	if strings.Contains(joined, "PROVIDER STALL") {
+		t.Fatalf("absent detail leaked provider-stall section:\n%s", joined)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -2153,5 +2154,378 @@ func TestStatusRecoveryGuidanceIsStableAtOneClockRead(t *testing.T) {
 	}
 	if !reflect.DeepEqual(first, second) {
 		t.Fatalf("recovery guidance flapped: %#v vs %#v", first, second)
+	}
+}
+
+// A4: a restart resumes the pending wait a crash left journaled instead of
+// starting a fresh wait or skipping the step outright. A fresh Service
+// re-reads the already-journaled wait event's scheduled_at and
+// wait_duration_ms and sleeps only the remaining portion before probing.
+func TestProviderStallGateResumesPendingWaitWithRemainingDuration(t *testing.T) {
+	roundTripper, calls := providerStallScriptedRoundTripper(0)
+	fixture := newProviderStallFixture(t, roundTripper)
+	work := providerStallWork()
+	runID := fixture.manifest.value.RunID
+
+	scheduledAt := fixture.now
+	wait := providerStallWaitEvent{
+		SchemaVersion: providerStallEventVersion, Work: work, Epoch: 1, Try: 1,
+		Index: 1, ScheduledAt: scheduledAt, WaitDurationMillis: 60_000,
+		Reason: providerStallReasonSchedule,
+	}
+	body, err := json.Marshal(wait)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.store.AppendEventOnce(fixture.ctx, journal.Command{
+		RunID: runID, ReplayKey: providerStallReplayKey("wait", work, 1, 1, 1),
+		Kind: "provider-stall-wait", Payload: body, CreatedAt: scheduledAt,
+	}, providerStallWaitEventKind, body, scheduledAt); err != nil {
+		t.Fatal(err)
+	}
+
+	// A restart 40s into the pending 60s wait: only 20s of real time is
+	// left before the deadline the crashed process already committed to.
+	fixture.now = scheduledAt.Add(40 * time.Second)
+
+	stalled, err := fixture.service.providerStallGuardsParked(
+		fixture.ctx, fixture.engine, runID, work,
+		1, 1, driver.RoleImplementer, fixture.failedEffect("PROVIDER_UNAVAILABLE", 0),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stalled {
+		t.Fatal("gate parked despite a passing probe inside the bound")
+	}
+	if *calls != 1 {
+		t.Fatalf("probe calls = %d, want exactly 1 (no re-probe of the resumed index)", *calls)
+	}
+	if len(fixture.sleeps) != 1 || fixture.sleeps[0] != 20*time.Second {
+		t.Fatalf(
+			"sleeps = %v, want exactly one 20s sleep (the remaining portion, not the full 60s step or zero)",
+			fixture.sleeps,
+		)
+	}
+	snapshot, err := fixture.store.Snapshot(fixture.ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waits, probes := providerStallEventsFor(snapshot, work, 1, 1)
+	if len(waits) != 1 {
+		t.Fatalf("waits = %#v, want exactly the one resumed wait, never a fresh index 2", waits)
+	}
+	if len(probes) != 1 || probes[0].Code != providerStallProbePassedCode {
+		t.Fatalf("probes = %#v", probes)
+	}
+}
+
+// C2: the gate never runs for the loop's last try, and never runs when
+// try+1's own attempt effect already exists - both are providerStallGate's
+// (not providerStallGuardsParked's) own responsibility, so this drives the
+// gate wrapper directly.
+func TestProviderStallGateSkipsLastTryAndExistingNextTry(t *testing.T) {
+	roundTripper, calls := providerStallScriptedRoundTripper(0)
+	fixture := newProviderStallFixture(t, roundTripper)
+	runID := fixture.manifest.value.RunID
+
+	lastTryWork := providerStallWork()
+	stalled, err := fixture.service.providerStallGate(
+		fixture.ctx, fixture.engine, lastTryWork, 1, 3, 3,
+		driver.RoleImplementer, fixture.failedEffect("PROVIDER_UNAVAILABLE", 0),
+	)
+	if err != nil || stalled {
+		t.Fatalf("last try: stalled=%v err=%v", stalled, err)
+	}
+	if *calls != 0 {
+		t.Fatalf("last try probed the lane: calls = %d", *calls)
+	}
+
+	existingNextWork := "sha256:" + strings.Repeat("e", 64)
+	nextEffectID := journal.AttemptEffectID(existingNextWork, 1, 2)
+	if err := fixture.store.EnsureAttempt(fixture.ctx,
+		journal.Command{RunID: runID, ReplayKey: nextEffectID, Kind: "driver.dispatch",
+			Payload: []byte(`{}`), CreatedAt: fixture.now},
+		journal.Effect{RunID: runID, ID: nextEffectID, ReplayKey: nextEffectID,
+			Kind: "driver.dispatch", BeforeDigest: existingNextWork,
+			ExpectedDigest: sha256Digest([]byte(`{}`)), UpdatedAt: fixture.now},
+		journal.EffectAttempt{WorkID: existingNextWork, Epoch: 1, Try: 2}); err != nil {
+		t.Fatal(err)
+	}
+	stalled, err = fixture.service.providerStallGate(
+		fixture.ctx, fixture.engine, existingNextWork, 1, 1, 3,
+		driver.RoleImplementer, fixture.failedEffect("PROVIDER_UNAVAILABLE", 0),
+	)
+	if err != nil || stalled {
+		t.Fatalf("existing next try: stalled=%v err=%v", stalled, err)
+	}
+	if *calls != 0 {
+		t.Fatalf("existing-next-try case probed the lane: calls = %d", *calls)
+	}
+}
+
+// providerStallImplementSliceFixture is providerStallFixture's sibling for
+// C1 (A4's declared anchor): it installs a real plan and advances slice S1
+// to the implement stage (runtimePlan's exact S1/one.txt shape, the same
+// plan newProductionImplementationRecoveryFixture installs), so a test can
+// drive the real implementSlice try loop end to end instead of calling
+// providerStallGuardsParked directly.
+type providerStallImplementSliceFixture struct {
+	ctx      context.Context
+	manifest admittedManifest
+	store    *journal.Store
+	owner    journal.OwnerLease
+	now      time.Time
+	service  *Service
+	engine   *engine
+	state    protocol.State
+}
+
+func newProviderStallImplementSliceFixture(
+	t *testing.T,
+	roundTripper http.RoundTripper,
+) *providerStallImplementSliceFixture {
+	t.Helper()
+	ctx := context.Background()
+	repository := productionRepository(t)
+	config := productionConfig(t)
+	manifest := productionManifest(t, repository, config)
+	production, err := newProductionDriverRuntime(config, driver.DriverFactoryOptions{
+		RoundTrippers: map[string]http.RoundTripper{"openai": roundTripper},
+		EnvironmentCredentials: func(context.Context, string) ([]byte, error) {
+			return []byte("sworn-provider-stall-restart-test-token"), nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitExecutable, err := resolveGitExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 7, 30, 5, 6, 7, 0, time.UTC)
+	store, err := journal.Open(ctx, filepath.Join(t.TempDir(), "journal.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.RegisterRun(ctx, journal.Run{
+		ID: manifest.value.RunID, ManifestDigest: manifest.digest,
+		Repository: manifest.value.Repository,
+		Release:    manifest.value.Release, TargetRef: manifest.value.TargetRef,
+		CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// The longest lease the store allows: this fixture's injected sleep
+	// hook advances the fake clock by a real backoff step (tens of
+	// seconds) without any driveOwnedCycle-launched watchOwner goroutine
+	// present to renew it (this test drives implementSlice directly, not
+	// the owning drive loop), so a short lease would fence the resumed
+	// claim on a clock artifact unrelated to what this test pins.
+	owner, err := store.AcquireOwner(ctx, manifest.value.RunID, now, journal.MaxLease, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := &providerStallImplementSliceFixture{
+		ctx: ctx, manifest: manifest, store: store, owner: owner, now: now,
+	}
+	fixture.service = &Service{
+		journal: store, production: production, gitExecutable: gitExecutable,
+		now: func() time.Time { return fixture.now },
+	}
+	engine, err := fixture.service.openEngine(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = engine.Close() })
+	fixture.engine = engine
+	planBytes, _ := runtimePlan(
+		t, manifest.value.Release, manifest.value.Authority.Project,
+		manifest.value.TargetRef, "approval-release-1-v1",
+	)
+	if _, err := engine.actions.RecordPlanRevision(protocol.RecordPlanRevisionInput{
+		PlanBytes: planBytes,
+		Summary:   "Install the provider-stall restart fixture plan.",
+		Detail:    []byte("Provider-stall restart fixture."),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, receipt := range []protocol.AppendReceiptInput{
+		{
+			Release: manifest.value.Release, Slice: "S1",
+			Role: "implementer", Result: "designed",
+			Summary: "Design the provider-stall restart fixture.",
+			Detail:  []byte("Exact design."),
+		},
+		{
+			Release: manifest.value.Release, Slice: "S1",
+			Role: "lead", Result: "proceed",
+			Summary: "Proceed with the provider-stall restart fixture.",
+			Detail:  []byte("Exact review."),
+		},
+	} {
+		if _, err := engine.actions.AppendReceipt(receipt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	state, err := protocol.ReadState(engine.git, manifest.value.Release, engine.inertness)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.state = state
+	return fixture
+}
+
+// TestProviderStallGateResumesAfterRestartThroughImplementSliceTryLoop pins
+// C1: a restart landing in implementSlice's own `case
+// journal.OperationalFailed` branch (scheduler.go) reaches the
+// provider-stall gate before it moves on, instead of dispatching try 2 at
+// once. This drives the real implementSlice try loop end to end - not
+// providerStallGuardsParked directly - the most common dispatch path the
+// Lead's review flagged: the first call fails try 1 with
+// PROVIDER_UNAVAILABLE, journals the first backoff wait, then "crashes" (an
+// injected sleep error simulates the process exiting mid-wait, before any
+// probe). A second, fresh call to implementSlice - the restart - must
+// resume that same wait's remaining duration and only then dispatch try 2,
+// never re-waiting from a fresh index and never admitting try 2 at once.
+func TestProviderStallGateResumesAfterRestartThroughImplementSliceTryLoop(t *testing.T) {
+	roundTripper, probeCalls := providerStallScriptedRoundTripper(0)
+	fixture := newProviderStallImplementSliceFixture(t, roundTripper)
+	runID := fixture.manifest.value.RunID
+	slice, ok := fixture.state.Slice("S1")
+	if !ok {
+		t.Fatal("slice S1 absent from the fixture's installed plan")
+	}
+
+	dispatchCalls := 0
+	fixture.service.dispatcher = fixtureDriver(func(
+		_ context.Context, invocation driver.Invocation,
+	) (driver.Observation, error) {
+		dispatchCalls++
+		if dispatchCalls > 1 {
+			t.Fatalf("dispatcher called a %d-th time before the restart resumed the wait", dispatchCalls)
+		}
+		return driver.Observation{}, &driver.ContractError{Code: "PROVIDER_UNAVAILABLE"}
+	})
+	crashed := errors.New("simulated process exit mid-wait")
+	var crashSleeps []time.Duration
+	fixture.service.sleep = func(_ context.Context, d time.Duration) error {
+		crashSleeps = append(crashSleeps, d)
+		return crashed
+	}
+
+	err := fixture.service.implementSlice(fixture.ctx, fixture.engine, fixture.owner, fixture.state, slice)
+	if !errors.Is(err, crashed) {
+		t.Fatalf("first implementSlice call = %v, want the simulated crash", err)
+	}
+	if dispatchCalls != 1 {
+		t.Fatalf("dispatch calls before the crash = %d, want 1", dispatchCalls)
+	}
+	if *probeCalls != 0 {
+		t.Fatalf("probe calls before the crash = %d, want 0 (the sleep never completed)", *probeCalls)
+	}
+	if len(crashSleeps) != 1 {
+		t.Fatalf("sleeps before the crash = %v, want exactly 1", crashSleeps)
+	}
+	firstSleep := crashSleeps[0]
+	if firstSleep <= 0 {
+		t.Fatalf("first wait duration = %s, want positive", firstSleep)
+	}
+
+	snapshot, err := fixture.store.Snapshot(fixture.ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The gate is called with workID, the outer git.seal cycle's own work
+	// identity (scheduler.go's OperationalFailed branch), not the nested
+	// driver.dispatch effect's work identity: every wait/probe event this
+	// gate journals is scoped to that outer work.
+	var work string
+	for _, effect := range snapshot.Effects {
+		if effect.Kind != "git.seal" || effect.State != journal.OperationalFailed {
+			continue
+		}
+		var coordErr error
+		work, _, _, coordErr = attemptCoordinates(effect.ID)
+		if coordErr != nil {
+			t.Fatal(coordErr)
+		}
+	}
+	if work == "" {
+		t.Fatal("no operationally failed git.seal effect found after the crash")
+	}
+	waits, probes := providerStallEventsFor(snapshot, work, 1, 1)
+	if len(waits) != 1 {
+		t.Fatalf("waits after the crash = %#v, want exactly 1 (work=%s)", waits, work)
+	}
+	if len(probes) != 0 {
+		t.Fatalf("probes after the crash = %#v, want none", probes)
+	}
+
+	// The restart: the clock has moved partway into the journaled wait
+	// (a real process would have been down for this stretch), and a fresh
+	// sleep hook now succeeds and records the resumed remaining duration.
+	fixture.now = fixture.now.Add(firstSleep / 3)
+	var resumeSleeps []time.Duration
+	fixture.service.sleep = func(_ context.Context, d time.Duration) error {
+		resumeSleeps = append(resumeSleeps, d)
+		fixture.now = fixture.now.Add(d)
+		return nil
+	}
+	fixture.service.dispatcher = fixtureDriver(func(
+		_ context.Context, invocation driver.Invocation,
+	) (driver.Observation, error) {
+		dispatchCalls++
+		if dispatchCalls != 2 {
+			t.Fatalf("dispatch calls at the resume = %d, want exactly 2", dispatchCalls)
+		}
+		path := filepath.Join(invocation.HostWorkspace, "one.txt")
+		if err := os.WriteFile(path, []byte("resumed after provider stall\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return productionImplementationObservation(t, invocation), nil
+	})
+
+	if err := fixture.service.implementSlice(
+		fixture.ctx, fixture.engine, fixture.owner, fixture.state, slice,
+	); err != nil {
+		t.Fatalf("restart implementSlice call: %v", err)
+	}
+	if dispatchCalls != 2 {
+		t.Fatalf("total dispatch calls = %d, want 2 (never a 3rd, blind try)", dispatchCalls)
+	}
+	if *probeCalls != 1 {
+		t.Fatalf("probe calls at the resume = %d, want exactly 1", *probeCalls)
+	}
+	if len(resumeSleeps) != 1 {
+		t.Fatalf("resume sleeps = %v, want exactly 1", resumeSleeps)
+	}
+	if resumeSleeps[0] <= 0 || resumeSleeps[0] >= firstSleep {
+		t.Fatalf(
+			"resumed sleep = %s, want a shorter remaining portion of the original %s wait, not the full step or zero",
+			resumeSleeps[0], firstSleep,
+		)
+	}
+
+	finalSnapshot, err := fixture.store.Snapshot(fixture.ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalWaits, finalProbes := providerStallEventsFor(finalSnapshot, work, 1, 1)
+	if len(finalWaits) != 1 {
+		t.Fatalf("waits after the resume = %#v, want still exactly 1 (no fresh index)", finalWaits)
+	}
+	if len(finalProbes) != 1 || finalProbes[0].Code != providerStallProbePassedCode {
+		t.Fatalf("probes after the resume = %#v", finalProbes)
+	}
+
+	completed, err := protocol.ReadState(fixture.engine.git, fixture.manifest.value.Release, fixture.engine.inertness)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completedSlice, ok := completed.Slice("S1")
+	if !ok || completedSlice.Candidate == nil || completedSlice.NextRole != "verifier" {
+		t.Fatalf("completed slice after the resumed try 2 succeeded = %#v", completedSlice)
 	}
 }

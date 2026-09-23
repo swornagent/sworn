@@ -1442,6 +1442,21 @@ func (s *Service) dispatchRoleWithScope(ctx context.Context, engine *engine, wor
 		if parked {
 			return driver.Submission{}, runtimeFail("EFFECT_PARKED", nil)
 		}
+		// S5: a transient provider failure (PROVIDER_UNAVAILABLE, or
+		// PROVIDER_LIMITED with no usable reset time) waits with a bounded,
+		// journaled backoff and admits the next try only once a live probe
+		// of the same lane passes, rather than burning the try budget on an
+		// identical stall. Placed after the economy/identical-failure guard
+		// so A4's ordering guarantee is unchanged.
+		stalled, stallErr := s.providerStallGate(
+			ctx, engine, workID, epoch, try, 3, role, effect,
+		)
+		if stallErr != nil {
+			return driver.Submission{}, stallErr
+		}
+		if stalled {
+			return driver.Submission{}, runtimeFail("EFFECT_PARKED", nil)
+		}
 	}
 	return driver.Submission{}, runtimeFail("EFFECT_PARKED", nil)
 }
@@ -2547,6 +2562,25 @@ func (s *Service) implementSlice(ctx context.Context, engine *engine, owner jour
 			}
 			return s.appendImplementationReceipt(ctx, engine, owner, cycle, record)
 		case journal.OperationalFailed:
+			// C1: a restart lands here directly, skipping the failure
+			// branch below entirely. Evaluate the provider-stall gate for
+			// this try before moving on, or a restart during a pending
+			// wait would start try+1 at once instead of resuming it.
+			dispatchEffect, dispatchEffectErr := s.journal.Effect(ctx, owner.RunID, cycle.DispatchEffect)
+			if dispatchEffectErr != nil && !journal.IsCode(dispatchEffectErr, "EFFECT_NOT_FOUND") {
+				return runtimeFail("JOURNAL_READ_FAILED", dispatchEffectErr)
+			}
+			if dispatchEffectErr == nil {
+				stalled, stallErr := s.providerStallGate(
+					ctx, engine, workID, epoch, try, 3, driver.RoleImplementer, dispatchEffect,
+				)
+				if stallErr != nil {
+					return stallErr
+				}
+				if stalled {
+					return runtimeFail("EFFECT_PARKED", nil)
+				}
+			}
 			continue
 		case journal.Pending:
 			// Claimed below.
@@ -2637,6 +2671,26 @@ func (s *Service) implementSlice(ctx context.Context, engine *engine, owner jour
 		}
 		if parked {
 			return runtimeFail("EFFECT_PARKED", nil)
+		}
+		// S5: gate the next try on a transient provider failure exactly as
+		// dispatchRoleWithScope does, reading the nested driver.dispatch
+		// effect this cycle's failed try actually produced (raw provider
+		// code and refusal detail live there, not on the outer git.seal
+		// effect this loop drives).
+		dispatchEffect, dispatchEffectErr := s.journal.Effect(ctx, owner.RunID, cycle.DispatchEffect)
+		if dispatchEffectErr != nil && !journal.IsCode(dispatchEffectErr, "EFFECT_NOT_FOUND") {
+			return runtimeFail("JOURNAL_READ_FAILED", dispatchEffectErr)
+		}
+		if dispatchEffectErr == nil {
+			stalled, stallErr := s.providerStallGate(
+				ctx, engine, workID, epoch, try, 3, driver.RoleImplementer, dispatchEffect,
+			)
+			if stallErr != nil {
+				return stallErr
+			}
+			if stalled {
+				return runtimeFail("EFFECT_PARKED", nil)
+			}
 		}
 	}
 	return runtimeFail("EFFECT_PARKED", nil)

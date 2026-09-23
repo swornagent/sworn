@@ -23,13 +23,15 @@ import (
 const effectLease = 5 * time.Minute
 
 var (
-	testCrashBeforeEffect  string
-	testCrashAfterEffect   string
-	testHumanTurnCrash     string
-	testLeadCrashCut       string
-	testAnswerParkCrashCut string
-	testOwnerLeaseMillis   string
-	testHooksFromEnv       string
+	testCrashBeforeEffect        string
+	testCrashAfterEffect         string
+	testHumanTurnCrash           string
+	testLeadCrashCut             string
+	testAnswerParkCrashCut       string
+	testOwnerLeaseMillis         string
+	testProviderStallStepMillis  string
+	testProviderStallBoundMillis string
+	testHooksFromEnv             string
 )
 
 // Test hooks are link-time constants: a production binary carries no runtime
@@ -51,6 +53,8 @@ func init() {
 		{&testHumanTurnCrash, "SWORN_TEST_HUMAN_TURN_CRASH"},
 		{&testLeadCrashCut, "SWORN_TEST_LEAD_CRASH_CUT"},
 		{&testOwnerLeaseMillis, "SWORN_TEST_OWNER_LEASE_MILLIS"},
+		{&testProviderStallStepMillis, "SWORN_TEST_PROVIDER_STALL_STEP_MILLIS"},
+		{&testProviderStallBoundMillis, "SWORN_TEST_PROVIDER_STALL_BOUND_MILLIS"},
 	} {
 		if value := os.Getenv(hook.name); value != "" {
 			*hook.target = value
@@ -59,11 +63,17 @@ func init() {
 }
 
 type Service struct {
-	journal            *journal.Store
-	dispatcher         driver.Driver
-	production         *productionDriverRuntime
-	gitExecutable      string
-	now                func() time.Time
+	journal       *journal.Store
+	dispatcher    driver.Driver
+	production    *productionDriverRuntime
+	gitExecutable string
+	now           func() time.Time
+	// sleep is the provider-stall wait's injectable clock-blocking
+	// primitive (S5). Nil in every existing &Service{...} test literal
+	// (this field is new and additive), in which case sleepFor falls back
+	// to contextSleep; openService sets it explicitly, mirroring how it
+	// sets now.
+	sleep              func(context.Context, time.Duration) error
 	beforeOwnerRelease func()
 
 	continuationMu sync.Mutex
@@ -125,6 +135,35 @@ type RunStatus struct {
 	Recovery           *RecoveryAction     `json:"recovery,omitempty"`
 	Checkpoint         *CheckpointStatus   `json:"checkpoint,omitempty"`
 	Checkpoints        []CheckpointStatus  `json:"checkpoints,omitempty"`
+	// ProviderStall names every work currently waiting inside S5's
+	// transient-provider backoff: still-running, not pinned or parked, so
+	// the seat does not mistake the wait for a hang. A work leaves this
+	// list the moment its wait resolves, either by a passed probe (the
+	// next try starts) or by the bound being exceeded (it becomes a
+	// PinnedWork/Park of cause provider_stall instead).
+	ProviderStall []ProviderStallStatus `json:"provider_stall,omitempty"`
+}
+
+// ProviderStallStatus is one work's live provider-stall wait: which probe
+// index it is on, when the next probe fires, and the last probe's closed
+// outcome, so a seat reading Status sees a wait in progress rather than
+// silence.
+type ProviderStallStatus struct {
+	WorkID string `json:"work_id"`
+	// Lane is the candidate lane (a track ID, or "release" for the
+	// assembly lane) WorkID belongs to, the same lane vocabulary
+	// PinnedWork.Lane uses, so the cockpit projector can map a still-
+	// waiting work to its graph node exactly as it maps a pinned one.
+	Lane               string    `json:"lane,omitempty"`
+	FailureCode        string    `json:"failure_code,omitempty"`
+	Profile            string    `json:"profile,omitempty"`
+	Model              string    `json:"model,omitempty"`
+	Index              int64     `json:"index"`
+	NextProbeAt        time.Time `json:"next_probe_at"`
+	LastProbeCode      string    `json:"last_probe_code,omitempty"`
+	LastProbeRequestID string    `json:"last_probe_request_id,omitempty"`
+	ElapsedMillis      int64     `json:"elapsed_ms"`
+	BoundMillis        int64     `json:"bound_ms"`
 }
 
 // CheckpointStatus describes the current unverified checkpoint or quarantine fence for a run.
@@ -381,7 +420,36 @@ func openService(
 		return nil, runtimeFail("JOURNAL_UNAVAILABLE", err)
 	}
 	return &Service{journal: store, dispatcher: driver.Dispatcher{}, production: production,
-		gitExecutable: gitExecutable, now: time.Now}, nil
+		gitExecutable: gitExecutable, now: time.Now, sleep: contextSleep}, nil
+}
+
+// sleepFor is the provider-stall wait's clock-blocking call: an injected
+// s.sleep in a test, or the real context-aware sleep otherwise. It never
+// busy-waits and returns promptly on ctx cancellation (pause, takeover, or
+// process shutdown).
+func (s *Service) sleepFor(ctx context.Context, d time.Duration) error {
+	if s.sleep != nil {
+		return s.sleep(ctx, d)
+	}
+	return contextSleep(ctx, d)
+}
+
+// contextSleep blocks for d or until ctx is done, whichever comes first.
+func contextSleep(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return nil
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func OpenStatusService(ctx context.Context, path string) (*Service, error) {

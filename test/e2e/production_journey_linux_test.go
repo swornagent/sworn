@@ -36,6 +36,19 @@ const (
 	journeyGeminiSecret = "journey-gemini-secret"
 )
 
+// journeyProviderStallProbePrompt duplicates driver's unexported
+// laneProbePrompt: ProbeLane's one fixed literal request text, the only way
+// this fixture can tell S4's live-probe request apart from an ordinary
+// dispatch turn (which instead carries a JSON-encoded journeyPrompt).
+const journeyProviderStallProbePrompt = "sworn lane probe"
+
+// journeyProviderStallFailProbes is how many of S5's lane-probe calls the
+// providerStallFault fixture answers with a scripted 5xx before recovering:
+// enough to exercise more than one journaled wait/probe pair, bounded so the
+// scripted window resolves in well under a second of real wall time under
+// SWORN_TEST_PROVIDER_STALL_STEP_MILLIS.
+const journeyProviderStallFailProbes = 2
+
 type journeyProvider struct {
 	t                *testing.T
 	planBytes        []byte
@@ -61,6 +74,17 @@ type journeyProvider struct {
 	// (after a retry) write with it, so the first phase parks with the
 	// fact present and the following passing candidate clears it.
 	hostCheckFailureFactFault bool
+	// providerStallFault drives S5-transient-provider-backoff's A5 built-
+	// product journey: A1's epoch-1, try-1 dispatch turn 1 fails with a
+	// scripted 5xx (PROVIDER_UNAVAILABLE) instead of the ordinary scripted
+	// response, and the lane-probe endpoint (the fixed literal
+	// "sworn lane probe" request S4's driver.ProbeLane sends, distinct from
+	// any invocation-carrying dispatch turn) fails the same way for the
+	// first providerStallFailProbes calls, then recovers - so the engine's
+	// wait-then-probe loop journals a bounded window of waits and probes
+	// before admitting A1's try 2, which then completes normally.
+	providerStallFault      bool
+	providerStallProbeCalls int
 	// slicePaths overrides the slice -> product path table this Planner's plan
 	// promises. It stays nil for the original production journey, which keeps
 	// using journeySlicePaths(); a journey whose plan declares different
@@ -174,6 +198,28 @@ func (provider *journeyProvider) serve(
 		http.Error(writer, "invalid request", http.StatusBadRequest)
 		return
 	}
+	if promptBody == journeyProviderStallProbePrompt {
+		// Every journey answers S4's live-probe request, not only the
+		// providerStallFault one: any journey below that injects an
+		// operational failure via a 5xx response now also triggers S5's
+		// wait-then-probe gate, whose probe call reaches this same fake
+		// provider. Only providerStallFault scripts the probe to fail
+		// first; every other journey's probe passes at once.
+		if provider.providerStallFault {
+			provider.mu.Lock()
+			provider.providerStallProbeCalls++
+			calls := provider.providerStallProbeCalls
+			provider.mu.Unlock()
+			if calls <= journeyProviderStallFailProbes {
+				http.Error(writer, "simulated provider stall", http.StatusServiceUnavailable)
+				return
+			}
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(http.StatusOK)
+		_, _ = writer.Write([]byte(`{}`))
+		return
+	}
 	var prompt journeyPrompt
 	if err := json.Unmarshal([]byte(promptBody), &prompt); err != nil ||
 		prompt.InvocationID == "" || prompt.Responsibility == "" {
@@ -220,6 +266,15 @@ func (provider *journeyProvider) serve(
 		provider.firstImplementerPrompt[prompt.InvocationID] = append([]byte(nil), body...)
 	}
 	provider.mu.Unlock()
+
+	if provider.providerStallFault &&
+		prompt.Responsibility == driver.ImplementerImplementation && turn == 1 {
+		parts := strings.Split(prompt.InvocationID, "/")
+		if len(parts) == 6 && parts[1] == "A1" && parts[5] == "1" {
+			http.Error(writer, "simulated provider stall", http.StatusServiceUnavailable)
+			return
+		}
+	}
 
 	toolName := "sworn_submit"
 	arguments, err := provider.submissionArguments(prompt)
@@ -1279,15 +1334,17 @@ func TestConfiguredProductionPreservationAndRestorationJourney(
 	manifestPath := writeManifest(t, root, manifestBody)
 	journalPath := filepath.Join(root, "run.sqlite")
 	swornBinary := filepath.Join(root, "sworn")
-	buildBinary(t, swornBinary, "./cmd/sworn", "")
+	buildBinary(t, swornBinary, "./cmd/sworn", hookGateLDFlags)
+	environment := map[string]string{
+		"SWORN_JOURNEY_OPENAI_KEY":              journeyOpenAISecret,
+		"SWORN_JOURNEY_GEMINI_KEY":              journeyGeminiSecret,
+		"SWORN_TEST_PROVIDER_STALL_STEP_MILLIS": "50",
+	}
 
 	// 1. Initial run: parks on planner summary
 	stdout, stderr := runBinaryWithEnvironment(
 		t, swornBinary, 0,
-		map[string]string{
-			"SWORN_JOURNEY_OPENAI_KEY": journeyOpenAISecret,
-			"SWORN_JOURNEY_GEMINI_KEY": journeyGeminiSecret,
-		},
+		environment,
 		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
 	)
 	if stderr != "" || !strings.Contains(stdout, "  state: parked") {
@@ -1298,10 +1355,7 @@ func TestConfiguredProductionPreservationAndRestorationJourney(
 	attention := openPlannerSummaryAttention(t, swornBinary, "production-journey", journalPath)
 	_, stderr = runBinaryWithEnvironmentTimeout(
 		t, swornBinary, 0,
-		map[string]string{
-			"SWORN_JOURNEY_OPENAI_KEY": journeyOpenAISecret,
-			"SWORN_JOURNEY_GEMINI_KEY": journeyGeminiSecret,
-		},
+		environment,
 		180*time.Second,
 		"answer", "--run", "production-journey", "--journal", journalPath,
 		"--attention", attention.ID, "--generation", "1", "--answer", journeySummaryAnswer,
@@ -1314,10 +1368,7 @@ func TestConfiguredProductionPreservationAndRestorationJourney(
 	// 3. Propose plan -> awaiting_approval
 	stdout, stderr = runBinaryWithEnvironmentTimeout(
 		t, swornBinary, 0,
-		map[string]string{
-			"SWORN_JOURNEY_OPENAI_KEY": journeyOpenAISecret,
-			"SWORN_JOURNEY_GEMINI_KEY": journeyGeminiSecret,
-		},
+		environment,
 		180*time.Second,
 		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
 	)
@@ -1330,10 +1381,7 @@ func TestConfiguredProductionPreservationAndRestorationJourney(
 	installApprovedPlan(t, repository, planBytes)
 	_, stderr = runBinaryWithEnvironmentTimeout(
 		t, swornBinary, 0,
-		map[string]string{
-			"SWORN_JOURNEY_OPENAI_KEY": journeyOpenAISecret,
-			"SWORN_JOURNEY_GEMINI_KEY": journeyGeminiSecret,
-		},
+		environment,
 		180*time.Second,
 		"resume", "--run", "production-journey", "--journal", journalPath,
 		"--command", "resume-1", "--generation", "0", "--config", configPath,
@@ -1347,10 +1395,7 @@ func TestConfiguredProductionPreservationAndRestorationJourney(
 	// Verification passes, run completes!
 	stdout, stderr = runBinaryWithEnvironmentTimeout(
 		t, swornBinary, 0,
-		map[string]string{
-			"SWORN_JOURNEY_OPENAI_KEY": journeyOpenAISecret,
-			"SWORN_JOURNEY_GEMINI_KEY": journeyGeminiSecret,
-		},
+		environment,
 		180*time.Second,
 		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
 	)
@@ -1433,15 +1478,17 @@ func TestConfiguredProductionSubmissionCorrectionCrashCutRepairsExactRefusal(
 	manifestPath := writeManifest(t, root, manifestBody)
 	journalPath := filepath.Join(root, "run.sqlite")
 	swornBinary := filepath.Join(root, "sworn")
-	buildBinary(t, swornBinary, "./cmd/sworn", "")
+	buildBinary(t, swornBinary, "./cmd/sworn", hookGateLDFlags)
+	environment := map[string]string{
+		"SWORN_JOURNEY_OPENAI_KEY":              journeyOpenAISecret,
+		"SWORN_JOURNEY_GEMINI_KEY":              journeyGeminiSecret,
+		"SWORN_TEST_PROVIDER_STALL_STEP_MILLIS": "50",
+	}
 
 	// 1. Initial run: parks on planner summary
 	stdout, stderr := runBinaryWithEnvironment(
 		t, swornBinary, 0,
-		map[string]string{
-			"SWORN_JOURNEY_OPENAI_KEY": journeyOpenAISecret,
-			"SWORN_JOURNEY_GEMINI_KEY": journeyGeminiSecret,
-		},
+		environment,
 		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
 	)
 	if stderr != "" || !strings.Contains(stdout, "  state: parked") {
@@ -1452,10 +1499,7 @@ func TestConfiguredProductionSubmissionCorrectionCrashCutRepairsExactRefusal(
 	attention := openPlannerSummaryAttention(t, swornBinary, "production-journey", journalPath)
 	_, stderr = runBinaryWithEnvironmentTimeout(
 		t, swornBinary, 0,
-		map[string]string{
-			"SWORN_JOURNEY_OPENAI_KEY": journeyOpenAISecret,
-			"SWORN_JOURNEY_GEMINI_KEY": journeyGeminiSecret,
-		},
+		environment,
 		180*time.Second,
 		"answer", "--run", "production-journey", "--journal", journalPath,
 		"--attention", attention.ID, "--generation", "1", "--answer", journeySummaryAnswer,
@@ -1468,10 +1512,7 @@ func TestConfiguredProductionSubmissionCorrectionCrashCutRepairsExactRefusal(
 	// 3. Propose plan -> awaiting_approval
 	stdout, stderr = runBinaryWithEnvironmentTimeout(
 		t, swornBinary, 0,
-		map[string]string{
-			"SWORN_JOURNEY_OPENAI_KEY": journeyOpenAISecret,
-			"SWORN_JOURNEY_GEMINI_KEY": journeyGeminiSecret,
-		},
+		environment,
 		180*time.Second,
 		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
 	)
@@ -1484,10 +1525,7 @@ func TestConfiguredProductionSubmissionCorrectionCrashCutRepairsExactRefusal(
 	installApprovedPlan(t, repository, planBytes)
 	_, stderr = runBinaryWithEnvironmentTimeout(
 		t, swornBinary, 0,
-		map[string]string{
-			"SWORN_JOURNEY_OPENAI_KEY": journeyOpenAISecret,
-			"SWORN_JOURNEY_GEMINI_KEY": journeyGeminiSecret,
-		},
+		environment,
 		180*time.Second,
 		"resume", "--run", "production-journey", "--journal", journalPath,
 		"--command", "resume-1", "--generation", "0", "--config", configPath,
@@ -1502,10 +1540,7 @@ func TestConfiguredProductionSubmissionCorrectionCrashCutRepairsExactRefusal(
 	// refusal it can only have learned of through submission_repair.
 	stdout, stderr = runBinaryWithEnvironmentTimeout(
 		t, swornBinary, 0,
-		map[string]string{
-			"SWORN_JOURNEY_OPENAI_KEY": journeyOpenAISecret,
-			"SWORN_JOURNEY_GEMINI_KEY": journeyGeminiSecret,
-		},
+		environment,
 		180*time.Second,
 		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
 	)
@@ -2077,15 +2112,17 @@ func TestConfiguredProductionFirstCheckpointFaultFencesWorkspace(
 	manifestPath := writeManifest(t, root, manifestBody)
 	journalPath := filepath.Join(root, "run.sqlite")
 	swornBinary := filepath.Join(root, "sworn")
-	buildBinary(t, swornBinary, "./cmd/sworn", "")
+	buildBinary(t, swornBinary, "./cmd/sworn", hookGateLDFlags)
+	environment := map[string]string{
+		"SWORN_JOURNEY_OPENAI_KEY":              journeyOpenAISecret,
+		"SWORN_JOURNEY_GEMINI_KEY":              journeyGeminiSecret,
+		"SWORN_TEST_PROVIDER_STALL_STEP_MILLIS": "50",
+	}
 
 	// 1. Initial run: parks on planner summary
 	_, _ = runBinaryWithEnvironment(
 		t, swornBinary, 0,
-		map[string]string{
-			"SWORN_JOURNEY_OPENAI_KEY": journeyOpenAISecret,
-			"SWORN_JOURNEY_GEMINI_KEY": journeyGeminiSecret,
-		},
+		environment,
 		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
 	)
 
@@ -2093,10 +2130,7 @@ func TestConfiguredProductionFirstCheckpointFaultFencesWorkspace(
 	attention := openPlannerSummaryAttention(t, swornBinary, "production-journey", journalPath)
 	_, _ = runBinaryWithEnvironmentTimeout(
 		t, swornBinary, 0,
-		map[string]string{
-			"SWORN_JOURNEY_OPENAI_KEY": journeyOpenAISecret,
-			"SWORN_JOURNEY_GEMINI_KEY": journeyGeminiSecret,
-		},
+		environment,
 		180*time.Second,
 		"answer", "--run", "production-journey", "--journal", journalPath,
 		"--attention", attention.ID, "--generation", "1", "--answer", journeySummaryAnswer,
@@ -2106,10 +2140,7 @@ func TestConfiguredProductionFirstCheckpointFaultFencesWorkspace(
 	// 3. Propose plan -> awaiting_approval
 	_, _ = runBinaryWithEnvironmentTimeout(
 		t, swornBinary, 0,
-		map[string]string{
-			"SWORN_JOURNEY_OPENAI_KEY": journeyOpenAISecret,
-			"SWORN_JOURNEY_GEMINI_KEY": journeyGeminiSecret,
-		},
+		environment,
 		180*time.Second,
 		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
 	)
@@ -2120,10 +2151,7 @@ func TestConfiguredProductionFirstCheckpointFaultFencesWorkspace(
 	var stderr string
 	_, stderr = runBinaryWithEnvironmentTimeout(
 		t, swornBinary, 0,
-		map[string]string{
-			"SWORN_JOURNEY_OPENAI_KEY": journeyOpenAISecret,
-			"SWORN_JOURNEY_GEMINI_KEY": journeyGeminiSecret,
-		},
+		environment,
 		180*time.Second,
 		"resume", "--run", "production-journey", "--journal", journalPath,
 		"--command", "resume-1", "--generation", "0", "--config", configPath,
@@ -2134,10 +2162,7 @@ func TestConfiguredProductionFirstCheckpointFaultFencesWorkspace(
 	// Checkpoint capture fails with CHECKPOINT_UNSUPPORTED_ENTRY and fences workspace!
 	_, stderr = runBinaryWithEnvironmentTimeout(
 		t, swornBinary, 0,
-		map[string]string{
-			"SWORN_JOURNEY_OPENAI_KEY": journeyOpenAISecret,
-			"SWORN_JOURNEY_GEMINI_KEY": journeyGeminiSecret,
-		},
+		environment,
 		180*time.Second,
 		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
 	)
@@ -3208,4 +3233,231 @@ func TestProductionJourneyRerunCapRendersSandboxDiagnostic(t *testing.T) {
 			t.Fatalf("diag %q does not contain fixed guess string", diag)
 		}
 	})
+}
+
+// TestConfiguredProductionProviderStallWaitsThenProbesThenRecovers pins
+// S5-transient-provider-backoff's A5 built-product journey: a scripted
+// provider that answers 5xx for a bounded window (A1's epoch-1, try-1
+// dispatch turn, then S4's own lane-probe request for
+// journeyProviderStallFailProbes calls) and then recovers shows the
+// engine's waits and probes in the journal, and A1 completing on its next
+// try, with no identical_failure park.
+func TestConfiguredProductionProviderStallWaitsThenProbesThenRecovers(t *testing.T) {
+	t.Parallel()
+	repository := newProductRepository(t)
+	planBytes, plan := productionJourneyPlan(t, repository)
+	provider := &journeyProvider{
+		t: t, planBytes: planBytes, providerStallFault: true,
+		turns:    make(map[string]int),
+		families: make(map[string]driver.ProfileFamily),
+		models:   make(map[string]string),
+		access:   make(map[string]driver.WorkspaceAccess),
+	}
+	providerHTTP := httptest.NewServer(http.HandlerFunc(provider.serve))
+	defer providerHTTP.Close()
+
+	configBody, loaded := productionJourneyConfig(t, providerHTTP.URL)
+	root := t.TempDir()
+	configPath := filepath.Join(root, "drivers.json")
+	if err := os.WriteFile(configPath, configBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifestBody := productionJourneyManifest(t, repository, loaded)
+	manifestPath := writeManifest(t, root, manifestBody)
+	journalPath := filepath.Join(root, "run.sqlite")
+	swornBinary := filepath.Join(root, "sworn")
+	// C3: the scripted window must resolve in well under a second of real
+	// wall time, so this journey needs the hook-gated binary carrying
+	// SWORN_TEST_PROVIDER_STALL_STEP_MILLIS, unlike every fault-free
+	// journey in this file which links the unmodified production binary.
+	buildBinary(t, swornBinary, "./cmd/sworn", hookGateLDFlags)
+
+	journeyEnv := map[string]string{
+		"SWORN_JOURNEY_OPENAI_KEY":              journeyOpenAISecret,
+		"SWORN_JOURNEY_GEMINI_KEY":              journeyGeminiSecret,
+		"SWORN_TEST_PROVIDER_STALL_STEP_MILLIS": "50",
+	}
+
+	stdout, stderr := runBinaryWithEnvironment(
+		t, swornBinary, 0, journeyEnv,
+		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
+	)
+	if stderr != "" || !strings.Contains(stdout, "  state: parked") {
+		t.Fatalf("production start stdout=%q stderr=%q", stdout, stderr)
+	}
+	attention := openPlannerSummaryAttention(t, swornBinary, "production-journey", journalPath)
+	_, stderr = runBinaryWithEnvironmentTimeout(
+		t, swornBinary, 0, journeyEnv, 180*time.Second,
+		"answer", "--run", "production-journey", "--journal", journalPath,
+		"--attention", attention.ID, "--generation", "1", "--answer", journeySummaryAnswer,
+		"--config", configPath,
+	)
+	if stderr != "" {
+		t.Fatalf("production summary answer stderr=%q", stderr)
+	}
+	stdout, stderr = runBinaryWithEnvironmentTimeout(
+		t, swornBinary, 0, journeyEnv, 180*time.Second,
+		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
+	)
+	if stderr != "" || !strings.Contains(stdout, "  state: awaiting_approval") {
+		t.Fatalf("production plan proposal stdout=%q stderr=%q", stdout, stderr)
+	}
+	authorizePlan(t, journalPath, "production-journey", plan)
+	installApprovedPlan(t, repository, planBytes)
+	_, stderr = runBinaryWithEnvironmentTimeout(
+		t, swornBinary, 0, journeyEnv, 180*time.Second,
+		"resume", "--run", "production-journey", "--journal", journalPath,
+		"--command", "resume-1", "--generation", "0", "--config", configPath,
+	)
+	assertExpectedPreservationStderr(t, stderr)
+	// The whole scripted stall (one failed try, the bounded wait/probe
+	// window, then a fresh, passing try) resolves inside this one blocking
+	// run call: the engine's own drive loop owns the wait and the probe,
+	// not an outer retry the test issues.
+	stdout, stderr = runBinaryWithEnvironmentTimeout(
+		t, swornBinary, 0, journeyEnv, 180*time.Second,
+		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
+	)
+	assertExpectedPreservationStderr(t, stderr)
+	if !strings.Contains(stdout, "  state: complete") {
+		t.Fatalf("production run stdout=%q stderr=%q", stdout, stderr)
+	}
+
+	store, err := journal.OpenReadOnly(context.Background(), journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.Snapshot(context.Background(), "production-journey")
+	_ = store.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	type stallWait struct {
+		Epoch              int64  `json:"epoch"`
+		Try                int64  `json:"try"`
+		Index              int64  `json:"index"`
+		WaitDurationMillis int64  `json:"wait_duration_ms"`
+		Reason             string `json:"reason"`
+	}
+	type stallProbe struct {
+		Epoch int64  `json:"epoch"`
+		Try   int64  `json:"try"`
+		Index int64  `json:"index"`
+		Code  string `json:"code"`
+	}
+	var waits []stallWait
+	var probes []stallProbe
+	for _, event := range snapshot.Events {
+		switch event.Kind {
+		case "provider_stall_wait":
+			var wait stallWait
+			if json.Unmarshal(event.Body, &wait) == nil {
+				waits = append(waits, wait)
+			}
+		case "provider_stall_probe":
+			var probe stallProbe
+			if json.Unmarshal(event.Body, &probe) == nil {
+				probes = append(probes, probe)
+			}
+		}
+	}
+	if len(waits) < journeyProviderStallFailProbes+1 {
+		t.Fatalf(
+			"provider-stall wait events = %#v, want at least %d",
+			waits, journeyProviderStallFailProbes+1,
+		)
+	}
+	if len(probes) != len(waits) {
+		t.Fatalf(
+			"provider-stall probe events = %d, want %d (one per wait)",
+			len(probes), len(waits),
+		)
+	}
+	for _, wait := range waits {
+		if wait.Epoch != 1 || wait.Try != 1 {
+			t.Fatalf("provider-stall wait epoch/try = %d/%d, want 1/1", wait.Epoch, wait.Try)
+		}
+		if wait.WaitDurationMillis <= 0 {
+			t.Fatalf("provider-stall wait duration = %d, want positive", wait.WaitDurationMillis)
+		}
+	}
+	failing, passing := 0, 0
+	for _, probe := range probes {
+		if probe.Epoch != 1 || probe.Try != 1 {
+			t.Fatalf("provider-stall probe epoch/try = %d/%d, want 1/1", probe.Epoch, probe.Try)
+		}
+		if probe.Code == "live_probe_passed" {
+			passing++
+		} else {
+			failing++
+		}
+	}
+	if failing != journeyProviderStallFailProbes || passing != 1 {
+		t.Fatalf(
+			"provider-stall probes failing=%d passing=%d, want failing=%d passing=1",
+			failing, passing, journeyProviderStallFailProbes,
+		)
+	}
+	if probes[len(probes)-1].Code != "live_probe_passed" {
+		t.Fatalf("last provider-stall probe code = %q, want live_probe_passed", probes[len(probes)-1].Code)
+	}
+
+	// No identical_failure park (A5), and the wait resolved before the
+	// 30-minute bound, so no terminal provider_stall park either.
+	for _, event := range snapshot.Events {
+		if event.Kind != swornruntime.ParkEventKind {
+			continue
+		}
+		parsed, parseErr := swornruntime.ParseDegradationParkEvent(event.Body)
+		if parseErr != nil {
+			t.Fatalf("parse park event: %v", parseErr)
+		}
+		if parsed.Cause == "identical_failure" || parsed.Cause == swornruntime.ParkCauseProviderStall {
+			t.Fatalf("unexpected %s park: %#v", parsed.Cause, parsed)
+		}
+	}
+
+	// The work completes on its next try: a failed epoch-1/try-1
+	// driver.dispatch (PROVIDER_UNAVAILABLE) is followed by a succeeded
+	// epoch-1/try-2 driver.dispatch on the same work, with no try 3.
+	var failedWork string
+	sawTryTwo, sawTryThree := false, false
+	for _, effect := range snapshot.Effects {
+		if effect.Kind != "driver.dispatch" {
+			continue
+		}
+		parts := strings.Split(effect.ID, "/")
+		if len(parts) != 4 || parts[2] != "e1" {
+			continue
+		}
+		switch parts[3] {
+		case "t1":
+			if effect.State == journal.OperationalFailed && effect.ErrorCode == "PROVIDER_UNAVAILABLE" {
+				failedWork = parts[1]
+			}
+		case "t2":
+			if parts[1] == failedWork && effect.State == journal.Succeeded {
+				sawTryTwo = true
+			}
+		case "t3":
+			if parts[1] == failedWork {
+				sawTryThree = true
+			}
+		}
+	}
+	if failedWork == "" {
+		t.Fatalf("no failed epoch-1/try-1 driver.dispatch effect with PROVIDER_UNAVAILABLE (effects=%#v)", snapshot.Effects)
+	}
+	if !sawTryTwo {
+		t.Fatalf("no succeeded epoch-1/try-2 driver.dispatch effect on the same work (effects=%#v)", snapshot.Effects)
+	}
+	if sawTryThree {
+		t.Fatalf("unexpected try-3 driver.dispatch effect: the try budget must be unchanged (A4)")
+	}
+
+	if got, err := exec.Command(e2eGit, "-C", repository, "show", "main:one-a.txt").Output(); err != nil ||
+		string(got) != "A1 production journey\n" {
+		t.Fatalf("one-a.txt product = %q, err=%v, want %q", got, err, "A1 production journey\n")
+	}
 }

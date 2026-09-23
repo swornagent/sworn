@@ -113,6 +113,12 @@ type Node struct {
 	// via the same lane->actionable-node rule. Nil means absent.
 	// Evidence, never authority.
 	HostCheckFailure *runtimepkg.HostCheckFailureFact `json:"host_check_failure,omitempty"`
+	// ProviderStall carries the lane's currently-waiting S5
+	// transient-provider-backoff status (never a pin or a park: the try
+	// loop is still inside its bounded wait), copied from
+	// RunStatus.ProviderStall via the same lane->actionable-node rule.
+	// Nil means no work on this lane is currently waiting.
+	ProviderStall *runtimepkg.ProviderStallStatus `json:"provider_stall,omitempty"`
 }
 
 // Touchpoint is the cockpit's read-only presentation of one

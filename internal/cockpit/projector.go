@@ -523,6 +523,27 @@ func buildSnapshot(
 			}
 		}
 	}
+	// S5: RunStatus.ProviderStall->Node via the identical lane->actionable-
+	// node rule PinnedWork uses above, so a still-waiting work (never
+	// itself pinned or parked) reads the same way in the board/TUI as a
+	// pinned one.
+	for _, stall := range status.ProviderStall {
+		stallCopy := stall
+		if stall.Lane == "release" {
+			for i := range result.Graph.Nodes {
+				if result.Graph.Nodes[i].Kind == "assembly" {
+					result.Graph.Nodes[i].ProviderStall = &stallCopy
+				}
+			}
+			continue
+		}
+		for i := range result.Graph.Nodes {
+			node := &result.Graph.Nodes[i]
+			if node.Kind == "slice" && node.Track == stall.Lane && node.HasProtocol {
+				node.ProviderStall = &stallCopy
+			}
+		}
+	}
 	result.Handoff = projectHandoff(result.Graph)
 	for _, diagnostic := range state.Diagnostics {
 		result.Diagnostics = append(result.Diagnostics, Diagnostic{

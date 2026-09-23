@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -2366,5 +2368,318 @@ func TestHostCheckFailedRefusalDetailNamesCheckCommandAndExit(t *testing.T) {
 	}
 	if !strings.Contains(longDetail, "exit 3") || !strings.Contains(longDetail, "Host check") {
 		t.Fatalf("truncated detail lost outcome/exit: %q", longDetail)
+	}
+}
+
+// providerStallRoundTripperFunc lets a test script exactly the HTTP status
+// sequence S4's live probe observes, with no real network: 2xx is the only
+// status ProbeLane's own transport call ever reads as Ready.
+type providerStallRoundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f providerStallRoundTripperFunc) RoundTrip(
+	request *http.Request,
+) (*http.Response, error) {
+	return f(request)
+}
+
+// providerStallScriptedRoundTripper answers the first failProbes requests
+// with a scripted 503, then every later request with a live 200, mirroring
+// A5's built-product journey fixture at the unit level.
+func providerStallScriptedRoundTripper(failProbes int) (
+	http.RoundTripper, *int,
+) {
+	calls := 0
+	roundTripper := providerStallRoundTripperFunc(
+		func(request *http.Request) (*http.Response, error) {
+			calls++
+			_, _ = io.Copy(io.Discard, request.Body)
+			status := http.StatusOK
+			if calls <= failProbes {
+				status = http.StatusServiceUnavailable
+			}
+			return &http.Response{
+				StatusCode: status,
+				Status:     http.StatusText(status),
+				Header:     http.Header{},
+				Body:       io.NopCloser(bytes.NewReader([]byte("{}"))),
+			}, nil
+		},
+	)
+	return roundTripper, &calls
+}
+
+// providerStallFixture is the direct-call fixture A1/A3's gate tests drive
+// (A1's declared anchor): a real production manifest and driver config
+// (S5's gate refuses to run at all without engine.configured, C2's
+// non-production guard), a controllable in-process HTTP round tripper
+// standing in for the "planner" profile's live lane, and an injectable
+// clock and sleep so no test actually waits out a backoff step.
+type providerStallFixture struct {
+	ctx      context.Context
+	manifest admittedManifest
+	store    *journal.Store
+	now      time.Time
+	sleeps   []time.Duration
+	service  *Service
+	engine   *engine
+}
+
+func newProviderStallFixture(
+	t *testing.T,
+	roundTripper http.RoundTripper,
+) *providerStallFixture {
+	t.Helper()
+	ctx := context.Background()
+	repository := productionRepository(t)
+	config := productionConfig(t)
+	manifest := productionManifest(t, repository, config)
+	production, err := newProductionDriverRuntime(config, driver.DriverFactoryOptions{
+		RoundTrippers: map[string]http.RoundTripper{"openai": roundTripper},
+		// The probe's credential resolves through this options hook, not a
+		// live os.Getenv read (config.go's headerSourceResolver): without
+		// it every probe fails closed on CREDENTIAL_UNAVAILABLE before the
+		// round tripper this fixture controls is ever reached.
+		EnvironmentCredentials: func(context.Context, string) ([]byte, error) {
+			return []byte("sworn-provider-stall-test-token"), nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitExecutable, err := resolveGitExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 7, 30, 5, 6, 7, 0, time.UTC)
+	store, err := journal.Open(ctx, filepath.Join(t.TempDir(), "journal.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.RegisterRun(ctx, journal.Run{
+		ID: manifest.value.RunID, ManifestDigest: manifest.digest,
+		Repository: manifest.value.Repository,
+		Release:    manifest.value.Release, TargetRef: manifest.value.TargetRef,
+		CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	fixture := &providerStallFixture{ctx: ctx, manifest: manifest, store: store, now: now}
+	fixture.service = &Service{
+		journal: store, dispatcher: fixtureDriver(func(
+			_ context.Context, _ driver.Invocation,
+		) (driver.Observation, error) {
+			t.Fatal("provider-stall gate test dispatched a driver invocation")
+			return driver.Observation{}, nil
+		}), production: production,
+		gitExecutable: gitExecutable,
+		now:           func() time.Time { return fixture.now },
+		sleep: func(_ context.Context, d time.Duration) error {
+			fixture.sleeps = append(fixture.sleeps, d)
+			if d > 0 {
+				fixture.now = fixture.now.Add(d)
+			}
+			return nil
+		},
+	}
+	engine, err := fixture.service.openEngine(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = engine.Close() })
+	fixture.engine = engine
+	return fixture
+}
+
+func (f *providerStallFixture) failedEffect(errorCode string, resetAfterMillis int64) journal.Effect {
+	effect := journal.Effect{ErrorCode: errorCode}
+	if resetAfterMillis > 0 {
+		body, err := json.Marshal(productionRefusalBinding{ResetAfterMillis: resetAfterMillis})
+		if err != nil {
+			panic(err)
+		}
+		effect.Result = body
+	}
+	return effect
+}
+
+func providerStallWork() string {
+	return "sha256:" + strings.Repeat("c", 64)
+}
+
+// A1: PROVIDER_UNAVAILABLE waits the fixed 60/120/240/240 schedule,
+// probing the failed try's own profile and model after each wait, and
+// admits the next try (stalled=false) the moment a probe passes.
+func TestProviderStallGateWaitsWithScheduleThenAdmitsNextTryOnPassingProbe(t *testing.T) {
+	roundTripper, calls := providerStallScriptedRoundTripper(2)
+	fixture := newProviderStallFixture(t, roundTripper)
+	work := providerStallWork()
+
+	stalled, err := fixture.service.providerStallGuardsParked(
+		fixture.ctx, fixture.engine, fixture.manifest.value.RunID, work,
+		1, 1, driver.RoleImplementer, fixture.failedEffect("PROVIDER_UNAVAILABLE", 0),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stalled {
+		t.Fatal("gate parked despite a passing probe inside the bound")
+	}
+	if *calls != 3 {
+		t.Fatalf("probe calls = %d, want 3 (2 failing, 1 passing)", *calls)
+	}
+	wantSleeps := []time.Duration{
+		60 * time.Second, 120 * time.Second, 240 * time.Second,
+	}
+	if len(fixture.sleeps) != len(wantSleeps) {
+		t.Fatalf("sleeps = %v, want %v", fixture.sleeps, wantSleeps)
+	}
+	for index, want := range wantSleeps {
+		if fixture.sleeps[index] != want {
+			t.Fatalf("sleeps = %v, want %v", fixture.sleeps, wantSleeps)
+		}
+	}
+	snapshot, err := fixture.store.Snapshot(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waits, probes := providerStallEventsFor(snapshot, work, 1, 1)
+	if len(waits) != 3 || len(probes) != 3 {
+		t.Fatalf("waits = %d, probes = %d, want 3 and 3", len(waits), len(probes))
+	}
+	for index, wait := range waits {
+		if wait.Index != int64(index+1) || wait.Reason != providerStallReasonSchedule {
+			t.Fatalf("wait[%d] = %#v", index, wait)
+		}
+	}
+	if probes[0].Code == providerStallProbePassedCode ||
+		probes[1].Code == providerStallProbePassedCode ||
+		probes[2].Code != providerStallProbePassedCode {
+		t.Fatalf("probes = %#v", probes)
+	}
+	if probes[2].Profile != "planner" || probes[2].Model != "implementer-model" {
+		t.Fatalf("probe named wrong lane: %#v", probes[2])
+	}
+}
+
+// A1: a PROVIDER_LIMITED failure with a provider-named reset time waits
+// exactly that long (clamped to the bound) before its first probe, instead
+// of the fixed schedule's first step.
+func TestProviderStallGateWaitsForProviderNamedResetTime(t *testing.T) {
+	roundTripper, calls := providerStallScriptedRoundTripper(0)
+	fixture := newProviderStallFixture(t, roundTripper)
+	work := providerStallWork()
+
+	stalled, err := fixture.service.providerStallGuardsParked(
+		fixture.ctx, fixture.engine, fixture.manifest.value.RunID, work,
+		1, 1, driver.RoleImplementer,
+		fixture.failedEffect("PROVIDER_LIMITED", 5_000),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stalled {
+		t.Fatal("gate parked despite a passing probe inside the bound")
+	}
+	if *calls != 1 {
+		t.Fatalf("probe calls = %d, want 1", *calls)
+	}
+	if len(fixture.sleeps) != 1 || fixture.sleeps[0] != 5*time.Second {
+		t.Fatalf("sleeps = %v, want [5s]", fixture.sleeps)
+	}
+	snapshot, err := fixture.store.Snapshot(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waits, probes := providerStallEventsFor(snapshot, work, 1, 1)
+	if len(waits) != 1 || waits[0].Reason != providerStallReasonReset ||
+		waits[0].WaitDurationMillis != 5_000 {
+		t.Fatalf("waits = %#v", waits)
+	}
+	if len(probes) != 1 || probes[0].Code != providerStallProbePassedCode {
+		t.Fatalf("probes = %#v", probes)
+	}
+}
+
+// A1: every other failure code is untouched - the gate admits the next
+// try at once, waits and probes nothing, and journals nothing.
+func TestProviderStallGateIgnoresOtherFailureCodes(t *testing.T) {
+	roundTripper, calls := providerStallScriptedRoundTripper(0)
+	fixture := newProviderStallFixture(t, roundTripper)
+	work := providerStallWork()
+
+	for _, code := range []string{
+		"INVOCATION_TIMEOUT", "PROVIDER_TRANSPORT_FAILED", "PROVIDER_AUTHORIZATION_FAILED",
+	} {
+		stalled, err := fixture.service.providerStallGuardsParked(
+			fixture.ctx, fixture.engine, fixture.manifest.value.RunID, work,
+			1, 1, driver.RoleImplementer, fixture.failedEffect(code, 0),
+		)
+		if err != nil || stalled {
+			t.Fatalf("code %s: stalled=%v err=%v", code, stalled, err)
+		}
+	}
+	if *calls != 0 {
+		t.Fatalf("probe calls = %d, want 0", *calls)
+	}
+	if len(fixture.sleeps) != 0 {
+		t.Fatalf("sleeps = %v, want none", fixture.sleeps)
+	}
+}
+
+// A3: a stall that never resolves a passing probe within the declared
+// 30-minute bound parks with the typed provider_stall cause, naming the
+// failure code, the elapsed wait and the last probe's closed code.
+func TestProviderStallGateParksAfterBoundExceeded(t *testing.T) {
+	roundTripper, calls := providerStallScriptedRoundTripper(1_000_000)
+	fixture := newProviderStallFixture(t, roundTripper)
+	work := providerStallWork()
+
+	stalled, err := fixture.service.providerStallGuardsParked(
+		fixture.ctx, fixture.engine, fixture.manifest.value.RunID, work,
+		1, 1, driver.RoleImplementer, fixture.failedEffect("PROVIDER_UNAVAILABLE", 0),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stalled {
+		t.Fatal("gate admitted a next try past the declared bound")
+	}
+	if *calls == 0 {
+		t.Fatal("gate parked without ever probing")
+	}
+	var total time.Duration
+	for _, sleep := range fixture.sleeps {
+		total += sleep
+	}
+	if total != providerStallTotalBound() {
+		t.Fatalf(
+			"total waited = %s, want exactly the declared bound %s",
+			total, providerStallTotalBound(),
+		)
+	}
+	snapshot, err := fixture.store.Snapshot(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parkEvent *journal.Event
+	for index := range snapshot.Events {
+		if snapshot.Events[index].Kind == ParkEventKind {
+			parkEvent = &snapshot.Events[index]
+		}
+	}
+	if parkEvent == nil {
+		t.Fatal("no park event recorded")
+	}
+	parsed, err := ParseDegradationParkEvent(parkEvent.Body)
+	if err != nil {
+		t.Fatalf("park event unparsable: %v", err)
+	}
+	if parsed.Cause != ParkCauseProviderStall ||
+		parsed.Work != work ||
+		parsed.FailureCode != "PROVIDER_UNAVAILABLE" ||
+		!strings.Contains(parsed.FailureDetail, "PROVIDER_UNAVAILABLE") ||
+		!strings.Contains(parsed.FailureDetail, "waited 30m0s") {
+		t.Fatalf("park event = %#v", parsed)
 	}
 }

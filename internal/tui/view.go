@@ -490,6 +490,10 @@ func (m *model) detailLines(width, height int) []string {
 		remaining := height - len(lines)
 		lines = append(lines, hostCheckFailureLines(node.HostCheckFailure, width, remaining)...)
 	}
+	if node.ProviderStall != nil {
+		remaining := height - len(lines)
+		lines = append(lines, providerStallLines(node.ProviderStall, width, remaining)...)
+	}
 	if len(lines) > height {
 		lines = lines[:height]
 	}
@@ -646,6 +650,36 @@ func hostCheckFailureLines(fact *runtimepkg.HostCheckFailureFact, width, budget 
 		for _, line := range strings.Split(fact.Excerpt, "\n") {
 			all = append(all, quietStyle.Render(truncate(safeText(line), width)))
 		}
+	}
+	if len(all) > budget {
+		omitted := len(all) - (budget - 1)
+		all = all[:budget-1]
+		all = append(all, quietStyle.Render(truncate("+"+itoaOffset(int64(omitted))+" more", width)))
+	}
+	return all
+}
+
+// providerStallLines renders S5's live wait status: a work is still inside
+// its bounded backoff, not hung and not yet a park.
+func providerStallLines(stall *runtimepkg.ProviderStallStatus, width, budget int) []string {
+	if stall == nil || budget <= 0 {
+		return nil
+	}
+	var all []string
+	all = append(all, swornStyle.Render(truncate("PROVIDER STALL: WAITING", width)))
+	if stall.FailureCode != "" {
+		all = append(all, truncate("failure: "+safeText(stall.FailureCode), width))
+	}
+	all = append(all, truncate(
+		"next probe: "+stall.NextProbeAt.UTC().Format("2006-01-02T15:04:05Z"), width,
+	))
+	elapsed := "elapsed: " + itoaOffset(stall.ElapsedMillis/1000) +
+		"s of " + itoaOffset(stall.BoundMillis/1000) + "s bound"
+	all = append(all, truncate(elapsed, width))
+	if stall.LastProbeCode != "" {
+		all = append(all, truncate("last probe: "+safeText(stall.LastProbeCode), width))
+	} else {
+		all = append(all, quietStyle.Render(truncate("last probe: none yet", width)))
 	}
 	if len(all) > budget {
 		omitted := len(all) - (budget - 1)

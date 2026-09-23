@@ -310,6 +310,12 @@ type productionRefusalBinding struct {
 	Detail     string   `json:"detail,omitempty"`
 	Paths      []string `json:"paths,omitempty"`
 	TotalPaths int      `json:"total_paths,omitempty"`
+	// ResetAfterMillis carries a PROVIDER_LIMITED refusal's provider-named
+	// reset delay (driver.ContractError.RetryAfter), when the provider named
+	// one. Zero means no usable delay was carried. Additive: every
+	// productionRefusalBinding recorded before this release decodes with
+	// this field zero, its honest absence.
+	ResetAfterMillis int64 `json:"reset_after_ms,omitempty"`
 }
 
 type productionDispatchCommand struct {
@@ -1651,10 +1657,12 @@ func extractRefusal(err error) *productionRefusalBinding {
 		}
 	}
 	var contractErr *driver.ContractError
-	if errors.As(err, &contractErr) && contractErr.Detail != "" {
+	if errors.As(err, &contractErr) &&
+		(contractErr.Detail != "" || contractErr.RetryAfter > 0) {
 		return &productionRefusalBinding{
-			Code:   contractErr.Code,
-			Detail: contractErr.Detail,
+			Code:             contractErr.Code,
+			Detail:           contractErr.Detail,
+			ResetAfterMillis: contractErr.RetryAfter.Milliseconds(),
 		}
 	}
 	var runtimeErr *Error

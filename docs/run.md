@@ -664,6 +664,24 @@ consumers can observe the stop without waiting for another scheduler tick.
 This does not invent a human approval question or authorize an automatic
 budget increase.
 
+### Transient provider stall backoff
+
+When a try fails with `PROVIDER_UNAVAILABLE`, or `PROVIDER_LIMITED` with no
+provider-named reset time, the engine does not start the next try
+immediately: it waits with a bounded backoff (60, 120, 240, then 240
+seconds; a `PROVIDER_LIMITED` reset time is used instead of the first step
+when one is named), probes the same lane after each wait with the identical
+live probe `sworn driver probe` makes, and starts the next try only once a
+probe passes. Every wait and probe is journaled, and the status projection
+shows a work waiting this way, its next probe time and the last probe
+result, so it reads as a wait, not a hang. If no probe passes within a
+declared total bound of 30 minutes, the run parks with the typed
+`provider_stall` cause, naming the failure code, the wait so far and the
+last probe result; manager policy M4 covers it exactly as it covers any
+other provider refusal. The try budget, `identical_failure_park_after` and
+every other failure code's handling are unchanged: this only changes when
+the next try of a transient provider failure starts.
+
 ### Host-check failure fact
 
 For the latest failed host check of a work, the status projection shared by
