@@ -82,6 +82,9 @@ type ProfileReport struct {
 	ConfigurationDigest string         `json:"configuration_digest"`
 	State               ReadinessState `json:"state"`
 	Code                string         `json:"code"`
+	// CLICompatibility is present for native CLI lanes only. An untested
+	// CLI version is reported here and never changes State or Code.
+	CLICompatibility *NativeCLICompatibility `json:"cli_compatibility,omitempty"`
 }
 
 type profileCheckKind uint8
@@ -99,6 +102,10 @@ type profileChecker interface {
 
 type profileSurfaceReporter interface {
 	profileSurface() ProfileSurface
+}
+
+type cliCompatibilityReporter interface {
+	cliCompatibility() *NativeCLICompatibility
 }
 
 // certificationFailureCode exposes only a small stage vocabulary. Provider
@@ -320,6 +327,9 @@ func (registry SelectionRegistry) check(
 		return report
 	}
 	report.State, report.Code = state, code
+	if reporter, ok := registered.adapter.(cliCompatibilityReporter); ok {
+		report.CLICompatibility = reporter.cliCompatibility()
+	}
 	return report
 }
 

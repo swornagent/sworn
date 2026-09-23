@@ -552,6 +552,19 @@ profiles additionally bind the exact CLI binary, version output, required
 runtime files, and owner-only credential file. Bedrock profiles explicitly
 choose Runtime Converse or Mantle Chat; Sworn never switches between them.
 
+A native profile may name any CLI version. The configured digest and version
+output are the pin: every launch checks the binary's bytes and its `--version`
+against them, so a run always uses exactly the CLI the file names. Sworn is
+tested with Claude Code 2.1.241 and Codex 0.146.0. `sworn driver doctor` and
+`certify` report `cli_compatibility` on native lanes: `tested` for those
+versions, and `untested` for any other, with a note that the CLI may work but
+compatibility and stability are not guaranteed. An untested version never
+changes the readiness state or code. `pin_mode` is still accepted for existing
+files and no longer changes admission. To move to a new CLI release, point
+`cli.path` at a frozen copy of it and update `cli.digest`, `cli_version` and
+`version_output`; the new configuration digest then goes into the next run's
+manifest.
+
 A header credential file may end in a line ending, which is ignored. A file
 that is otherwise empty, or that holds any other control byte, is refused as
 `CREDENTIAL_MALFORMED`, and `sworn driver doctor` fails it as

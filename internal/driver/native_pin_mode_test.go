@@ -58,66 +58,68 @@ func nativePinModeTestConfig(
 	}
 }
 
-func TestValidateNativeConfigPinModeAbsentAndExactPreserveTodaysFourChecks(t *testing.T) {
-	for _, mode := range []string{"", NativePinModeExact} {
+func TestValidateNativeConfigAdmitsTestedVersionInEveryPinMode(t *testing.T) {
+	for _, mode := range []string{"", NativePinModeExact, NativePinModeMinor} {
 		config := nativePinModeTestConfig(
 			t, mode, ClaudeCLIVersion, ClaudeCLIDigest,
 			ClaudeCredentialTarget, ClaudeCLIVersion+" (Claude Code)",
 		)
 		if err := validateNativeConfig(config); err != nil {
-			t.Fatalf("pin_mode %q: exact match rejected: %v", mode, err)
-		}
-		mismatched := config
-		mismatched.CLIVersion = "9.9.9"
-		if err := validateNativeConfig(mismatched); !IsCode(err, "NATIVE_NOT_CERTIFIED") {
-			t.Fatalf("pin_mode %q: version mismatch admitted: %v", mode, err)
+			t.Fatalf("pin_mode %q: tested version rejected: %v", mode, err)
 		}
 	}
 }
 
-func TestValidateNativeConfigPinModeMinorAdmitsInRangeVersion(t *testing.T) {
-	config := nativePinModeTestConfig(
-		t, NativePinModeMinor, "2.1.999",
-		"sha256:"+string(bytes.Repeat([]byte("b"), 64)),
-		ClaudeCredentialTarget, "2.1.999 (Claude Code)",
-	)
-	if err := validateNativeConfig(config); err != nil {
-		t.Fatalf("in-range minor-mode version rejected: %v", err)
+// A CLI newer (or older) than the tested version is admitted in every pin
+// mode: the configured digest and version output bind the binary, and the
+// tested version is a compatibility statement, not a gate. This is what lets
+// an operator follow a CLI that releases daily without a new Sworn build.
+func TestValidateNativeConfigAdmitsUntestedVersionsWithTheirOwnDigest(t *testing.T) {
+	for _, mode := range []string{"", NativePinModeExact, NativePinModeMinor} {
+		for _, version := range []string{"2.1.280", "2.2.0", "3.0.1", "2.0.9"} {
+			config := nativePinModeTestConfig(
+				t, mode, version,
+				"sha256:"+string(bytes.Repeat([]byte("b"), 64)),
+				ClaudeCredentialTarget, version+" (Claude Code)",
+			)
+			if err := validateNativeConfig(config); err != nil {
+				t.Fatalf("pin_mode %q: version %q rejected: %v", mode, version, err)
+			}
+		}
 	}
 }
 
-func TestValidateNativeConfigPinModeMinorRejectsOutOfRangeVersion(t *testing.T) {
-	for _, version := range []string{"2.2.0", "3.1.5"} {
+func TestValidateNativeConfigRejectsMalformedVersion(t *testing.T) {
+	for _, version := range []string{"", "latest", "2.1", "v2.1.280"} {
 		config := nativePinModeTestConfig(
-			t, NativePinModeMinor, version,
-			"sha256:"+string(bytes.Repeat([]byte("b"), 64)),
+			t, "", version, ClaudeCLIDigest,
 			ClaudeCredentialTarget, version+" (Claude Code)",
 		)
 		if err := validateNativeConfig(config); !IsCode(err, "NATIVE_NOT_CERTIFIED") {
-			t.Fatalf("out-of-range version %q admitted: %v", version, err)
+			t.Fatalf("malformed version %q admitted: %v", version, err)
 		}
 	}
 }
 
-func TestValidateNativeConfigPinModeMinorKeepsCredentialTargetExact(t *testing.T) {
+func TestValidateNativeConfigKeepsCredentialTargetExact(t *testing.T) {
 	config := nativePinModeTestConfig(
-		t, NativePinModeMinor, "2.1.999",
+		t, "", "2.1.280",
 		"sha256:"+string(bytes.Repeat([]byte("b"), 64)),
-		"/home/sworn/.claude/wrong-target.json", "2.1.999 (Claude Code)",
+		"/home/sworn/.claude/wrong-target.json", "2.1.280 (Claude Code)",
 	)
 	if err := validateNativeConfig(config); !IsCode(err, "NATIVE_NOT_CERTIFIED") {
-		t.Fatalf("minor mode admitted a wrong credential target: %v", err)
+		t.Fatalf("a wrong credential target was admitted: %v", err)
 	}
 }
 
-func TestValidateNativeConfigPinModeMinorRequiresSelfConsistentVersionOutput(t *testing.T) {
+func TestValidateNativeConfigRequiresSelfConsistentVersionOutput(t *testing.T) {
 	config := nativePinModeTestConfig(
-		t, NativePinModeMinor, "2.1.999",
+		t, "", "2.1.280",
 		"sha256:"+string(bytes.Repeat([]byte("b"), 64)),
 		ClaudeCredentialTarget, ClaudeCLIVersion+" (Claude Code)",
 	)
 	if err := validateNativeConfig(config); !IsCode(err, "NATIVE_NOT_CERTIFIED") {
-		t.Fatalf("minor mode admitted a version_output that names the pinned constant, not the declared version: %v", err)
+		t.Fatalf("a version_output naming a different version was admitted: %v", err)
 	}
 }
 
@@ -145,24 +147,30 @@ func TestNativeAdapterConfigPinModeOmitemptyKeepsCanonicalBytesUnchanged(t *test
 	}
 }
 
-func TestNativeVersionSatisfiesMinorRangeIsPatchOnly(t *testing.T) {
-	cases := []struct {
-		declared string
-		want     bool
-	}{
-		{"2.1.241", true},
-		{"2.1.0", true},
-		{"2.1.999", true},
-		{"2.2.0", false},
-		{"2.0.999", false},
-		{"3.1.241", false},
+func TestNativeCLICompatibilityReportsTestedAndUntested(t *testing.T) {
+	tested := CLICompatibilityOf(NativeAdapterConfig{
+		Family: ProfileClaude, CLIVersion: ClaudeCLIVersion,
+	})
+	if tested == nil || tested.Status != NativeCLITested ||
+		tested.TestedVersion != ClaudeCLIVersion || tested.Note != "" {
+		t.Fatalf("tested claude CLI misreported: %+v", tested)
 	}
-	for _, testCase := range cases {
-		if got := nativeVersionSatisfiesMinor(testCase.declared, ClaudeCLIVersion); got != testCase.want {
-			t.Fatalf(
-				"nativeVersionSatisfiesMinor(%q, %q) = %v, want %v",
-				testCase.declared, ClaudeCLIVersion, got, testCase.want,
-			)
-		}
+	untested := CLICompatibilityOf(NativeAdapterConfig{
+		Family: ProfileClaude, CLIVersion: "2.1.280",
+	})
+	if untested == nil || untested.Status != NativeCLIUntested ||
+		untested.CLIVersion != "2.1.280" ||
+		!bytes.Contains([]byte(untested.Note), []byte("not guaranteed")) {
+		t.Fatalf("untested claude CLI misreported: %+v", untested)
+	}
+	codex := CLICompatibilityOf(NativeAdapterConfig{
+		Family: ProfileCodex, CLIVersion: "0.200.0",
+	})
+	if codex == nil || codex.Status != NativeCLIUntested ||
+		codex.TestedVersion != CodexCLIVersion {
+		t.Fatalf("untested codex CLI misreported: %+v", codex)
+	}
+	if CLICompatibilityOf(NativeAdapterConfig{Family: ProfileOpenAIHTTP}) != nil {
+		t.Fatal("a non-native family reported CLI compatibility")
 	}
 }

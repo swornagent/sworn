@@ -897,34 +897,26 @@ func buildDriverConfig(agent detectedAgent) ([]byte, string, error) {
 		MaxCredentialBytes:     65_536,
 	}
 	// Round-trip the proposed adapter through the engine's own admission
-	// (sworn#267): an exact pin only holds when the detected CLI is the
-	// certified build; a CLI that outran the pin but shares its major.minor
-	// is written with pin_mode "minor" and disclosed; anything else is
-	// refused here, naming both versions, instead of scaffolding a config
-	// the engine rejects two commands later. Constructing the adapter never
-	// resolves credentials, so the resolver is a stub.
-	note := ""
+	// (sworn#267), so init never scaffolds a config the engine rejects two
+	// commands later. Any well-formed CLI version is admitted and bound by
+	// its own digest; a version other than the one Sworn is tested with is
+	// disclosed, not refused. Constructing the adapter never resolves
+	// credentials, so the resolver is a stub.
 	if _, err := driver.NewNativeAdapter(native, initValidationResolver); err != nil {
-		minor := native
-		minor.PinMode = driver.NativePinModeMinor
-		if _, err := driver.NewNativeAdapter(minor, initValidationResolver); err != nil {
-			msg := fmt.Sprintf(
-				"%s %s does not match the version this Sworn build certifies (%s).\n"+
-					"Install the certified version, or configure the connection by hand.\n"+
-					"Technical code: %s",
-				agent.name, agent.version,
-				initCertifiedVersion(agent.family), commandErrorCode(err),
-			)
-			if detail := commandErrorDetail(err); detail != "" {
-				msg += "\n" + detail
-			}
-			return nil, "", errors.New(msg)
-		}
-		native = minor
-		note = fmt.Sprintf(
-			"%s %s differs from the certified %s; pinned by major.minor (pin_mode \"minor\")",
-			agent.name, agent.version, initCertifiedVersion(agent.family),
+		msg := fmt.Sprintf(
+			"%s %s is installed, but this Sworn build does not admit it.\n"+
+				"Technical code: %s",
+			agent.name, agent.version, commandErrorCode(err),
 		)
+		if detail := commandErrorDetail(err); detail != "" {
+			msg += "\n" + detail
+		}
+		return nil, "", errors.New(msg)
+	}
+	note := ""
+	if compatibility := driver.CLICompatibilityOf(native); compatibility != nil &&
+		compatibility.Status == driver.NativeCLIUntested {
+		note = agent.name + ": " + compatibility.Note
 	}
 	config := driver.DriverConfig{
 		SchemaVersion: driver.DriverConfigSchemaVersion,
@@ -960,13 +952,6 @@ func buildDriverConfig(agent detectedAgent) ([]byte, string, error) {
 // resolves a credential, so this can only fire on a misuse.
 func initValidationResolver(context.Context, string) (string, error) {
 	return "", errors.New("init validates configuration only")
-}
-
-func initCertifiedVersion(family driver.ProfileFamily) string {
-	if family == driver.ProfileCodex {
-		return driver.CodexCLIVersion
-	}
-	return driver.ClaudeCLIVersion
 }
 
 func reportProjectReleases(out io.Writer, root string) {
