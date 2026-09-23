@@ -7,7 +7,7 @@ cross. Anything not listed is a Type-1 decision: escalate to the Principal
 with evidence identifiers and stop.
 
 Entries are proposed from the decision journal and ratified by the Principal.
-Version: 2 (2026-09-22).
+Version: 3 (2026-09-24).
 
 ## Authority the Manager holds
 
@@ -112,6 +112,28 @@ Situation: the Principal has instructed a stop, or the run is in a loop the
 policy cannot break (M5 twice, M6 twice).
 Decision: cancel, back up the track ref and any candidate refs, archive any
 fenced tree, record the reason.
+
+### M10. A host check that cannot find its command
+
+Situation: the pinned work's failure code is `HOST_CHECK_FAILED` with exit
+code 127 (command not found), or the check's own output names a missing
+command, and the missing command is confirmed absent from the `PATH` of the
+serve unit that runs the checks (compare `/proc/<serve pid>/environ` with a
+shell where the command resolves).
+Decision: the failure belongs to the host, not the candidate. Do not answer
+the implementer and do not revise anything. Restart the serve unit with an
+explicit environment that resolves the command (`systemd-run --user -E
+PATH=...`), verify the new process's `PATH`, then retry the work on a fresh
+epoch and re-issue the start. Cite the exit code, the missing command, the
+old and new `PATH`, and the retry command id.
+Bounds: only the serve unit's environment changes. Never change the
+manifest, the drivers config, the contract, the checks, the roster or the
+binary under this entry. If the command is missing from the host itself (not
+only from the unit's `PATH`), or the retried work fails the same check again,
+this is Type-1.
+Origin: 2026-09-24, run 2026-09-23-launch-legibility-r3 (three implementer
+tries spent on `go: not found` because the systemd user manager's PATH lacked
+/usr/local/go/bin; sworn#355). Proposed at the Principal's request; ratified when this entry merges.
 
 ## Type-1 (always the Principal)
 

@@ -64,6 +64,7 @@ attention from `sworn board --run ... --journal ... --json`. Drop the rest.
 | `awaiting_approval` | a revision needs approval | M1 if it applies, else Type-1 |
 | `parked`, cause `attention` | the worker asked a question | answer within M3 or Type-1 |
 | `parked`, cause `provider_unavailable` or a pinned `PROVIDER_LIMITED`/`PROVIDER_UNAVAILABLE` | the provider refused | M4 |
+| `parked`, pinned `HOST_CHECK_FAILED` with exit 127 or a missing command | the host cannot run a check | M10 |
 | `parked`, cause `identical_failure` or `exhaustion` | tries spent | M5 or M6 by what the failures were |
 | `parked`, cause `economy_*` | budget crossed | `sworn grant` only when the spend is honest work; else Type-1 |
 | `parked`, cause `human_authority` | | Type-1 |
@@ -93,7 +94,7 @@ foreground: `sworn run --detached` is unsupported by design.
 
 ```
 # serve unit (once per run)
-systemd-run --user --unit sworn-<release>-serve-<run> -p WorkingDirectory=<worktree> \
+systemd-run --user --unit sworn-<release>-serve-<run> -E PATH=<a PATH that resolves every host check command, e.g. /usr/local/go/bin:$PATH> -p WorkingDirectory=<worktree> \
   <ops>/sworn serve --run <run-id> --journal <journal> --manifest <manifest> --config <ops>/drivers.json --operator-config <ops>/operator.json
 # start (persistent; exits when the run parks, so re-issue after any retry)
 systemd-run --user --unit sworn-<release>-start-<run>-<n> \
