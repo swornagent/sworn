@@ -208,7 +208,7 @@ func TestNativeBrokerEnforcesExactCapabilityStateAndTerminalProtocol(t *testing.
 			broker,
 			capability,
 			toolCallRequest(5, "Bash", map[string]any{
-				"script": "sleep 0.3; printf first",
+				"script": "sleep 1; printf first",
 			}),
 			"",
 			"",
@@ -250,12 +250,19 @@ func TestNativeBrokerEnforcesExactCapabilityStateAndTerminalProtocol(t *testing.
 			"",
 		)
 	}()
+	// The first call holds the slot for about a second; the queued call
+	// must not complete while it does. Completion order is not asserted
+	// directly: once both are ready a select picks between them at random.
 	var first, second brokerHTTPResult
 	select {
 	case second = <-secondDone:
-		t.Fatalf("queued call finished before the running call: %#v", second)
-	case first = <-firstDone:
+		t.Fatalf("queued call finished while the running call held the slot: %#v", second)
+	case <-time.After(200 * time.Millisecond):
 	}
+	if len(broker.callSlot) != 1 {
+		t.Fatal("running call released the slot early")
+	}
+	first = <-firstDone
 	second = <-secondDone
 	responseBodies = append(responseBodies, first.body, second.body)
 	if first.err != nil || first.status != http.StatusOK ||
