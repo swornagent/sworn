@@ -6,10 +6,14 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
-	"strings"
 )
 
+// The CLI versions and digests Sworn has been tested with. They are a
+// compatibility statement, not an admission gate: a configured CLI of any
+// well-formed version is admitted and then bound by its own configured digest
+// and version output at every launch. A version other than the tested one is
+// reported as untested: it may well work, but compatibility and stability are
+// not guaranteed.
 const (
 	CodexCLIVersion        = "0.146.0"
 	CodexCLIDigest         = "sha256:2e863156ed35ecc5253b1e2f907a9143077b9f7cb51942070c61996471ff6e04"
@@ -19,9 +23,10 @@ const (
 	ClaudeCredentialTarget = "/home/sworn/.claude/.credentials.json"
 )
 
-// Pin admission modes. Absent (empty string) and "exact" are synonyms for
-// today's byte-for-byte closure; "minor" admits a CLI whose self-reported
-// version shares the pinned major.minor with any patch.
+// Pin admission modes, retained so existing configurations keep decoding
+// with unchanged canonical bytes. All three values ("", "exact" and "minor")
+// now admit identically: the configured digest and version output are the
+// pin, and the tested version above is reported, never enforced.
 const (
 	NativePinModeExact = "exact"
 	NativePinModeMinor = "minor"
@@ -233,62 +238,30 @@ func validateNativeConfig(config NativeAdapterConfig) error {
 		config.VersionOutput == "" || len(config.VersionOutput) > 256 {
 		return failWithDetail("NATIVE_NOT_CERTIFIED", "cli_admission_bounds")
 	}
-	var minor bool
 	switch config.PinMode {
-	case "", NativePinModeExact:
-		minor = false
-	case NativePinModeMinor:
-		minor = true
+	case "", NativePinModeExact, NativePinModeMinor:
 	default:
 		return failWithDetail("NATIVE_NOT_CERTIFIED", "pin_mode")
 	}
+	var credentialTarget, versionOutput string
 	switch config.Family {
 	case ProfileCodex:
-		if config.CredentialTarget != CodexCredentialTarget {
-			return failWithDetail("NATIVE_NOT_CERTIFIED", "credential_target")
-		}
-		if minor {
-			if !nativeVersionSatisfiesMinor(config.CLIVersion, CodexCLIVersion) {
-				return failWithDetail("NATIVE_NOT_CERTIFIED", "version")
-			}
-			if config.VersionOutput != "codex-cli "+config.CLIVersion {
-				return failWithDetail("NATIVE_NOT_CERTIFIED", "version_output")
-			}
-		} else {
-			if config.CLIVersion != CodexCLIVersion {
-				return failWithDetail("NATIVE_NOT_CERTIFIED", "version")
-			}
-			if config.CLI.Digest != CodexCLIDigest {
-				return failWithDetail("NATIVE_NOT_CERTIFIED", "digest")
-			}
-			if config.VersionOutput != "codex-cli "+CodexCLIVersion {
-				return failWithDetail("NATIVE_NOT_CERTIFIED", "version_output")
-			}
-		}
+		credentialTarget = CodexCredentialTarget
+		versionOutput = "codex-cli " + config.CLIVersion
 	case ProfileClaude:
-		if config.CredentialTarget != ClaudeCredentialTarget {
-			return failWithDetail("NATIVE_NOT_CERTIFIED", "credential_target")
-		}
-		if minor {
-			if !nativeVersionSatisfiesMinor(config.CLIVersion, ClaudeCLIVersion) {
-				return failWithDetail("NATIVE_NOT_CERTIFIED", "version")
-			}
-			if config.VersionOutput != config.CLIVersion+" (Claude Code)" {
-				return failWithDetail("NATIVE_NOT_CERTIFIED", "version_output")
-			}
-		} else {
-			if config.CLIVersion != ClaudeCLIVersion {
-				return failWithDetail("NATIVE_NOT_CERTIFIED", "version")
-			}
-			if config.CLI.Digest != ClaudeCLIDigest {
-				return failWithDetail("NATIVE_NOT_CERTIFIED", "digest")
-			}
-			if config.VersionOutput != ClaudeCLIVersion+" (Claude Code)" {
-				return failWithDetail("NATIVE_NOT_CERTIFIED", "version_output")
-			}
-		}
+		credentialTarget = ClaudeCredentialTarget
+		versionOutput = config.CLIVersion + " (Claude Code)"
 	default:
 		return failWithDetail("NATIVE_NOT_CERTIFIED", "family")
+	}
+	if config.CredentialTarget != credentialTarget {
+		return failWithDetail("NATIVE_NOT_CERTIFIED", "credential_target")
+	}
+	if !versionPattern.MatchString(config.CLIVersion) {
+		return failWithDetail("NATIVE_NOT_CERTIFIED", "version")
+	}
+	if config.VersionOutput != versionOutput {
+		return failWithDetail("NATIVE_NOT_CERTIFIED", "version_output")
 	}
 	if !filepath.IsAbs(config.CredentialTarget) ||
 		filepath.Clean(config.CredentialTarget) != config.CredentialTarget {
@@ -313,33 +286,44 @@ func validateNativeConfig(config NativeAdapterConfig) error {
 	return nil
 }
 
-// nativeVersionSatisfiesMinor reports whether declared shares its major and
-// minor version components with pinned, admitting any patch. Both strings
-// must already match versionPattern (major.minor.patch, optional prerelease
-// suffix on the patch component only), so splitting on "." is safe.
-func nativeVersionSatisfiesMinor(declared, pinned string) bool {
-	if !versionPattern.MatchString(declared) || !versionPattern.MatchString(pinned) {
-		return false
-	}
-	declaredMajor, declaredMinor, ok := nativeMajorMinor(declared)
-	if !ok {
-		return false
-	}
-	pinnedMajor, pinnedMinor, ok := nativeMajorMinor(pinned)
-	return ok && declaredMajor == pinnedMajor && declaredMinor == pinnedMinor
+// NativeCLICompatibility states how a configured native CLI relates to the
+// version Sworn has been tested with. It is reported by doctor and certify
+// and never gates admission.
+type NativeCLICompatibility struct {
+	CLIVersion    string `json:"cli_version"`
+	TestedVersion string `json:"tested_version"`
+	Status        string `json:"status"`
+	Note          string `json:"note,omitempty"`
 }
 
-func nativeMajorMinor(version string) (int, int, bool) {
-	parts := strings.SplitN(version, ".", 3)
-	if len(parts) < 2 {
-		return 0, 0, false
+const (
+	NativeCLITested   = "tested"
+	NativeCLIUntested = "untested"
+)
+
+// CLICompatibilityOf reports how config's CLI relates to the tested version,
+// or nil for a family that has no native CLI.
+func CLICompatibilityOf(config NativeAdapterConfig) *NativeCLICompatibility {
+	var tested string
+	switch config.Family {
+	case ProfileCodex:
+		tested = CodexCLIVersion
+	case ProfileClaude:
+		tested = ClaudeCLIVersion
+	default:
+		return nil
 	}
-	major, majorErr := strconv.Atoi(parts[0])
-	minor, minorErr := strconv.Atoi(parts[1])
-	if majorErr != nil || minorErr != nil || major < 0 || minor < 0 {
-		return 0, 0, false
+	compatibility := &NativeCLICompatibility{
+		CLIVersion: config.CLIVersion, TestedVersion: tested,
+		Status: NativeCLITested,
 	}
-	return major, minor, true
+	if config.CLIVersion != tested {
+		compatibility.Status = NativeCLIUntested
+		compatibility.Note = "Sworn is tested with " + tested +
+			"; this CLI is " + config.CLIVersion +
+			". It may work, but compatibility and stability are not guaranteed."
+	}
+	return compatibility
 }
 
 func validatePinnedRuntimeFiles(
@@ -398,6 +382,13 @@ func (adapter *nativeAdapter) Identity() AdapterIdentity {
 		return AdapterIdentity{}
 	}
 	return adapter.identity
+}
+
+func (adapter *nativeAdapter) cliCompatibility() *NativeCLICompatibility {
+	if adapter == nil {
+		return nil
+	}
+	return CLICompatibilityOf(adapter.config)
 }
 
 func (adapter *nativeAdapter) profileFamily() ProfileFamily {

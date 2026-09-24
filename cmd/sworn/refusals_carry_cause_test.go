@@ -332,13 +332,13 @@ func TestBuildDriverConfigSurfacesConditionDetail(t *testing.T) {
 		},
 		binary:  bin,
 		digest:  driver.ClaudeCLIDigest,
-		version: "9.9.9",
-		output:  "9.9.9 (Claude Code)",
+		version: "9.9",
+		output:  "9.9 (Claude Code)",
 	}
 
 	_, _, err := buildDriverConfig(agent)
 	if err == nil {
-		t.Fatal("buildDriverConfig should fail on mismatched version")
+		t.Fatal("buildDriverConfig should fail on a malformed version")
 	}
 	errStr := err.Error()
 	if !strings.Contains(errStr, "Technical code: INVALID_ADAPTER") {

@@ -1062,11 +1062,11 @@ func TestInitTelemetryFlagsNeverAskOrOptIn(t *testing.T) {
 	}
 }
 
-// sworn#267: a CLI that outran the certified pin but shares its major.minor
-// is scaffolded with pin_mode "minor" and the delta disclosed, because init
-// round-trips the proposed adapter through the engine's own admission. The
-// fixture CLI reports a patch level the exact pin rejects.
-func TestInitPinsByMinorWhenCLIOutranTheCertifiedPin(t *testing.T) {
+// A CLI other than the version Sworn is tested with is scaffolded as
+// detected, bound by its own digest, and the difference is disclosed rather
+// than refused: CLIs release daily, and an untested version is not a broken
+// one. No pin_mode is written.
+func TestInitAdmitsAnUntestedCLIAndDisclosesIt(t *testing.T) {
 	setupMockAgentAndEnvironment(t)
 	root := initTestProject(t)
 
@@ -1075,24 +1075,23 @@ func TestInitPinsByMinorWhenCLIOutranTheCertifiedPin(t *testing.T) {
 		t.Fatalf("init failed: %d, stdout=%s", code, stdout.String())
 	}
 	out := stdout.String()
-	if !strings.Contains(out, "pinned by major.minor (pin_mode \"minor\")") ||
-		!strings.Contains(out, "2.1.220") ||
-		!strings.Contains(out, driver.ClaudeCLIVersion) {
-		t.Fatalf("the minor pin was not disclosed with both versions: %s", out)
+	if !strings.Contains(out, "2.1.220") ||
+		!strings.Contains(out, driver.ClaudeCLIVersion) ||
+		!strings.Contains(out, "compatibility and stability are not guaranteed") {
+		t.Fatalf("the untested version was not disclosed with both versions: %s", out)
 	}
 	body, err := os.ReadFile(filepath.Join(root, ".sworn", "drivers.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(body, []byte("\"pin_mode\":\"minor\"")) {
-		t.Fatalf("scaffolded config does not carry the minor pin:\n%s", body)
+	if bytes.Contains(body, []byte("\"pin_mode\"")) {
+		t.Fatalf("scaffolded config carries a pin_mode it no longer needs:\n%s", body)
 	}
 }
 
-// sworn#267: a CLI outside the certified major.minor is refused at scaffold
-// time, naming both versions - never written for the engine to reject two
-// commands later.
-func TestInitRefusesACLIOutsideTheCertifiedMinor(t *testing.T) {
+// A new major version is admitted and disclosed the same way; nothing about
+// the version number alone makes a CLI inadmissible.
+func TestInitAdmitsANewMajorCLIAndDisclosesIt(t *testing.T) {
 	binDir, _ := setupMockAgentAndEnvironment(t)
 	root := initTestProject(t)
 	claudePath := filepath.Join(binDir, "claude")
@@ -1101,23 +1100,20 @@ func TestInitRefusesACLIOutsideTheCertifiedMinor(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	if code := runInit([]string{"--project", root, "--yes"}, &stdout, &stderr); code != 1 {
-		t.Fatalf("init exit code = %d, want 1; stdout=%s", code, stdout.String())
+	if code := runInit([]string{"--project", root, "--yes"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("init exit code = %d, want 0; stdout=%s", code, stdout.String())
 	}
 	out := stdout.String()
-	if !strings.Contains(out, "3.0.0 does not match the version this Sworn build certifies ("+driver.ClaudeCLIVersion+")") {
-		t.Fatalf("the refusal did not name both versions: %s", out)
+	if !strings.Contains(out, "3.0.0") || !strings.Contains(out, "not guaranteed") {
+		t.Fatalf("the untested major was not disclosed: %s", out)
 	}
-	if !strings.Contains(out, "AI driver configuration: unavailable") {
-		t.Fatalf("the walk did not report the configuration unavailable: %s", out)
-	}
-	if _, err := os.Stat(filepath.Join(root, ".sworn", "drivers.json")); !os.IsNotExist(err) {
-		t.Fatalf("an inadmissible config was written anyway: %v", err)
+	if _, err := os.Stat(filepath.Join(root, ".sworn", "drivers.json")); err != nil {
+		t.Fatalf("the admissible config was not written: %v", err)
 	}
 }
 
 // sworn#265, admission flavor: a signed-in agent the engine cannot admit
-// (its version is outside the certified major.minor) is skipped with the
+// (it reports a malformed version) is skipped with the
 // named reason and the walk falls through to the next certifiable agent -
 // an unusable earlier agent never walls a usable later one at ANY stage.
 func TestInitFallsThroughWhenSignedInCodexIsNotCertifiable(t *testing.T) {
@@ -1125,7 +1121,7 @@ func TestInitFallsThroughWhenSignedInCodexIsNotCertifiable(t *testing.T) {
 	root := initTestProject(t)
 
 	codexPath := filepath.Join(binDir, "codex")
-	if err := os.WriteFile(codexPath, []byte("#!/usr/bin/sh\necho 'codex-cli 1.2.3'\n"), 0o755); err != nil {
+	if err := os.WriteFile(codexPath, []byte("#!/usr/bin/sh\necho 'codex-cli 1.2'\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	codexCredDir := filepath.Join(homeDir, ".config", "sworn", ".codex")
@@ -1141,7 +1137,7 @@ func TestInitFallsThroughWhenSignedInCodexIsNotCertifiable(t *testing.T) {
 		t.Fatalf("init exit code = %d, want 0 via claude fallthrough; stdout=%s", code, stdout.String())
 	}
 	out := stdout.String()
-	if !strings.Contains(out, "skipped Codex: Codex 1.2.3 does not match the version this Sworn build certifies ("+driver.CodexCLIVersion+")") {
+	if !strings.Contains(out, "skipped Codex: Codex 1.2 is installed, but this Sworn build does not admit it.") {
 		t.Fatalf("the admission skip was not disclosed with both versions: %s", out)
 	}
 	if !strings.Contains(out, "wrote "+filepath.Join(root, ".sworn", "drivers.json")+" (Claude Code ") {
