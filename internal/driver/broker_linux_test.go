@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -198,13 +199,16 @@ func TestNativeBrokerEnforcesExactCapabilityStateAndTerminalProtocol(t *testing.
 		}
 	}
 
+	// sworn#359: a call that arrives while another is running waits for the
+	// slot and then runs, instead of being refused; a waiting call whose
+	// client gives up returns without running and without taking the slot.
 	firstDone := make(chan brokerHTTPResult, 1)
 	go func() {
 		firstDone <- rawBrokerRequest(
 			broker,
 			capability,
 			toolCallRequest(5, "Bash", map[string]any{
-				"script": "sleep 0.15; printf first",
+				"script": "sleep 0.3; printf first",
 			}),
 			"",
 			"",
@@ -212,34 +216,59 @@ func TestNativeBrokerEnforcesExactCapabilityStateAndTerminalProtocol(t *testing.
 		)
 	}()
 	deadline := time.Now().Add(time.Second)
-	for {
-		if !broker.callMu.TryLock() {
-			break
-		}
-		broker.callMu.Unlock()
+	for len(broker.callSlot) == 0 {
 		if time.Now().After(deadline) {
 			t.Fatal("first broker call did not enter tool execution")
 		}
 		time.Sleep(time.Millisecond)
 	}
-	status, body = brokerRequest(
+	abandoned, abandon := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	status, body = brokerRequestWithContext(
 		t,
+		abandoned,
 		broker,
 		capability,
-		toolCallRequest(6, "Read", map[string]any{
-			"path": GuestWorkspacePath + "/broker.txt",
+		toolCallRequest(60, "Bash", map[string]any{
+			"script": "printf must-not-run",
 		}),
 	)
-	responseBodies = append(responseBodies, body)
+	abandon()
 	if status != http.StatusConflict ||
-		!bytes.Contains(body, []byte(`"message":"concurrent_call"`)) {
-		t.Fatalf("concurrent call = %d %s", status, body)
+		!bytes.Contains(body, []byte(`"message":"cancelled"`)) {
+		t.Fatalf("abandoned queued call = %d %s", status, body)
 	}
-	first := <-firstDone
-	responseBodies = append(responseBodies, first.body)
+	secondDone := make(chan brokerHTTPResult, 1)
+	go func() {
+		secondDone <- rawBrokerRequest(
+			broker,
+			capability,
+			toolCallRequest(6, "Read", map[string]any{
+				"path": GuestWorkspacePath + "/broker.txt",
+			}),
+			"",
+			"",
+			"",
+		)
+	}()
+	var first, second brokerHTTPResult
+	select {
+	case second = <-secondDone:
+		t.Fatalf("queued call finished before the running call: %#v", second)
+	case first = <-firstDone:
+	}
+	second = <-secondDone
+	responseBodies = append(responseBodies, first.body, second.body)
 	if first.err != nil || first.status != http.StatusOK ||
 		!bytes.Contains(first.body, []byte(`"text":"first"`)) {
 		t.Fatalf("first concurrent call = %#v", first)
+	}
+	if second.err != nil || second.status != http.StatusOK ||
+		!bytes.Contains(second.body, []byte(`"text":"broker body"`)) {
+		t.Fatalf("queued concurrent call = %#v", second)
+	}
+	if bytes.Contains(first.body, []byte("must-not-run")) ||
+		bytes.Contains(second.body, []byte("must-not-run")) {
+		t.Fatal("an abandoned queued call executed")
 	}
 
 	submission := submissionFixture(
@@ -463,6 +492,31 @@ type brokerHTTPResult struct {
 	status int
 	body   []byte
 	err    error
+}
+
+func brokerRequestWithContext(
+	t *testing.T,
+	ctx context.Context,
+	broker *nativeBroker,
+	token []byte,
+	value any,
+) (int, []byte) {
+	t.Helper()
+	body, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := http.NewRequestWithContext(
+		ctx, http.MethodPost, broker.URL(), bytes.NewReader(body),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", "Bearer "+string(token))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	broker.ServeHTTP(recorder, request)
+	return recorder.Code, recorder.Body.Bytes()
 }
 
 func brokerRequest(
