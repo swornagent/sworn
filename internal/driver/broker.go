@@ -63,8 +63,13 @@ type nativeBrokerSession interface {
 }
 
 type nativeBroker struct {
-	mu                 sync.Mutex
-	callMu             sync.Mutex
+	mu sync.Mutex
+	// callSlot serializes tool execution. A call that arrives while another
+	// is running waits for the slot (bounded by its own request context and
+	// the broker's terminal state) instead of being refused: a native CLI
+	// that stops waiting on a long command lets the model poll, and refused
+	// polls used to spend the per-dispatch MaxBrokerCalls budget (sworn#359).
+	callSlot           chan struct{}
 	state              brokerState
 	armed              bool
 	initialized        bool
@@ -121,6 +126,7 @@ func newNativeBroker(
 		state: brokerClosed, address: listener.Addr().String(),
 		token: token, session: session, listener: listener,
 		terminal: make(chan struct{}), connections: make(map[net.Conn]struct{}),
+		callSlot:    make(chan struct{}, 1),
 		callsByName: make(map[string]int64),
 	}
 	if len(expected) == 1 {
@@ -413,7 +419,7 @@ func (broker *nativeBroker) ServeHTTP(writer http.ResponseWriter, request *http.
 			writeBrokerError(writer, http.StatusBadRequest, id, -32600, "invalid_request")
 			return
 		}
-		broker.callTool(request.Context(), writer, id, root["params"])
+		broker.callTool(request.Context(), writer, id, root["params"], calls)
 	default:
 		writeBrokerError(writer, http.StatusNotFound, id, -32601, "method_not_found")
 	}
@@ -576,19 +582,28 @@ func (broker *nativeBroker) callTool(
 	writer http.ResponseWriter,
 	id json.RawMessage,
 	params any,
+	callNumber int,
 ) {
-	broker.mu.Lock()
-	state := broker.state
-	broker.mu.Unlock()
-	if state != brokerOpen {
+	if !broker.callOpen() {
 		writeBrokerError(writer, http.StatusConflict, id, -32000, "not_open")
 		return
 	}
-	if !broker.callMu.TryLock() {
-		writeBrokerError(writer, http.StatusConflict, id, -32000, "concurrent_call")
+	select {
+	case broker.callSlot <- struct{}{}:
+	case <-ctx.Done():
+		// The client stopped waiting; nothing ran and nothing is owed.
+		writeBrokerError(writer, http.StatusConflict, id, -32000, "cancelled")
+		return
+	case <-broker.terminal:
+		writeBrokerError(writer, http.StatusConflict, id, -32000, "closed")
 		return
 	}
-	defer broker.callMu.Unlock()
+	defer func() { <-broker.callSlot }()
+	// The broker may have finished while this call waited for the slot.
+	if !broker.callOpen() {
+		writeBrokerError(writer, http.StatusConflict, id, -32000, "closed")
+		return
+	}
 	object, err := closedObject(
 		params,
 		[]string{"name", "arguments"},
@@ -610,9 +625,6 @@ func (broker *nativeBroker) callTool(
 		writeBrokerError(writer, http.StatusBadRequest, id, -32602, "invalid_params")
 		return
 	}
-	broker.mu.Lock()
-	callNumber := broker.calls
-	broker.mu.Unlock()
 	result := broker.session.execute(ctx, providerToolCall{
 		ID: "mcp-" + itoa(callNumber), Name: name, Arguments: arguments,
 	})
@@ -645,6 +657,12 @@ func (broker *nativeBroker) callTool(
 	if terminated {
 		broker.finish(brokerTerminal)
 	}
+}
+
+func (broker *nativeBroker) callOpen() bool {
+	broker.mu.Lock()
+	defer broker.mu.Unlock()
+	return broker.state == brokerOpen
 }
 
 func writeBrokerResult(writer http.ResponseWriter, id json.RawMessage, result any) {
