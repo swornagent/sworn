@@ -151,6 +151,18 @@ When `outcome` is merged:
 
 ## Hard rules
 
+- Before launch, run `sworn driver certify` on every rostered and automation
+  lane, not only `doctor`: doctor makes no live call and passed a lane whose
+  provider was refusing the model. This is policy M4's live probe.
+- When a trivial probe fails the same way as the real work, the cause is
+  upstream of the request (the provider or the network), not the request's
+  shape. Stop reconstructing requests and apply M4.
+- Read the Lead receipt before calling a design weakness a defect: a risk the
+  design named and the Lead accepted with reasoning is a known limitation, to
+  be filed as a follow-up, not a reason to revise a slice mid-run.
+- A monitor script for a new run is the previous one with only the run id
+  changed; never rename the binary path by substitution. Dry-run it with
+  `timeout 6` before arming.
 - Never revise a plan while a slice is mid-implementation unless the
   revision changes that slice's contract.
 - Never move a target ref of a parked run; retry or cancel first.
