@@ -2578,7 +2578,15 @@ func (s *Service) implementSlice(ctx context.Context, engine *engine, owner jour
 				break
 			}
 			record, retry, recoverErr := s.recoverImplementationCycle(
-				ctx, engine, owner, cycle, effect)
+				ctx, engine, owner, cycle, effect, key,
+				dispatchCoordinates{
+					Slice:           sliceID,
+					Responsibility:  driver.ImplementerImplementation,
+					ProtocolAttempt: slice.Attempt,
+					Epoch:           epoch,
+					Try:             try,
+					DispatchWork:    dispatchWork,
+				})
 			if recoverErr != nil {
 				return recoverErr
 			}
@@ -2664,6 +2672,16 @@ func (s *Service) implementSlice(ctx context.Context, engine *engine, owner jour
 			return err
 		}
 		if IsCode(err, "EFFECT_PARKED") {
+			return err
+		}
+		if IsCode(err, "RUN_STOPPED") {
+			// S2-pause-safe-host-checks: a pause or cancel landed while
+			// this fresh (non-resumed) attempt's host checks or
+			// git.seal.prepared claim were in flight. The durable
+			// paused-handoff checkpoint (if one was written) is this
+			// cycle's wake token; completing the outer effect as a
+			// failure here would spend the try for a stop that is not a
+			// candidate failure.
 			return err
 		}
 		if resumingAnswer {
@@ -3016,8 +3034,14 @@ func (s *Service) recoverPendingImplementationForSlice(ctx context.Context,
 			}
 			return true, s.appendImplementationReceipt(ctx, engine, owner, cycle, record)
 		case journal.Claimed:
+			key, coordinates, coordErr := recoveryTrackKeyAndCoordinates(
+				cycle, slice.Attempt,
+			)
+			if coordErr != nil {
+				return true, coordErr
+			}
 			record, retry, err := s.recoverImplementationCycle(
-				ctx, engine, owner, cycle, effect)
+				ctx, engine, owner, cycle, effect, key, coordinates)
 			if err != nil {
 				return true, err
 			}
@@ -3452,6 +3476,14 @@ func (s *Service) claimPreparedImplementation(
 					SourceEpoch: epoch, SourceTry: retry,
 				}}
 			}
+			if IsCode(runErr, "RUN_STOPPED") {
+				// record already carries this candidate's fixed git
+				// identity (sealedRecordFromCandidate ran before any
+				// check started): a resume must reuse it rather than
+				// re-seal a workspace whose uncommitted diff a first
+				// seal attempt already consumed.
+				return record, journal.Claim{}, runErr
+			}
 			return sealedRecord{}, journal.Claim{}, runErr
 		}
 		manifest, buildErr := buildHostCheckResultsManifest(
@@ -3493,6 +3525,9 @@ func (s *Service) claimPreparedImplementation(
 			Epoch:  preparedEpoch,
 			Try:    preparedTry,
 		}); err != nil {
+		if journal.IsCode(err, "CONTROL_STOPPED") || journal.IsCode(err, "OPERATION_CANCELLED") {
+			return record, journal.Claim{}, runtimeFail("RUN_STOPPED", err)
+		}
 		if !requireDispatchProof {
 			err = uncertainHandoffPreparation(err)
 		}
@@ -3509,6 +3544,9 @@ func (s *Service) claimPreparedImplementation(
 		os.Exit(86)
 	}
 	if err != nil {
+		if journal.IsCode(err, "CONTROL_STOPPED") || journal.IsCode(err, "OPERATION_CANCELLED") {
+			return record, journal.Claim{}, runtimeFail("RUN_STOPPED", err)
+		}
 		if !requireDispatchProof {
 			err = uncertainHandoffPreparation(err)
 		}
@@ -3584,6 +3622,9 @@ func (s *Service) prepareProductionImplementationCandidate(
 			},
 		)
 		if !errors.Is(prepareErr, errProductionCandidatePrepared) {
+			if IsCode(prepareErr, "RUN_STOPPED") {
+				return record, journal.Claim{}, prepareErr
+			}
 			return sealedRecord{}, journal.Claim{}, prepareErr
 		}
 		if _, err := currentImplementationState(engine, cycle); err != nil {
@@ -3619,12 +3660,67 @@ func (s *Service) prepareProductionImplementationCandidate(
 		},
 	)
 	if !errors.Is(prepareErr, errProductionCandidatePrepared) {
+		if IsCode(prepareErr, "RUN_STOPPED") {
+			return record, journal.Claim{}, prepareErr
+		}
 		return sealedRecord{}, journal.Claim{}, prepareErr
 	}
 	if _, err := currentImplementationState(engine, cycle); err != nil {
 		return sealedRecord{}, journal.Claim{}, err
 	}
 	return record, preparedClaim, nil
+}
+
+// resumePausedProductionCandidate re-enters claimPreparedImplementation
+// directly, skipping engine.workspaces.SealTrackGuardedWithClaim /
+// SealTrackRefreshGuardedWithClaim entirely, when a prior attempt on this
+// exact dispatch already sealed the candidate and then stopped with
+// RUN_STOPPED (S2-pause-safe-host-checks). Re-sealing is not an option here:
+// a track workspace's own diff against its head is what SealTrackGuardedWithClaim
+// stages and commits, and that diff was already consumed by the seal a
+// first attempt already performed, so a fresh workspace lease has nothing
+// left to seal (EMPTY_CANDIDATE). claimPreparedImplementation itself never
+// touches the workspace lease - only engine.git/engine.repository and its
+// own exactly-once check.host effects - so the saved sealed-candidate
+// identity (fixed the moment it was first computed) is sufficient on its
+// own to resume the host-check and git.seal.prepared boundary exactly
+// where it stopped.
+func (s *Service) resumePausedProductionCandidate(
+	ctx context.Context,
+	engine *engine,
+	owner journal.OwnerLease,
+	cycle implementationCycle,
+	submission driver.Submission,
+	saved sealedRecord,
+) (sealedRecord, journal.Claim, error) {
+	fresh, err := currentImplementationState(engine, cycle)
+	if err != nil {
+		return sealedRecord{}, journal.Claim{}, err
+	}
+	format := engine.repository.ObjectFormat()
+	before, beforeErr := gitx.ParseOID(format, saved.Before)
+	candidate, candidateErr := gitx.ParseOID(format, saved.Candidate)
+	tree, treeErr := gitx.ParseOID(format, saved.Tree)
+	if beforeErr != nil || candidateErr != nil || treeErr != nil {
+		return sealedRecord{}, journal.Claim{}, runtimeFail(
+			"CORRUPT_JOURNAL",
+			errors.Join(beforeErr, candidateErr, treeErr),
+		)
+	}
+	var refreshFrom gitx.OID
+	if saved.RefreshFrom != "" {
+		refreshFrom, err = gitx.ParseOID(format, saved.RefreshFrom)
+		if err != nil {
+			return sealedRecord{}, journal.Claim{}, runtimeFail("CORRUPT_JOURNAL", err)
+		}
+	}
+	prepared := gitx.SealedCandidate{
+		Before: before, Candidate: candidate, Tree: tree,
+		RefreshFrom: refreshFrom, ChangedPaths: saved.ChangedPaths,
+	}
+	return s.claimPreparedImplementation(
+		ctx, engine, owner, fresh, cycle, submission, prepared, false,
+	)
 }
 
 func (s *Service) claimedPreparedImplementation(
@@ -3662,6 +3758,16 @@ func (s *Service) claimedPreparedImplementation(
 		command, commandFound = candidate, true
 	}
 	if !effectFound && !commandFound {
+		return sealedRecord{}, journal.Claim{}, false, nil
+	}
+	if effectFound && commandFound && prepared.State == journal.Pending {
+		// Admitted (EnsureAttempt succeeded) but never claimed - for
+		// example a pause or cancel landed between EnsureAttempt and
+		// ClaimOwned (S2-pause-safe-host-checks). No claim exists to
+		// resume, so this is safe to treat exactly like "not yet
+		// admitted": the caller re-runs claimPreparedImplementation,
+		// whose EnsureAttempt replays the identical payload and whose
+		// ClaimOwned then succeeds fresh.
 		return sealedRecord{}, journal.Claim{}, false, nil
 	}
 	if !effectFound || !commandFound ||
@@ -3709,7 +3815,7 @@ func (s *Service) runProductionImplementationDispatch(
 		},
 		cycle.Before,
 		owner,
-		func(submission driver.Submission) error {
+		func(submission driver.Submission, observation driver.Observation) error {
 			var found bool
 			var loadErr error
 			record, preparedClaim, found, loadErr =
@@ -3721,16 +3827,48 @@ func (s *Service) runProductionImplementationDispatch(
 			if loadErr != nil || found {
 				return loadErr
 			}
-			var prepareErr error
-			record, preparedClaim, prepareErr =
-				s.prepareProductionImplementationCandidate(
-					ctx,
-					engine,
-					owner,
-					workspace,
-					cycle,
-					submission,
+			// A prior attempt on this exact dispatch may have already
+			// sealed the candidate and then stopped with RUN_STOPPED
+			// (S2-pause-safe-host-checks): its checkpoint carries that
+			// candidate's fixed identity. claimedPreparedImplementation
+			// above only recognises a fully claimed git.seal.prepared;
+			// this recognises the earlier, pre-claim stop too.
+			_, saved, checkpointFound, checkpointErr :=
+				s.loadPausedHandoffCheckpoint(
+					ctx, engine.manifest.value.RunID, cycle.DispatchEffect,
 				)
+			if checkpointErr != nil {
+				return checkpointErr
+			}
+			var prepareErr error
+			if checkpointFound && saved != nil {
+				record, preparedClaim, prepareErr =
+					s.resumePausedProductionCandidate(
+						ctx, engine, owner, cycle, submission, *saved,
+					)
+			} else {
+				record, preparedClaim, prepareErr =
+					s.prepareProductionImplementationCandidate(
+						ctx,
+						engine,
+						owner,
+						workspace,
+						cycle,
+						submission,
+					)
+			}
+			if prepareErr != nil && IsCode(prepareErr, "RUN_STOPPED") {
+				var toSave *sealedRecord
+				if record.Candidate != "" {
+					toSave = &record
+				}
+				if persistErr := s.persistPausedHandoffCheckpoint(
+					ctx, engine.manifest.value.RunID, cycle.DispatchEffect,
+					observation, toSave,
+				); persistErr != nil {
+					return persistErr
+				}
+			}
 			return prepareErr
 		},
 		true,
@@ -3985,6 +4123,18 @@ func (s *Service) runImplementationCycle(ctx context.Context, engine *engine,
 				coordinates,
 			)
 		if dispatchErr != nil {
+			// S2-pause-safe-host-checks: a RUN_STOPPED dispatch needs no
+			// workspace-level checkpoint. The candidate this cycle is
+			// working on, if it was ever git-sealed, is already durably
+			// named by the journal's own paused-handoff checkpoint (which
+			// carries its exact git identity), and captureImplementationCheckpoint
+			// diffs the very same already-committed workspace a fresh
+			// resume must not re-seal - capturing here would fence the
+			// workspace on a false "still dirty" reading for no benefit.
+			if IsCode(dispatchErr, "RUN_STOPPED") {
+				_ = workspace.Close()
+				return sealedRecord{}, dispatchErr
+			}
 			captureErr := s.captureImplementationCheckpoint(ctx, engine, owner, workspace, cycle)
 			_ = workspace.Close()
 			if captureErr != nil {
@@ -4173,9 +4323,35 @@ func (s *Service) runImplementationCycle(ctx context.Context, engine *engine,
 	return record, nil
 }
 
+// recoveryTrackKeyAndCoordinates derives the track key and dispatch
+// coordinates a recovery sweep needs to call recoverImplementationCycle
+// (and, on the paused-checkpoint path, resumePausedProductionDispatch)
+// purely from the cycle's own already-durable identity and the protocol
+// attempt of the slice it seals - the same inverse of
+// journal.AttemptEffectID that runProductionImplementationDispatch already
+// uses to validate cycle.DispatchEffect.
+func recoveryTrackKeyAndCoordinates(
+	cycle implementationCycle, protocolAttempt int64,
+) (gitx.TrackKey, dispatchCoordinates, error) {
+	dispatchWork, epoch, try, err := attemptCoordinates(cycle.DispatchEffect)
+	if err != nil || dispatchWork != cycle.DispatchWork {
+		return gitx.TrackKey{}, dispatchCoordinates{}, runtimeFail("CORRUPT_JOURNAL", err)
+	}
+	key := gitx.TrackKey{Release: cycle.Release, Track: cycle.Track}
+	coordinates := dispatchCoordinates{
+		Slice:           cycle.Slice,
+		Responsibility:  driver.ImplementerImplementation,
+		ProtocolAttempt: protocolAttempt,
+		Epoch:           epoch,
+		Try:             try,
+		DispatchWork:    dispatchWork,
+	}
+	return key, coordinates, nil
+}
+
 func (s *Service) recoverImplementationCycle(ctx context.Context, engine *engine,
 	owner journal.OwnerLease, cycle implementationCycle,
-	effect journal.Effect) (sealedRecord, bool, error) {
+	effect journal.Effect, key gitx.TrackKey, coordinates dispatchCoordinates) (sealedRecord, bool, error) {
 	prepared, preparedErr := s.journal.Effect(ctx, owner.RunID, cycle.PreparedEffect)
 	if preparedErr == nil {
 		snapshot, err := s.journal.Snapshot(ctx, owner.RunID)
@@ -4259,6 +4435,28 @@ func (s *Service) recoverImplementationCycle(ctx context.Context, engine *engine
 					dispatch.State != journal.Uncertain {
 					return sealedRecord{}, false,
 						runtimeFail("CORRUPT_JOURNAL", nil)
+				}
+				if dispatch.State == journal.Claimed {
+					_, _, pausedFound, checkpointErr := s.loadPausedHandoffCheckpoint(
+						ctx, owner.RunID, cycle.DispatchEffect,
+					)
+					if checkpointErr != nil {
+						return sealedRecord{}, false, checkpointErr
+					}
+					if pausedFound {
+						// The prepared candidate this branch found (Pending
+						// or Claimed) belongs to the same paused attempt as
+						// the checkpoint: resuming re-enters prepareHandoff
+						// from scratch, exactly as the EFFECT_NOT_FOUND
+						// branch above does, and claimedPreparedImplementation
+						// (called first, inside runProductionImplementationDispatch)
+						// treats a Pending prepared effect as not yet
+						// admitted and a Claimed one as already done, so
+						// neither shape is re-run twice.
+						return s.resumePausedProductionDispatch(
+							ctx, engine, owner, cycle, key, coordinates, effect,
+						)
+					}
 				}
 				if prepared.State == journal.Pending {
 					claim, claimErr := s.journal.ClaimOwned(
@@ -4413,6 +4611,20 @@ func (s *Service) recoverImplementationCycle(ctx context.Context, engine *engine
 		return sealedRecord{}, false, runtimeFail("JOURNAL_READ_FAILED", preparedErr)
 	}
 	dispatch, dispatchErr := s.journal.Effect(ctx, owner.RunID, cycle.DispatchEffect)
+	if dispatchErr == nil && dispatch.State == journal.Claimed &&
+		engine.manifest.value.production() {
+		_, _, pausedFound, checkpointErr := s.loadPausedHandoffCheckpoint(
+			ctx, owner.RunID, cycle.DispatchEffect,
+		)
+		if checkpointErr != nil {
+			return sealedRecord{}, false, checkpointErr
+		}
+		if pausedFound {
+			return s.resumePausedProductionDispatch(
+				ctx, engine, owner, cycle, key, coordinates, effect,
+			)
+		}
+	}
 	if dispatchErr == nil && (dispatch.State == journal.Claimed ||
 		dispatch.State == journal.Uncertain) {
 		cycleAssoc := MarshalAssociation(EventAssociation{
@@ -4474,6 +4686,135 @@ func (s *Service) recoverImplementationCycle(ctx context.Context, engine *engine
 		return sealedRecord{}, false, runtimeFail("RECOVERY_UNCERTAIN", nil)
 	}
 	return s.interruptImplementationCycle(ctx, engine, owner, cycle, effect)
+}
+
+// resumePausedProductionDispatch re-enters a production implementation
+// dispatch whose driver.dispatch effect stopped mid prepareHandoff (a
+// durable paused-handoff checkpoint exists for it, per
+// persistPausedHandoffCheckpoint) and whose git.seal.prepared effect was
+// never admitted. It is called from a fresh process with no live workspace
+// handle, so it repeats runImplementationCycle's production preamble
+// exactly (freshness check, track workspace open, checkpoint restore,
+// authority resolution, attribution) before calling
+// runProductionImplementationDispatch again - the same call a first attempt
+// at this try would make. runDriverEffectWithPreparation's own Claimed-case
+// checkpoint lookup then skips re-invoking the model and re-enters
+// prepareHandoff, which resumes host checks (or the git.seal.prepared claim)
+// exactly where they stopped.
+func (s *Service) resumePausedProductionDispatch(
+	ctx context.Context,
+	engine *engine,
+	owner journal.OwnerLease,
+	cycle implementationCycle,
+	key gitx.TrackKey,
+	coordinates dispatchCoordinates,
+	outer journal.Effect,
+) (sealedRecord, bool, error) {
+	fresh, err := protocol.ReadState(engine.git, cycle.Release, engine.inertness)
+	if err != nil {
+		return sealedRecord{}, false, runtimeFail("PROTOCOL_UNAVAILABLE", err)
+	}
+	if fresh.Plan.TargetStale || sliceFingerprint(fresh, cycle.Slice) != cycle.Before {
+		return sealedRecord{}, false, runtimeFail("STALE_DISPATCH", nil)
+	}
+	workspace, err := engine.workspaces.OpenTrack(key, gitx.ImplementationView)
+	if err != nil {
+		return sealedRecord{}, false, runtimeFail("WORKSPACE_UNAVAILABLE", err)
+	}
+	// Unlike runImplementationCycle's own preamble, this resume never
+	// re-invokes the model (the driver.dispatch Claimed switch it re-enters
+	// loads the checkpointed observation instead), so there is no
+	// in-progress model edit an unverified workspace checkpoint could ever
+	// need to restore here: the candidate this dispatch is resuming, if it
+	// was already git-sealed, is durably named by the journal's own
+	// paused-handoff checkpoint, not by a workspace-level one.
+	plan, sliceDecl, contractDigest, authorityErr := resolveSliceAuthority(fresh, cycle.Slice)
+	if authorityErr != nil {
+		_ = workspace.Close()
+		return sealedRecord{}, false, runtimeFail("CHECKPOINT_STATE_LOOKUP_FAILED", authorityErr)
+	}
+	attribution := gitx.WorkspaceAttribution{
+		RunID:          owner.RunID,
+		CommonDir:      engine.repository.CommonDir(),
+		Release:        cycle.Release,
+		Track:          cycle.Track,
+		Slice:          cycle.Slice,
+		PlanOID:        cycle.Plan,
+		PlanDigest:     plan.Digest(),
+		ContractPath:   sliceDecl.ContractPath,
+		ContractDigest: contractDigest,
+		PreparedBase:   workspace.Head().String(),
+		DispatchWork:   coordinates.DispatchWork,
+		Epoch:          coordinates.Epoch,
+		Try:            coordinates.Try,
+		ScopeInclude:   sliceDecl.Scope.Include,
+		ScopeExclude:   sliceDecl.Scope.Exclude,
+	}
+	if err := engine.workspaces.AttributeWorkspace(workspace, attribution); err != nil {
+		_ = workspace.Close()
+		return sealedRecord{}, false, runtimeFail("WORKSPACE_ATTRIBUTION_FAILED", err)
+	}
+	record, preparedClaim, dispatchErr := s.runProductionImplementationDispatch(
+		ctx, engine, owner, workspace, cycle, coordinates,
+	)
+	if dispatchErr != nil {
+		if IsCode(dispatchErr, "RUN_STOPPED") {
+			_ = workspace.Close()
+			return sealedRecord{}, false, dispatchErr
+		}
+		captureErr := s.captureImplementationCheckpoint(ctx, engine, owner, workspace, cycle)
+		_ = workspace.Close()
+		if captureErr != nil {
+			return sealedRecord{}, false, errors.Join(dispatchErr, captureErr)
+		}
+		return sealedRecord{}, false, dispatchErr
+	}
+	if err := workspace.Close(); err != nil {
+		return sealedRecord{}, false, runtimeFail("WORKSPACE_UNAVAILABLE", err)
+	}
+	record, err = s.reconcilePreparedSeal(
+		ctx,
+		engine,
+		owner,
+		cycle,
+		record,
+		journal.Effect{
+			RunID: owner.RunID, ID: cycle.PreparedEffect,
+			State:        journal.Claimed,
+			CurrentClaim: preparedClaim.Token,
+		},
+		outer,
+	)
+	if err != nil {
+		return sealedRecord{}, false, err
+	}
+	// reconcilePreparedSeal completes only cycle.PreparedEffect. Unlike
+	// runImplementationCycle's fresh-dispatch path - whose caller,
+	// implementSlice's per-try loop, completes the outer git.seal effect
+	// itself after a successful call - this recovery branch is the whole
+	// answer implementSlice's Claimed case gets for this try, exactly like
+	// the sibling preparedErr==nil branch above it in this function. It
+	// must complete the outer effect the same way that branch does.
+	body := mustJSON(record)
+	if err := s.journal.ReconcileOwned(
+		context.WithoutCancel(ctx),
+		owner,
+		journal.Completion{
+			RunID: owner.RunID, EffectID: outer.ID, Token: outer.CurrentClaim,
+			State: journal.Succeeded, Result: body,
+			EventKind: "candidate_reconciled",
+			EventBody: MarshalAssociation(EventAssociation{
+				EffectID: cycle.PreparedEffect,
+				WorkID:   cycle.PreparedWork,
+				Track:    cycle.Track,
+				Slice:    cycle.Slice,
+			}), At: s.now().UTC(),
+		},
+		journal.RecoveryAllNew,
+	); err != nil {
+		return sealedRecord{}, false, runtimeFail("JOURNAL_WRITE_FAILED", err)
+	}
+	return record, false, nil
 }
 
 func (s *Service) interruptImplementationCycle(ctx context.Context, engine *engine,
@@ -5553,8 +5894,18 @@ func (s *Service) recoverImplementationClaims(ctx context.Context, engine *engin
 				return true, runtimeFail("EFFECT_CLAIM_FAILED", err)
 			}
 			outer.State, outer.CurrentClaim = journal.Claimed, claim.Token
+			cycleSlice, sliceOK := state.Slice(cycle.Slice)
+			if !sliceOK {
+				return true, runtimeFail("CORRUPT_JOURNAL", nil)
+			}
+			key, coordinates, coordErr := recoveryTrackKeyAndCoordinates(
+				cycle, cycleSlice.Attempt,
+			)
+			if coordErr != nil {
+				return true, coordErr
+			}
 			recovered, retry, err := s.recoverImplementationCycle(
-				ctx, engine, owner, cycle, outer)
+				ctx, engine, owner, cycle, outer, key, coordinates)
 			if err != nil {
 				if IsCode(err, "STALE_DISPATCH") {
 					return true, nil
@@ -5834,8 +6185,18 @@ func (s *Service) recoverImplementationClaims(ctx context.Context, engine *engin
 				return true, s.appendImplementationReceipt(
 					ctx, engine, owner, cycle, record)
 			}
+			cycleSlice, sliceOK := state.Slice(cycle.Slice)
+			if !sliceOK {
+				return true, runtimeFail("CORRUPT_JOURNAL", nil)
+			}
+			key, coordinates, coordErr := recoveryTrackKeyAndCoordinates(
+				cycle, cycleSlice.Attempt,
+			)
+			if coordErr != nil {
+				return true, coordErr
+			}
 			recovered, retry, err := s.recoverImplementationCycle(
-				ctx, engine, owner, cycle, outer)
+				ctx, engine, owner, cycle, outer, key, coordinates)
 			if err != nil {
 				if IsCode(err, "STALE_DISPATCH") {
 					return true, nil
@@ -6173,7 +6534,13 @@ func (s *Service) driveLoop(ctx context.Context, engine *engine, owner journal.O
 						progress = true
 					} else if IsCode(err, "STALE_DISPATCH") {
 						progress = true
-					} else if !IsCode(err, "EFFECT_PARKED") {
+					} else if !IsCode(err, "EFFECT_PARKED") &&
+						!IsCode(err, "RUN_STOPPED") {
+						// S2-pause-safe-host-checks: a clean stop, not a
+						// lane failure - driverRecoveryPending's own
+						// checkpoint exclusion is what makes this lane
+						// resumable, so nothing here needs to fence the
+						// drive loop or surface an error.
 						laneErrors[position] = err
 					}
 					mu.Unlock()

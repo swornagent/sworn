@@ -1375,3 +1375,77 @@ func journalDirectHostEffect(t *testing.T, fixture *hostCheckFixture, work strin
 		t.Fatal(err)
 	}
 }
+
+// A1 (S2-pause-safe-host-checks): runHostChecks observes the run's desired
+// state fresh before admitting each declared check, never a cached flag. A
+// pause or cancel that already landed stops the loop before the very next
+// admission: a check that already succeeded keeps its exact recorded
+// result and is never re-admitted, and a check that has not yet run is
+// never admitted at all - the seal and the dispatch are not touched, so
+// the candidate stays resumable at the next unrun check on the same try.
+// Resuming (desired back to "running") completes the remaining check
+// without re-running the first.
+func TestHostChecksStopAtTheNextCheckBoundaryOnPauseAndKeepAlreadyPassedResults(t *testing.T) {
+	firstCheck, secondCheck := "true", "echo two"
+	fixture := newHostCheckFixture(t, []string{firstCheck, secondCheck})
+	firstResult, err := fixture.service.runOneHostCheck(
+		fixture.ctx, fixture.engine, fixture.owner, fixture.plan,
+		"S1", fixture.candidate, fixture.targetHead, fixture.releaseHead, firstCheck)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstResult.Outcome != protocol.CheckOutcomePass {
+		t.Fatalf("first result = %#v", firstResult)
+	}
+	if _, err := fixture.store.ApplyControl(fixture.ctx, journal.ControlCommand{
+		RunID: fixture.manifest.value.RunID, ID: "pause-1", Kind: journal.Pause,
+		ExpectedGeneration: 0,
+	}, fixture.service.now()); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := fixture.service.runHostChecks(
+		fixture.ctx, fixture.engine, fixture.owner, fixture.plan,
+		"S1", fixture.candidate, fixture.targetHead, fixture.releaseHead,
+	); !IsCode(err, "RUN_STOPPED") {
+		t.Fatalf("runHostChecks while paused = %v, want RUN_STOPPED", err)
+	}
+
+	firstWork := hostCheckWork("S1", fixture.candidate, fixture.contractDgst, firstCheck)
+	firstEffect, err := fixture.store.Effect(
+		fixture.ctx, fixture.manifest.value.RunID, hostCheckEffectID(firstWork))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstEffect.State != journal.Succeeded || firstEffect.ResultDigest != sha256Digest(mustJSON(firstResult)) {
+		t.Fatalf("first check.host effect changed across the stop: %#v", firstEffect)
+	}
+	secondWork := hostCheckWork("S1", fixture.candidate, fixture.contractDgst, secondCheck)
+	if _, err := fixture.store.Effect(
+		fixture.ctx, fixture.manifest.value.RunID, hostCheckEffectID(secondWork),
+	); !journal.IsCode(err, "EFFECT_NOT_FOUND") {
+		t.Fatalf("second check was admitted while paused: err=%v", err)
+	}
+
+	if _, err := fixture.store.ApplyControl(fixture.ctx, journal.ControlCommand{
+		RunID: fixture.manifest.value.RunID, ID: "resume-1", Kind: journal.Resume,
+		ExpectedGeneration: 1,
+	}, fixture.service.now()); err != nil {
+		t.Fatal(err)
+	}
+	results, err := fixture.service.runHostChecks(
+		fixture.ctx, fixture.engine, fixture.owner, fixture.plan,
+		"S1", fixture.candidate, fixture.targetHead, fixture.releaseHead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("results after resume = %d, want 2", len(results))
+	}
+	if results[0].EffectID != firstEffect.ID || results[0].OutputDigest != firstResult.OutputDigest {
+		t.Fatalf("first check was re-run on resume: %#v", results[0])
+	}
+	if results[1].Check != secondCheck || results[1].Outcome != protocol.CheckOutcomePass {
+		t.Fatalf("second check after resume = %#v", results[1])
+	}
+}

@@ -748,6 +748,47 @@ unresolved command. Fix the host's `PATH` (or the systemd unit's
 no plan, contract, or manifest change is needed or admitted for this
 cause.
 
+### Pause-safe host checks
+
+A `sworn pause` or `sworn cancel` that arrives while a slice's host checks
+are running stops cleanly at the next check boundary, never mid-check: the
+already-passing check.host effects keep their exact recorded results, the
+implementer's dispatch and the candidate's seal are not marked
+operationally failed, and the implementer try is not spent. The check that
+is already running when the stop lands still finishes and its result is
+still recorded; only the check *after* it is held back. `sworn resume` -
+including from a fresh process against the same journal, exactly as an
+operator invoking it after a restart - completes the candidate's remaining
+checks and seals it on the same epoch and try it started with; nothing is
+replayed that already succeeded, and the model is never re-invoked to
+produce a candidate it already produced.
+
+Underneath this, the check loop observes the run's desired state fresh
+before admitting each declared check, and the driver dispatch that is
+running the checks stops with a durable, self-contained record of exactly
+where it stopped (which candidate, and the driver's already-decoded
+result) instead of being journaled as a failure. That record, not a
+re-invocation of the model, is what a resume - in this process or a fresh
+one - uses to pick the check loop back up. A pause or cancel that lands
+after every declared check has already passed, while the candidate's own
+seal is being claimed, is held to the identical guarantee: the seal
+resumes from that same claim rather than being marked failed.
+
+A journal write attempted on a context a pause or cancel already cancelled
+reports a typed cancellation (`OPERATION_CANCELLED`), never `DATABASE_BUSY`
+or a generic write failure: only a real, live write-claim conflict is ever
+reported as busy. Callers on the host-check and seal paths treat that
+cancellation, and the run's own desired state going to anything other than
+`running`, as this same clean stop - never as a candidate or dispatch
+failure.
+
+A cancelled run is never resumed by this mechanism: `sworn resume` only
+ever asks a run whose desired state is `paused` to go back to `running`, a
+control-layer decision this behavior does not change. If a run is
+cancelled instead of resumed, its stopped dispatch and the candidate it was
+mid-check on are left exactly as they stopped, inert, like any other
+in-flight work a cancel leaves behind.
+
 ### Transient provider stall backoff
 
 When a try fails with `PROVIDER_UNAVAILABLE`, or `PROVIDER_LIMITED` with no

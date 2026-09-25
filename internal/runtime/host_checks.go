@@ -599,6 +599,9 @@ func (s *Service) journalHostCheckRefusal(
 	if err := s.journal.EnsureAttempt(ctx, command, effect, journal.EffectAttempt{
 		WorkID: work, Epoch: 1, Try: 1,
 	}); err != nil {
+		if journal.IsCode(err, "CONTROL_STOPPED") || journal.IsCode(err, "OPERATION_CANCELLED") {
+			return runtimeFail("RUN_STOPPED", err)
+		}
 		return runtimeFail("JOURNAL_WRITE_FAILED", err)
 	}
 	stored, err := s.journal.Effect(ctx, engine.manifest.value.RunID, effectID)
@@ -617,6 +620,9 @@ func (s *Service) journalHostCheckRefusal(
 	claim, err := s.journal.ClaimOwned(
 		ctx, owner, effectID, s.now().UTC(), effectLease)
 	if err != nil {
+		if journal.IsCode(err, "CONTROL_STOPPED") || journal.IsCode(err, "OPERATION_CANCELLED") {
+			return runtimeFail("RUN_STOPPED", err)
+		}
 		return runtimeFail("EFFECT_CLAIM_FAILED", err)
 	}
 	return s.journal.CompleteOwned(context.WithoutCancel(ctx), owner, journal.Completion{
@@ -774,6 +780,9 @@ func (s *Service) admitHostCheckEffect(
 			ReplayKey: effectID, Kind: "check.host", BeforeDigest: work,
 			ExpectedDigest: sha256Digest(payload), UpdatedAt: now},
 		journal.EffectAttempt{WorkID: work, Epoch: 1, Try: 1}); err != nil {
+		if journal.IsCode(err, "CONTROL_STOPPED") || journal.IsCode(err, "OPERATION_CANCELLED") {
+			return journal.Effect{}, nil, runtimeFail("RUN_STOPPED", err)
+		}
 		return journal.Effect{}, nil, runtimeFail("JOURNAL_WRITE_FAILED", err)
 	}
 	effect, err := s.journal.Effect(ctx, engine.manifest.value.RunID, effectID)
@@ -789,6 +798,9 @@ func (s *Service) admitHostCheckEffect(
 		claim, err := s.journal.ClaimOwned(
 			ctx, owner, effectID, s.now().UTC(), effectLease)
 		if err != nil {
+			if journal.IsCode(err, "CONTROL_STOPPED") || journal.IsCode(err, "OPERATION_CANCELLED") {
+				return journal.Effect{}, nil, runtimeFail("RUN_STOPPED", err)
+			}
 			return journal.Effect{}, nil, runtimeFail("EFFECT_CLAIM_FAILED", err)
 		}
 		effect.State, effect.CurrentClaim = journal.Claimed, claim.Token
@@ -874,6 +886,23 @@ func (s *Service) runHostChecks(
 	hostChecks = phaseOrderedHostChecks(hostChecks)
 	results := make([]hostCheckResult, 0, len(hostChecks))
 	for _, check := range hostChecks {
+		// A2 (S2-pause-safe-host-checks): observed fresh before admitting
+		// each check, never cached, so a pause or cancel that lands between
+		// two checks stops here - leaving every already-recorded result and
+		// the try intact - instead of admitting one more check.host effect.
+		if ctx.Err() != nil {
+			return nil, runtimeFail("RUN_STOPPED", ctx.Err())
+		}
+		projection, err := s.journal.ControlProjection(ctx, owner.RunID)
+		if err != nil {
+			if journal.IsCode(err, "OPERATION_CANCELLED") {
+				return nil, runtimeFail("RUN_STOPPED", err)
+			}
+			return nil, runtimeFail("JOURNAL_READ_FAILED", err)
+		}
+		if projection.Desired != "running" {
+			return nil, runtimeFail("RUN_STOPPED", nil)
+		}
 		result, err := s.runOneHostCheck(ctx, engine, owner, plan, sliceID, candidate, targetHead, releaseHead, check)
 		if err != nil {
 			return nil, err

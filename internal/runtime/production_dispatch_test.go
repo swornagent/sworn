@@ -3320,6 +3320,14 @@ func TestProductionImplementationHandoffRecoversItsDurablePreparedCandidate(
 		owner,
 		cycle,
 		outer,
+		gitx.TrackKey{Release: state.Release, Track: track.ID},
+		dispatchCoordinates{
+			Slice:           "S1",
+			Responsibility:  driver.ImplementerImplementation,
+			ProtocolAttempt: slice.Attempt,
+			Epoch:           1,
+			Try:             1,
+		},
 	)
 	if err != nil {
 		t.Fatal(err)

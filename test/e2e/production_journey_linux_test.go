@@ -2452,6 +2452,265 @@ func productionHostCheckFailureFactPlan(
 	return body, plan
 }
 
+// productionPauseAtHostCheckBoundaryPlan is productionJourneyPlan's own
+// four-slice, three-track shape with one change: A1 alone declares real
+// host_checks (the caller's checks, S2-pause-safe-host-checks' A4 built-
+// product journey), exactly as productionHostCheckFailureFactPlan does for
+// its own scenario.
+func productionPauseAtHostCheckBoundaryPlan(
+	t *testing.T,
+	repository string,
+	checks []string,
+) ([]byte, protocol.Plan) {
+	t.Helper()
+	pauseSlice := protocol.Slice{
+		ID:      "A1",
+		Outcome: "Deliver deterministic production slice A1.",
+		Scope: protocol.Scope{
+			Include: []string{"one-a.txt"},
+			Exclude: []string{},
+		},
+		Acceptance: []protocol.Criterion{{
+			ID:   "A-A1",
+			Text: "A1 is present in the exact product tree.",
+		}},
+		Checks:      checks,
+		HostChecks:  checks,
+		Constraints: []string{"deterministic local provider"},
+		DependsOn:   []string{},
+		Consumes:    []string{},
+	}
+	// One track, one slice, on purpose: no other slice's own cycle is ever
+	// concurrently mid-flight - racing a second, unrelated slice's own
+	// git.seal admission against the same pause's context cancellation -
+	// when the pause this journey exercises lands, and no worker-runnable
+	// check unrelated to this slice's host-check boundary can fail for a
+	// sandbox reason this journey does not exercise.
+	metadata := protocol.Metadata{
+		SchemaVersion: protocol.PlanVersion,
+		Release:       "production-journey-release",
+		Revision:      1,
+		PreviousPlan:  nil,
+		Repository:    "acme-repo",
+		TargetRef:     "refs/heads/main",
+		ApprovalRef:   "operator://production-journey-release/1",
+		Tracks: []protocol.Track{
+			{
+				ID: "T1", DependsOn: []string{},
+				Slices: []protocol.Slice{pauseSlice},
+			},
+		},
+	}
+	metadataBody, err := json.MarshalIndent(metadata, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := []byte(
+		"```protocol-plan-v2\n" + string(metadataBody) +
+			"\n```\n\nDeterministic production pause-at-host-check-boundary journey for " +
+			repository + ".\nOwned surface read from the repository: " +
+			journeyRepositoryCanary + ".\n",
+	)
+	plan, err := protocol.ParsePlan(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return body, plan
+}
+
+// TestConfiguredProductionPauseDuringHostChecksResumesOnTheSameTry is
+// S2-pause-safe-host-checks' A4 built-product journey: a pause lands while
+// a scripted candidate's host checks are running - via a real `sworn
+// pause` invocation, launched as one of the declared host checks itself,
+// exactly as an operator pausing a live run mid-check would - and the run
+// stops cleanly at the next check boundary with no operational failure.
+// `sworn resume`, a second real CLI process against the same journal, then
+// completes the candidate's remaining checks and seals it on the same
+// epoch and try it started with.
+func TestConfiguredProductionPauseDuringHostChecksResumesOnTheSameTry(
+	t *testing.T,
+) {
+	t.Parallel()
+	repository := newProductRepository(t)
+	root := t.TempDir()
+	configPath := filepath.Join(root, "drivers.json")
+	journalPath := filepath.Join(root, "run.sqlite")
+	swornBinary := filepath.Join(root, "sworn")
+
+	// Check 2 is the pause boundary itself: a fresh `sworn pause` process,
+	// applied while check 1 has already succeeded and check 3 has not yet
+	// run. Generation 1 is exact: the plan-authorization resume below is
+	// this run's only earlier control command.
+	pauseCommand := fmt.Sprintf(
+		"%s pause --run production-journey --journal %s --command e2e-pause-1 --generation 1",
+		swornBinary, journalPath,
+	)
+	checks := []string{
+		"printf 'hostcheck-first\\n'",
+		pauseCommand,
+		"printf 'hostcheck-third\\n'",
+	}
+	planBytes, plan := productionPauseAtHostCheckBoundaryPlan(t, repository, checks)
+
+	provider := &journeyProvider{
+		t: t, planBytes: planBytes,
+		turns:    make(map[string]int),
+		families: make(map[string]driver.ProfileFamily),
+		models:   make(map[string]string),
+		access:   make(map[string]driver.WorkspaceAccess),
+	}
+	providerHTTP := httptest.NewServer(http.HandlerFunc(provider.serve))
+	defer providerHTTP.Close()
+
+	configBody, loaded := productionJourneyConfig(t, providerHTTP.URL)
+	if err := os.WriteFile(configPath, configBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifestBody := productionJourneyManifest(t, repository, loaded)
+	manifestPath := writeManifest(t, root, manifestBody)
+	buildBinary(t, swornBinary, "./cmd/sworn", "")
+
+	journeyEnv := map[string]string{
+		"SWORN_JOURNEY_OPENAI_KEY": journeyOpenAISecret,
+		"SWORN_JOURNEY_GEMINI_KEY": journeyGeminiSecret,
+	}
+
+	stdout, stderr := runBinaryWithEnvironment(
+		t, swornBinary, 0, journeyEnv,
+		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
+	)
+	if stderr != "" || !strings.Contains(stdout, "  state: parked") {
+		t.Fatalf("production start stdout=%q stderr=%q", stdout, stderr)
+	}
+	attention := openPlannerSummaryAttention(t, swornBinary, "production-journey", journalPath)
+	_, stderr = runBinaryWithEnvironmentTimeout(
+		t, swornBinary, 0, journeyEnv, 180*time.Second,
+		"answer", "--run", "production-journey", "--journal", journalPath,
+		"--attention", attention.ID, "--generation", "1", "--answer", journeySummaryAnswer,
+		"--config", configPath,
+	)
+	if stderr != "" {
+		t.Fatalf("production summary answer stderr=%q", stderr)
+	}
+	stdout, stderr = runBinaryWithEnvironmentTimeout(
+		t, swornBinary, 0, journeyEnv, 180*time.Second,
+		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
+	)
+	if stderr != "" || !strings.Contains(stdout, "  state: awaiting_approval") {
+		t.Fatalf("production plan proposal stdout=%q stderr=%q", stdout, stderr)
+	}
+	authorizePlan(t, journalPath, "production-journey", plan)
+	installApprovedPlan(t, repository, planBytes)
+	_, stderr = runBinaryWithEnvironmentTimeout(
+		t, swornBinary, 0, journeyEnv, 180*time.Second,
+		"resume", "--run", "production-journey", "--journal", journalPath,
+		"--command", "resume-1", "--generation", "0", "--config", configPath,
+	)
+	if stderr != "" {
+		t.Fatalf("production resume stderr=%q", stderr)
+	}
+
+	// The implementer's own host checks run check 1, then check 2 - which
+	// pauses the run from a fresh sworn process exactly as an operator
+	// would - so check 3 never starts: the run stops cleanly at the next
+	// check boundary with no park and no operational failure.
+	_, stderr = runBinaryWithEnvironmentTimeout(
+		t, swornBinary, 0, journeyEnv, 180*time.Second,
+		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath,
+	)
+	if stderr != "" {
+		t.Fatalf("paused run stderr=%q", stderr)
+	}
+
+	statusOut, _ := runBinary(
+		t, swornBinary, 0,
+		"status", "--run", "production-journey", "--journal", journalPath, "--json",
+	)
+	var paused swornruntime.RunStatus
+	if err := json.Unmarshal([]byte(statusOut), &paused); err != nil {
+		t.Fatalf("parse paused status: %v\n%s", err, statusOut)
+	}
+	if paused.DesiredState != "paused" {
+		t.Fatalf("desired state after pause = %q, want paused", paused.DesiredState)
+	}
+	foundClaimedDispatch := false
+	for _, effect := range paused.Effects {
+		if effect.ErrorCode != "" || effect.State == "operational_failed" {
+			t.Fatalf("operationally failed effect after pause: %#v", effect)
+		}
+		if effect.Kind == "driver.dispatch" && effect.State == "claimed" &&
+			strings.HasSuffix(effect.ID, "/e1/t1") {
+			foundClaimedDispatch = true
+		}
+	}
+	if !foundClaimedDispatch {
+		t.Fatalf("no still-claimed epoch-1 try-1 driver.dispatch after pause: %#v", paused.Effects)
+	}
+	if paused.Park != nil {
+		t.Fatalf("pause was recorded as a park: %#v", paused.Park)
+	}
+
+	// Resume through a real process boundary: a second, fresh sworn
+	// process drives the same journal to completion.
+	_, stderr = runBinaryWithEnvironmentTimeout(
+		t, swornBinary, 0, journeyEnv, 180*time.Second,
+		"resume", "--run", "production-journey", "--journal", journalPath,
+		"--command", "e2e-resume-1", "--generation", "2", "--config", configPath,
+	)
+	if stderr != "" {
+		t.Fatalf("post-pause resume stderr=%q", stderr)
+	}
+
+	statusOut, _ = runBinary(
+		t, swornBinary, 0,
+		"status", "--run", "production-journey", "--journal", journalPath, "--json",
+	)
+	var resumed swornruntime.RunStatus
+	if err := json.Unmarshal([]byte(statusOut), &resumed); err != nil {
+		t.Fatalf("parse resumed status: %v\n%s", err, statusOut)
+	}
+	if resumed.DesiredState != "running" {
+		t.Fatalf("desired state after resume = %q, want running", resumed.DesiredState)
+	}
+	foundSucceededDispatch, foundSucceededSeal := false, false
+	for _, effect := range resumed.Effects {
+		if effect.ErrorCode != "" || effect.State == "operational_failed" {
+			t.Fatalf("operationally failed effect after resume: %#v", effect)
+		}
+		if !strings.HasSuffix(effect.ID, "/e1/t1") {
+			continue
+		}
+		if effect.Kind == "driver.dispatch" && effect.State == "succeeded" {
+			foundSucceededDispatch = true
+		}
+		if effect.Kind == "git.seal" && effect.State == "succeeded" {
+			foundSucceededSeal = true
+		}
+	}
+	if !foundSucceededDispatch || !foundSucceededSeal {
+		t.Fatalf("A1's epoch-1 try-1 cycle did not seal on the same try: %#v", resumed.Effects)
+	}
+
+	store, err := journal.OpenReadOnly(context.Background(), journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	snapshot, err := store.Snapshot(context.Background(), "production-journey")
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundAllThreeChecks := 0
+	for _, effect := range snapshot.Effects {
+		if effect.Kind == "check.host" && effect.State == journal.Succeeded {
+			foundAllThreeChecks++
+		}
+	}
+	if foundAllThreeChecks != 3 {
+		t.Fatalf("check.host effects after resume = %d, want 3 (all declared checks, none re-run)", foundAllThreeChecks)
+	}
+}
+
 // openPlannerSummaryAttention reads the board through the real binary and
 // returns the one open human-only Planner turn.
 func openPlannerSummaryAttention(

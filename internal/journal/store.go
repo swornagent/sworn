@@ -461,6 +461,9 @@ func (s *Store) immediate(ctx context.Context, fn func(*sql.Conn) error) (err er
 	}
 	conn := s.conn
 	if _, err = conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		if cancelled(ctx, err) {
+			return fail("OPERATION_CANCELLED", ctx.Err())
+		}
 		return fail("DATABASE_BUSY", errors.New("write claim unavailable"))
 	}
 	committed := false
@@ -473,10 +476,25 @@ func (s *Store) immediate(ctx context.Context, fn func(*sql.Conn) error) (err er
 		return err
 	}
 	if _, err = conn.ExecContext(ctx, "COMMIT"); err != nil {
+		if cancelled(ctx, err) {
+			return fail("OPERATION_CANCELLED", ctx.Err())
+		}
 		return fail("COMMIT_FAILED", errors.New("journal commit acknowledgement unavailable"))
 	}
 	committed = true
 	return nil
+}
+
+// cancelled reports whether a failed ExecContext call is attributable to
+// the caller's own context being cancelled or timing out, rather than a
+// genuine SQLite-level write-claim conflict on a live context. A real
+// write-claim conflict (SQLITE_BUSY on a context that is still running)
+// must keep reading as DATABASE_BUSY/COMMIT_FAILED, never as a
+// cancellation the caller did not ask for.
+func cancelled(ctx context.Context, err error) bool {
+	return ctx.Err() != nil ||
+		errors.Is(err, context.Canceled) ||
+		errors.Is(err, context.DeadlineExceeded)
 }
 
 // readTransaction holds one SQLite snapshot across every query used to build a
@@ -496,6 +514,9 @@ func (s *Store) readTransaction(
 	}
 	conn := s.conn
 	if _, err = conn.ExecContext(ctx, "BEGIN"); err != nil {
+		if cancelled(ctx, err) {
+			return fail("OPERATION_CANCELLED", ctx.Err())
+		}
 		return fail("DATABASE_BUSY", errors.New("read snapshot unavailable"))
 	}
 	committed := false
@@ -508,6 +529,9 @@ func (s *Store) readTransaction(
 		return err
 	}
 	if _, err = conn.ExecContext(ctx, "COMMIT"); err != nil {
+		if cancelled(ctx, err) {
+			return fail("OPERATION_CANCELLED", ctx.Err())
+		}
 		return fail("COMMIT_FAILED", errors.New("read snapshot acknowledgement unavailable"))
 	}
 	committed = true

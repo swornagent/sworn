@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1159,5 +1160,331 @@ func TestHostCheckEnvironmentGateParksResolvesAndReparksWithDistinctOffsets(t *t
 	}
 	if secondOffsets[1] <= firstOffsets[0] {
 		t.Fatalf("repark offset %d is not later than the first park offset %d", secondOffsets[1], firstOffsets[0])
+	}
+}
+
+// A2/A4 (S2-pause-safe-host-checks): a pause that lands after the model has
+// already answered and the candidate is already git-sealed - at the
+// git.seal.prepared claim, the #357 production journey's exact window -
+// stops driver.dispatch as RUN_STOPPED without marking it or the outer
+// git.seal effect operationally failed, and spends no try. Resuming crosses
+// a real process boundary: the paused owner is released, a fresh owner and
+// a fresh Service - built with a driver that fails the test if invoked
+// again - take over the same journal file, and the same try completes
+// without re-invoking the model.
+func TestPauseAtGitSealPreparedClaimResumesOnTheSameTryWithAFreshOwner(t *testing.T) {
+	ctx := context.Background()
+	repository := productionRepository(t)
+	config := productionConfig(t)
+	manifest := productionManifest(t, repository, config)
+	production, err := newProductionDriverRuntime(config, driver.DriverFactoryOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitExecutable, err := resolveGitExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 26, 4, 5, 6, 0, time.UTC)
+	store, err := journal.Open(ctx, filepath.Join(t.TempDir(), "journal.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.RegisterRun(ctx, journal.Run{
+		ID: manifest.value.RunID, ManifestDigest: manifest.digest,
+		Repository: manifest.value.Repository,
+		Release:    manifest.value.Release, TargetRef: manifest.value.TargetRef,
+		CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := store.AcquireOwner(ctx, manifest.value.RunID, now, time.Minute, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var invocations atomic.Int64
+	dispatcher := fixtureDriver(func(
+		_ context.Context,
+		invocation driver.Invocation,
+	) (driver.Observation, error) {
+		invocations.Add(1)
+		if err := os.WriteFile(
+			filepath.Join(invocation.HostWorkspace, "one.txt"),
+			[]byte("paused production implementation\n"), 0o600,
+		); err != nil {
+			t.Fatal(err)
+		}
+		submission := driver.Submission{
+			SchemaVersion:  driver.SubmissionSchemaVersion,
+			InvocationID:   invocation.Request.InvocationID,
+			Responsibility: driver.ImplementerImplementation,
+			Summary:        "Paused production candidate.",
+			Detail:         "Sealed before the pause lands on git.seal.prepared.",
+		}
+		submission.Checks, _ = driver.NewCheckBytes(
+			[]byte("production implementation checks\n"),
+		)
+		submissionBody, encodeErr := driver.EncodeSubmission(submission)
+		if encodeErr != nil {
+			t.Fatal(encodeErr)
+		}
+		sealBody, encodeErr := json.Marshal(driver.Seal{
+			SchemaVersion:    driver.SealSchemaVersion,
+			InvocationID:     submission.InvocationID,
+			SubmissionDigest: driver.Digest(submissionBody),
+			Accepted:         true,
+			Code:             "accepted",
+		})
+		if encodeErr != nil {
+			t.Fatal(encodeErr)
+		}
+		sealBody = append(sealBody, '\n')
+		// The pause lands exactly where #357's production journey found
+		// it: after the model has answered (this invocation is already
+		// returning its sealed handoff) and before the candidate's host
+		// boundary - host checks or, as declared by this fixture's plan,
+		// straight to the git.seal.prepared claim - ever starts.
+		if _, controlErr := store.ApplyControl(ctx, journal.ControlCommand{
+			RunID: manifest.value.RunID, ID: "pause-1", Kind: journal.Pause,
+			ExpectedGeneration: 0,
+		}, now); controlErr != nil {
+			t.Fatal(controlErr)
+		}
+		return driver.Observation{
+			TransportStatus: driver.Completed,
+			Usage: driver.UsageReceipt{
+				TokenStatus: driver.UsageUnavailable,
+				CostStatus:  driver.UsageUnavailable,
+			},
+			Diagnostic: driver.Diagnostic{Code: "none"},
+			Handoff: &driver.SealedHandoff{
+				SubmissionBytes:  submissionBody,
+				SubmissionDigest: driver.Digest(submissionBody),
+				SealBytes:        sealBody,
+				SealDigest:       driver.Digest(sealBody),
+			},
+		}, nil
+	})
+	service := &Service{
+		journal: store, dispatcher: dispatcher, production: production,
+		gitExecutable: gitExecutable, now: func() time.Time { return now },
+	}
+	engine, err := service.openEngine(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planBytes, _ := runtimePlan(
+		t, manifest.value.Release, manifest.value.Authority.Project,
+		manifest.value.TargetRef, "approval-release-1-v1",
+	)
+	if _, err := engine.actions.RecordPlanRevision(
+		protocol.RecordPlanRevisionInput{
+			PlanBytes: planBytes,
+			Summary:   "Install the exact production test plan.",
+			Detail:    []byte("Pause-at-git.seal.prepared fixture."),
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.actions.AppendReceipt(protocol.AppendReceiptInput{
+		Release: manifest.value.Release, Slice: "S1", Role: "implementer",
+		Result: "designed", Summary: "Design the pause fixture.",
+		Detail: []byte("Exact design."),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.actions.AppendReceipt(protocol.AppendReceiptInput{
+		Release: manifest.value.Release, Slice: "S1", Role: "lead",
+		Result: "proceed", Summary: "Proceed with the pause fixture.",
+		Detail: []byte("Exact review."),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	state, err := protocol.ReadState(engine.git, manifest.value.Release, engine.inertness)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slice, ok := state.Slice("S1")
+	track, trackOK := state.Track("T1")
+	if !ok || !trackOK || slice.CurrentReceipt == nil ||
+		slice.Stage != "implement" || slice.NextRole != "implementer" {
+		t.Fatalf("implementation authority = %#v", state)
+	}
+	before := sliceFingerprint(state, "S1")
+	outerWork := workIdentity(before, "git.seal")
+	outerID := journal.AttemptEffectID(outerWork, 1, 1)
+	cycle := implementationCycle{
+		GitIdentity: runtimeTestGitIdentity,
+		Release:     state.Release, Slice: "S1",
+		Binds: slice.CurrentReceipt.OID, Before: before,
+		Plan: state.Plan.OID, ReleaseHead: state.Refs.Release.Head,
+		TargetHead: state.Refs.Target.Head, Track: track.ID,
+		TrackRef: track.Ref, TrackHead: track.Head,
+		DispatchWork: workIdentity(outerID, "driver.dispatch"),
+		PreparedWork: workIdentity(outerID, "git.seal.prepared"),
+	}
+	cycle.DispatchEffect = journal.AttemptEffectID(cycle.DispatchWork, 1, 1)
+	cycle.PreparedEffect = journal.AttemptEffectID(cycle.PreparedWork, 1, 1)
+	outerPayload := mustJSON(cycle)
+	if err := store.EnsureAttempt(
+		ctx,
+		journal.Command{
+			RunID: owner.RunID, ReplayKey: outerID,
+			Kind: "git.seal", Payload: outerPayload, CreatedAt: now,
+		},
+		journal.Effect{
+			RunID: owner.RunID, ID: outerID, ReplayKey: outerID,
+			Kind: "git.seal", BeforeDigest: outerWork,
+			ExpectedDigest: sha256Digest(outerPayload), UpdatedAt: now,
+		},
+		journal.EffectAttempt{WorkID: outerWork, Epoch: 1, Try: 1},
+	); err != nil {
+		t.Fatal(err)
+	}
+	outerClaim, err := store.ClaimOwned(ctx, owner, outerID, now, effectLease)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outer := journal.Effect{
+		RunID: owner.RunID, ID: outerID, Kind: "git.seal",
+		State: journal.Claimed, CurrentClaim: outerClaim.Token,
+	}
+	workspace, err := engine.workspaces.OpenTrack(
+		gitx.TrackKey{Release: state.Release, Track: track.ID},
+		gitx.ImplementationView,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coordinates := dispatchCoordinates{
+		Slice: "S1", Responsibility: driver.ImplementerImplementation,
+		ProtocolAttempt: slice.Attempt, Epoch: 1, Try: 1,
+	}
+
+	_, _, dispatchErr := service.runProductionImplementationDispatch(
+		ctx, engine, owner, workspace, cycle, coordinates,
+	)
+	if !IsCode(dispatchErr, "RUN_STOPPED") {
+		t.Fatalf("paused dispatch = %v, want RUN_STOPPED", dispatchErr)
+	}
+	if err := workspace.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	dispatch, err := store.Effect(ctx, owner.RunID, cycle.DispatchEffect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dispatch.State != journal.Claimed {
+		t.Fatalf("driver.dispatch after pause = %#v, want Claimed", dispatch)
+	}
+	// EnsureAttempt itself does not consult desired state (only ClaimOwned
+	// does), so git.seal.prepared is admitted Pending; the pause is caught
+	// at the claim that follows, and recoverImplementationCycle's
+	// EFFECT_NOT_FOUND branch is not the one this pause resumes through -
+	// its preparedErr == nil branch (a claim attempt below) is.
+	if preparedAfterPause, err := store.Effect(ctx, owner.RunID, cycle.PreparedEffect); err != nil {
+		t.Fatalf("git.seal.prepared after pause: %v", err)
+	} else if preparedAfterPause.State != journal.Pending {
+		t.Fatalf("git.seal.prepared after pause = %#v, want Pending", preparedAfterPause)
+	}
+	if outerAfterPause, err := store.Effect(ctx, owner.RunID, outerID); err != nil {
+		t.Fatal(err)
+	} else if outerAfterPause.State != journal.Claimed {
+		t.Fatalf("outer git.seal after pause = %#v, want still Claimed", outerAfterPause)
+	}
+	if invocations.Load() != 1 {
+		t.Fatalf("invocations after pause = %d, want 1", invocations.Load())
+	}
+	checkpoint, err := store.Effect(ctx, owner.RunID, pausedHandoffCheckpointID(cycle.DispatchEffect))
+	if err != nil {
+		t.Fatalf("paused-handoff checkpoint missing: %v", err)
+	}
+	if checkpoint.Kind != "driver.handoff" || checkpoint.State != journal.Succeeded {
+		t.Fatalf("paused-handoff checkpoint = %#v", checkpoint)
+	}
+	if err := engine.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Resume through a real process boundary: release the paused owner,
+	// apply a control Resume, and let a fresh owner and a fresh Service -
+	// whose driver fails the test if invoked - take over the same journal.
+	if err := store.ReleaseOwner(ctx, owner, now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ApplyControl(ctx, journal.ControlCommand{
+		RunID: manifest.value.RunID, ID: "resume-1", Kind: journal.Resume,
+		ExpectedGeneration: 1,
+	}, now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	freshOwner, err := store.AcquireOwner(
+		ctx, manifest.value.RunID, now.Add(2*time.Second), time.Minute, false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if freshOwner.Token == owner.Token {
+		t.Fatal("resume must acquire a genuinely new owner token")
+	}
+	restartedProduction, err := newProductionDriverRuntime(config, driver.DriverFactoryOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted := &Service{
+		journal: store,
+		dispatcher: fixtureDriver(func(
+			context.Context, driver.Invocation,
+		) (driver.Observation, error) {
+			t.Fatal("resume invoked the production driver again")
+			return driver.Observation{}, nil
+		}),
+		production: restartedProduction, gitExecutable: gitExecutable,
+		now: func() time.Time { return now.Add(2 * time.Second) },
+	}
+	restartedEngine, err := restarted.openEngine(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restartedEngine.Close()
+
+	pending, err := restarted.driverRecoveryPending(ctx, manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending {
+		t.Fatal("driverRecoveryPending fenced a Claimed dispatch that has a durable paused-handoff checkpoint")
+	}
+
+	key := gitx.TrackKey{Release: state.Release, Track: track.ID}
+	recovered, retry, err := restarted.recoverImplementationCycle(
+		ctx, restartedEngine, freshOwner, cycle, outer, key, coordinates,
+	)
+	if err != nil {
+		t.Fatalf("resume recovery = %v", err)
+	}
+	if retry {
+		t.Fatal("resume recovery asked for another try instead of completing this one")
+	}
+	if invocations.Load() != 1 {
+		t.Fatalf("invocations after resume = %d, want 1 (no re-invocation)", invocations.Load())
+	}
+	if !sealedRecordMatchesCycle(recovered, cycle) {
+		t.Fatalf("recovered record = %#v", recovered)
+	}
+	for _, effectID := range []string{cycle.DispatchEffect, cycle.PreparedEffect, outerID} {
+		effect, err := store.Effect(ctx, freshOwner.RunID, effectID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if effect.State != journal.Succeeded {
+			t.Fatalf("effect %s after resume = %#v, want Succeeded", effectID, effect)
+		}
+	}
+	if runRuntimeGit(t, repository, "rev-parse", track.Ref) != recovered.Candidate {
+		t.Fatalf("track ref after resume = %q, want %q",
+			runRuntimeGit(t, repository, "rev-parse", track.Ref), recovered.Candidate)
 	}
 }

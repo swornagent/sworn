@@ -1890,6 +1890,132 @@ func (s *Service) persistHumanHandoffCheckpoint(
 	return nil
 }
 
+const pausedHandoffCheckpointVersion = "sworn.paused-handoff-checkpoint/v1"
+
+// pausedHandoffCheckpoint is persisted when a pause or cancel stops
+// prepareHandoff (host checks, or the git.seal.prepared claim that follows
+// them) mid-flight. It durably carries the already-decoded driver
+// observation so a fresh `sworn resume` process - a new Service, a new
+// OwnerLease, never the paused process - can re-enter prepareHandoff
+// without re-invoking the model. Unlike humanHandoffCheckpoint it has no
+// attention to validate against: a pause needs no operator answer.
+//
+// Record is the production implementer's own sealed-candidate identity
+// (Before/Candidate/Tree/ChangedPaths/RefreshFrom, fixed the moment the
+// candidate was first git-sealed), set only by
+// runProductionImplementationDispatch's own prepareHandoff closure. A
+// generic (non-implementer, or pre-seal) RUN_STOPPED leaves it nil: nothing
+// downstream needs to skip a seal it never reached. It is nil-safe and
+// produces byte-identical JSON on every pause of the same dispatch, because
+// every field it carries is fixed by the same submission and the same
+// already-sealed candidate every time - never recomputed differently.
+type pausedHandoffCheckpoint struct {
+	SchemaVersion string             `json:"schema_version"`
+	ParentEffect  string             `json:"parent_effect"`
+	Observation   driver.Observation `json:"observation"`
+	Record        *sealedRecord      `json:"record,omitempty"`
+}
+
+func pausedHandoffCheckpointID(parentEffect string) string {
+	return parentEffect + "/paused-handoff"
+}
+
+func (s *Service) loadPausedHandoffCheckpoint(
+	ctx context.Context,
+	runID string,
+	parentEffect string,
+) (driver.Observation, *sealedRecord, bool, error) {
+	id := pausedHandoffCheckpointID(parentEffect)
+	effect, err := s.journal.Effect(ctx, runID, id)
+	if err != nil {
+		if journal.IsCode(err, "EFFECT_NOT_FOUND") {
+			return driver.Observation{}, nil, false, nil
+		}
+		return driver.Observation{}, nil, false, runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	if effect.State != journal.Succeeded {
+		return driver.Observation{}, nil, false, runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	var checkpoint pausedHandoffCheckpoint
+	if json.Unmarshal(effect.Result, &checkpoint) != nil ||
+		!bytes.Equal(effect.Result, mustJSON(checkpoint)) ||
+		checkpoint.SchemaVersion != pausedHandoffCheckpointVersion ||
+		checkpoint.ParentEffect != parentEffect {
+		return driver.Observation{}, nil, false, runtimeFail("CORRUPT_JOURNAL", nil)
+	}
+	return checkpoint.Observation, checkpoint.Record, true, nil
+}
+
+// persistPausedHandoffCheckpoint writes the checkpoint with the journal's
+// unowned Claim/Complete primitives, under context.WithoutCancel: the owned
+// ClaimOwned refuses a paused or cancelled run's desired state
+// (CONTROL_STOPPED), and the ambient ctx here is the one watchOwner itself
+// just cancelled, so neither the owned primitives nor a cancellable context
+// can record the very stop they are reacting to. This mirrors the unowned
+// journal.Claim/journal.Complete pair internal/runtime/approval.go and
+// lead_decision.go already use for engine-side writes that must not be
+// gated by run ownership.
+func (s *Service) persistPausedHandoffCheckpoint(
+	ctx context.Context,
+	runID string,
+	parentEffect string,
+	observation driver.Observation,
+	record *sealedRecord,
+) error {
+	ctx = context.WithoutCancel(ctx)
+	checkpoint := pausedHandoffCheckpoint{
+		SchemaVersion: pausedHandoffCheckpointVersion,
+		ParentEffect:  parentEffect,
+		Observation:   observation,
+		Record:        record,
+	}
+	body := mustJSON(checkpoint)
+	id := pausedHandoffCheckpointID(parentEffect)
+	now := s.now().UTC()
+	if err := s.journal.RecordCommandEffect(
+		ctx,
+		journal.Command{
+			RunID: runID, ReplayKey: id,
+			Kind: "driver.handoff", Payload: body, CreatedAt: now,
+		},
+		journal.Effect{
+			RunID: runID, ID: id, ReplayKey: id,
+			Kind: "driver.handoff", BeforeDigest: sha256Digest([]byte(parentEffect)),
+			ExpectedDigest: sha256Digest(body), UpdatedAt: now,
+		},
+	); err != nil {
+		return runtimeFail("JOURNAL_WRITE_FAILED", err)
+	}
+	effect, err := s.journal.Effect(ctx, runID, id)
+	if err != nil {
+		return runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	if effect.State == journal.Succeeded {
+		if !bytes.Equal(effect.Result, body) {
+			return runtimeFail("CORRUPT_JOURNAL", nil)
+		}
+		return nil
+	}
+	if effect.State != journal.Pending {
+		return runtimeFail("RECOVERY_UNCERTAIN", nil)
+	}
+	claim, err := s.journal.Claim(ctx, runID, id, now, effectLease)
+	if err != nil {
+		return runtimeFail("EFFECT_CLAIM_FAILED", err)
+	}
+	if err := s.journal.Complete(ctx, journal.Completion{
+		RunID: runID, EffectID: id, Token: claim.Token,
+		State: journal.Succeeded, Result: body,
+		EventKind: "driver_handoff_paused",
+		EventBody: MarshalAssociation(EventAssociation{
+			EffectID: id, WorkID: parentEffect,
+		}), At: now,
+	}); err != nil {
+		return runtimeFail("JOURNAL_WRITE_FAILED", err)
+	}
+	return nil
+}
+
 func (s *Service) runDriverEffect(ctx context.Context, engine *engine,
 	workspace *gitx.WorkspaceLease, role driver.Role, coordinates dispatchCoordinates,
 	attemptIdentity journal.EffectAttempt, before string,
@@ -1912,7 +2038,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 	workspace *gitx.WorkspaceLease, role driver.Role, coordinates dispatchCoordinates,
 	attemptIdentity journal.EffectAttempt, before string,
 	owner journal.OwnerLease,
-	prepareHandoff func(driver.Submission) error,
+	prepareHandoff func(driver.Submission, driver.Observation) error,
 	implementationGoverned bool) (
 	submissionResult driver.Submission,
 	resultErr error,
@@ -2091,6 +2217,8 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 	}
 	var answered *journal.AttentionProjection
 	var claim journal.Claim
+	var pausedFound bool
+	var pausedObservation driver.Observation
 	switch effect.State {
 	case journal.Claimed:
 		if recovery != nil {
@@ -2122,6 +2250,19 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 				}
 				break
 			}
+		}
+		if observation, _, found, err := s.loadPausedHandoffCheckpoint(
+			ctx, manifest.value.RunID, replayKey,
+		); err != nil {
+			return driver.Submission{}, err
+		} else if found {
+			pausedFound, pausedObservation = true, observation
+			claim = journal.Claim{
+				RunID:    manifest.value.RunID,
+				EffectID: replayKey,
+				Token:    effect.CurrentClaim,
+			}
+			break
 		}
 		if implementationGoverned {
 			// A seal-cycle child keeps its coupled recovery: ambiguity is
@@ -2214,7 +2355,14 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		recovered           bool
 		checkpointed        bool
 	)
-	if answered != nil && answered.Attention.HumanTurn != nil {
+	if pausedFound {
+		// A pause or cancel already validated and checkpointed this exact
+		// handoff before this or a prior process stopped mid prepareHandoff.
+		// pausedFound and answered are mutually exclusive by construction
+		// (the Claimed switch above breaks on the first of the two it
+		// finds), so this never races loadHumanHandoffCheckpoint below.
+		observation = pausedObservation
+	} else if answered != nil && answered.Attention.HumanTurn != nil {
 		observation, checkpointed, invokeErr =
 			s.loadHumanHandoffCheckpoint(
 				ctx,
@@ -2226,9 +2374,10 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 			recovered = true
 		}
 	}
-	if checkpointed {
+	if pausedFound || checkpointed {
 		// The exact sealed handoff was already validated and checkpointed
-		// before a prior process died. Continue from those immutable bytes.
+		// before a prior process died or paused. Continue from those
+		// immutable bytes.
 	} else if answered != nil {
 		var resumeFact *continuationDispatchFact
 		observation, pendingContinuation, recovered, resumeFact, invokeErr =
@@ -2568,7 +2717,28 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		}
 	}
 	if prepareHandoff != nil {
-		if err := prepareHandoff(submission); err != nil {
+		if err := prepareHandoff(submission, observation); err != nil {
+			if IsCode(err, "RUN_STOPPED") {
+				// The production implementer closure (the only
+				// implementationGoverned prepareHandoff today) persists its
+				// own richer checkpoint - carrying the sealed candidate a
+				// resume needs to skip re-sealing - before returning here.
+				// This generic fallback only fills in a bare one (no sealed
+				// candidate) for a prepareHandoff user that does not, so a
+				// checkpoint always exists whenever RUN_STOPPED does.
+				if _, _, found, loadErr := s.loadPausedHandoffCheckpoint(
+					completionCtx, manifest.value.RunID, replayKey,
+				); loadErr != nil {
+					return driver.Submission{}, loadErr
+				} else if !found {
+					if perr := s.persistPausedHandoffCheckpoint(
+						completionCtx, manifest.value.RunID, replayKey, observation, nil,
+					); perr != nil {
+						return driver.Submission{}, perr
+					}
+				}
+				return driver.Submission{}, err
+			}
 			if answered != nil {
 				return driver.Submission{}, preserveAnswered(err)
 			}
