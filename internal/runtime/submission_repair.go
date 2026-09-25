@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"unicode/utf8"
 
@@ -97,7 +98,7 @@ func captureSubmissionRepair(
 		refusal.SourceEpoch != prior.Epoch || refusal.SourceTry != prior.Try {
 		return nil, nil
 	}
-	superseded, err := priorTryHasAcceptedSubmission(
+	superseded, err := priorTryResolvedInSession(
 		ctx, engine, coordinates, before, prior.Epoch, prior.Try,
 	)
 	if err != nil {
@@ -132,14 +133,21 @@ func captureSubmissionRepair(
 	return repair, nil
 }
 
-// priorTryHasAcceptedSubmission reports whether the implementer attempt at
-// (epoch, try) sealed a decodable submission, over the same candidate
-// dispatch-effect identities capturePriorSubmission's own per-try scan
-// probes. A decodable submission at that exact prior try means whatever
-// refusal preceded it was corrected in-session (Lead correction C1): the
-// next continuation must not be told an already-resolved refusal is still
-// outstanding.
-func priorTryHasAcceptedSubmission(
+// priorTryResolvedInSession reports whether the implementer attempt at
+// (epoch, try) resolved its own outstanding submission refusal in-session,
+// over the same candidate dispatch-effect identities capturePriorSubmission's
+// own per-try scan probes. That try either sealed a decodable submission, or
+// its correction got past submission-time validation and reached seal
+// preparation (the anchor gate, host checks or git.seal itself), which
+// completes that same dispatch effect OperationalFailed with a decodable
+// productionRefusalBinding or host-repair Result instead of the submission
+// bytes (Lead correction C1: dispatch.go's prepareHandoff branch and
+// scheduler.go's outer git.seal completion both write
+// extractRefusalResult(err), never the submission, so a seal-time refusal
+// must count as resolving the earlier field-level refusal exactly as an
+// accepted submission does). Either shape means the next continuation must
+// not be told an already-resolved refusal is still outstanding.
+func priorTryResolvedInSession(
 	ctx context.Context,
 	engine *engine,
 	coordinates dispatchCoordinates,
@@ -171,6 +179,19 @@ func priorTryHasAcceptedSubmission(
 			continue
 		}
 		if _, decErr := driver.DecodeSubmission(effect.Result); decErr == nil {
+			return true, nil
+		}
+		if effect.State != journal.OperationalFailed {
+			continue
+		}
+		var hostRepair productionHostRepair
+		if json.Unmarshal(effect.Result, &hostRepair) == nil &&
+			hostRepair.SchemaVersion == hostRepairVersion {
+			return true, nil
+		}
+		var refusal productionRefusalBinding
+		if json.Unmarshal(effect.Result, &refusal) == nil &&
+			refusal.Code != "" && len(refusal.Paths) > 0 {
 			return true, nil
 		}
 	}

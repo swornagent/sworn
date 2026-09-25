@@ -4101,3 +4101,112 @@ func TestFailedDispatchWithNoBrokerCountsProjectsNilNeverZero(t *testing.T) {
 		)
 	}
 }
+
+// TestRefusalPathsScopeViolationCarriedAcrossFreshEpochFirstTry pins A1: an
+// operator retry that starts a new epoch (Epoch bumps, Try resets to 1, the
+// exact same before) must receive the immediately preceding try's seal
+// refusal exactly as a same-epoch retry would, not silently drop it because
+// capturePriorRefusal's old guard only ever looked at the current epoch's
+// own Try-1.
+func TestRefusalPathsScopeViolationCarriedAcrossFreshEpochFirstTry(t *testing.T) {
+	dispatcher := fixtureDriver(func(
+		_ context.Context,
+		invocation driver.Invocation,
+	) (driver.Observation, error) {
+		return productionImplementationObservation(t, invocation), nil
+	})
+	fixture := newProductionImplementationRecoveryFixture(t, dispatcher)
+
+	outPaths := []string{"outside_scope_a.txt"}
+	for _, p := range outPaths {
+		full := filepath.Join(fixture.workspace.Path(), p)
+		if err := os.WriteFile(full, []byte("outside\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	_, _, dispatchErr := fixture.service.runProductionImplementationDispatch(
+		fixture.ctx,
+		fixture.engine,
+		fixture.owner,
+		fixture.workspace,
+		fixture.cycle,
+		fixture.coordinates,
+	)
+	if dispatchErr == nil {
+		t.Fatal("expected dispatch to fail on scope violation, got nil")
+	}
+	if err := fixture.service.completeImplementationFailure(
+		fixture.ctx,
+		fixture.owner,
+		fixture.outer.ID,
+		fixture.outer.CurrentClaim,
+		stableErrorCode(dispatchErr),
+		extractRefusalResult(dispatchErr),
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	// A fresh epoch's first try, over the exact same before an epoch bump
+	// never changes: it must see epoch 1/try 1's refusal exactly as a
+	// same-epoch try 2 would.
+	retryCoords := fixture.coordinates
+	retryCoords.Epoch, retryCoords.Try = 2, 1
+
+	retryWorkContext, contextBytes, err := captureProductionWorkContext(
+		fixture.ctx,
+		fixture.engine,
+		retryCoords,
+		fixture.cycle.Before,
+		driver.ReadWrite,
+	)
+	if err != nil {
+		t.Fatalf("captureProductionWorkContext failed: %v", err)
+	}
+	if retryWorkContext.Refusal == nil {
+		t.Fatal("expected epoch-2 try-1 work context to have non-nil Refusal")
+	}
+	if retryWorkContext.Refusal.Code != "SLICE_OUTSIDE_SCOPE" {
+		t.Fatalf(
+			"refusal code = %s, want SLICE_OUTSIDE_SCOPE",
+			retryWorkContext.Refusal.Code,
+		)
+	}
+	if len(retryWorkContext.Refusal.Paths) != len(outPaths) {
+		t.Fatalf(
+			"refusal paths = %v, want %v",
+			retryWorkContext.Refusal.Paths, outPaths,
+		)
+	}
+	for i, p := range outPaths {
+		if retryWorkContext.Refusal.Paths[i] != p {
+			t.Fatalf(
+				"refusal paths = %v, want %v",
+				retryWorkContext.Refusal.Paths, outPaths,
+			)
+		}
+	}
+	if retryWorkContext.Refusal.TotalPaths != len(outPaths) {
+		t.Fatalf(
+			"refusal total paths = %d, want %d",
+			retryWorkContext.Refusal.TotalPaths, len(outPaths),
+		)
+	}
+	if err := validateProductionWorkContext(
+		fixture.manifest, retryWorkContext,
+	); err != nil {
+		t.Fatalf("epoch-crossing refusal context refused: %v", err)
+	}
+
+	var jsonMap map[string]any
+	if err := json.Unmarshal(contextBytes, &jsonMap); err != nil {
+		t.Fatal(err)
+	}
+	refusalMap, ok := jsonMap["refusal"].(map[string]any)
+	if !ok {
+		t.Fatalf("work-context.json missing refusal object: %s", string(contextBytes))
+	}
+	if refusalMap["code"] != "SLICE_OUTSIDE_SCOPE" {
+		t.Fatalf("work-context.json refusal code = %v", refusalMap["code"])
+	}
+}

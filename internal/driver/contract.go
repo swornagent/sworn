@@ -335,6 +335,14 @@ type Request struct {
 	// whether a nonfresh request has the continuation authority it requires.
 	FreshContext bool   `json:"fresh_context"`
 	Limits       Limits `json:"limits"`
+	// AnchorDeclared reports whether the slice's approved contract declares
+	// at least one acceptance criterion's Anchor clause
+	// (S5-repair-input-across-epochs A3). It gates whether an
+	// implementer_implementation submission's result_fields legitimately
+	// advertises anchor_substitutes and whether the model prompt names the
+	// route: additive, omitempty, defaults false, so every request encoded
+	// before this field existed decodes and re-encodes byte-identically.
+	AnchorDeclared bool `json:"anchor_declared,omitempty"`
 }
 type Usage struct {
 	InputTokens  int64 `json:"input_tokens"`
@@ -673,7 +681,7 @@ func DecodeRequest(body []byte) (Request, error) {
 			"schema_version", "invocation_id", "role", "operation", "profile", "model",
 			"workspace", "inputs", "fresh_context", "limits",
 		},
-		nil,
+		[]string{"anchor_declared"},
 		&request,
 	); err != nil {
 		return Request{}, err

@@ -44,6 +44,22 @@ func criterionAnchorTokens(text string) []string {
 	return tokens
 }
 
+// sliceDeclaresAnchor reports whether any of the slice's acceptance
+// criteria carry a trailing "Anchor:" clause at all
+// (S5-repair-input-across-epochs A3), a coarser, pre-diff signal than
+// resolveAnchorRequirements: it never filters by base-tree membership, so
+// it stays true even for a criterion whose sole anchor is a wholly new file
+// the candidate is expected to add. It exists only to decide whether the
+// implementer's own prompt should ever mention anchor_substitutes at all.
+func sliceDeclaresAnchor(criteria []protocol.Criterion) bool {
+	for _, criterion := range criteria {
+		if len(criterionAnchorTokens(criterion.Text)) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // anchorCriterionRequirement names one acceptance criterion's declared
 // anchor paths, filtered to the tokens A2 requires: those that exist in the
 // exact base tree the candidate is diffed against.
@@ -186,7 +202,8 @@ func anchorPresenceGate(
 			}
 		}
 		if !satisfied {
-			missingCriteria = append(missingCriteria, requirement.id)
+			missingCriteria = append(missingCriteria,
+				requirement.id+" ("+strings.Join(requirement.paths, ", ")+")")
 			for _, path := range requirement.paths {
 				missingPaths[path] = struct{}{}
 			}
@@ -212,6 +229,9 @@ func anchorPresenceGate(
 	if len(substituteFailures) > 0 {
 		msg += "; " + strings.Join(substituteFailures, "; ")
 	}
+	msg += "; declare anchor_substitutes (criterion id to file) on the " +
+		"implementer_implementation submission naming where a listed " +
+		"criterion's evidence actually lives, if not at its anchor file"
 	return nil, &protocol.RecordError{
 		Code:       "ANCHOR_NOT_TOUCHED",
 		Msg:        msg,

@@ -987,7 +987,11 @@ receives that exact refusal and matching checkpoint provenance as
 input**, never a candidate receipt or a verifier PASS - so it can complete
 the handoff on the retained code instead of an empty commit or a blind
 regeneration. A refusal already corrected by an accepted submission in the
-same or a later try is not replayed as outstanding.
+same or a later try is not replayed as outstanding, nor is one whose own
+try instead reached seal preparation and was refused there (an anchor,
+scope or other seal-time gate) - reaching the seal means the field-level
+refusal that preceded it was itself corrected in-session, even though that
+try's own dispatch effect never decodes as an accepted submission.
 
 ## Seal-time gates and their repair input
 
@@ -1014,15 +1018,22 @@ attempt is never re-flagged as untouched - and refuses the seal with
 `ANCHOR_NOT_TOUCHED` when a criterion's declared anchors, and no valid
 declared substitute, appear in the candidate's diff from that base. The
 refusal names the base it used, every criterion still missing an anchor and
-its files, and separately, as a distinct fact, any declared substitute that
-failed and why (untouched, or outside the slice's approved scope). It is
-captured as repair context for the next same-authority implementer dispatch,
-so the cost is one further dispatch, not a full evidence round. An
-implementer may declare a substitute anchor for a criterion via
+its files, separately, as a distinct fact, any declared substitute that
+failed and why (untouched, or outside the slice's approved scope), and,
+always, the `anchor_substitutes` route itself - whether or not a substitute
+was attempted. It is captured as repair context for the next same-authority
+implementer dispatch, so the cost is one further dispatch, not a full
+evidence round; the refusal survives into the first try of a fresh epoch
+exactly as a same-epoch retry would receive it, not only a same-epoch one.
+An implementer may declare a substitute anchor for a criterion via
 `anchor_substitutes` on its `implementer_implementation` submission
 (criterion ID to path); a substitute the candidate honours is recorded on
 the seal itself (criterion ID to file), so a reader does not have to
-reconstruct it from the dispatch effect. An unreadable base tree or an
+reconstruct it from the dispatch effect. The implementer's own prompt
+advertises `anchor_substitutes` in its result fields, and names it as the
+correction route, only when the slice's approved contract declares an
+Anchor for at least one acceptance criterion - it is never a hidden field
+the model has to already know to reach for. An unreadable base tree or an
 ambiguous diff refuses `ANCHOR_GATE_UNREADABLE` instead of silently passing.
 
 **Degenerate submission body.** At the same author-side boundary that

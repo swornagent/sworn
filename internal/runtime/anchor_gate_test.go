@@ -189,6 +189,15 @@ func TestAnchorPresenceGateRefusesUntouchedAnchorAndAdmitsDirectTouch(t *testing
 		!strings.Contains(recordErr.Msg, "A2") || !strings.Contains(recordErr.Msg, "anchor base") {
 		t.Fatalf("unexpected refusal shape: %#v", recordErr)
 	}
+	// C2: the message itself names the failing criterion's anchor path
+	// (not only the union Paths field) and the anchor_substitutes route,
+	// even though no substitute was declared here.
+	if !strings.Contains(recordErr.Msg, "A2 (README.md)") {
+		t.Fatalf("refusal message does not name the criterion's anchor path: %s", recordErr.Msg)
+	}
+	if !strings.Contains(recordErr.Msg, "anchor_substitutes") {
+		t.Fatalf("refusal message does not name the anchor_substitutes route: %s", recordErr.Msg)
+	}
 
 	touching := writeAndCommitAnchorFixture(t, repository, "README.md", "covers the anchor\n")
 	if honored, err := anchorPresenceGate(engine, contract, base, touching, nil); err != nil || len(honored) != 0 {

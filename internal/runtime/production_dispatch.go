@@ -286,6 +286,13 @@ type productionWorkContext struct {
 	PriorSubmission    *productionPriorSubmissionBinding `json:"prior_submission,omitempty"`
 	HostRepair         *productionHostRepair             `json:"host_repair,omitempty"`
 	SubmissionRepair   *productionSubmissionRepair       `json:"submission_repair,omitempty"`
+	// AnchorDeclared reports whether the slice's approved contract declares
+	// at least one acceptance criterion's Anchor clause
+	// (S5-repair-input-across-epochs A3). It rides into driver.Request so
+	// the implementer's own result_fields and instruction only ever
+	// advertise anchor_substitutes when the contract actually has an
+	// Anchor to substitute for.
+	AnchorDeclared bool `json:"anchor_declared,omitempty"`
 	// EffectiveLimits is the frozen, per-work economy allowance
 	// (S4-resumable-budget-stops A3): when a work has an admitted Grant,
 	// this holds a full copy of the manifest's Limits with only the
@@ -1026,13 +1033,25 @@ func captureProtocolWorkContext(
 				return err
 			}
 		}
-		if coordinates.Try > 1 {
+		if coordinates.Try > 1 || coordinates.Epoch > 1 {
 			refusal, refusalErr := capturePriorRefusal(ctx, engine, coordinates, before)
 			if refusalErr != nil {
 				return refusalErr
 			}
 			workContext.Refusal = refusal
 		}
+		currentPlan, parseErr := protocol.ParsePlan(workContext.Plan.body)
+		if parseErr != nil || currentPlan.Digest() != workContext.Plan.Digest {
+			return runtimeFail("INVALID_AUTHORITY_STATE", nil)
+		}
+		contract, contractErr := currentPlan.ResolveSliceContractAtHead(
+			engine.git, coordinates.Slice,
+			state.Refs.Release.Head, state.Refs.Target.Head,
+		)
+		if contractErr != nil {
+			return runtimeFail("CONTRACT_RESOLUTION_FAILED", contractErr)
+		}
+		workContext.AnchorDeclared = sliceDeclaresAnchor(contract.Acceptance)
 	}
 	workContext.Evidence = sliceEvidence(slice.ConsumedInputs)
 	if coordinates.Responsibility == driver.WorkVerification {
@@ -1591,14 +1610,21 @@ func capturePriorRefusal(
 	coordinates dispatchCoordinates,
 	before string,
 ) (*productionRefusalBinding, error) {
-	if engine == nil || engine.journal == nil || coordinates.Try <= 1 {
+	if engine == nil || engine.journal == nil ||
+		(coordinates.Try <= 1 && coordinates.Epoch <= 1) {
 		return nil, nil
 	}
-	priorTry := coordinates.Try - 1
+	prior, found, err := priorAttemptCoordinates(ctx, engine, coordinates, before)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, nil
+	}
 	workID := workIdentity(before, "git.seal")
-	priorOuterID := journal.AttemptEffectID(workID, coordinates.Epoch, priorTry)
+	priorOuterID := journal.AttemptEffectID(workID, prior.Epoch, prior.Try)
 	dispatchEffectRec, dispatchEffectOuter :=
-		dispatchEffectCandidates(workID, coordinates.Epoch, priorTry)
+		dispatchEffectCandidates(workID, prior.Epoch, prior.Try)
 
 	// 3. General driver dispatch work identity
 	generalWork := driverWorkIdentity(
@@ -1608,7 +1634,7 @@ func capturePriorRefusal(
 		coordinates.ProtocolAttempt,
 		before,
 	)
-	generalDispatchEffect := journal.AttemptEffectID(generalWork, coordinates.Epoch, priorTry)
+	generalDispatchEffect := journal.AttemptEffectID(generalWork, prior.Epoch, prior.Try)
 
 	candidateIDs := []string{dispatchEffectRec, dispatchEffectOuter, generalDispatchEffect, priorOuterID}
 	for _, effectID := range candidateIDs {
@@ -1964,7 +1990,8 @@ func validateProductionWorkContext(
 			workContext.HostRepair != nil ||
 			workContext.PriorSubmission != nil ||
 			workContext.SubmissionRepair != nil ||
-			workContext.EffectiveLimits != nil) {
+			workContext.EffectiveLimits != nil ||
+			workContext.AnchorDeclared) {
 		return runtimeFail("CORRUPT_JOURNAL", nil)
 	}
 	if workContext.PriorSubmission != nil {
@@ -2014,7 +2041,7 @@ func validateProductionWorkContext(
 		}
 	}
 	if workContext.Refusal != nil {
-		if workContext.Try <= 1 {
+		if workContext.Try <= 1 && workContext.Epoch <= 1 {
 			return runtimeFail("CORRUPT_JOURNAL", nil)
 		}
 		refusal := workContext.Refusal
@@ -2438,6 +2465,7 @@ func productionWorkContextV1(
 	workContext.Refusal = nil
 	workContext.PriorSubmission = nil
 	workContext.SubmissionRepair = nil
+	workContext.AnchorDeclared = false
 	if err := validateProductionWorkContext(
 		manifest,
 		workContext,
@@ -2615,6 +2643,7 @@ func productionRequestForContextFreshness(
 		return driver.Request{},
 			runtimeFail("CORRUPT_JOURNAL", err)
 	}
+	request.AnchorDeclared = workContext.AnchorDeclared
 	return request, nil
 }
 

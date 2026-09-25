@@ -1107,6 +1107,9 @@ func modelPrompt(invocation Invocation) ([]byte, error) {
 			Fact    *AutomationFact      `json:"fact,omitempty"`
 		} `json:"recovery,omitempty"`
 	}
+	resultFields := submissionResultFields(
+		descriptor.Responsibility, invocation.Request.AnchorDeclared,
+	)
 	envelope := promptEnvelope{
 		SchemaVersion:     "sworn.model-prompt/v1",
 		InvocationID:      invocation.Request.InvocationID,
@@ -1115,10 +1118,14 @@ func modelPrompt(invocation Invocation) ([]byte, error) {
 		Workspace:         invocation.Request.Workspace,
 		Inputs:            invocation.Request.Inputs,
 		Responsibility:    descriptor.Responsibility,
-		ResultFields:      submissionResultFields(descriptor.Responsibility),
+		ResultFields:      resultFields,
 		Instruction:       "Use only the advertised tools. Read each listed input at /sworn/inputs/ followed by that input's path. Scratch output such as check logs belongs under the workspace tmp/ directory, which never enters the submitted candidate; every other workspace change must stay inside the slice scope, because the candidate is judged on its full diff. Finish with exactly one terminal: use sworn_submit with this envelope's exact invocation_id and responsibility when the work result is complete, or sworn_yield with the exact invocation_id when a bounded question or real block prevents completion. Then stop.",
 		Environment:       buildEnvironmentFacts(invocation),
 		RoleAssetAddendum: RoleAssetAddendum(invocation.Request.Role),
+	}
+	if descriptor.Responsibility == ImplementerImplementation &&
+		invocation.Request.AnchorDeclared {
+		envelope.Instruction += " This slice's contract declares an Anchor for at least one acceptance criterion: declare anchor_substitutes (criterion id to file) on your submission when a listed criterion's evidence lives outside its named anchor file, or the seal refuses ANCHOR_NOT_TOUCHED."
 	}
 	if invocation.recoverableInput != nil {
 		if err := ValidateRecoverableTurnInput(
@@ -1147,13 +1154,20 @@ func modelPrompt(invocation Invocation) ([]byte, error) {
 	return body, nil
 }
 
-func submissionResultFields(responsibility Responsibility) []string {
+func submissionResultFields(
+	responsibility Responsibility,
+	anchorDeclared bool,
+) []string {
 	fields := []string{"summary", "detail"}
 	switch responsibility {
 	case PlannerProposal:
 		return append(fields, "plan")
 	case ImplementerImplementation:
-		return append(fields, "checks")
+		fields = append(fields, "checks")
+		if anchorDeclared {
+			fields = append(fields, "anchor_substitutes")
+		}
+		return fields
 	case LeadReview, LeadPlanReview:
 		return append(fields, "decision")
 	case WorkVerification, AssemblyVerification:

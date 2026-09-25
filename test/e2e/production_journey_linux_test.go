@@ -1720,9 +1720,11 @@ func TestConfiguredProductionAnchorGateAndDegenerateBodyRefuseThenCorrect(
 		t.Fatal("no captured turn-2 prompt for A1's repair try")
 	}
 	if !bytes.Contains(retryPrompt, []byte("ANCHOR_NOT_TOUCHED")) ||
-		!bytes.Contains(retryPrompt, []byte("A-A1")) {
+		!bytes.Contains(retryPrompt, []byte("A-A1")) ||
+		!bytes.Contains(retryPrompt, []byte("base.txt")) ||
+		!bytes.Contains(retryPrompt, []byte("anchor_substitutes")) {
 		t.Fatalf(
-			"repair try's own prompt does not carry the exact outstanding anchor refusal: %s",
+			"repair try's own prompt does not carry the exact outstanding anchor refusal, its anchor path and the substitute route: %s",
 			retryPrompt,
 		)
 	}

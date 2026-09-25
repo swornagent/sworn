@@ -87,9 +87,11 @@ func TestCaptureSubmissionRepairRestoresExactRefusalAndSkipsWhenSuperseded(t *te
 		t.Fatalf("submission repair context refused: %v", err)
 	}
 
-	// Now supersede it: an accepted submission durably sealed for try 1
-	// means the refusal was corrected in-session, so a fresh try 2 context
-	// must not be told it is still outstanding.
+	// Now supersede it: try 1's own dispatch effect reached seal
+	// preparation and was itself refused there (Lead correction C1 - a
+	// seal-time refusal, not only an accepted submission, means the
+	// field-level refusal that preceded it was corrected in-session), so a
+	// fresh try 2 context must not be told it is still outstanding.
 	dispatchEffectID := journal.AttemptEffectID(dispatchWork, 1, 1)
 	payload := mustJSON(map[string]string{"fixture": "submitted"})
 	if err := f.store.EnsureAttempt(f.ctx,
@@ -103,25 +105,13 @@ func TestCaptureSubmissionRepairRestoresExactRefusalAndSkipsWhenSuperseded(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	checks, err := driver.NewCheckBytes([]byte{0x00, 0xff, '\n'})
-	if err != nil {
-		t.Fatal(err)
-	}
-	submission := driver.Submission{
-		SchemaVersion:  driver.SubmissionSchemaVersion,
-		InvocationID:   dispatchInvocationID(f.manifest.value.RunID, coordinates1),
-		Responsibility: driver.ImplementerImplementation,
-		Summary:        "Durable production candidate.",
-		Detail:         "Exact repair, corrected in-session.",
-		Checks:         checks,
-	}
-	body, err := driver.EncodeSubmission(submission)
-	if err != nil {
-		t.Fatal(err)
-	}
+	sealRefusal := mustJSON(productionRefusalBinding{
+		Code: "ANCHOR_NOT_TOUCHED", Paths: []string{"docs/run.md"}, TotalPaths: 1,
+	})
 	if err := f.store.CompleteOwned(f.ctx, f.owner, journal.Completion{
 		RunID: f.owner.RunID, EffectID: dispatchEffectID, Token: claim.Token,
-		State: journal.Succeeded, Result: body, EventKind: "fixture_submitted", At: now,
+		State: journal.OperationalFailed, ErrorCode: "ANCHOR_NOT_TOUCHED",
+		Result: sealRefusal, EventKind: "fixture_seal_refused", At: now,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -136,6 +126,145 @@ func TestCaptureSubmissionRepairRestoresExactRefusalAndSkipsWhenSuperseded(t *te
 		t.Fatalf(
 			"superseded refusal still reported outstanding: %#v",
 			workContext2Again.SubmissionRepair,
+		)
+	}
+}
+
+// TestCaptureSubmissionRepairCarriesAcrossEpochAndSkipsWhenPriorTryReachedSeal
+// pins the cross-epoch half of Lead correction C1/A2: a refusal reserved at
+// epoch 1/try 1 is carried into a fresh epoch's first try exactly as it
+// would a same-epoch retry, and stops being carried once that same try's
+// dispatch effect is completed OperationalFailed with a seal-time refusal
+// Result, even though that effect never decodes as an accepted submission.
+func TestCaptureSubmissionRepairCarriesAcrossEpochAndSkipsWhenPriorTryReachedSeal(t *testing.T) {
+	f := newHostCheckFixture(t, []string{"true"})
+	before := sliceFingerprint(f.state, "S1")
+
+	coordinates1 := dispatchCoordinates{
+		Slice: "S1", Responsibility: driver.ImplementerImplementation,
+		ProtocolAttempt: 1, Epoch: 1, Try: 1,
+	}
+	workContext1, _, err := captureProductionWorkContext(
+		f.ctx, f.engine, coordinates1, before, driver.ReadWrite,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dispatchWork := workIdentity(
+		workIdentity(before, "git.seal"), "driver.dispatch",
+	)
+	lane, slice := humanTurnLane(workContext1)
+	planDigest, targetDigest := recoveryAuthorityDigestsForContext(
+		f.manifest, &workContext1, before,
+	)
+	cycleID := driver.Digest(mustJSON(recoveryCycleIdentity{
+		SchemaVersion:         "sworn.turn-recovery-cycle/v1",
+		RunID:                 f.manifest.value.RunID,
+		LaneID:                lane,
+		Slice:                 slice,
+		Responsibility:        coordinates1.Responsibility,
+		ProtocolAttempt:       coordinates1.ProtocolAttempt,
+		WorkIdentity:          dispatchWork,
+		PlanAuthorityDigest:   planDigest,
+		TargetAuthorityDigest: targetDigest,
+	}))
+	binding := journal.RecoveryBinding{
+		LaneID: lane, CycleID: cycleID,
+		TurnID: recoveryTurnID(cycleID, 0), ProgressID: dispatchWork,
+	}
+	step := journal.RecoveryStepCommand{
+		RunID:   f.manifest.value.RunID,
+		ID:      journal.RecoveryStepID(binding, 1),
+		Binding: binding, Ordinal: 1, Kind: journal.RecoveryMalformedCorrection,
+		Refusal: &journal.RecoveryStepRefusal{
+			Code: "INVALID_DETAIL", Detail: "the exact refusal detail",
+			SourceEpoch: 1, SourceTry: 1,
+		},
+	}
+	now := f.service.now()
+	if _, err := f.store.ReserveRecoveryStep(f.ctx, f.owner, step, now); err != nil {
+		t.Fatal(err)
+	}
+
+	// The scheduler always records the outer git.seal attempt the moment it
+	// visits an epoch/try, before the driver ever dispatches (scheduler.go's
+	// implementSlice), so epoch 1/try 1's outer effect exists in the
+	// journal even though the attempt died mid-correction and never
+	// completed it. priorAttemptCoordinates' cross-epoch scan depends on
+	// that outer effect's presence to find the highest prior epoch.
+	outerWork := workIdentity(before, "git.seal")
+	outerEffectID := journal.AttemptEffectID(outerWork, 1, 1)
+	outerPayload := mustJSON(map[string]string{"fixture": "seal-attempt"})
+	if err := f.store.EnsureAttempt(f.ctx,
+		journal.Command{RunID: f.owner.RunID, ReplayKey: outerEffectID, Kind: "git.seal", Payload: outerPayload, CreatedAt: now},
+		journal.Effect{RunID: f.owner.RunID, ID: outerEffectID, ReplayKey: outerEffectID, Kind: "git.seal", BeforeDigest: outerWork, ExpectedDigest: driver.Digest(outerPayload), UpdatedAt: now},
+		journal.EffectAttempt{WorkID: outerWork, Epoch: 1, Try: 1},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	// An operator retry starts a new epoch: epoch 1/try 1's own dispatch
+	// effect never completed (the worker or host died mid-correction), so
+	// the refusal must survive into epoch 2/try 1 exactly as a same-epoch
+	// retry would receive it.
+	coordinatesEpoch2 := coordinates1
+	coordinatesEpoch2.Epoch, coordinatesEpoch2.Try = 2, 1
+	workContextEpoch2, _, err := captureProductionWorkContext(
+		f.ctx, f.engine, coordinatesEpoch2, before, driver.ReadWrite,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repair := workContextEpoch2.SubmissionRepair
+	if repair == nil ||
+		repair.RefusalCode != "INVALID_DETAIL" ||
+		repair.RefusalDetail != "the exact refusal detail" ||
+		repair.SourceEpoch != 1 || repair.SourceTry != 1 ||
+		repair.Before != before {
+		t.Fatalf("cross-epoch submission repair = %#v", repair)
+	}
+	if err := validateProductionWorkContext(f.manifest, workContextEpoch2); err != nil {
+		t.Fatalf("cross-epoch submission repair context refused: %v", err)
+	}
+
+	// Now supersede it: epoch 1/try 1's dispatch effect reached seal
+	// preparation and was refused there. Epoch 2/try 1 must not be told
+	// the field-level refusal is still outstanding.
+	dispatchEffectID := journal.AttemptEffectID(dispatchWork, 1, 1)
+	payload := mustJSON(map[string]string{"fixture": "submitted"})
+	if err := f.store.EnsureAttempt(f.ctx,
+		journal.Command{RunID: f.owner.RunID, ReplayKey: dispatchEffectID, Kind: "driver.dispatch", Payload: payload, CreatedAt: now},
+		journal.Effect{RunID: f.owner.RunID, ID: dispatchEffectID, ReplayKey: dispatchEffectID, Kind: "driver.dispatch", BeforeDigest: dispatchWork, ExpectedDigest: driver.Digest(payload), UpdatedAt: now},
+		journal.EffectAttempt{WorkID: dispatchWork, Epoch: 1, Try: 1},
+	); err != nil {
+		t.Fatal(err)
+	}
+	claim, err := f.store.ClaimOwned(f.ctx, f.owner, dispatchEffectID, now, effectLease)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealRefusal := mustJSON(productionRefusalBinding{
+		Code: "ANCHOR_NOT_TOUCHED", Paths: []string{"docs/run.md"}, TotalPaths: 1,
+	})
+	if err := f.store.CompleteOwned(f.ctx, f.owner, journal.Completion{
+		RunID: f.owner.RunID, EffectID: dispatchEffectID, Token: claim.Token,
+		State: journal.OperationalFailed, ErrorCode: "ANCHOR_NOT_TOUCHED",
+		Result: sealRefusal, EventKind: "fixture_seal_refused", At: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	workContextEpoch2Again, _, err := captureProductionWorkContext(
+		f.ctx, f.engine, coordinatesEpoch2, before, driver.ReadWrite,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if workContextEpoch2Again.SubmissionRepair != nil {
+		t.Fatalf(
+			"superseded cross-epoch refusal still reported outstanding: %#v",
+			workContextEpoch2Again.SubmissionRepair,
 		)
 	}
 }
