@@ -170,7 +170,8 @@ func certificationFailureCode(err error) string {
 	case "TOOL_NOT_ALLOWED", "INVALID_TOOL_ARGUMENT", "TOOL_PATH_INVALID",
 		"TOOL_READ_FAILED", "TOOL_WRITE_FAILED", "TOOL_EDIT_FAILED":
 		return "certification_tool_failed"
-	case "RESOURCE_LIMIT", "OUTPUT_OVERFLOW":
+	case "RESOURCE_LIMIT", "OUTPUT_OVERFLOW",
+		"BROKER_CALL_BUDGET_EXHAUSTED", "NATIVE_TURN_CAP_EXCEEDED":
 		return "certification_resource_limited"
 	default:
 		return "certification_contract_failed"

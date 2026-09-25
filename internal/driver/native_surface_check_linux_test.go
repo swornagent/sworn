@@ -246,7 +246,7 @@ func TestNativeSpontaneousExitFailureRecordsTheCLIResultErrorAsCause(t *testing.
 		err := nativeSpontaneousExitFailure(false, ProfileClaude, exited, nil, nativeResultError{
 			errored: true, subtype: "error_max_turns", detail: "error_max_turns: turn limit reached",
 		})
-		if !IsCode(err, "PROVIDER_TRANSPORT_FAILED") {
+		if !IsCode(err, "NATIVE_TURN_CAP_EXCEEDED") {
 			t.Fatalf("error = %v", err)
 		}
 	})

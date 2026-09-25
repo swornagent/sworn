@@ -717,6 +717,55 @@ func TestUsageNormalizationPreservesZeroAndUnavailable(t *testing.T) {
 	}
 }
 
+// TestRefusedToolCallsBoundIsExactSaturationBoundary pins A3
+// (S4-broker-budget-and-turn-cap): UsageReceipt.RefusedToolCalls shares its
+// encode-time bound with MaxRefusedBrokerCalls exactly - the ceiling itself
+// is valid, one above it is rejected - and stampRefusedToolCalls drops
+// (never stamps) an out-of-range input rather than ever producing an
+// invalid receipt.
+func TestRefusedToolCallsBoundIsExactSaturationBoundary(t *testing.T) {
+	t.Parallel()
+	base := UsageReceipt{
+		SchemaVersion:     UsageSchemaV2,
+		Surface:           "sworn.test",
+		TokenStatus:       UsageUnavailable,
+		CostStatus:        UsageUnavailable,
+		CacheStatus:       UsageUnavailable,
+		UnavailableReason: UsageReasonWireLacked,
+	}
+	atMax := base
+	stampRefusedToolCalls(&atMax, MaxRefusedBrokerCalls)
+	if atMax.RefusedToolCalls == nil || *atMax.RefusedToolCalls != MaxRefusedBrokerCalls {
+		t.Fatalf("stamp at max = %#v", atMax.RefusedToolCalls)
+	}
+	if _, err := EncodeUsageReceipt(atMax); err != nil {
+		t.Fatalf("encode at max = %v", err)
+	}
+	droppedOverMax := base
+	stampRefusedToolCalls(&droppedOverMax, MaxRefusedBrokerCalls+1)
+	if droppedOverMax.RefusedToolCalls != nil {
+		t.Fatalf(
+			"stamp over max should be dropped, got %#v",
+			droppedOverMax.RefusedToolCalls,
+		)
+	}
+	// Bypassing the helper's own drop to exercise the encode-time bound
+	// directly: stampRefusedToolCalls' honest-absence discipline would
+	// otherwise make these two cases unreachable through it.
+	forcedOverMax := base
+	forced := int64(MaxRefusedBrokerCalls + 1)
+	forcedOverMax.RefusedToolCalls = &forced
+	if _, err := EncodeUsageReceipt(forcedOverMax); err == nil {
+		t.Fatal("refused tool calls over max was accepted")
+	}
+	forcedNegative := base
+	negative := int64(-1)
+	forcedNegative.RefusedToolCalls = &negative
+	if _, err := EncodeUsageReceipt(forcedNegative); err == nil {
+		t.Fatal("negative refused tool calls was accepted")
+	}
+}
+
 // A2: an unavailable receipt is loud, never a silent default. The failure
 // observation paths name the surface and a stable reason, a silent v2
 // receipt is unencodable, and a legacy v1 blob still decodes and re-encodes

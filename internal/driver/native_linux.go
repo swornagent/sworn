@@ -2243,6 +2243,7 @@ func platformRunNative(
 			crossingHasUsage,
 			crossingTurns,
 			broker.toolCallTotal(),
+			broker.refusedCallTotal(),
 			broker.toolCallsByName(),
 			crossingBytes,
 		), fail("ECONOMY_OUTPUT_BUDGET_EXCEEDED")
@@ -2357,6 +2358,32 @@ func platformRunNative(
 		return Observation{}, terminalErr
 	}
 	if !terminated {
+		// A1 (S4-broker-budget-and-turn-cap): the broker's own call-count
+		// crossing outranks every exit-status/result classification below,
+		// universally - including an automation dispatch, since
+		// MaxBrokerCalls guards every broker HTTP request regardless of
+		// session kind. This check must stay strictly inside !terminated:
+		// terminated reflects the tool session's own submit/yield
+		// protocol, a fact independent of the broker's request-count
+		// state, and an accepted submission always wins regardless of
+		// what the broker's calls counter later did.
+		if broker.BudgetExhausted() {
+			state.mu.Lock()
+			turns := state.turns
+			state.mu.Unlock()
+			detail := fmt.Sprintf(
+				"calls %d, budget %d",
+				broker.BudgetExhaustedCalls(),
+				MaxBrokerCalls,
+			)
+			return nativeCountedFailure(
+					started, invocation.Selected.Adapter.ID,
+					usageValue, hasUsage, turns,
+					broker.toolCallTotal(), broker.refusedCallTotal(),
+					broker.toolCallsByName(), "broker_call_budget_exhausted",
+				),
+				failWithDetail("BROKER_CALL_BUDGET_EXHAUSTED", detail)
+		}
 		if waitErr != nil {
 			// The retained stderr tail rides the transport refusal only
 			// when neither leak guard ever fired (fail-closed): a detected
@@ -2377,13 +2404,52 @@ func platformRunNative(
 				transportTail, _ = redactToolResultSpan(tail, secrets)
 				clearBytes(tail)
 			}
-			return Observation{}, nativeSpontaneousExitFailure(
+			exitErr := nativeSpontaneousExitFailure(
 				staleCredential,
 				config.Family,
 				waitErr,
 				transportTail,
 				state.resultError(),
 			)
+			if IsCode(exitErr, "NATIVE_TURN_CAP_EXCEEDED") {
+				state.mu.Lock()
+				turns := state.turns
+				state.mu.Unlock()
+				detail := fmt.Sprintf(
+					"turn cap %d", nativeMaximumTurns(definitions),
+				)
+				return nativeCountedFailure(
+						started, invocation.Selected.Adapter.ID,
+						usageValue, hasUsage, turns,
+						broker.toolCallTotal(), broker.refusedCallTotal(),
+						broker.toolCallsByName(), "native_turn_cap",
+					),
+					failWithDetail("NATIVE_TURN_CAP_EXCEEDED", detail)
+			}
+			return Observation{}, exitErr
+		}
+		// A2 (S4-broker-budget-and-turn-cap): a clean exit (no waitErr)
+		// bypasses nativeSpontaneousExitFailure entirely, so the same
+		// CLI-reported turn-cap check runs here too, ahead of the
+		// automationRun branch (matching the waitErr != nil path above,
+		// which already runs nativeSpontaneousExitFailure - and now this
+		// exact check - for automation runs too: keeping the clean-exit
+		// branch's classification consistent regardless of exit status).
+		if result := state.resultError(); result.errored &&
+			result.subtype == "error_max_turns" {
+			state.mu.Lock()
+			turns := state.turns
+			state.mu.Unlock()
+			detail := fmt.Sprintf(
+				"turn cap %d", nativeMaximumTurns(definitions),
+			)
+			return nativeCountedFailure(
+					started, invocation.Selected.Adapter.ID,
+					usageValue, hasUsage, turns,
+					broker.toolCallTotal(), broker.refusedCallTotal(),
+					broker.toolCallsByName(), "native_turn_cap",
+				),
+				failWithDetail("NATIVE_TURN_CAP_EXCEEDED", detail)
 		}
 		if automationRun != nil {
 			return Observation{}, fail("AUTOMATION_PROTOCOL_FAILED")
@@ -2422,6 +2488,7 @@ func platformRunNative(
 			broker.toolCallTotal(),
 			broker.toolCallsByName(),
 		)
+		stampRefusedToolCalls(&usage, broker.refusedCallTotal())
 	}
 	if automationRun != nil {
 		automationRun.observation, err = automationSession.complete(usage)
@@ -2479,12 +2546,16 @@ func platformRunNative(
 // NATIVE_SURFACE_INVALID.
 //
 // The CLI's own error result outranks a plain transport reading (#310):
-// when the final result event reported an error naming a provider limit
-// (nativeLimitReached), the exit is PROVIDER_LIMITED as a hard wall, so
-// the funnel classifies it hard exhaustion and the engine can park on it
-// rather than spend tries; any other error result rides
-// PROVIDER_TRANSPORT_FAILED's Detail, with the exit status, whenever the
-// stderr tail has nothing to say.
+// a result naming the CLI's own fixed turn cap (error_max_turns) is
+// NATIVE_TURN_CAP_EXCEEDED, checked first because that subtype's message
+// can otherwise match the provider-limit phrase table below it (A2,
+// S4-broker-budget-and-turn-cap - the CLI's own cap is never a provider
+// limit, whatever its message says). Otherwise, when the final result
+// event reported an error naming a provider limit (nativeLimitReached),
+// the exit is PROVIDER_LIMITED as a hard wall, so the funnel classifies it
+// hard exhaustion and the engine can park on it rather than spend tries;
+// any other error result rides PROVIDER_TRANSPORT_FAILED's Detail, with
+// the exit status, whenever the stderr tail has nothing to say.
 func nativeSpontaneousExitFailure(
 	staleCredential bool,
 	family ProfileFamily,
@@ -2510,10 +2581,16 @@ func nativeSpontaneousExitFailure(
 			return failNativeSurface("dispatch.process_signaled")
 		}
 	}
-	// The CLI's own turn cap (error_max_turns) is never a provider limit,
-	// whatever its message says about limits.
-	if result.errored && result.subtype != "error_max_turns" &&
-		nativeLimitReached(result.detail) {
+	// The CLI's own turn cap (error_max_turns) is never a provider limit
+	// and never a plain transport failure, whatever its message says
+	// about limits (A2, S4-broker-budget-and-turn-cap): the caller
+	// recognizes this exact code and attaches the bounded "turn cap N"
+	// detail and the receipt-bearing usage this function cannot build
+	// (it returns only error, with no access to the broker/turn counts).
+	if result.errored && result.subtype == "error_max_turns" {
+		return fail("NATIVE_TURN_CAP_EXCEEDED")
+	}
+	if result.errored && nativeLimitReached(result.detail) {
 		return &ContractError{
 			Code:      "PROVIDER_LIMITED",
 			Detail:    result.detail,
@@ -3424,7 +3501,7 @@ func nativeStreamBudgetFailure(
 	adapterID string,
 	usageValue Usage,
 	hasUsage bool,
-	turns, toolCalls int64,
+	turns, toolCalls, refusedToolCalls int64,
 	toolCallsByName map[string]int64,
 	spentBytes int64,
 ) Observation {
@@ -3439,11 +3516,46 @@ func nativeStreamBudgetFailure(
 	if spentBytes >= 0 && spentBytes <= MaxSafeInteger {
 		usage.NativeStreamBytes = &spentBytes
 	}
+	stampRefusedToolCalls(&usage, refusedToolCalls)
 	return Observation{
 		TransportStatus: RunnerError,
 		DurationMillis:  time.Since(started).Milliseconds(),
 		Usage:           usage,
 		Diagnostic:      Diagnostic{Code: "economy_output_budget_bytes"},
+	}
+}
+
+// nativeCountedFailure builds the receipt-bearing failure Observation
+// shared by a native broker call-budget crossing (A1,
+// BROKER_CALL_BUDGET_EXHAUSTED, diagnostic "broker_call_budget_exhausted")
+// and the CLI's own fixed turn-cap crossing (A2, NATIVE_TURN_CAP_EXCEEDED,
+// diagnostic "native_turn_cap"): both are engine-counted, receipt-bearing
+// facts with no provider text, mirroring nativeStreamBudgetFailure's shape
+// exactly but for the executed/refused broker counts (A3) instead of a
+// byte total.
+func nativeCountedFailure(
+	started time.Time,
+	adapterID string,
+	usageValue Usage,
+	hasUsage bool,
+	turns, toolCalls, refusedToolCalls int64,
+	toolCallsByName map[string]int64,
+	diagnosticCode string,
+) Observation {
+	usage, err := NormalizeUsage(nil, nil, adapterID)
+	if hasUsage {
+		usage, err = NormalizeUsage(&usageValue, nil, adapterID)
+	}
+	if err != nil {
+		usage, _ = NormalizeUsage(nil, nil, adapterID)
+	}
+	applyTurnEconomics(&usage, turns, toolCalls, toolCallsByName)
+	stampRefusedToolCalls(&usage, refusedToolCalls)
+	return Observation{
+		TransportStatus: RunnerError,
+		DurationMillis:  time.Since(started).Milliseconds(),
+		Usage:           usage,
+		Diagnostic:      Diagnostic{Code: diagnosticCode},
 	}
 }
 

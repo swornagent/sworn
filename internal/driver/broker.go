@@ -19,6 +19,16 @@ const (
 	MaxBrokerBodyBytes   = 524_288
 	MaxBrokerCalls       = 512
 	MaxBrokerConnections = 8
+	// MaxRefusedBrokerCalls bounds the refused-request counter (A3): a
+	// saturating ceiling, not a live limit. Requests keep arriving (and
+	// would keep counting as refused) after the broker goes terminal
+	// until the engine's SIGTERM actually lands, so the counter must stop
+	// growing well before any encode-time bound could reject the failure
+	// receipt that carries it. 8x MaxBrokerCalls is deliberately generous
+	// headroom for that drain window while staying a small, fixed number;
+	// UsageReceipt.RefusedToolCalls shares this exact constant as its own
+	// encode-time bound, so the two can never diverge.
+	MaxRefusedBrokerCalls = 4096
 )
 
 type brokerState uint8
@@ -85,15 +95,29 @@ type nativeBroker struct {
 	expected           *nativeHandshakeEvidence
 	calls              int
 	callsByName        map[string]int64
-	address            string
-	token              []byte
-	session            nativeBrokerSession
-	server             *http.Server
-	listener           net.Listener
-	terminal           chan struct{}
-	closeOnce          sync.Once
-	connMu             sync.Mutex
-	connections        map[net.Conn]struct{}
+	// budgetExhausted and budgetExhaustedCalls record the one crossing
+	// (A1) that moved the broker into terminal because calls exceeded
+	// MaxBrokerCalls, distinct from every other reason finish() can be
+	// called with brokerTerminal (an accepted submission, a
+	// RECOVERY_STEP_REFUSED close): only this field says why.
+	budgetExhausted      bool
+	budgetExhaustedCalls int
+	// refused counts requests this broker answered with not_open, closed,
+	// cancelled, invalid_params, invalid_request, invalid_json, or
+	// method_not_found (A3) - never a request that ran and was then
+	// refused acceptance (RECOVERY_STEP_REFUSED), which already executed.
+	// It saturates at MaxRefusedBrokerCalls, the same constant the usage
+	// receipt's own encode-time bound uses.
+	refused     int64
+	address     string
+	token       []byte
+	session     nativeBrokerSession
+	server      *http.Server
+	listener    net.Listener
+	terminal    chan struct{}
+	closeOnce   sync.Once
+	connMu      sync.Mutex
+	connections map[net.Conn]struct{}
 	// turnSource attributes crossings to the native state's turn counter;
 	// pending coalesces one turn until it changes or the broker finishes.
 	turnSource  func() int64
@@ -259,6 +283,43 @@ func (broker *nativeBroker) toolCallsByName() map[string]int64 {
 	return result
 }
 
+// BudgetExhausted reports whether this broker's own request-count crossing
+// is what moved it into terminal (A1): never true for any other reason a
+// dispatch can finish (an accepted submission, a RECOVERY_STEP_REFUSED
+// close, an engine cancel).
+func (broker *nativeBroker) BudgetExhausted() bool {
+	broker.mu.Lock()
+	defer broker.mu.Unlock()
+	return broker.budgetExhausted
+}
+
+// BudgetExhaustedCalls returns the exact request count that crossed
+// MaxBrokerCalls, for the bounded engine-built failure detail. Zero when
+// BudgetExhausted is false.
+func (broker *nativeBroker) BudgetExhaustedCalls() int {
+	broker.mu.Lock()
+	defer broker.mu.Unlock()
+	return broker.budgetExhaustedCalls
+}
+
+// refusedCallTotal snapshots the saturating refused-request counter (A3).
+func (broker *nativeBroker) refusedCallTotal() int64 {
+	broker.mu.Lock()
+	defer broker.mu.Unlock()
+	return broker.refused
+}
+
+// incrementRefused records one refused broker request, saturating at
+// MaxRefusedBrokerCalls so the counter can never outrun the usage
+// receipt's own encode-time bound.
+func (broker *nativeBroker) incrementRefused() {
+	broker.mu.Lock()
+	defer broker.mu.Unlock()
+	if broker.refused < MaxRefusedBrokerCalls {
+		broker.refused++
+	}
+}
+
 func (broker *nativeBroker) HandshakeEvidence() (nativeHandshakeEvidence, error) {
 	broker.mu.Lock()
 	defer broker.mu.Unlock()
@@ -361,20 +422,38 @@ func (broker *nativeBroker) ServeHTTP(writer http.ResponseWriter, request *http.
 	state := broker.state
 	broker.calls++
 	calls := broker.calls
+	if state != brokerTerminal && state != brokerCancelled && calls > MaxBrokerCalls {
+		// This exact request is the one that moves the broker from
+		// open/closed into terminal on the call-count crossing (A1):
+		// inlined here, under the same lock finish() would take, so the
+		// read and the transition are one atomic step. A request that
+		// arrives after the broker is already terminal for a different
+		// reason (an accepted submission, RECOVERY_STEP_REFUSED) reads
+		// state != brokerTerminal as false above and never sets this.
+		broker.budgetExhausted = true
+		broker.budgetExhaustedCalls = calls
+		broker.state = brokerTerminal
+		broker.closeOnce.Do(func() { close(broker.terminal) })
+		broker.flushPendingLocked()
+		state = brokerTerminal
+	}
 	broker.mu.Unlock()
 	if state == brokerTerminal || state == brokerCancelled || calls > MaxBrokerCalls {
+		broker.incrementRefused()
 		writeBrokerError(writer, http.StatusConflict, nil, -32000, "closed")
 		return
 	}
 	body, err := io.ReadAll(io.LimitReader(request.Body, MaxBrokerBodyBytes+1))
 	if err != nil || len(body) == 0 || len(body) > MaxBrokerBodyBytes {
 		clearBytes(body)
+		broker.incrementRefused()
 		writeBrokerError(writer, http.StatusBadRequest, nil, -32700, "invalid_json")
 		return
 	}
 	defer clearBytes(body)
 	value, err := decodeStrict(body, MaxBrokerBodyBytes)
 	if err != nil {
+		broker.incrementRefused()
 		writeBrokerError(writer, http.StatusBadRequest, nil, -32700, "invalid_json")
 		return
 	}
@@ -384,6 +463,7 @@ func (broker *nativeBroker) ServeHTTP(writer http.ResponseWriter, request *http.
 		[]string{"id", "params"},
 	)
 	if err != nil || root["jsonrpc"] != "2.0" {
+		broker.incrementRefused()
 		writeBrokerError(writer, http.StatusBadRequest, nil, -32600, "invalid_request")
 		return
 	}
@@ -392,6 +472,7 @@ func (broker *nativeBroker) ServeHTTP(writer http.ResponseWriter, request *http.
 	switch method {
 	case "initialize":
 		if _, present := root["id"]; !present {
+			broker.incrementRefused()
 			writeBrokerError(writer, http.StatusBadRequest, id, -32600, "invalid_request")
 			return
 		}
@@ -399,6 +480,7 @@ func (broker *nativeBroker) ServeHTTP(writer http.ResponseWriter, request *http.
 	case "notifications/initialized":
 		if _, present := root["id"]; present ||
 			!emptyBrokerParams(root["params"]) {
+			broker.incrementRefused()
 			writeBrokerError(writer, http.StatusBadRequest, id, -32600, "invalid_request")
 			return
 		}
@@ -410,17 +492,20 @@ func (broker *nativeBroker) ServeHTTP(writer http.ResponseWriter, request *http.
 	case "tools/list":
 		if _, present := root["id"]; !present ||
 			!validBrokerListParams(root["params"]) {
+			broker.incrementRefused()
 			writeBrokerError(writer, http.StatusBadRequest, id, -32600, "invalid_request")
 			return
 		}
 		broker.listTools(writer, id, root["params"])
 	case "tools/call":
 		if _, present := root["id"]; !present {
+			broker.incrementRefused()
 			writeBrokerError(writer, http.StatusBadRequest, id, -32600, "invalid_request")
 			return
 		}
 		broker.callTool(request.Context(), writer, id, root["params"], calls)
 	default:
+		broker.incrementRefused()
 		writeBrokerError(writer, http.StatusNotFound, id, -32601, "method_not_found")
 	}
 }
@@ -585,6 +670,7 @@ func (broker *nativeBroker) callTool(
 	callNumber int,
 ) {
 	if !broker.callOpen() {
+		broker.incrementRefused()
 		writeBrokerError(writer, http.StatusConflict, id, -32000, "not_open")
 		return
 	}
@@ -592,15 +678,18 @@ func (broker *nativeBroker) callTool(
 	case broker.callSlot <- struct{}{}:
 	case <-ctx.Done():
 		// The client stopped waiting; nothing ran and nothing is owed.
+		broker.incrementRefused()
 		writeBrokerError(writer, http.StatusConflict, id, -32000, "cancelled")
 		return
 	case <-broker.terminal:
+		broker.incrementRefused()
 		writeBrokerError(writer, http.StatusConflict, id, -32000, "closed")
 		return
 	}
 	defer func() { <-broker.callSlot }()
 	// The broker may have finished while this call waited for the slot.
 	if !broker.callOpen() {
+		broker.incrementRefused()
 		writeBrokerError(writer, http.StatusConflict, id, -32000, "closed")
 		return
 	}
@@ -610,11 +699,13 @@ func (broker *nativeBroker) callTool(
 		[]string{"_meta"},
 	)
 	if err != nil {
+		broker.incrementRefused()
 		writeBrokerError(writer, http.StatusBadRequest, id, -32602, "invalid_params")
 		return
 	}
 	if metadata, present := object["_meta"]; present {
 		if _, ok := metadata.(map[string]any); !ok {
+			broker.incrementRefused()
 			writeBrokerError(writer, http.StatusBadRequest, id, -32602, "invalid_params")
 			return
 		}
@@ -622,6 +713,7 @@ func (broker *nativeBroker) callTool(
 	name, ok := object["name"].(string)
 	arguments, marshalErr := canonicalJSON(object["arguments"])
 	if !ok || marshalErr != nil {
+		broker.incrementRefused()
 		writeBrokerError(writer, http.StatusBadRequest, id, -32602, "invalid_params")
 		return
 	}

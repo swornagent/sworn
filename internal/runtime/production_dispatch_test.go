@@ -3932,3 +3932,172 @@ func TestPreparedDispatchRevalidationTreatsItsOwnHistoryAsHistoryNotAuthority(
 		t.Fatalf("moved authority revalidation = %v, want STALE_DISPATCH", err)
 	}
 }
+
+// TestFailedDispatchProjectsExecutedAndRefusedToolCallsOntoStatus pins A3
+// (S4-broker-budget-and-turn-cap): a native dispatch's own stamped
+// UsageReceipt.ToolCalls/RefusedToolCalls survive an operational failure
+// onto the dispatch effect's FailureTurnContext, exactly as
+// ExecutedToolCalls/RefusedToolCalls, readable from Status() without a
+// journal read; a dispatch whose usage carries neither field projects both
+// as nil, never coerced to zero.
+func TestFailedDispatchProjectsExecutedAndRefusedToolCallsOntoStatus(t *testing.T) {
+	t.Parallel()
+
+	executed := int64(9)
+	refused := int64(3)
+	turns := int64(1)
+	dispatcher := fixtureDriver(func(
+		_ context.Context,
+		_ driver.Invocation,
+	) (driver.Observation, error) {
+		return driver.Observation{
+			TransportStatus: driver.RunnerError,
+			Usage: driver.UsageReceipt{
+				SchemaVersion:    driver.UsageSchemaV2,
+				Surface:          "sworn.native-claude",
+				TokenStatus:      driver.UsageUnavailable,
+				CostStatus:       driver.UsageUnavailable,
+				CacheStatus:      driver.UsageUnavailable,
+				RefusedToolCalls: &refused,
+				Turns:            &turns,
+				ToolCalls:        &executed,
+			},
+			Diagnostic: driver.Diagnostic{Code: "broker_call_budget_exhausted"},
+		}, &driver.ContractError{Code: "BROKER_CALL_BUDGET_EXHAUSTED"}
+	})
+	fixture := newProductionImplementationRecoveryFixture(t, dispatcher)
+	runID := fixture.manifest.value.RunID
+	// The production fixture does not journal the manifest command (its
+	// tests never project Status); record it so Status can read this run.
+	if err := fixture.store.RecordCommand(fixture.ctx, journal.Command{
+		RunID: runID, ReplayKey: "manifest", Kind: "start",
+		Payload: fixture.manifest.raw, CreatedAt: fixture.now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, dispatchErr := fixture.service.runDriverEffectWithPreparation(
+		fixture.ctx,
+		fixture.engine,
+		fixture.workspace,
+		driver.RoleImplementer,
+		fixture.coordinates,
+		journal.EffectAttempt{
+			WorkID: fixture.cycle.DispatchWork,
+			Epoch:  fixture.coordinates.Epoch,
+			Try:    1,
+		},
+		fixture.cycle.Before,
+		fixture.owner,
+		nil,
+		true,
+	)
+	if !IsCode(dispatchErr, "DRIVER_OPERATIONAL_FAILURE") {
+		t.Fatalf("dispatch error = %v, want DRIVER_OPERATIONAL_FAILURE", dispatchErr)
+	}
+	status, err := fixture.service.Status(fixture.ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *EffectStatus
+	for index := range status.Effects {
+		if status.Effects[index].ID == fixture.cycle.DispatchEffect {
+			found = &status.Effects[index]
+			break
+		}
+	}
+	if found == nil || found.FailureTurnContext == nil {
+		t.Fatalf(
+			"dispatch effect %s FailureTurnContext missing, effects = %#v",
+			fixture.cycle.DispatchEffect,
+			status.Effects,
+		)
+	}
+	if got := found.FailureTurnContext.ExecutedToolCalls; got == nil || *got != executed {
+		t.Fatalf("ExecutedToolCalls = %#v, want %d", got, executed)
+	}
+	if got := found.FailureTurnContext.RefusedToolCalls; got == nil || *got != refused {
+		t.Fatalf("RefusedToolCalls = %#v, want %d", got, refused)
+	}
+}
+
+// TestFailedDispatchWithNoBrokerCountsProjectsNilNeverZero extends A3's
+// honest-absence discipline: a non-native (or native-without-broker-usage)
+// dispatch failure carries no ExecutedToolCalls/RefusedToolCalls, and the
+// projection must read back nil, never a coerced 0.
+func TestFailedDispatchWithNoBrokerCountsProjectsNilNeverZero(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := fixtureDriver(func(
+		_ context.Context,
+		_ driver.Invocation,
+	) (driver.Observation, error) {
+		return driver.Observation{
+			TransportStatus: driver.RunnerError,
+			Usage: driver.UsageReceipt{
+				SchemaVersion: driver.UsageSchemaV2,
+				Surface:       "sworn.test",
+				TokenStatus:   driver.UsageUnavailable,
+				CostStatus:    driver.UsageUnavailable,
+				CacheStatus:   driver.UsageUnavailable,
+			},
+			Diagnostic: driver.Diagnostic{Code: "adapter_failed"},
+		}, &driver.ContractError{Code: "PROVIDER_TRANSPORT_FAILED"}
+	})
+	fixture := newProductionImplementationRecoveryFixture(t, dispatcher)
+	runID := fixture.manifest.value.RunID
+	if err := fixture.store.RecordCommand(fixture.ctx, journal.Command{
+		RunID: runID, ReplayKey: "manifest", Kind: "start",
+		Payload: fixture.manifest.raw, CreatedAt: fixture.now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, dispatchErr := fixture.service.runDriverEffectWithPreparation(
+		fixture.ctx,
+		fixture.engine,
+		fixture.workspace,
+		driver.RoleImplementer,
+		fixture.coordinates,
+		journal.EffectAttempt{
+			WorkID: fixture.cycle.DispatchWork,
+			Epoch:  fixture.coordinates.Epoch,
+			Try:    1,
+		},
+		fixture.cycle.Before,
+		fixture.owner,
+		nil,
+		true,
+	)
+	if !IsCode(dispatchErr, "DRIVER_OPERATIONAL_FAILURE") {
+		t.Fatalf("dispatch error = %v, want DRIVER_OPERATIONAL_FAILURE", dispatchErr)
+	}
+	status, err := fixture.service.Status(fixture.ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *EffectStatus
+	for index := range status.Effects {
+		if status.Effects[index].ID == fixture.cycle.DispatchEffect {
+			found = &status.Effects[index]
+			break
+		}
+	}
+	if found == nil || found.FailureTurnContext == nil {
+		t.Fatalf(
+			"dispatch effect %s FailureTurnContext missing, effects = %#v",
+			fixture.cycle.DispatchEffect,
+			status.Effects,
+		)
+	}
+	if found.FailureTurnContext.ExecutedToolCalls != nil {
+		t.Fatalf(
+			"ExecutedToolCalls = %#v, want nil",
+			found.FailureTurnContext.ExecutedToolCalls,
+		)
+	}
+	if found.FailureTurnContext.RefusedToolCalls != nil {
+		t.Fatalf(
+			"RefusedToolCalls = %#v, want nil",
+			found.FailureTurnContext.RefusedToolCalls,
+		)
+	}
+}

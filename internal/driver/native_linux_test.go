@@ -3354,6 +3354,115 @@ func TestNativeStreamCumulativeByteBudgetCrossingAtRealAdapterDispatch(t *testin
 	}
 }
 
+// TestNativeBrokerCallBudgetExhaustionEndsDispatchAtRealAdapterDispatch pins
+// A1's runtime wiring end to end - platformInvokeNative -> platformRunNative
+// -> broker.BudgetExhausted() - against a real child process that floods
+// the broker with cheap tools/list requests past MaxBrokerCalls, rather
+// than only exercising the broker's own crossing in isolation
+// (broker_linux_test.go). The engine's own terminal watch ends the CLI
+// process immediately once the broker crosses; the dispatch fails with the
+// typed code and its receipt-bearing counts, never idling until any
+// CLI-side turn cap and never PROVIDER_TRANSPORT_FAILED.
+func TestNativeBrokerCallBudgetExhaustionEndsDispatchAtRealAdapterDispatch(t *testing.T) {
+	setNativeMemoryRootEnv(t)
+	for _, family := range []ProfileFamily{ProfileCodex, ProfileClaude} {
+		family := family
+		t.Run(string(family), func(t *testing.T) {
+			binary := buildNativeContinuation(t)
+			digest, err := executableDigest(binary)
+			if err != nil {
+				t.Fatal(err)
+			}
+			config := nativeContinuationConfigFixture(t, family, binary, digest)
+			configBody, err := canonicalJSON(config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			identity := AdapterIdentity{
+				Key: config.Key, ID: config.ID, Version: config.Version,
+				ConfigurationDigest: Digest(configBody),
+			}
+			ref := config.CredentialRefs[0]
+			credential := filepath.Join(t.TempDir(), "credential")
+			if err := os.WriteFile(
+				credential,
+				[]byte(`{"token":"native-broker-call-budget-credential-canary"}`),
+				0o600,
+			); err != nil {
+				t.Fatal(err)
+			}
+			adapter := &nativeAdapter{
+				identity: identity,
+				config:   config,
+				resolve: func(context.Context, string) (string, error) {
+					return credential, nil
+				},
+				refs: map[string]struct{}{ref: {}},
+			}
+			profile := ProfileConfig{
+				Key:     "native-broker-call-budget-profile-" + string(family),
+				Adapter: identity.Key, Network: NetworkRequired,
+				CredentialRef: &ref,
+			}
+			selected := SelectedProfile{
+				Profile: profile,
+				Adapter: identity,
+				Model:   "native-continuation-model",
+				adapter: adapter,
+			}
+			base, _, _ := memoryInvocationFixture(t)
+			base.Selected = selected
+			request, err := NewRequest(
+				"native-broker-call-budget-pad",
+				RoleImplementer,
+				profile.Key,
+				selected.Model,
+				Workspace{Path: GuestWorkspacePath, Access: ReadOnly},
+				base.Request.Inputs,
+				true,
+				Limits{
+					TimeoutMillis: 30_000,
+					OutputBytes:   65_536,
+				},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			permission, err := NewSubmissionPermission(
+				request,
+				selected,
+				ContainmentReadOnly,
+				ImplementerDesign,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			invocation := base
+			invocation.Request = request
+			invocation.Permission = permission
+
+			observation, err := platformInvokeNative(
+				context.Background(),
+				invocation,
+				config,
+				credential,
+				nativeSurfaceCertificate{},
+			)
+			if !IsCode(err, "BROKER_CALL_BUDGET_EXHAUSTED") ||
+				observation.TransportStatus != RunnerError ||
+				observation.Diagnostic.Code != "broker_call_budget_exhausted" ||
+				observation.Usage.RefusedToolCalls == nil ||
+				*observation.Usage.RefusedToolCalls <= 0 {
+				t.Fatalf(
+					"native adapter dispatch = observation %#v, error %v",
+					observation,
+					err,
+				)
+			}
+		})
+	}
+}
+
 func parseTOMLKey(t *testing.T, body []byte, key string) string {
 	t.Helper()
 	prefix := key + " = "
@@ -3584,14 +3693,16 @@ func TestFailureTurnContextDriverCausesStillWin(t *testing.T) {
 	}
 	// Stderr-tail-vs-result precedence is byte-identical: a non-empty
 	// stderr tail wins, an empty tail falls back to the result with the
-	// exit-status prefix. The CLI's own turn cap never becomes a limit.
+	// exit-status prefix. The CLI's own turn cap never becomes a limit
+	// and never a plain transport failure (S4-broker-budget-and-turn-cap
+	// A2): it is the dedicated NATIVE_TURN_CAP_EXCEEDED code.
 	capped := nativeResultError{errored: true, subtype: "error_max_turns", detail: nativeResultErrorDetail("error_max_turns", "rate limit in message")}
 	if nativeLimitReached(capped.detail) {
 		// The phrase table matches, but the turn-cap guard must still win.
 	}
 	withCapped := nativeSpontaneousExitFailure(false, ProfileClaude, waitErr, []byte("tail"), capped)
-	if contract, ok := withCapped.(*ContractError); !ok || contract.Code != "PROVIDER_TRANSPORT_FAILED" {
-		t.Fatalf("turn-cap cause = %v, want PROVIDER_TRANSPORT_FAILED (never a limit)", withCapped)
+	if contract, ok := withCapped.(*ContractError); !ok || contract.Code != "NATIVE_TURN_CAP_EXCEEDED" {
+		t.Fatalf("turn-cap cause = %v, want NATIVE_TURN_CAP_EXCEEDED (never a limit, never transport)", withCapped)
 	}
 	plainResult := nativeResultError{errored: true, subtype: "error_api", detail: nativeResultErrorDetail("error_api", "boom")}
 	withTail := nativeSpontaneousExitFailure(false, ProfileClaude, waitErr, []byte("tail bytes"), plainResult)
@@ -3604,4 +3715,70 @@ func TestFailureTurnContextDriverCausesStillWin(t *testing.T) {
 	if withoutContract.Detail == withContract.Detail || !strings.Contains(withoutContract.Detail, "boom") {
 		t.Fatalf("empty tail did not fall back to result: %q vs %q", withoutContract.Detail, withContract.Detail)
 	}
+}
+
+// TestNativeCLITurnCapResultSurfacesTypedCode pins A2 end to end through
+// the nativecontinuation fixture, at both sites a CLI-reported turn-cap
+// result can be missed: the ordinary non-zero-exit path
+// (nativeSpontaneousExitFailure) and the clean-exit path (waitErr == nil,
+// !terminated) that bypasses it entirely and would otherwise read
+// MISSING_SUBMISSION. Mirrors
+// TestNativeCLIReportedAuthFailureSurfacesTypedCode's structure exactly:
+// recognition is bounded to the CLI's own result field and to
+// ProfileClaude - the identical fixture text on Codex keeps its unrelated
+// classification, since this fixture's event parsing never routes a Codex
+// event through captureResultError.
+func TestNativeCLITurnCapResultSurfacesTypedCode(t *testing.T) {
+	probe := buildNativeContinuation(t)
+	digest, err := executableDigest(probe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turnCapExit := []byte(`{"offline_provider":"turn_cap_exit"}`)
+	turnCapClean := []byte(`{"offline_provider":"turn_cap_clean"}`)
+
+	t.Run("non-zero exit reports the typed turn-cap code on claude", func(t *testing.T) {
+		err := credentialFixtureInvoke(
+			t, ProfileClaude, probe, digest, turnCapExit, 2_000,
+		)
+		if !IsCode(err, "NATIVE_TURN_CAP_EXCEEDED") {
+			t.Fatalf(
+				"turn-cap exit error = %v, want NATIVE_TURN_CAP_EXCEEDED",
+				err,
+			)
+		}
+	})
+
+	t.Run("clean exit without a submission reports the typed turn-cap code on claude", func(t *testing.T) {
+		err := credentialFixtureInvoke(
+			t, ProfileClaude, probe, digest, turnCapClean, 2_000,
+		)
+		if !IsCode(err, "NATIVE_TURN_CAP_EXCEEDED") {
+			t.Fatalf(
+				"clean-exit turn-cap error = %v, want NATIVE_TURN_CAP_EXCEEDED",
+				err,
+			)
+		}
+	})
+
+	t.Run("the vocabulary is claude-only: codex keeps its unrelated classification", func(t *testing.T) {
+		err := credentialFixtureInvoke(
+			t, ProfileCodex, probe, digest, turnCapExit, 2_000,
+		)
+		if !IsCode(err, "PROVIDER_TRANSPORT_FAILED") {
+			t.Fatalf(
+				"codex non-zero-exit error = %v, want PROVIDER_TRANSPORT_FAILED",
+				err,
+			)
+		}
+		err = credentialFixtureInvoke(
+			t, ProfileCodex, probe, digest, turnCapClean, 2_000,
+		)
+		if !IsCode(err, "MISSING_SUBMISSION") {
+			t.Fatalf(
+				"codex clean-exit error = %v, want MISSING_SUBMISSION",
+				err,
+			)
+		}
+	})
 }

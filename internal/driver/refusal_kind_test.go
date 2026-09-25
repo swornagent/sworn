@@ -33,6 +33,8 @@ func TestClassifyKindCoversEveryNamedBucket(t *testing.T) {
 		{"economy context exhausted", "ECONOMY_CONTEXT_EXHAUSTED", false, KindEconomy},
 		{"unclassified stays empty", "PROCESS_FAILED", false, ""},
 		{"unadmitted code stays empty", "ADAPTER_FAILURE", false, ""},
+		{"broker call budget exhausted stays unclassified", "BROKER_CALL_BUDGET_EXHAUSTED", false, ""},
+		{"native turn cap exceeded stays unclassified", "NATIVE_TURN_CAP_EXCEEDED", false, ""},
 	}
 	for _, test := range cases {
 		test := test

@@ -495,6 +495,171 @@ func TestNativeBrokerConnectionLimitIsFixed(t *testing.T) {
 	}
 }
 
+// TestNativeBrokerCallBudgetCrossingMovesBrokerTerminal pins A1
+// (S4-broker-budget-and-turn-cap): the exact request whose own count
+// crosses MaxBrokerCalls moves the broker to brokerTerminal, closes
+// Terminal(), and records the crossing so runNative can build its typed
+// failure - all as one atomic step under the broker's own lock, mirroring
+// finish()'s own transition rather than merely answering "closed" without
+// ever transitioning state (the bug this fix closes).
+func TestNativeBrokerCallBudgetCrossingMovesBrokerTerminal(t *testing.T) {
+	invocation, _, _ := memoryInvocationFixture(t)
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	broker, err := newNativeBroker(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer broker.Close()
+	capability := broker.capability()
+	defer clearBytes(capability)
+	openNativeBrokerForTest(t, broker, capability)
+
+	select {
+	case <-broker.Terminal():
+		t.Fatal("broker already terminal after handshake")
+	default:
+	}
+	if broker.BudgetExhausted() {
+		t.Fatal("BudgetExhausted before any crossing")
+	}
+
+	// The handshake in openNativeBrokerForTest already spent 3 calls
+	// (initialize, notifications/initialized, tools/list). Drive the
+	// remaining calls up to and past MaxBrokerCalls with cheap,
+	// already-listed tools/list requests: the top gate counts every
+	// request regardless of what it asks, so the exact response each of
+	// these gets (a "state_invalid" conflict, since the broker is already
+	// listed) is irrelevant to the crossing itself.
+	listRequest := map[string]any{
+		"jsonrpc": "2.0", "id": 200, "method": "tools/list",
+		"params": map[string]any{},
+	}
+	const handshakeCalls = 3
+	needed := MaxBrokerCalls - handshakeCalls + 1
+	var lastStatus int
+	var lastBody []byte
+	for index := 0; index < needed; index++ {
+		lastStatus, lastBody = brokerRequestWithContext(
+			t, context.Background(), broker, capability, listRequest,
+		)
+	}
+	if lastStatus != http.StatusConflict ||
+		!bytes.Contains(lastBody, []byte(`"message":"closed"`)) {
+		t.Fatalf("crossing request = %d %s", lastStatus, lastBody)
+	}
+	select {
+	case <-broker.Terminal():
+	default:
+		t.Fatal("budget crossing did not close broker")
+	}
+	if !broker.BudgetExhausted() {
+		t.Fatal("BudgetExhausted stayed false after crossing")
+	}
+	if got := broker.BudgetExhaustedCalls(); got != MaxBrokerCalls+1 {
+		t.Fatalf("BudgetExhaustedCalls = %d, want %d", got, MaxBrokerCalls+1)
+	}
+	broker.mu.Lock()
+	state := broker.state
+	broker.mu.Unlock()
+	if state != brokerTerminal {
+		t.Fatalf("state = %v, want brokerTerminal", state)
+	}
+}
+
+// TestNativeBrokerStrayRequestAfterUnrelatedTerminalNeverSetsBudgetFlag
+// pins A1's other half: a request that arrives after the broker is
+// already terminal for an unrelated reason (an accepted submission, a
+// RECOVERY_STEP_REFUSED close) with the calls counter already past
+// MaxBrokerCalls must never retroactively claim the budget crossing -
+// BudgetExhausted stays false, because this exact request's own crossing
+// is not what moved the broker into terminal.
+func TestNativeBrokerStrayRequestAfterUnrelatedTerminalNeverSetsBudgetFlag(t *testing.T) {
+	invocation, _, _ := memoryInvocationFixture(t)
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	broker, err := newNativeBroker(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer broker.Close()
+	capability := broker.capability()
+	defer clearBytes(capability)
+	openNativeBrokerForTest(t, broker, capability)
+
+	// Simulate the broker finishing for an unrelated reason (as an
+	// accepted submission or a RECOVERY_STEP_REFUSED close would) while
+	// the calls counter is already past MaxBrokerCalls.
+	broker.mu.Lock()
+	broker.calls = MaxBrokerCalls + 1
+	broker.mu.Unlock()
+	broker.finish(brokerTerminal)
+	if broker.BudgetExhausted() {
+		t.Fatal("finishing for an unrelated reason set BudgetExhausted")
+	}
+
+	status, body := brokerRequestWithContext(
+		t,
+		context.Background(),
+		broker,
+		capability,
+		toolCallRequest(999, "Read", map[string]any{
+			"path": GuestWorkspacePath,
+		}),
+	)
+	if status != http.StatusConflict ||
+		!bytes.Contains(body, []byte(`"message":"closed"`)) {
+		t.Fatalf("stray request = %d %s", status, body)
+	}
+	if broker.BudgetExhausted() {
+		t.Fatal("stray request after unrelated terminal set BudgetExhausted")
+	}
+	if got := broker.BudgetExhaustedCalls(); got != 0 {
+		t.Fatalf("BudgetExhaustedCalls = %d, want 0", got)
+	}
+}
+
+// TestNativeBrokerRefusedCallCounterSaturatesAtMaxRefusedBrokerCalls pins
+// A3's saturating source-side ceiling: requests keep arriving (and would
+// keep counting as refused) after the broker goes terminal until the
+// engine's SIGTERM actually lands, so the counter must stop growing well
+// before UsageReceipt.RefusedToolCalls' own encode-time bound - the same
+// MaxRefusedBrokerCalls constant - could ever reject the failure receipt
+// that carries it.
+func TestNativeBrokerRefusedCallCounterSaturatesAtMaxRefusedBrokerCalls(t *testing.T) {
+	invocation, _, _ := memoryInvocationFixture(t)
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	broker, err := newNativeBroker(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer broker.Close()
+	capability := broker.capability()
+	defer clearBytes(capability)
+	openNativeBrokerForTest(t, broker, capability)
+	broker.Cancel()
+
+	request := toolCallRequest(300, "Read", map[string]any{
+		"path": GuestWorkspacePath,
+	})
+	for index := 0; index < MaxRefusedBrokerCalls+50; index++ {
+		brokerRequestWithContext(t, context.Background(), broker, capability, request)
+	}
+	if got := broker.refusedCallTotal(); got != MaxRefusedBrokerCalls {
+		t.Fatalf("refusedCallTotal = %d, want saturated at %d", got, MaxRefusedBrokerCalls)
+	}
+}
+
 type brokerHTTPResult struct {
 	status int
 	body   []byte

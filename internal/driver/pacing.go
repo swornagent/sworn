@@ -238,6 +238,13 @@ func detailPreservingCode(code string) bool {
 		// inside this package and never adapter-provided wrapping text
 		// (S6-context-window-clamp A3).
 		"ECONOMY_CONTEXT_EXHAUSTED",
+		// BROKER_CALL_BUDGET_EXHAUSTED and NATIVE_TURN_CAP_EXCEEDED each
+		// carry the same plain, single-line, engine-built detail naming
+		// only the crossing's own counted figures ("calls 513, budget
+		// 512"; "turn cap 1000") - never the CLI's own result text
+		// (S4-broker-budget-and-turn-cap A1/A2).
+		"BROKER_CALL_BUDGET_EXHAUSTED",
+		"NATIVE_TURN_CAP_EXCEEDED",
 		// CONTINUATION_INVALID carries engine vocabulary only: a site label
 		// or the correlate envelope, both structurally re-validated by
 		// revalidateContinuationDetail at the funnel. It is here so a

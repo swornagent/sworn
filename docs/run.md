@@ -833,6 +833,42 @@ fails with `PROVIDER_AUTHORIZATION_FAILED` instead of
 `PROVIDER_TRANSPORT_FAILED`, whether the CLI process exited non-zero or
 exited cleanly without a submission.
 
+### Broker budget and turn cap
+
+A native dispatch's tool broker still enforces `MaxBrokerCalls` (512,
+unchanged) across every MCP request the CLI sends it. Exhausting that
+budget now ends the dispatch at once: the broker moves to its terminal
+state on the exact request that crosses the count, the CLI process is
+terminated immediately, and the dispatch fails with
+`BROKER_CALL_BUDGET_EXHAUSTED` - instead of the broker answering `closed`
+silently while the model kept pinging it until the CLI's own turn cap gave
+up minutes later.
+
+Separately, the CLI's own fixed `--max-turns` (currently 1000, unchanged)
+can end the CLI's result with subtype `error_max_turns`. That result now
+fails the dispatch with `NATIVE_TURN_CAP_EXCEEDED`, whether the CLI process
+exited non-zero or exited cleanly without a submission - never
+`PROVIDER_TRANSPORT_FAILED` and never `PROVIDER_LIMITED`. This is a
+different budget from, and is not grant-eligible like, the HTTP lanes'
+`ECONOMY_TURN_BUDGET_EXCEEDED`: that code reports a manifest-governed
+per-work turn figure a `grant` action can raise, but the native CLI's own
+turn cap is a fixed process flag no manifest value changes.
+
+Both codes carry a short, bounded, secret-free detail (for example "calls
+513, budget 512" or "turn cap 1000") and park like any other operational
+failure - after a work's third failed try, or sooner on repeated identical
+failures - clearing with a bare `retry`. Neither offers a `grant` action:
+nothing manifest-governed can raise either budget.
+
+A tool call that arrives while another is still executing waits for the
+open call slot instead of being refused (sworn#360): this was already the
+broker's behavior and is documented here for the first time. A refused
+request - `not_open`, `closed`, `cancelled`, or any `invalid` shape - is
+counted separately from executed tool calls. Both counts are stamped onto
+the dispatch's failure record and shown in the status projection's dispatch
+view, so a budget that is approaching or has already crossed is legible
+without reading the journal.
+
 ### Transient provider stall backoff
 
 When a try fails with `PROVIDER_UNAVAILABLE`, or `PROVIDER_LIMITED` with no

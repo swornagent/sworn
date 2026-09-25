@@ -2315,7 +2315,7 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 					WorkID:         attemptIdentity.WorkID,
 					Slice:          coordinates.Slice,
 					Responsibility: coordinates.Responsibility,
-				}, nil, replayKey), At: s.now().UTC(),
+				}, nil, replayKey, nil, nil), At: s.now().UTC(),
 			}, journal.RecoveryAmbiguous)
 			return driver.Submission{},
 				runtimeFail("RECOVERY_UNCERTAIN", nil)
@@ -2565,6 +2565,21 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 		}
 		return defaultBody
 	}
+	// The single attempt-write seam: duration, profile, and the certified
+	// model actually dispatched ride on the receipt from here, shared by
+	// every completion path. Legacy-shaped receipts (no surface) are left
+	// untouched so historical blobs keep their exact bytes. Hoisted above
+	// failureEventBody below (a pure reorder: stampedUsage depends only on
+	// observation and prepared, both already set by every branch that can
+	// reach here) so the closure can read its executed/refused tool-call
+	// counts (A3, S4-broker-budget-and-turn-cap) at call time.
+	stampedUsage := observation.Usage
+	driver.StampAttemptFacts(
+		&stampedUsage,
+		prepared.selected.Profile.Key,
+		prepared.selected.Model,
+		observation.DurationMillis,
+	)
 	// S3 failure bodies: the same association (and the same fallback
 	// reason when one applies) plus the bounded failure-turn context,
 	// assembled once through the one helper for every failure/uncertain
@@ -2574,23 +2589,15 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 	failureEventBody := func(defaultBody []byte) []byte {
 		var assoc EventAssociation
 		_ = json.Unmarshal(defaultBody, &assoc)
-		return s.failureEventBodyFor(assoc, continuationFact, replayKey)
+		return s.failureEventBodyFor(
+			assoc, continuationFact, replayKey,
+			stampedUsage.ToolCalls, stampedUsage.RefusedToolCalls,
+		)
 	}
 	if testCrashAfterEffect == "driver.dispatch" {
 		os.Exit(86)
 	}
 	completionCtx := context.WithoutCancel(ctx)
-	// The single attempt-write seam: duration, profile, and the certified
-	// model actually dispatched ride on the receipt from here, shared by
-	// every completion path. Legacy-shaped receipts (no surface) are left
-	// untouched so historical blobs keep their exact bytes.
-	stampedUsage := observation.Usage
-	driver.StampAttemptFacts(
-		&stampedUsage,
-		prepared.selected.Profile.Key,
-		prepared.selected.Model,
-		observation.DurationMillis,
-	)
 	usageBody, usageErr := driver.EncodeUsageReceipt(stampedUsage)
 	if usageErr != nil {
 		// The A2 loud fallback: an attempt that cannot report still names

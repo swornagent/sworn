@@ -1152,7 +1152,7 @@ func (s *Service) reconcileOwnerlessClaimedDispatch(
 					Track:          track,
 					Slice:          slice,
 					Responsibility: responsibility,
-				}, nil, effect.ID),
+				}, nil, effect.ID, nil, nil),
 				At: now,
 			},
 			journal.RecoveryAmbiguous,

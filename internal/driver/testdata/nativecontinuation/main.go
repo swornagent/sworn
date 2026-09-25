@@ -115,6 +115,19 @@ func main() {
 		emitStreamBudgetPad()
 		select {}
 	}
+	if strings.Contains(prompt.InvocationID, "broker-call-budget-pad") {
+		// Drive the broker's own MaxBrokerCalls (512) request-count
+		// budget past its crossing with cheap, argument-free requests
+		// (S4-broker-budget-and-turn-cap A1): the top gate counts every
+		// request regardless of what it asks, so a flood of already-
+		// listed tools/list calls is sufficient. The engine's terminal
+		// watch SIGTERMs this process once the broker crosses, so no
+		// exit path here needs to run deliberately.
+		for id := 0; id < 600; id++ {
+			rpc(brokerURL, token, 1000+id, "tools/list", map[string]any{})
+		}
+		select {}
+	}
 	if mode := credentialFixtureMode(family); mode != "" {
 		switch mode {
 		case "unreachable":
@@ -162,6 +175,12 @@ func main() {
 			os.Exit(2)
 		case "auth_failed_clean":
 			emitClaudeAuthFailureResult()
+			return
+		case "turn_cap_exit":
+			emitTurnCapResult()
+			os.Exit(2)
+		case "turn_cap_clean":
+			emitTurnCapResult()
 			return
 		}
 	}
@@ -341,7 +360,8 @@ func credentialFixtureMode(family string) string {
 	mode, _ := envelope["offline_provider"].(string)
 	switch mode {
 	case "unreachable", "unauthorized", "exitone", "expire", "rotation", "crash",
-		"auth_failed_exit", "auth_failed_clean":
+		"auth_failed_exit", "auth_failed_clean",
+		"turn_cap_exit", "turn_cap_clean":
 		return mode
 	default:
 		return ""
@@ -355,6 +375,18 @@ func credentialFixtureMode(family string) string {
 func emitClaudeAuthFailureResult() {
 	fmt.Println(`{"type":"result","subtype":"error_during_execution",` +
 		`"is_error":true,"result":"Failed to authenticate"}`)
+}
+
+// emitTurnCapResult emits the CLI's own terminal result event reporting its
+// fixed turn cap (S4-broker-budget-and-turn-cap A2), in the same
+// "type":"result" shape emitClaudeAuthFailureResult uses but with subtype
+// error_max_turns, never assistant/model prose. Codex has no equivalent
+// result-event vocabulary in this fixture's event parsing (S4 keeps
+// error_max_turns detection Claude-only, exactly like S3's auth-failure
+// vocabulary), so this fixture mode changes classification only on Claude.
+func emitTurnCapResult() {
+	fmt.Println(`{"type":"result","subtype":"error_max_turns",` +
+		`"is_error":true,"result":"Reached the CLI turn limit"}`)
 }
 
 // credentialFixturePath is the credential target the pinned family's config
