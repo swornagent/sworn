@@ -27,9 +27,14 @@ func PresentRunState(
 		Checked: "The latest saved run record.",
 	}
 	degradationPark := false
-	if len(park) > 0 && park[0] != nil &&
-		park[0].Cause == runtimepkg.ParkCauseDegradation {
-		degradationPark = true
+	hostEnvironmentPark := false
+	if len(park) > 0 && park[0] != nil {
+		switch park[0].Cause {
+		case runtimepkg.ParkCauseDegradation:
+			degradationPark = true
+		case runtimepkg.ParkCauseHostEnvironment:
+			hostEnvironmentPark = true
+		}
 	}
 	switch state {
 	case "new":
@@ -93,6 +98,15 @@ func PresentRunState(
 			)
 			presentation.Next = "Raise limits.degradation_budget in the manifest, then resume the run."
 			presentation.NeedsYou = "Yes — review the repeated context rebuilds before continuing."
+		} else if hostEnvironmentPark {
+			parked := park[0]
+			presentation.Status = "Stopped before starting: host command not found"
+			presentation.What = fmt.Sprintf(
+				"Sworn refused to start because a declared check's command does not resolve on the host that will run it: %s",
+				parked.FailureDetail,
+			)
+			presentation.Next = "Set PATH on the host or the systemd unit, then resume the run."
+			presentation.NeedsYou = "Yes — fix the host environment before continuing."
 		} else {
 			presentation.Status = "Stopped and needs your attention"
 			presentation.What = "One work item needs an answer or has failed repeatedly."
@@ -194,7 +208,8 @@ func PresentSnapshot(snapshot Snapshot) RunPresentation {
 		// A degradation park names its cause even when a retry action for
 		// unrelated failed work happens to be on the same board.
 		if snapshot.Run.Park != nil &&
-			snapshot.Run.Park.Cause == runtimepkg.ParkCauseDegradation {
+			(snapshot.Run.Park.Cause == runtimepkg.ParkCauseDegradation ||
+				snapshot.Run.Park.Cause == runtimepkg.ParkCauseHostEnvironment) {
 			return presentation
 		}
 		for _, action := range snapshot.Actions {

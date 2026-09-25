@@ -1041,3 +1041,123 @@ func TestAnswerAttentionOversizeRefusalCarriesItsCause(t *testing.T) {
 		t.Fatalf("oversize detail names the bound: %v", err)
 	}
 }
+
+// TestHostCheckEnvironmentGateParksResolvesAndReparksWithDistinctOffsets is
+// A4's exact required proof: the engine refuses to make progress while a
+// declared check's command does not resolve on the host runner's own
+// environment, naming the missing command before any dispatch; a later
+// resume after the fix clears the park (Status shows no host_environment
+// park); and breaking the identical command again writes a genuinely new,
+// later-offset park record rather than being absorbed as an already-seen
+// duplicate (the attempt-2 ordering defect).
+func TestHostCheckEnvironmentGateParksResolvesAndReparksWithDistinctOffsets(t *testing.T) {
+	const absentCommand = "sworn-genuinely-absent-command-xyz"
+	check := absentCommand + " --version"
+	fixture := newHostCheckFixture(t, []string{check})
+	originalPath := os.Getenv("PATH")
+	snapshot := func() journal.Snapshot {
+		snap, err := fixture.store.Snapshot(fixture.ctx, fixture.owner.RunID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return snap
+	}
+	parkEventOffsets := func(snap journal.Snapshot) []int64 {
+		var offsets []int64
+		for _, event := range snap.Events {
+			if event.Kind != ParkEventKind {
+				continue
+			}
+			parsed, err := ParseDegradationParkEvent(event.Body)
+			if err != nil || parsed.Cause != ParkCauseHostEnvironment || parsed.Work != "" {
+				continue
+			}
+			offsets = append(offsets, event.Offset)
+		}
+		return offsets
+	}
+
+	// Broken: the gate parks and names the missing command, before any
+	// dispatch. hostChecksPlanBytes also declares a worker-only "worker
+	// check" entry (never resolvable as a host command either), so the
+	// detail is checked by substring, not exact equality.
+	parked, err := fixture.service.driveHostCheckEnvironmentGate(
+		fixture.ctx, fixture.engine, fixture.owner, snapshot(), fixture.state)
+	if err != nil || !parked {
+		t.Fatalf("gate() = (%v, %v), want (true, nil)", parked, err)
+	}
+	runParked, runDetail := hostCheckEnvironmentRunState(snapshot())
+	if !runParked || !strings.Contains(runDetail, check) ||
+		!strings.Contains(runDetail, absentCommand) {
+		t.Fatalf("first park state = (%v, %q)", runParked, runDetail)
+	}
+	firstOffsets := parkEventOffsets(snapshot())
+	if len(firstOffsets) != 1 {
+		t.Fatalf("first park event offsets = %v, want exactly one", firstOffsets)
+	}
+
+	// A repeat gate call while still broken and unchanged must not write a
+	// second, redundant event.
+	if parked, err = fixture.service.driveHostCheckEnvironmentGate(
+		fixture.ctx, fixture.engine, fixture.owner, snapshot(), fixture.state,
+	); err != nil || !parked {
+		t.Fatalf("repeat gate() = (%v, %v), want (true, nil)", parked, err)
+	}
+	if offsets := parkEventOffsets(snapshot()); len(offsets) != 1 {
+		t.Fatalf("repeat park event offsets = %v, want still exactly one", offsets)
+	}
+
+	// Fix: put a resolvable script ahead of PATH under the exact missing
+	// name (M10's own remedy), with the exact resolved shell as its own
+	// interpreter (never a hardcoded /bin/sh, which this sandbox does
+	// not have). hostChecksPlanBytes also declares a worker-only "worker
+	// check" entry (never resolvable as a host command either, since
+	// "worker" is not a real binary), so it gets an identical fake
+	// script too - otherwise the gate could never reach fully resolved.
+	// The gate must now clear.
+	shell, shellErr := hostShell()
+	if shellErr != nil {
+		t.Fatal(shellErr)
+	}
+	fixDir := t.TempDir()
+	for _, name := range []string{absentCommand, "worker"} {
+		if err := os.WriteFile(
+			filepath.Join(fixDir, name), []byte("#!"+shell+"\nexit 0\n"), 0o755,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", fixDir+string(os.PathListSeparator)+originalPath)
+
+	if parked, err = fixture.service.driveHostCheckEnvironmentGate(
+		fixture.ctx, fixture.engine, fixture.owner, snapshot(), fixture.state,
+	); err != nil {
+		t.Fatalf("gate() after fix error = %v", err)
+	} else if parked {
+		t.Fatal("gate() still parked after the fix")
+	}
+	if runParked, _ := hostCheckEnvironmentRunState(snapshot()); runParked {
+		t.Fatal("host_environment park did not clear")
+	}
+
+	// Break again with the identical missing command: a fresh, later-offset
+	// park record must be written - not absorbed as an already-recorded
+	// duplicate of the first.
+	t.Setenv("PATH", originalPath)
+	if parked, err = fixture.service.driveHostCheckEnvironmentGate(
+		fixture.ctx, fixture.engine, fixture.owner, snapshot(), fixture.state,
+	); err != nil || !parked {
+		t.Fatalf("repark gate() = (%v, %v), want (true, nil)", parked, err)
+	}
+	runParked, runDetail = hostCheckEnvironmentRunState(snapshot())
+	if !runParked || !strings.Contains(runDetail, absentCommand) {
+		t.Fatalf("repark state = (%v, %q)", runParked, runDetail)
+	}
+	secondOffsets := parkEventOffsets(snapshot())
+	if len(secondOffsets) != 2 {
+		t.Fatalf("repark event offsets = %v, want exactly two (not absorbed as a duplicate)", secondOffsets)
+	}
+	if secondOffsets[1] <= firstOffsets[0] {
+		t.Fatalf("repark offset %d is not later than the first park offset %d", secondOffsets[1], firstOffsets[0])
+	}
+}

@@ -22,7 +22,7 @@ func runtimePlanSingleSlice(t *testing.T, release, repository, target, marker st
 		ID: "S1", Outcome: "Deliver S1.",
 		Scope:      protocol.Scope{Include: []string{"one.txt"}, Exclude: []string{}},
 		Acceptance: []protocol.Criterion{{ID: "A-S1", Text: "S1 is exact."}},
-		Checks:     []string{"check S1"}, Constraints: []string{"deterministic"},
+		Checks:     []string{"true # check S1"}, Constraints: []string{"deterministic"},
 		DependsOn: []string{}, Consumes: []string{},
 	}
 	metadata := protocol.Metadata{

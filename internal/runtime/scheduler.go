@@ -1693,6 +1693,16 @@ func (s *Service) reconcileClaimedProtocolAction(ctx context.Context, engine *en
 	result, actionErr := action()
 	engine.actionMu.Unlock()
 	if actionErr != nil {
+		if IsCode(actionErr, "EFFECT_PARKED") {
+			// A nested check.host effect this action depends on classified
+			// as a host environment failure (S1): that inner effect stays
+			// exactly where it is - Claimed, never completed - so this
+			// outer effect must too. Completing it here as
+			// OperationalFailed would spend this try, and the next call
+			// (fresh or recovered) would advance to a fresh try instead of
+			// re-hitting the identical still-Claimed inner effect.
+			return actionAllOld, protocol.ActionResult{}, actionErr
+		}
 		after, afterState, classifyErr := classifyProtocolAction(
 			engine, effect.Kind, command)
 		switch after {
@@ -1861,6 +1871,14 @@ func (s *Service) runAction(ctx context.Context, engine *engine, owner journal.O
 			truth, recovered, recoverErr := s.reconcileClaimedProtocolAction(
 				ctx, engine, owner, effect, persisted, action, false, false)
 			if recoverErr != nil {
+				// A benign environment park is handled, not recovered: it
+				// must not spend a further try (the still-Claimed effect
+				// stays exactly where it is, admitting no try 2/3
+				// attempt), unlike every other actionAllOld outcome this
+				// loop retries under a fresh try.
+				if IsCode(recoverErr, "EFFECT_PARKED") {
+					return protocol.ActionResult{}, recoverErr
+				}
 				if truth == actionAllOld {
 					continue
 				}
@@ -1888,6 +1906,13 @@ func (s *Service) runAction(ctx context.Context, engine *engine, owner journal.O
 		truth, result, actionErr := s.reconcileClaimedProtocolAction(
 			ctx, engine, owner, effect, persisted, action, true, true)
 		if actionErr != nil {
+			// Same fix as the already-Claimed branch above: an
+			// environment park must return at once, never spend a fresh
+			// try, so the same try's action completes without ever
+			// admitting a try 2 or try 3 attempt.
+			if IsCode(actionErr, "EFFECT_PARKED") {
+				return protocol.ActionResult{}, actionErr
+			}
 			if truth == actionAllOld &&
 				!IsCode(actionErr, "RECOVERY_UNCERTAIN") {
 				continue
@@ -6079,6 +6104,21 @@ func (s *Service) driveLoop(ctx context.Context, engine *engine, owner journal.O
 		if state.Plan.TargetStale {
 			return nil
 		}
+		// A4: refuse to make progress while any declared check's command
+		// does not resolve on the host runner's own environment, before
+		// any dispatch. This runs on every driveLoop entry (Start,
+		// Resume, and serve's autostart, which all funnel through
+		// driveOwned -> driveLoop), in the process that owns the real
+		// PATH; the answer is journaled so Status (a separate,
+		// engine-less process) never re-classifies.
+		hostEnvironmentParked, err := s.driveHostCheckEnvironmentGate(
+			ctx, engine, owner, snapshot, state)
+		if err != nil {
+			return err
+		}
+		if hostEnvironmentParked {
+			return nil
+		}
 		plannerNeeded := isPlannerNeeded(state)
 		// Lane-scoped drain (A1): an economy, identical-failure, or
 		// exhaustion crossing pins only the candidate lane it belongs to -
@@ -6298,6 +6338,31 @@ func (s *Service) pinCrossingLanes(
 			pinned[lane] = struct{}{}
 		}
 	}
+	// Work-scoped host-environment crossings (A1-A3, A5): a pure function
+	// of snapshot, exactly like the economy/identical-failure loops above.
+	// The audit event is appended unconditionally whenever a crossing is
+	// currently detected, not gated by hasParkEventForCause: a crossing's
+	// body can only ever take one value for a given work (MissingCommand
+	// is the check's own deterministic first word), so content-addressing
+	// can never wrongly absorb a later, different fact as a duplicate.
+	for _, crossing := range hostEnvironmentParkCrossings(snapshot) {
+		owner := hostEnvironmentCrossingOwner(state, crossing)
+		if owner == "" {
+			continue
+		}
+		body, err := hostEnvironmentParkEventBody(
+			runID, owner, hostEnvironmentCrossingDetail(crossing),
+		)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.appendParkEventOnce(ctx, runID, ParkCauseHostEnvironment, body); err != nil {
+			return nil, err
+		}
+		if lane, ok := laneFor(owner); ok {
+			pinned[lane] = struct{}{}
+		}
+	}
 	exhausted, refusals := exhaustedWorks(snapshot, control, nil)
 	exhaustionParks := exhaustionParkCrossings(
 		engine.manifest, snapshot, exhausted, refusals,
@@ -6454,6 +6519,18 @@ func (s *Service) recoverClaimedProtocolAction(ctx context.Context, engine *engi
 			return true, errors.Join(err, cleanupErr)
 		}
 		if err != nil {
+			// A benign environment park (a nested check.host effect this
+			// action depends on is itself environment-classified) is
+			// handled, not recovered: the effect stays exactly where it
+			// is on purpose. Returning true here would make
+			// recoverClaimedEffects continue and immediately re-find the
+			// identical still-Claimed effect, spinning without bound
+			// instead of ever reaching driveLoop's own park/return-nil
+			// path. Skip only this effect and keep scanning the rest of
+			// this pass for genuine recovery work.
+			if truth == actionAllOld && IsCode(err, "EFFECT_PARKED") {
+				continue
+			}
 			if truth == actionAllOld && !IsCode(err, "RECOVERY_UNCERTAIN") {
 				return true, nil
 			}
@@ -7294,12 +7371,27 @@ func withReleaseAssembly(
 // checks digest is the digest of the engine-built manifest whenever a slice
 // declares host checks, and a failing check fails the action operationally
 // under HOST_CHECK_FAILED.
+// assemblyPrepareBefore is the assembly's own before identity, the exact
+// tuple prepareAssembly binds its protocol.prepare_assembly action to.
+// Factored out so hostEnvironmentCrossingOwner can derive the identical
+// assembly-scoped owner work identity a check.host environment crossing
+// pins, without duplicating this formula.
+func assemblyPrepareBefore(state protocol.State) string {
+	return workIdentity(state.Plan.OID, state.Refs.Release.Head, state.Refs.Target.Head,
+		state.Assembly.Outcome, state.Assembly.InputPins)
+}
+
+// assemblyPrepareWork is the assembly's protocol.prepare_assembly work
+// identity, matching readyLaneCandidates' own "release"-lane entry for it.
+func assemblyPrepareWork(state protocol.State) string {
+	return workIdentity(assemblyPrepareBefore(state), "prepare")
+}
+
 func (s *Service) prepareAssembly(ctx context.Context, engine *engine, owner journal.OwnerLease, state protocol.State) error {
 	input := protocol.PrepareAssemblyInput{Release: state.Release,
 		Summary: "Compose all exact passed track candidates.",
 		Detail:  []byte("Deterministic engine-owned plan-ordered composition.")}
-	before := workIdentity(state.Plan.OID, state.Refs.Release.Head, state.Refs.Target.Head,
-		state.Assembly.Outcome, state.Assembly.InputPins)
+	before := assemblyPrepareBefore(state)
 	binds := state.Plan.ApprovalOID
 	if state.Assembly.CurrentReceipt != nil {
 		binds = state.Assembly.CurrentReceipt.OID

@@ -682,6 +682,16 @@ Linux production execution requires root-owned `bwrap` discoverable on PATH
 `driver certify`, `driver probe`, and production runs can
 consume provider usage; the ordinary Go test suite does not make live provider
 requests.
+
+A host check runs through the shell configured by `SWORN_SH` (or the first
+`sh` discovered on the serve process's own `PATH`), in the serve process's
+own environment - never the operator's interactive shell. Under a systemd
+user unit with no explicit `PATH=`, that shell's builtin lookup can differ
+sharply from an operator's login shell; see "Host-check environment
+failures" below. A check that itself further manipulates `PATH` before
+invoking a subcommand can still exit 127 for that subcommand: only the
+check's own first word is resolved ahead of running it.
+
 ## Host-check repair input
 
 When an implementation's host check fails, Sworn retains the exact failed
@@ -698,6 +708,45 @@ gate, with a retained-candidate diagnostic, so configured notification
 consumers can observe the stop without waiting for another scheduler tick.
 This does not invent a human approval question or authorize an automatic
 budget increase.
+
+### Host-check environment failures
+
+A host check whose process exits 127, or whose command's first word does
+not resolve on the host runner's own `PATH`, is a **host environment
+failure**, not a candidate failure. The engine classifies this the same
+way the shell that runs the check itself would: `command -v` on the
+check's first simple-command word (skipping any leading `NAME=value`
+assignments), which POSIX specifies to report an alias, a keyword, a
+function, and a builtin as found - so `cd`, `export`, `set`, `:`, `[`,
+`if`, and `!` are never misclassified as missing. Classification runs only
+in the serve process, at most once per currently-claimed `check.host`
+effect on every drive-loop pass (the same pass that recovers a
+crash-orphaned claim) plus once per fresh `check.host` admission and once
+per declared check at the top of every run start or resume - never in
+`sworn status`, the board, or the cockpit, which read only already-
+journaled facts and never resolve a command themselves.
+
+The affected `check.host` effect parks at once (typed cause
+`host_environment`, code `HOST_CHECK_ENVIRONMENT`, naming the check and the
+missing command): it spends no implementer try, is never handed to the
+implementer as repair input, and is never stored as the candidate's result
+or replayed. It stays claimed until the environment is fixed and the same
+work resumes, at which point the identical check re-executes normally. The
+status projection's host-check environment fact
+(`sworn.host-check-environment-fact/v1`, served on `EffectStatus` and
+`PinnedWork` beside, never replacing, the unchanged host-check failure fact
+above) names the check and the missing command for as long as the park is
+active, and clears itself the moment the check actually runs.
+
+At run start, and at serve start when it drives a run, the engine also
+resolves the first word of every declared `checks` and `host_checks` entry
+of every slice's approved contract (the deduplicated union of both lists)
+against the host runner's own environment, before any dispatch, and
+refuses to start with the same `HOST_CHECK_ENVIRONMENT` code naming every
+unresolved command. Fix the host's `PATH` (or the systemd unit's
+`Environment=PATH=...`), then resume the run with the identical run id;
+no plan, contract, or manifest change is needed or admitted for this
+cause.
 
 ### Transient provider stall backoff
 

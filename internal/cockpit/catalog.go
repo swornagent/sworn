@@ -169,7 +169,13 @@ func ProjectNeedsYou(runs []DiscoveredRunStatus) []NeedsYouItem {
 		if run.Status.State == "parked" {
 			if len(run.Status.PinnedWork) != 0 {
 				action := "retry"
-				if economyGrantUnit(run.Status.PinnedWork[0].Cause) != "" {
+				switch {
+				case run.Status.PinnedWork[0].Cause == runtimepkg.ParkCauseHostEnvironment:
+					// No board control exists for this cause: fixing the
+					// host environment and resuming clears it, not a
+					// retry or a grant.
+					action = "review_park"
+				case economyGrantUnit(run.Status.PinnedWork[0].Cause) != "":
 					// The first pinned work crossed an economy budget:
 					// retry alone is refused (ECONOMY_GRANT_REQUIRED), so
 					// the needs-you row must name the verb that actually
@@ -194,6 +200,12 @@ func ProjectNeedsYou(runs []DiscoveredRunStatus) []NeedsYouItem {
 					run.Status.Park.FallbackCount,
 					run.Status.Park.Budget,
 					run.Status.Park.UnblockKnob,
+				)
+			} else if run.Status.Park != nil &&
+				run.Status.Park.Cause == runtimepkg.ParkCauseHostEnvironment {
+				reason = fmt.Sprintf(
+					"Sworn refused to start because a declared check's command does not resolve on the host that will run it: %s. Set PATH on the host or the systemd unit, then resume the run.",
+					run.Status.Park.FailureDetail,
 				)
 			}
 			items = append(items, NeedsYouItem{

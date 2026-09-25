@@ -55,6 +55,7 @@ func workerSandboxArguments(
 	arguments = append(arguments,
 		"--ro-bind", swornBinary, swornBinary,
 		"--ro-bind", fakeBinary, fakeBinary,
+		"--ro-bind", declaredCheckCommandDir, declaredCheckCommandDir,
 		"--bind", repository, repository,
 		"--bind", runRoot, runRoot,
 		"--ro-bind", manifestPath, manifestPath,
@@ -64,7 +65,11 @@ func workerSandboxArguments(
 		"--setenv", "LANG", "C.UTF-8",
 		"--setenv", "LC_ALL", "C.UTF-8",
 		"--setenv", "TZ", "UTC",
-		"--setenv", "PATH", "/usr/bin:/bin",
+		// declaredCheckCommandDir leads PATH so A4's host-environment
+		// preflight resolves the fixture plan's "check <id>" checks (see
+		// main_linux_test.go); it adds no other host tool inside this
+		// otherwise-cleared sandbox.
+		"--setenv", "PATH", declaredCheckCommandDir+":/usr/bin:/bin",
 		"--setenv", "PWD", repository,
 		"--setenv", "SWORN_TEST_UNCONTAINED_DISPATCH", "1",
 	)

@@ -84,7 +84,66 @@ const (
 	// any try and is cleared by a bare Retry once the operator edits the
 	// driver config (S6-context-window-clamp A3).
 	ParkCauseEconomyContext = "economy_context_window"
+	// ParkCauseHostEnvironment is the park cause for a host check whose
+	// command cannot run on the host that will run it (S1-host-check-
+	// environment-failures): either the run-scoped A4 start-time refusal
+	// (Work == "", naming every currently-unresolved declared check), or
+	// a mid-run crossing pinning one check.host work (Work matching
+	// runtimeDigestPattern). There is no unblock knob: fixing the host
+	// environment and resuming clears this park, not a manifest value.
+	ParkCauseHostEnvironment = "host_environment"
 )
+
+// HostEnvironmentResolvedEventKind is the distinct, non-park journal event
+// kind a host runner appends when the run-scoped A4 host-environment
+// validation, previously unresolved, resolves. It is deliberately not
+// ParkEventKind: cockpit/webhook.go maps that kind to park_updated and
+// attaches a typed Park block to the outgoing notification, and a
+// resolved fact must never send a false park-updated webhook or read as a
+// park in cockpit history. It carries no fact beyond identity
+// (schema_version, run_id): its only meaning is "the latest host-
+// environment record for this run, by event offset, is this one, so the
+// run is not currently parked for that cause" - hostCheckEnvironmentRunState
+// is the one reader of it.
+const HostEnvironmentResolvedEventKind = "host_check_environment_resolved"
+
+const hostEnvironmentResolvedEventVersion = "sworn.host-check-environment-resolved/v1"
+
+type hostEnvironmentResolvedEvent struct {
+	SchemaVersion string `json:"schema_version"`
+	RunID         string `json:"run_id"`
+}
+
+// canonicalHostEnvironmentResolvedEvent builds the canonical encoding of a
+// host-environment resolution fact.
+func canonicalHostEnvironmentResolvedEvent(runID string) ([]byte, error) {
+	if !runtimeIdentityPattern.MatchString(runID) {
+		return nil, runtimeFail("INVALID_PARK_EVENT", nil)
+	}
+	body, err := json.Marshal(hostEnvironmentResolvedEvent{
+		SchemaVersion: hostEnvironmentResolvedEventVersion, RunID: runID,
+	})
+	if err != nil {
+		return nil, runtimeFail("INVALID_PARK_EVENT", nil)
+	}
+	return body, nil
+}
+
+// hostEnvironmentParkEventBody builds the canonical typed park event body
+// for a host-environment park: work is "" for the run-scoped A4 refusal,
+// or one check.host work identity for a mid-run crossing. There is no
+// unblock knob and no dual "resolved" shape here - a resolution is never
+// written as a ParkEventKind event; see HostEnvironmentResolvedEventKind.
+func hostEnvironmentParkEventBody(runID, work, detail string) ([]byte, error) {
+	return canonicalDegradationParkEvent(DegradationParkEvent{
+		SchemaVersion: ParkEventVersion,
+		RunID:         runID,
+		Cause:         ParkCauseHostEnvironment,
+		FailureCode:   "HOST_CHECK_ENVIRONMENT",
+		FailureDetail: detail,
+		Work:          work,
+	})
+}
 
 // DegradationFallback is one counted fallback fact inside a degradation park
 // event: the journal offset and the reason the event body carried.
@@ -297,6 +356,26 @@ func canonicalDegradationParkEvent(event DegradationParkEvent) ([]byte, error) {
 			(event.FailureCode != "" &&
 				!runtimeIdentityPattern.MatchString(event.FailureCode)) ||
 			!validParkDetail(event.FailureDetail) ||
+			event.Count != 0 || event.Budget != 0 ||
+			len(event.Fallbacks) != 0 || event.Spent != 0 ||
+			event.Consecutive != 0 || event.Threshold != 0 ||
+			event.Reason != "" {
+			return nil, runtimeFail("INVALID_PARK_EVENT", nil)
+		}
+	case event.SchemaVersion == ParkEventVersion &&
+		event.Cause == ParkCauseHostEnvironment:
+		// A host-environment park names either the run (Work == "", the
+		// A4 start-time refusal) or one check.host work (Work matching
+		// runtimeDigestPattern, a mid-run crossing). FailureCode is
+		// always HOST_CHECK_ENVIRONMENT; FailureDetail names the
+		// unresolved check(s) and missing command(s) and is always
+		// non-empty - a park is always naming something. The resolution
+		// half of this cause is never this shape; see
+		// HostEnvironmentResolvedEventKind.
+		if event.UnblockKnob != "" ||
+			(event.Work != "" && !runtimeDigestPattern.MatchString(event.Work)) ||
+			event.FailureCode != "HOST_CHECK_ENVIRONMENT" ||
+			event.FailureDetail == "" || !validParkDetail(event.FailureDetail) ||
 			event.Count != 0 || event.Budget != 0 ||
 			len(event.Fallbacks) != 0 || event.Spent != 0 ||
 			event.Consecutive != 0 || event.Threshold != 0 ||

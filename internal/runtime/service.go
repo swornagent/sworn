@@ -220,6 +220,12 @@ type PinnedWork struct {
 	// pin with no failed dispatch to show. It is evidence, never
 	// authority.
 	HostCheckFailure *HostCheckFailureFact `json:"host_check_failure,omitempty"`
+	// HostEnvironmentFailure carries the bounded host-check environment
+	// fact for a ParkCauseHostEnvironment pin - the check and the missing
+	// command a check.host effect cannot resolve on the host. Nil means
+	// absent: not a host-environment pin. It is evidence, never
+	// authority.
+	HostEnvironmentFailure *HostEnvironmentFact `json:"host_environment_failure,omitempty"`
 }
 
 // RecoveryAction names the one control verb currently admissible for a run
@@ -292,6 +298,12 @@ type EffectStatus struct {
 	// the latest terminal HOST_CHECK_FAILED dispatch of its owner work.
 	// Nil means absent. It is evidence, never authority.
 	HostCheckFailure *HostCheckFailureFact `json:"host_check_failure,omitempty"`
+	// HostEnvironmentFailure carries the bounded host-check environment
+	// fact for a check.host effect that currently cannot resolve its
+	// command on the host, beside CheckOutcome. Nil means absent: not a
+	// check.host effect, or not currently parked on this cause. It is
+	// evidence, never authority.
+	HostEnvironmentFailure *HostEnvironmentFact `json:"host_environment_failure,omitempty"`
 	// CheckOutcome reports the journaled check's outcome for a
 	// check.host effect (pass, fail, timeout, overflow), beside the
 	// effect state. Empty means absent: not a check.host effect, or a

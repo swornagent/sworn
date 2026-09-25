@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -204,3 +205,96 @@ func TestParseHostCheckResultRejectsSubstitution(t *testing.T) {
 }
 
 var _ = context.Background
+
+// TestHostCheckCommandWordSkipsLeadingAssignments is A1's parse-layer
+// proof: the classifier's word is the check's first non-assignment token,
+// exactly as the shell that runs the check would resolve it.
+func TestHostCheckCommandWordSkipsLeadingAssignments(t *testing.T) {
+	t.Parallel()
+	cases := map[string]string{
+		"go test ./...":                                         "go",
+		"GOFLAGS=-buildvcs=false go test ./...":                 "go",
+		"GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build ./...": "go",
+		"test -z \"$(gofmt -l ./cmd)\"":                         "test",
+		"":                                                      "",
+		"FOO=bar":                                               "",
+	}
+	for check, want := range cases {
+		if got := hostCheckCommandWord(check); got != want {
+			t.Fatalf("hostCheckCommandWord(%q) = %q, want %q", check, got, want)
+		}
+	}
+}
+
+// TestClassifyHostCheckExecutionResolvesShellBuiltinsAndReservedWords is
+// A1's exact required proof: the shell's own builtin/keyword/function/
+// alias resolution, via `command -v`, never misclassifies a builtin or a
+// reserved word as a missing command, with no maintained list.
+func TestClassifyHostCheckExecutionResolvesShellBuiltinsAndReservedWords(t *testing.T) {
+	t.Parallel()
+	shell, err := hostShell()
+	if err != nil {
+		t.Skip("no POSIX shell discoverable in this sandbox")
+	}
+	for _, word := range []string{"cd", "export", "set", ":", "[", "if", "!"} {
+		environmentFailure, missing := classifyHostCheckExecution(shell, word+" true")
+		if environmentFailure {
+			t.Fatalf("builtin/reserved word %q misclassified as missing (missing=%q)", word, missing)
+		}
+	}
+}
+
+// TestClassifyHostCheckExecutionRecognizesAGenuinelyAbsentCommand proves
+// the negative case still refuses: a command that genuinely does not
+// resolve is classified as an environment failure naming it.
+func TestClassifyHostCheckExecutionRecognizesAGenuinelyAbsentCommand(t *testing.T) {
+	t.Parallel()
+	shell, err := hostShell()
+	if err != nil {
+		t.Skip("no POSIX shell discoverable in this sandbox")
+	}
+	const absent = "sworn-genuinely-absent-command-xyz"
+	environmentFailure, missing := classifyHostCheckExecution(shell, absent+" ./...")
+	if !environmentFailure || missing != absent {
+		t.Fatalf("classify(%q) = (%v, %q), want (true, %q)", absent, environmentFailure, missing, absent)
+	}
+}
+
+// TestClassifyHostCheckExecutionResolvesRealCommandsAndAssignmentPrefixes
+// proves the positive case for a real, resolvable command, including one
+// prefixed by NAME=value assignments, exactly like this release's own
+// contract checks.
+func TestClassifyHostCheckExecutionResolvesRealCommandsAndAssignmentPrefixes(t *testing.T) {
+	t.Parallel()
+	shell, err := hostShell()
+	if err != nil {
+		t.Skip("no POSIX shell discoverable in this sandbox")
+	}
+	for _, check := range []string{"true", "FOO=bar BAZ=qux true"} {
+		if environmentFailure, missing := classifyHostCheckExecution(shell, check); environmentFailure {
+			t.Fatalf("classify(%q) misclassified true as missing (missing=%q)", check, missing)
+		}
+	}
+}
+
+// TestHostCommandResolvesPathShapedWordUsesStat proves a path-shaped word
+// (containing '/') is resolved by os.Stat, exactly as the shell would
+// attempt to execute it directly, not by a PATH search.
+func TestHostCommandResolvesPathShapedWordUsesStat(t *testing.T) {
+	t.Parallel()
+	shell, err := hostShell()
+	if err != nil {
+		t.Skip("no POSIX shell discoverable in this sandbox")
+	}
+	dir := t.TempDir()
+	script := filepath.Join(dir, "present.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\ntrue\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !hostCommandResolves(shell, script) {
+		t.Fatalf("path-shaped present script %q did not resolve", script)
+	}
+	if hostCommandResolves(shell, filepath.Join(dir, "absent.sh")) {
+		t.Fatal("path-shaped absent script resolved")
+	}
+}
