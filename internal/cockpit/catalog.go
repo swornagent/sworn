@@ -109,6 +109,15 @@ func pinnedWorkNeedsYouReason(pinned []runtimepkg.PinnedWork) string {
 		if work.Detail != "" {
 			reason += " - " + work.Detail
 		}
+		// S3-credential-lifetime A2: this cause takes no Retry or Grant -
+		// it self-clears on the next drive once the credential is
+		// refreshed, so the guidance names the actual fix instead of the
+		// generic retry sentence below.
+		if work.Code == "CREDENTIAL_STALE" ||
+			work.Code == "CREDENTIAL_EXPIRES_DURING_DISPATCH" {
+			reason += ". Any interactive use of the CLI on this host " +
+				"refreshes the credential."
+		}
 		reasons = append(reasons, reason)
 	}
 	return "Review the pinned work, then retry it using the latest action. " +
@@ -170,10 +179,12 @@ func ProjectNeedsYou(runs []DiscoveredRunStatus) []NeedsYouItem {
 			if len(run.Status.PinnedWork) != 0 {
 				action := "retry"
 				switch {
-				case run.Status.PinnedWork[0].Cause == runtimepkg.ParkCauseHostEnvironment:
-					// No board control exists for this cause: fixing the
-					// host environment and resuming clears it, not a
-					// retry or a grant.
+				case run.Status.PinnedWork[0].Cause == runtimepkg.ParkCauseHostEnvironment,
+					run.Status.PinnedWork[0].Cause == runtimepkg.ParkCauseCredentialLifetime:
+					// No board control exists for either cause: fixing the
+					// host environment, or refreshing the credential, and
+					// resuming/re-driving clears it - never a retry or a
+					// grant (S3-credential-lifetime A2).
 					action = "review_park"
 				case economyGrantUnit(run.Status.PinnedWork[0].Cause) != "":
 					// The first pinned work crossed an economy budget:

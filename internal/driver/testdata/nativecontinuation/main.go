@@ -157,6 +157,12 @@ func main() {
 			) != nil {
 				os.Exit(24)
 			}
+		case "auth_failed_exit":
+			emitClaudeAuthFailureResult()
+			os.Exit(2)
+		case "auth_failed_clean":
+			emitClaudeAuthFailureResult()
+			return
 		}
 	}
 	time.Sleep(100 * time.Millisecond)
@@ -334,11 +340,21 @@ func credentialFixtureMode(family string) string {
 	}
 	mode, _ := envelope["offline_provider"].(string)
 	switch mode {
-	case "unreachable", "unauthorized", "exitone", "expire", "rotation", "crash":
+	case "unreachable", "unauthorized", "exitone", "expire", "rotation", "crash",
+		"auth_failed_exit", "auth_failed_clean":
 		return mode
 	default:
 		return ""
 	}
+}
+
+// emitClaudeAuthFailureResult emits the CLI's own terminal result event
+// reporting an authentication failure (S3-credential-lifetime A3), in the
+// exact "is_error true, subtype error_during_execution, result text" shape
+// the real Claude CLI uses - never assistant/model prose.
+func emitClaudeAuthFailureResult() {
+	fmt.Println(`{"type":"result","subtype":"error_during_execution",` +
+		`"is_error":true,"result":"Failed to authenticate"}`)
 }
 
 // credentialFixturePath is the credential target the pinned family's config

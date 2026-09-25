@@ -2388,6 +2388,12 @@ func platformRunNative(
 		if automationRun != nil {
 			return Observation{}, fail("AUTOMATION_PROTOCOL_FAILED")
 		}
+		// A3: a clean exit (no waitErr) bypasses nativeSpontaneousExitFailure
+		// entirely, so the same CLI-reported authentication failure check
+		// runs here too, before the MISSING_SUBMISSION fallback.
+		if nativeAuthFailureReported(config.Family, state.resultError()) {
+			return Observation{}, fail("PROVIDER_AUTHORIZATION_FAILED")
+		}
 		return Observation{}, fail("MISSING_SUBMISSION")
 	}
 	// Ordering constraint: any pending turn that crossed must be emitted
@@ -2513,6 +2519,11 @@ func nativeSpontaneousExitFailure(
 			Detail:    result.detail,
 			HardLimit: true,
 		}
+	}
+	// The CLI's own result naming an authentication failure (A3) outranks a
+	// plain transport reading, exactly like the provider-limit check above.
+	if nativeAuthFailureReported(family, result) {
+		return fail("PROVIDER_AUTHORIZATION_FAILED")
 	}
 	detail := normalizeProviderErrorDetail(string(stderrTail))
 	if detail == "" && result.errored {
@@ -3912,6 +3923,31 @@ func nativeLimitReached(detail string) bool {
 		}
 	}
 	return hardLimitExhausted(detail)
+}
+
+// nativeClaudeAuthFailurePhrases is the closed, Claude-only phrase table
+// (A3) recognized in the CLI's own terminal result text - never assistant
+// or model prose - as reporting an authentication failure.
+var nativeClaudeAuthFailurePhrases = []string{
+	"failed to authenticate",
+	"oauth session expired",
+}
+
+// nativeAuthFailureReported reports whether result - the CLI's own terminal
+// result event, never assistant/model prose - names an authentication
+// failure. Bounded to ProfileClaude: other families ship no vocabulary and
+// stay fail-open, exactly like nativeAuthExitCode.
+func nativeAuthFailureReported(family ProfileFamily, result nativeResultError) bool {
+	if family != ProfileClaude || !result.errored || result.detail == "" {
+		return false
+	}
+	lower := strings.ToLower(result.detail)
+	for _, phrase := range nativeClaudeAuthFailurePhrases {
+		if strings.Contains(lower, phrase) {
+			return true
+		}
+	}
+	return false
 }
 
 func (state *nativeEventState) captureUsage(value any) {

@@ -238,6 +238,126 @@ func TestNativeCredentialPreflightGateRefusesOnlyExpired(t *testing.T) {
 	})
 }
 
+// TestNativeCredentialPreflightGateRefusesExpiringDuringDispatch pins A1's
+// timeout+margin lookahead at both per-dispatch gates: a credential that is
+// not yet expired but will expire before the dispatch's own declared
+// timeout plus the fixed margin elapses refuses
+// CREDENTIAL_EXPIRES_DURING_DISPATCH, carrying a duration-only detail,
+// while the identical credential passes when the caller's timeout is short
+// enough that the deadline lands before the expiry. The automation gate
+// (no per-call timeout) uses the fixed margin alone.
+func TestNativeCredentialPreflightGateRefusesExpiringDuringDispatch(t *testing.T) {
+	// The per-dispatch subtests need a credential with enough headroom that
+	// the fixed margin's own contribution is what tips the verdict (a bare
+	// 4-minute timeout does not reach a 6-minute-away expiry; the margin
+	// added on top does), while the automation subtest needs a separately
+	// short-lived credential: the fixed 5-minute margin alone already
+	// exceeds a 2-minute remaining life, so a single shared credential
+	// could never make both the short-timeout pass case and the
+	// margin-alone refuse case hold against the same remaining duration.
+	dispatchExpiry := time.Now().Add(6 * time.Minute).UnixMilli()
+	dispatchBody := `{"claudeAiOauth":{"accessToken":"a","expiresAt":` +
+		strconvI64(dispatchExpiry) + `}}`
+	dispatchCredential := filepath.Join(t.TempDir(), "credential-dispatch")
+	if err := os.WriteFile(dispatchCredential, []byte(dispatchBody), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dispatchAdapter, _, _, dispatchSelected := nativeCredentialGateAdapter(
+		t, ProfileClaude, dispatchCredential,
+	)
+
+	t.Run("timeout plus margin reaches past the expiry, refuses", func(t *testing.T) {
+		invocation := Invocation{Selected: dispatchSelected}
+		invocation.Request.Limits.TimeoutMillis = 4 * 60 * 1000
+		_, gotPath, err := dispatchAdapter.nativeRuntime(context.Background(), invocation)
+		if !IsCode(err, "CREDENTIAL_EXPIRES_DURING_DISPATCH") {
+			t.Fatalf(
+				"preflight error = %v, want CREDENTIAL_EXPIRES_DURING_DISPATCH",
+				err,
+			)
+		}
+		if gotPath != "" {
+			t.Fatalf("refused preflight still returned path %q", gotPath)
+		}
+		var contractErr *ContractError
+		if !errors.As(err, &contractErr) || contractErr.Detail == "" ||
+			strings.Contains(contractErr.Detail, "accessToken") {
+			t.Fatalf("expected a duration-only detail, got %#v", contractErr)
+		}
+	})
+
+	t.Run("short timeout does not reach the expiry, passes", func(t *testing.T) {
+		invocation := Invocation{Selected: dispatchSelected}
+		invocation.Request.Limits.TimeoutMillis = 1_000
+		_, gotPath, err := dispatchAdapter.nativeRuntime(context.Background(), invocation)
+		if err != nil {
+			t.Fatalf("preflight error = %v, want nil", err)
+		}
+		if gotPath != dispatchCredential {
+			t.Fatalf("preflight path = %q, want %q", gotPath, dispatchCredential)
+		}
+	})
+
+	t.Run("automation gate uses the fixed margin alone, refuses", func(t *testing.T) {
+		automationExpiry := time.Now().Add(2 * time.Minute).UnixMilli()
+		automationBody := `{"claudeAiOauth":{"accessToken":"a","expiresAt":` +
+			strconvI64(automationExpiry) + `}}`
+		automationCredential := filepath.Join(t.TempDir(), "credential-automation")
+		if err := os.WriteFile(
+			automationCredential, []byte(automationBody), 0o600,
+		); err != nil {
+			t.Fatal(err)
+		}
+		automationAdapter, _, _, automationSelected := nativeCredentialGateAdapter(
+			t, ProfileClaude, automationCredential,
+		)
+		_, gotPath, err := automationAdapter.nativeAutomationRuntime(
+			context.Background(), AutomationInvocation{Selected: automationSelected},
+		)
+		if !IsCode(err, "CREDENTIAL_EXPIRES_DURING_DISPATCH") {
+			t.Fatalf(
+				"automation preflight error = %v, want CREDENTIAL_EXPIRES_DURING_DISPATCH",
+				err,
+			)
+		}
+		if gotPath != "" {
+			t.Fatalf("refused automation preflight returned path %q", gotPath)
+		}
+	})
+}
+
+// TestProbeNativeCredentialLivenessRefusesExpiringDuringDispatch pins A1's
+// lookahead at the admission-time probe itself: a credential due to expire
+// before timeoutMillis plus the fixed margin refuses
+// CREDENTIAL_EXPIRES_DURING_DISPATCH with zero dispatch burn.
+func TestProbeNativeCredentialLivenessRefusesExpiringDuringDispatch(t *testing.T) {
+	credential := filepath.Join(t.TempDir(), "credential")
+	expiresSoon := time.Now().Add(2 * time.Minute).UnixMilli()
+	body := []byte(
+		`{"claudeAiOauth":{"accessToken":"a","expiresAt":` +
+			strconv.FormatInt(expiresSoon, 10) + `}}`,
+	)
+	if err := os.WriteFile(credential, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	selected := nativeCredentialLivenessProbeTestSelection(
+		func(context.Context, string) (string, error) { return credential, nil },
+	)
+	eventBody, err := ProbeNativeCredentialLiveness(
+		context.Background(), selected, "run-expiring-during-dispatch",
+		3*60*1000,
+	)
+	if !IsCode(err, "CREDENTIAL_EXPIRES_DURING_DISPATCH") {
+		t.Fatalf(
+			"probe error = %v, want CREDENTIAL_EXPIRES_DURING_DISPATCH", err,
+		)
+	}
+	event := decodeNativeCredentialLivenessProbeEvent(t, eventBody)
+	if event.Outcome != nativeAdmissionProbeRefused {
+		t.Fatalf("probe event = %#v, want a refused outcome", event)
+	}
+}
+
 // TestNativeCredentialPreflightRefusesBeforeDispatchWork pins the C5
 // delivered property: the refusal lands at dispatch preparation, before the
 // CLI spawn, the sandbox, or the closure check. A fresh credential over the
@@ -484,6 +604,127 @@ func TestNativeSpontaneousExitClassification(t *testing.T) {
 			t.Fatalf("codex expired-at-close error = %v, want PROVIDER_TRANSPORT_FAILED", err)
 		}
 	})
+}
+
+// TestNativeCLIReportedAuthFailureSurfacesTypedCode pins A3 end to end
+// through the nativecontinuation fixture, at both sites a CLI-reported
+// authentication failure can be missed: the ordinary non-zero-exit path
+// (nativeSpontaneousExitFailure) and the clean-exit path (waitErr == nil,
+// !terminated) that bypasses it entirely and would otherwise read
+// MISSING_SUBMISSION. Recognition is bounded to the CLI's own result field
+// (never assistant/model prose, which this fixture never emits here) and to
+// ProfileClaude - the identical fixture text on Codex keeps its unrelated
+// classification.
+func TestNativeCLIReportedAuthFailureSurfacesTypedCode(t *testing.T) {
+	probe := buildNativeContinuation(t)
+	digest, err := executableDigest(probe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authFailedExit := []byte(`{"offline_provider":"auth_failed_exit"}`)
+	authFailedClean := []byte(`{"offline_provider":"auth_failed_clean"}`)
+
+	t.Run("non-zero exit reports the typed credential code on claude", func(t *testing.T) {
+		err := credentialFixtureInvoke(
+			t, ProfileClaude, probe, digest, authFailedExit, 2_000,
+		)
+		if !IsCode(err, "PROVIDER_AUTHORIZATION_FAILED") {
+			t.Fatalf(
+				"auth-failure exit error = %v, want PROVIDER_AUTHORIZATION_FAILED",
+				err,
+			)
+		}
+	})
+
+	t.Run("clean exit without a submission reports the typed credential code on claude", func(t *testing.T) {
+		err := credentialFixtureInvoke(
+			t, ProfileClaude, probe, digest, authFailedClean, 2_000,
+		)
+		if !IsCode(err, "PROVIDER_AUTHORIZATION_FAILED") {
+			t.Fatalf(
+				"clean-exit auth-failure error = %v, want PROVIDER_AUTHORIZATION_FAILED",
+				err,
+			)
+		}
+	})
+
+	t.Run("the vocabulary is claude-only: codex keeps its unrelated classification", func(t *testing.T) {
+		err := credentialFixtureInvoke(
+			t, ProfileCodex, probe, digest, authFailedExit, 2_000,
+		)
+		if !IsCode(err, "PROVIDER_TRANSPORT_FAILED") {
+			t.Fatalf(
+				"codex non-zero-exit error = %v, want PROVIDER_TRANSPORT_FAILED",
+				err,
+			)
+		}
+		err = credentialFixtureInvoke(
+			t, ProfileCodex, probe, digest, authFailedClean, 2_000,
+		)
+		if !IsCode(err, "MISSING_SUBMISSION") {
+			t.Fatalf(
+				"codex clean-exit error = %v, want MISSING_SUBMISSION", err,
+			)
+		}
+	})
+}
+
+// TestNativeAuthFailureReported pins the shared phrase-check both A3 sites
+// call: closed to ProfileClaude, case-insensitive, bounded to the CLI's own
+// errored result text, and never tripped by an un-errored or empty result.
+func TestNativeAuthFailureReported(t *testing.T) {
+	cases := []struct {
+		name   string
+		family ProfileFamily
+		result nativeResultError
+		want   bool
+	}{
+		{
+			name:   "claude failed to authenticate",
+			family: ProfileClaude,
+			result: nativeResultError{errored: true, detail: "error_during_execution: Failed to authenticate"},
+			want:   true,
+		},
+		{
+			name:   "claude oauth session expired, case-insensitive",
+			family: ProfileClaude,
+			result: nativeResultError{errored: true, detail: "OAuth Session Expired, please log in again"},
+			want:   true,
+		},
+		{
+			name:   "codex is not admitted, even with the same text",
+			family: ProfileCodex,
+			result: nativeResultError{errored: true, detail: "Failed to authenticate"},
+			want:   false,
+		},
+		{
+			name:   "not errored never matches",
+			family: ProfileClaude,
+			result: nativeResultError{errored: false, detail: "Failed to authenticate"},
+			want:   false,
+		},
+		{
+			name:   "unrelated errored text does not match",
+			family: ProfileClaude,
+			result: nativeResultError{errored: true, detail: "error_max_turns"},
+			want:   false,
+		},
+		{
+			name:   "empty result never matches",
+			family: ProfileClaude,
+			result: nativeResultError{},
+			want:   false,
+		},
+	}
+	for _, test := range cases {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			if got := nativeAuthFailureReported(test.family, test.result); got != test.want {
+				t.Fatalf("nativeAuthFailureReported(%s, %#v) = %v, want %v",
+					test.family, test.result, got, test.want)
+			}
+		})
+	}
 }
 
 // TestNativeSpontaneousExitFailureClassifiesSignalledExitCodes pins A4's

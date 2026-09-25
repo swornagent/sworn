@@ -502,6 +502,10 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	// A1-A3/A5: a pure function of state and the current crossings, never
 	// re-classifying - see hostEnvironmentParkCrossings.
 	hostEnvironmentByOwner := hostEnvironmentParkFactsByOwner(state, snapshot)
+	// S3-credential-lifetime A2: a pure function of state and the current
+	// crossings, deliberately never wired into pinCrossingLanes - see
+	// credentialLifetimeParkCrossings.
+	credentialLifetimeByOwner := credentialLifetimeParkFactsByOwner(state, snapshot)
 	economyByOwner := make(map[string]economyParkFacts, len(economyCrossings))
 	for _, crossing := range economyCrossings {
 		owner := ownerWorkForDispatch(snapshot, crossing.work)
@@ -550,8 +554,8 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	)
 	pinnedWork, laneParks, allLanesPinned := resolveLanePins(
 		lanes, exhausted, exhaustionRefusals, economyByOwner,
-		economyContextByOwner, hostEnvironmentByOwner, identicalByOwner,
-		providerStallParked, exhaustionParksByLane(state, exhaustionParks),
+		economyContextByOwner, hostEnvironmentByOwner, credentialLifetimeByOwner,
+		identicalByOwner, providerStallParked, exhaustionParksByLane(state, exhaustionParks),
 	)
 	// Zero candidate lanes is not progress: short of a merged release, Protocol
 	// state offers no work at all, so a standing exhaustion is the run's
@@ -563,8 +567,17 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		degradationBudgetExceeded || hostEnvironmentRunParked ||
 		bootstrapAuthorityParked ||
 		(len(lanes) != 0 && allLanesPinned) || drained
-	if control.Desired == "running" && !uncertain && !parked {
+	// This recomputed parked can newly become true here (a lane-only park
+	// cause, e.g. credential-lifetime, has no run-scoped signal to make the
+	// earlier parked true) or newly become false (an economy/identical
+	// crossing existed somewhere but not every candidate lane is pinned).
+	// The switch below is the sole state-assignment site for a running
+	// desired state, so it must run unconditionally and re-derive parked
+	// as its own case, not only handle the "no longer parked" direction.
+	if control.Desired == "running" && !uncertain {
 		switch {
+		case parked:
+			result.State = "parked"
 		case proposalFound && !proposalActivated:
 			result.State = "awaiting_approval"
 		case state.Assembly.Outcome == "merged":
@@ -1151,6 +1164,7 @@ func resolveLanePins(
 	economyByOwner map[string]economyParkFacts,
 	economyContextByOwner map[string]economyContextParkFacts,
 	hostEnvironmentByOwner map[string]hostEnvironmentParkFacts,
+	credentialLifetimeByOwner map[string]credentialLifetimeParkFacts,
 	identicalByOwner map[string]identicalFailureFacts,
 	providerStallByOwner map[string]providerStallParkFacts,
 	exhaustionByLane map[string]exhaustionParkFacts,
@@ -1208,6 +1222,23 @@ func resolveLanePins(
 				})
 				laneParks = append(laneParks, lanePinFacts{
 					work: work, facts: parkFacts{hostEnvironment: &facts},
+				})
+				pinned = true
+				break
+			}
+		}
+		if !pinned {
+			for work := range lane.works {
+				facts, ok := credentialLifetimeByOwner[work]
+				if !ok {
+					continue
+				}
+				pinnedWork = append(pinnedWork, PinnedWork{
+					WorkID: work, Lane: lane.lane, Cause: ParkCauseCredentialLifetime,
+					Code: facts.code, Detail: facts.detail,
+				})
+				laneParks = append(laneParks, lanePinFacts{
+					work: work, facts: parkFacts{credentialLifetime: &facts},
 				})
 				pinned = true
 				break
@@ -1369,6 +1400,7 @@ type parkFacts struct {
 	economy                  *economyParkFacts
 	economyContext           *economyContextParkFacts
 	hostEnvironment          *hostEnvironmentParkFacts
+	credentialLifetime       *credentialLifetimeParkFacts
 	identicalFailure         *identicalFailureFacts
 	providerStall            *providerStallParkFacts
 	exhaustionApplies        bool
@@ -1379,9 +1411,10 @@ type parkFacts struct {
 // parkStatusFor names the park cause with the same precedence the final park
 // computation uses: human authority, attention, degradation, the run-scoped
 // A4 host-environment refusal, bootstrap authority, economy, economy
-// context window, the mid-run work-scoped host-environment crossing,
-// identical failure, provider stall, exhaustion. Precedence between the
-// three novel causes (host-environment, economy context, identical
+// context window, the mid-run work-scoped host-environment crossing, the
+// credential-lifetime crossing (S3-credential-lifetime A2), identical
+// failure, provider stall, exhaustion. Precedence between the novel causes
+// (host-environment, economy context, credential-lifetime, identical
 // failure) is the implementer's own placement choice; no acceptance
 // criterion orders them against each other. A degradation park
 // carries the gated fallback count, the effective budget, and the manifest
@@ -1427,6 +1460,10 @@ func parkStatusFor(
 		status.Cause = ParkCauseHostEnvironment
 		status.FailureCode = facts.hostEnvironment.code
 		status.FailureDetail = facts.hostEnvironment.detail
+	case facts.credentialLifetime != nil:
+		status.Cause = ParkCauseCredentialLifetime
+		status.FailureCode = facts.credentialLifetime.code
+		status.FailureDetail = facts.credentialLifetime.detail
 	case facts.identicalFailure != nil:
 		status.Cause = ParkCauseIdenticalFailure
 		status.Consecutive = facts.identicalFailure.consecutive

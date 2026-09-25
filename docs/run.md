@@ -789,6 +789,50 @@ cancelled instead of resumed, its stopped dispatch and the candidate it was
 mid-check on are left exactly as they stopped, inert, like any other
 in-flight work a cancel leaves behind.
 
+### Credential lifetime
+
+At dispatch preparation, a native Claude credential is refused before any
+implementer try is spent when it positively reads as expired
+(`CREDENTIAL_STALE`, unchanged from before this release), or when it is not
+yet expired but will expire before the dispatch's own declared timeout plus
+a fixed 5-minute margin elapses (`CREDENTIAL_EXPIRES_DURING_DISPATCH`). The
+same lookahead runs once more, against the same deadline, as the last gate
+immediately before the CLI actually launches, closing the gap between
+admission and a queued launch that starts materially later. An
+automation launch (which carries no per-call timeout) uses the fixed margin
+alone as its lookahead window. Unparseable, missing, or other-family
+credentials keep today's fail-open behavior: nothing here refuses a dispatch
+the engine cannot positively read as expiring.
+
+Either code spends no provider turn: the refusal returns before any attempt
+is journaled, exactly like `CREDENTIAL_STALE` always has. Its detail names
+only the remaining and required lifetime as durations (for example
+"remaining 4m30s, required 5m0s") - never a credential byte or an absolute
+timestamp.
+
+The refusal is also recorded as a `credential_lifetime` park entry on the
+affected work, visible on the status board beside the still-running lanes
+with the code and duration detail above, and with the guidance: any
+interactive use of the CLI on this host refreshes the credential. This park
+takes **no `retry` or `grant` action** - refreshing the credential is
+sufficient. The engine keeps re-evaluating the same admission on every
+drive round (the lane is never excluded from dispatch), so a fresh
+credential clears the entry and lets the dispatch proceed automatically,
+with no operator control needed; `sworn resume` or another drive is what
+actually re-checks it. The entry is currently shown only for a slice's
+`implementer_design`, `implementer_implementation`, `lead_review`,
+`work_verification`, or the release's `assembly_verification` work; a
+refusal on a `planner_proposal` or `lead_plan_review` dispatch is not yet
+projected onto the board and is visible only in the run's own operational
+error at the time it occurs.
+
+When the native Claude CLI's own result reports an authentication failure
+(for example "Failed to authenticate" or "OAuth session expired" in its
+own terminal result text, never assistant or model prose), the dispatch
+fails with `PROVIDER_AUTHORIZATION_FAILED` instead of
+`PROVIDER_TRANSPORT_FAILED`, whether the CLI process exited non-zero or
+exited cleanly without a submission.
+
 ### Transient provider stall backoff
 
 When a try fails with `PROVIDER_UNAVAILABLE`, or `PROVIDER_LIMITED` with no

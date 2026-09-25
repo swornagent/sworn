@@ -152,6 +152,23 @@ environment-failures, which replaced the relaunch-on-a-new-run-id
 workaround with the engine's own typed `host_environment` park and
 automatic re-execution.
 
+### M11. A native credential that will expire before the dispatch can finish
+
+Situation: the run is parked with cause `credential_lifetime` (a pinned
+work's `CREDENTIAL_STALE` or `CREDENTIAL_EXPIRES_DURING_DISPATCH` code,
+naming the remaining and required lifetime as durations).
+Decision: this is an environment fact, not a candidate or contract defect,
+and takes no `retry` or `grant` action - both are inadmissible for this
+cause. Any interactive use of the native CLI on the host that refreshes the
+credential is sufficient; the engine re-checks the same admission on every
+drive round with no operator control needed. Resume or re-issue a drive
+after refreshing. Do not answer the implementer and do not revise anything.
+Bounds: only the credential on the host changes. Never change the plan, the
+contracts, the roster, the drivers config or the binary under this entry.
+If the same work parks again on the identical cause after a claimed
+refresh, this is Type-1.
+Origin: 2026-09-25-recovery-robustness S3-credential-lifetime (sworn#358).
+
 ## Type-1 (always the Principal)
 
 Plan approval and any revision that changes a slice contract; roster or model

@@ -92,6 +92,21 @@ const (
 	// runtimeDigestPattern). There is no unblock knob: fixing the host
 	// environment and resuming clears this park, not a manifest value.
 	ParkCauseHostEnvironment = "host_environment"
+	// ParkCauseCredentialLifetime is the park cause for a native Claude
+	// dispatch whose credential admission probe refused (CREDENTIAL_STALE
+	// or CREDENTIAL_EXPIRES_DURING_DISPATCH) before any attempt was
+	// journaled (S3-credential-lifetime A2). Unlike every other ParkCause
+	// here, it never goes through appendParkEventOnce or
+	// canonicalDegradationParkEvent's DegradationParkEvent shape - its own
+	// journaled fact (credentialLifetimeParkFact, credential_lifetime_park.go)
+	// is a separate, content-addressed, non-authoritative audit record read
+	// only by resolveLanePins/parkStatusFor for display. It is deliberately
+	// never wired into pinCrossingLanes: the lane stays eligible for
+	// dispatch on every drive round, so the same admission probe re-runs
+	// and self-clears the moment the credential is refreshed, with no
+	// Retry or Grant action and no case needed in
+	// canonicalDegradationParkEvent's validation switch.
+	ParkCauseCredentialLifetime = "credential_lifetime"
 )
 
 // HostEnvironmentResolvedEventKind is the distinct, non-park journal event

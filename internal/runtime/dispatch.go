@@ -1228,8 +1228,12 @@ type driverPreflightProbe struct {
 // atop S1's single hardcoded pin-liveness probe. Order matters only in that
 // the loop stops at the first refusal; every probe here is independently a
 // no-op for adapters it does not apply to, so their relative order changes
-// nothing else observable.
-func driverPreflightRegistry() []driverPreflightProbe {
+// nothing else observable. timeoutMillis is the dispatch's own declared
+// timeout (S3-credential-lifetime A1): the credential-liveness probe's
+// closure captures it so its own lookahead deadline matches the exact
+// timeout nativeRuntime will use for this same dispatch, without widening
+// the shared driverPreflightProbe.run signature every other probe shares.
+func driverPreflightRegistry(timeoutMillis int64) []driverPreflightProbe {
 	return []driverPreflightProbe{
 		{
 			name:        "native-admission-probe",
@@ -1241,7 +1245,13 @@ func driverPreflightRegistry() []driverPreflightProbe {
 			name:        "native-credential-liveness-probe",
 			eventKind:   "native_credential_liveness_probe",
 			defaultCode: "CREDENTIAL_STALE",
-			run:         driver.ProbeNativeCredentialLiveness,
+			run: func(
+				ctx context.Context, selected driver.SelectedProfile, runID string,
+			) ([]byte, error) {
+				return driver.ProbeNativeCredentialLiveness(
+					ctx, selected, runID, timeoutMillis,
+				)
+			},
 		},
 	}
 }
@@ -1279,13 +1289,25 @@ func (s *Service) prepareDriverDispatch(
 	// locally-provable inadmissible dispatch refuses here, before any
 	// attempt is written, and the retry loop's absent-attempt journal read
 	// returns immediately instead of advancing to another try.
-	for _, probe := range driverPreflightRegistry() {
+	for _, probe := range driverPreflightRegistry(engine.manifest.value.Limits.TimeoutMillis) {
 		probeEventBody, probeErr := probe.run(
 			ctx, selected, engine.manifest.value.RunID,
 		)
 		if probeEventBody != nil {
+			// Content-addressed suffix (S3-credential-lifetime, discovered
+			// prerequisite): a probe outcome can legitimately flip between
+			// two separate admission attempts under the identical
+			// (workID, epoch, try) coordinates - a refusal never journals
+			// an attempt, so a redrive that finds the credential refreshed
+			// or the pin alive again reuses the exact same base key. Without
+			// this suffix the second, different-content write would hit
+			// AppendEventOnce's own content-equality check as
+			// REPLAY_CONFLICT/JOURNAL_WRITE_FAILED, silently blocking the
+			// redrive. An unchanged outcome still produces an unchanged
+			// key and the same no-op idempotence as before.
 			probeReplayKey := probe.name + "/" +
-				dispatchInvocationID(engine.manifest.value.RunID, coordinates)
+				dispatchInvocationID(engine.manifest.value.RunID, coordinates) +
+				"/" + shortContentDigest(probeEventBody)
 			if journalErr := s.journal.AppendEventOnce(ctx, journal.Command{
 				RunID:     engine.manifest.value.RunID,
 				ReplayKey: probeReplayKey,
@@ -1302,6 +1324,20 @@ func (s *Service) prepareDriverDispatch(
 			var contractErr *driver.ContractError
 			if errors.As(probeErr, &contractErr) {
 				code = contractErr.Code
+			}
+			if probe.name == "native-credential-liveness-probe" &&
+				(code == "CREDENTIAL_STALE" ||
+					code == "CREDENTIAL_EXPIRES_DURING_DISPATCH") {
+				detail := ""
+				if contractErr != nil {
+					detail = contractErr.Detail
+				}
+				if journalErr := s.recordCredentialLifetimeParkFact(
+					ctx, engine, coordinates, before, code, detail,
+				); journalErr != nil {
+					return preparedDriverDispatch{},
+						runtimeFail("JOURNAL_WRITE_FAILED", journalErr)
+				}
 			}
 			return preparedDriverDispatch{}, runtimeFail(code, probeErr)
 		}

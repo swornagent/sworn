@@ -353,6 +353,53 @@ func TestProjectNeedsYouNamesProviderStallPark(t *testing.T) {
 	}
 }
 
+// TestProjectNeedsYouNamesReviewParkForCredentialLifetimePinnedWork pins
+// S3-credential-lifetime A2's status projection over the real shape
+// credentialLifetimeParkFactsByOwner produces: no board control exists for
+// this cause (refreshing the credential and re-driving clears it, not a
+// retry or a grant), so the needs-you row names "review_park", and the
+// reason carries the refresh guidance sentence pinnedWorkNeedsYouReason adds
+// for either credential-lifetime code.
+func TestProjectNeedsYouNamesReviewParkForCredentialLifetimePinnedWork(t *testing.T) {
+	t.Parallel()
+
+	expiring := []DiscoveredRunStatus{
+		{
+			Binding: journal.Run{
+				ID:      "run-credential-lifetime",
+				Release: "release-credential-lifetime",
+			},
+			Status: runtimepkg.RunStatus{
+				RunID: "run-credential-lifetime",
+				State: "parked",
+				PinnedWork: []runtimepkg.PinnedWork{
+					{
+						WorkID: "sha256:" + strings.Repeat("a", 64),
+						Lane:   "T1",
+						Cause:  runtimepkg.ParkCauseCredentialLifetime,
+						Code:   "CREDENTIAL_EXPIRES_DURING_DISPATCH",
+						Detail: "remaining 4m30s, required 5m0s",
+					},
+				},
+			},
+		},
+	}
+	needsYou := ProjectNeedsYou(expiring)
+	if len(needsYou) != 1 {
+		t.Fatalf("needsYou = %#v", needsYou)
+	}
+	item := needsYou[0]
+	if item.Action != "review_park" ||
+		item.State != "parked" ||
+		item.WorkID != "sha256:"+strings.Repeat("a", 64) ||
+		!strings.Contains(item.Reason, "credential_lifetime") ||
+		!strings.Contains(item.Reason, "CREDENTIAL_EXPIRES_DURING_DISPATCH") ||
+		!strings.Contains(item.Reason, "remaining 4m30s, required 5m0s") ||
+		!strings.Contains(item.Reason, "Any interactive use of the CLI on this host refreshes the credential.") {
+		t.Fatalf("credential-lifetime needs-you item = %#v", item)
+	}
+}
+
 // TestProjectNeedsYouNamesRetryForEconomyContextExhaustedPinnedWork anchors
 // A3's own named catalog test: economy_context_window is never
 // Grant-eligible (economyGrantUnit returns "" for it, unlike the two

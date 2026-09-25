@@ -234,7 +234,7 @@ func TestProbeNativeCredentialLivenessRefusesPositivelyStaleCredential(t *testin
 		func(context.Context, string) (string, error) { return credential, nil },
 	)
 	eventBody, err := ProbeNativeCredentialLiveness(
-		context.Background(), selected, "run-stale-credential",
+		context.Background(), selected, "run-stale-credential", 0,
 	)
 	if !IsCode(err, "CREDENTIAL_STALE") {
 		t.Fatalf("stale-credential probe error = %v, want CREDENTIAL_STALE", err)
@@ -262,7 +262,7 @@ func TestProbeNativeCredentialLivenessPassesFreshCredential(t *testing.T) {
 		func(context.Context, string) (string, error) { return credential, nil },
 	)
 	eventBody, err := ProbeNativeCredentialLiveness(
-		context.Background(), selected, "run-fresh-credential",
+		context.Background(), selected, "run-fresh-credential", 0,
 	)
 	if err != nil {
 		t.Fatalf("fresh-credential probe refused: %v", err)
@@ -283,7 +283,7 @@ func TestProbeNativeCredentialLivenessUnevaluableOnUnreadableCredential(t *testi
 		},
 	)
 	eventBody, err := ProbeNativeCredentialLiveness(
-		context.Background(), selected, "run-unreadable-credential",
+		context.Background(), selected, "run-unreadable-credential", 0,
 	)
 	if err != nil {
 		t.Fatalf("unreadable-credential probe refused: %v", err)
@@ -304,7 +304,7 @@ func TestProbeNativeCredentialLivenessIsANoOpForNonNativeAdapters(t *testing.T) 
 		Model:   "fake-model",
 		adapter: adapter,
 	}
-	body, err := ProbeNativeCredentialLiveness(context.Background(), selected, "run-fake")
+	body, err := ProbeNativeCredentialLiveness(context.Background(), selected, "run-fake", 0)
 	if body != nil || err != nil {
 		t.Fatalf("non-native credential-liveness probe = (%v, %v), want (nil, nil)", body, err)
 	}
@@ -319,7 +319,7 @@ func TestProbeNativeCredentialLivenessIsANoOpForUnboundOrUnknownRef(t *testing.T
 	)
 	unbound.Profile.CredentialRef = nil
 	if body, err := ProbeNativeCredentialLiveness(
-		context.Background(), unbound, "run-unbound",
+		context.Background(), unbound, "run-unbound", 0,
 	); body != nil || err != nil {
 		t.Fatalf("unbound-ref probe = (%v, %v), want (nil, nil)", body, err)
 	}
@@ -330,7 +330,7 @@ func TestProbeNativeCredentialLivenessIsANoOpForUnboundOrUnknownRef(t *testing.T
 	unknownRef := "not-a-registered-ref"
 	unknown.Profile.CredentialRef = &unknownRef
 	if body, err := ProbeNativeCredentialLiveness(
-		context.Background(), unknown, "run-unknown-ref",
+		context.Background(), unknown, "run-unknown-ref", 0,
 	); body != nil || err != nil {
 		t.Fatalf("unknown-ref probe = (%v, %v), want (nil, nil)", body, err)
 	}

@@ -226,6 +226,12 @@ func detailPreservingCode(code string) bool {
 		"PROVIDER_TRANSPORT_FAILED",
 		"NATIVE_SURFACE_INVALID",
 		"PROCESS_START_FAILED",
+		// CREDENTIAL_EXPIRES_DURING_DISPATCH carries the same plain,
+		// single-line, control-free text as the provider codes above: A1's
+		// duration-only "remaining <duration>, required <duration>" detail,
+		// built entirely inside this package from int64 duration
+		// arithmetic - never a credential byte.
+		"CREDENTIAL_EXPIRES_DURING_DISPATCH",
 		// ECONOMY_CONTEXT_EXHAUSTED carries the same plain, single-line,
 		// control-free text validateText governs (the window, the last
 		// input tokens, the ceiling, and the fixing knob), built entirely
