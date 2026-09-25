@@ -47,6 +47,8 @@ type driverProbeOutput struct {
 	RequestID           string                `json:"request_id,omitempty"`
 	LatencyMillis       int64                 `json:"latency_ms"`
 	LiveCall            bool                  `json:"live_call"`
+	// CLICompatibility is present for native CLI lanes only.
+	CLICompatibility *driver.NativeCLICompatibility `json:"cli_compatibility,omitempty"`
 }
 
 type driverCommandOptions struct {
@@ -101,14 +103,26 @@ func runDriver(args []string, stdout, stderr io.Writer) int {
 	}
 	defer factory.Close()
 
+	profiles := []string{options.profile}
+	if options.all {
+		profiles = loaded.Profiles()
+	}
+	factoryOptions, err := driverCheckOptions(loaded, factory, profiles)
+	if err != nil {
+		writeCommandFailure(
+			stderr,
+			"driver "+command,
+			"Could not resolve the native CLI the AI connection"+
+				" configuration names.",
+			err,
+		)
+		return 1
+	}
 	var registry driver.ConfiguredDriverRegistry
 	if options.all {
-		registry, err = loaded.BuildAllRegistry(factory.Options())
+		registry, err = loaded.BuildAllRegistry(factoryOptions)
 	} else {
-		registry, err = loaded.BuildRegistry(
-			[]string{options.profile},
-			factory.Options(),
-		)
+		registry, err = loaded.BuildRegistry(profiles, factoryOptions)
 	}
 	if err != nil {
 		// Only a genuinely unknown profile is a "not found" (sworn#267):
@@ -153,6 +167,26 @@ func runDriver(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// driverCheckOptions binds every run-snapshot native adapter the checked
+// profiles use to a preview of its host CLI, resolved the way a run started
+// now would snapshot it, so the readiness commands check and report that CLI.
+func driverCheckOptions(
+	loaded driver.LoadedDriverConfig,
+	factory *driver.ProductionDriverFactory,
+	profiles []string,
+) (driver.DriverFactoryOptions, error) {
+	options := factory.Options()
+	previews, err := loaded.PreviewNativeCLISnapshots(
+		context.Background(),
+		profiles,
+	)
+	if err != nil {
+		return driver.DriverFactoryOptions{}, err
+	}
+	options.NativeCLISnapshots = previews
+	return options, nil
 }
 
 func parseDriverCommand(
@@ -406,9 +440,24 @@ func runDriverProbe(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	defer factory.Close()
+	factoryOptions, err := driverCheckOptions(
+		loaded,
+		factory,
+		[]string{options.profile},
+	)
+	if err != nil {
+		writeCommandFailure(
+			stderr,
+			"driver probe",
+			"Could not resolve the native CLI the AI connection"+
+				" configuration names.",
+			err,
+		)
+		return 1
+	}
 	registry, err := loaded.BuildRegistry(
 		[]string{options.profile},
-		factory.Options(),
+		factoryOptions,
 	)
 	if err != nil {
 		message := "The AI connection configuration could not be built" +
@@ -447,6 +496,7 @@ func runDriverProbe(args []string, stdout, stderr io.Writer) int {
 		RequestID:           result.RequestID,
 		LatencyMillis:       result.LatencyMillis,
 		LiveCall:            true,
+		CLICompatibility:    result.CLICompatibility,
 	}
 	if options.json {
 		encoder := json.NewEncoder(stdout)
@@ -484,5 +534,13 @@ func writeDriverProbeText(out io.Writer, output driverProbeOutput) {
 	}
 	if output.RequestID != "" {
 		fmt.Fprintf(out, "Provider request id: %s\n", output.RequestID)
+	}
+	if output.CLICompatibility != nil {
+		fmt.Fprintf(
+			out,
+			"Native CLI: %s (%s)\n",
+			output.CLICompatibility.CLIVersion,
+			output.CLICompatibility.Status,
+		)
 	}
 }
