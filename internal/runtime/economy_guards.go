@@ -833,6 +833,9 @@ func identicalFailureParkCrossings(
 			if !ok {
 				break
 			}
+			if effect.State != journal.OperationalFailed {
+				break
+			}
 			if runCode != "" && effect.ErrorCode != runCode {
 				runCode = effect.ErrorCode
 				runLength = 1

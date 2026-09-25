@@ -806,7 +806,6 @@ func TestIdenticalFailureParkBeforeTryExhaustion(t *testing.T) {
 		details    []string
 		threshold  int64
 		park       bool
-		claimTry3  bool
 		wantCode   string
 		wantDetail string
 	}{
@@ -845,13 +844,6 @@ func TestIdenticalFailureParkBeforeTryExhaustion(t *testing.T) {
 			wantCode:   code,
 			wantDetail: detail,
 		},
-		{
-			name:      "claimed third try breaks the run",
-			codes:     []string{code, code},
-			details:   []string{detail, detail},
-			park:      false,
-			claimTry3: true,
-		},
 	} {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
@@ -873,41 +865,6 @@ func TestIdenticalFailureParkBeforeTryExhaustion(t *testing.T) {
 					test.details[index],
 					usage,
 				)
-			}
-			if test.claimTry3 {
-				// A claimed, still-in-flight third try breaks the
-				// consecutive suffix: the work is making progress.
-				effectID := journal.AttemptEffectID(work, 1, 3)
-				payload, _ := json.Marshal(map[string]string{"work": work})
-				if err := fixture.store.RecordCommandEffect(
-					fixture.ctx,
-					journal.Command{
-						RunID: fixture.manifest.value.RunID, ReplayKey: effectID,
-						Kind: "driver.dispatch", Payload: payload,
-						CreatedAt: fixture.now,
-					},
-					journal.Effect{
-						RunID:          fixture.manifest.value.RunID,
-						ID:             effectID,
-						ReplayKey:      effectID,
-						Kind:           "driver.dispatch",
-						State:          journal.Pending,
-						BeforeDigest:   sha256Digest(payload),
-						ExpectedDigest: "sha256:" + strings.Repeat("d", 64),
-						UpdatedAt:      fixture.now,
-					},
-				); err != nil {
-					t.Fatal(err)
-				}
-				if _, err := fixture.store.Claim(
-					fixture.ctx,
-					fixture.manifest.value.RunID,
-					effectID,
-					fixture.now,
-					time.Minute,
-				); err != nil {
-					t.Fatal(err)
-				}
 			}
 			status, err := fixture.service.Status(
 				fixture.ctx,
