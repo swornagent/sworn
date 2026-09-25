@@ -176,6 +176,11 @@ func TestCertificationFailureCodesAreClosedAndSecretFree(t *testing.T) {
 	}{
 		{"setup", fail("LIVE_PROBE_FAILED"), "certification_setup_failed"},
 		{"credential", fail("CREDENTIAL_UNAVAILABLE"), "certification_credential_failed"},
+		{
+			"credential expires during dispatch",
+			fail("CREDENTIAL_EXPIRES_DURING_DISPATCH"),
+			"certification_credential_failed",
+		},
 		{"runtime", fail("PROCESS_START_FAILED"), "certification_runtime_failed"},
 		{"transport", fail("PROVIDER_TRANSPORT_FAILED"), "certification_provider_transport_failed"},
 		{"rejected", fail("PROVIDER_ERROR"), "certification_provider_rejected"},

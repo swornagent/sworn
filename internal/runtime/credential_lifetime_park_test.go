@@ -465,3 +465,188 @@ func TestCredentialLifetimeParkFactZeroBurnVisibleAndSelfHeals(t *testing.T) {
 		}
 	}
 }
+
+// TestCredentialLifetimeParkFactSurvivesEarlierTryAttempt pins the Lead's
+// required correction-3 case: a try-1 attempt effect already exists for a
+// work, try 2 is then refused at admission, and the resulting fact must
+// still be shown on the status board. Correction 2's clearing condition
+// only clears a fact whose own (Epoch, Try) is at or before a journaled
+// attempt; an attempt strictly earlier than the fact's own try must never
+// clear it, or every retried work's second-try refusal would vanish from
+// the board the instant it was written.
+func TestCredentialLifetimeParkFactSurvivesEarlierTryAttempt(t *testing.T) {
+	f := newEconomyGuardFixture(t, driver.Limits{
+		TimeoutMillis: 120_000, OutputBytes: 65_536,
+	})
+	runID := f.manifest.value.RunID
+	workID, sliceID, before, attempt := credentialLifetimeReadyDesignWork(t, f)
+
+	try1EffectID := journal.AttemptEffectID(workID, 1, 1)
+	try1ReplayKey := "credential-lifetime-test-try1-attempt"
+	if err := f.store.RecordCommandEffect(
+		f.ctx,
+		journal.Command{
+			RunID: runID, ReplayKey: try1ReplayKey, Kind: "driver.dispatch",
+			Payload: []byte("{}"), CreatedAt: f.now,
+		},
+		journal.Effect{
+			RunID: runID, ID: try1EffectID, ReplayKey: try1ReplayKey,
+			Kind: "driver.dispatch", BeforeDigest: testWork(),
+			ExpectedDigest: "sha256:" + strings.Repeat("f", 64),
+			UpdatedAt:      f.now,
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	coordinates := dispatchCoordinates{
+		Slice: sliceID, Responsibility: driver.ImplementerDesign,
+		ProtocolAttempt: attempt, Epoch: 1, Try: 2,
+	}
+	if err := f.service.recordCredentialLifetimeParkFact(
+		f.ctx, f.engine, coordinates, before, "CREDENTIAL_STALE", "",
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	state, err := protocol.ReadState(f.engine.git, f.manifest.value.Release, f.engine.inertness)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := f.store.Snapshot(f.ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	crossings := credentialLifetimeParkCrossings(state, snapshot)
+	if len(crossings) != 1 || crossings[0].WorkID != workID || crossings[0].Try != 2 {
+		t.Fatalf(
+			"credentialLifetimeParkCrossings with only an earlier try-1 attempt = %#v, want the try-2 crossing to survive",
+			crossings,
+		)
+	}
+
+	if err := f.store.ReleaseOwner(f.ctx, f.owner, f.now); err != nil {
+		t.Fatal(err)
+	}
+	status, err := f.service.Status(f.ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *PinnedWork
+	for index := range status.PinnedWork {
+		if status.PinnedWork[index].WorkID == workID {
+			found = &status.PinnedWork[index]
+		}
+	}
+	if found == nil || found.Cause != ParkCauseCredentialLifetime ||
+		found.Code != "CREDENTIAL_STALE" {
+		t.Fatalf(
+			"status.PinnedWork = %#v, want the try-2 credential_lifetime entry for %s despite the earlier try-1 attempt",
+			status.PinnedWork, workID,
+		)
+	}
+}
+
+// TestCredentialLifetimeParkFactNestedGitSealOwnerEndToEnd pins the Lead's
+// other required correction-3 case: a credential-lifetime refusal recorded
+// for a nested implementer_implementation dispatch must read back, all the
+// way through Status()'s PinnedWork and pinCrossingLanes' exclusion
+// boundary, under its enclosing git.seal work - not the dispatch's own work
+// identity - exactly mirroring the direct-dispatch path
+// TestCredentialLifetimeParkFactZeroBurnVisibleAndSelfHeals already pins for
+// implementer_design. TestCredentialLifetimeCrossingOwnerMapsByResponsibility
+// pins credentialLifetimeCrossingOwner's mapping in isolation; this test
+// exercises the same mapping through the full read path over a real
+// git.seal-wrapped implementation cycle (newProductionImplementationRecoveryFixture).
+func TestCredentialLifetimeParkFactNestedGitSealOwnerEndToEnd(t *testing.T) {
+	fixture := newProductionImplementationRecoveryFixture(t, fixtureDriver(
+		func(context.Context, driver.Invocation) (driver.Observation, error) {
+			t.Fatal("dispatcher must not be invoked")
+			return driver.Observation{}, nil
+		},
+	))
+	runID := fixture.manifest.value.RunID
+	outerWork := workIdentity(fixture.cycle.Before, "git.seal")
+
+	// The production fixture does not journal the manifest command (its
+	// own tests never project Status); record it so pinCrossingLanes and
+	// Status can evaluate the park over this journal, exactly as
+	// TestIdenticalFailureLiveDispatchAdmissionParksBeforeThirdTry does for
+	// the identical-failure nested case.
+	if err := fixture.store.RecordCommand(fixture.ctx, journal.Command{
+		RunID: runID, ReplayKey: "manifest", Kind: "start",
+		Payload: fixture.manifest.raw, CreatedAt: fixture.now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := fixture.service.recordCredentialLifetimeParkFact(
+		fixture.ctx, fixture.engine, fixture.coordinates, fixture.cycle.Before,
+		"CREDENTIAL_STALE", "",
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	state, err := protocol.ReadState(
+		fixture.engine.git, fixture.manifest.value.Release, fixture.engine.inertness,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := fixture.store.Snapshot(fixture.ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	crossings := credentialLifetimeParkCrossings(state, snapshot)
+	if len(crossings) != 1 ||
+		crossings[0].Responsibility != driver.ImplementerImplementation {
+		t.Fatalf(
+			"credentialLifetimeParkCrossings = %#v, want one implementer_implementation crossing",
+			crossings,
+		)
+	}
+	if owner := credentialLifetimeCrossingOwner(crossings[0]); owner != outerWork {
+		t.Fatalf("crossing owner = %q, want the enclosing git.seal work %q", owner, outerWork)
+	}
+
+	// pinCrossingLanes must never exclude the lane for this cause, exactly
+	// as the direct-dispatch case requires: the probe has to keep
+	// re-running on every drive round for this to ever self-heal.
+	control, err := fixture.store.ControlProjection(fixture.ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lanes := readyLaneCandidates(fixture.manifest, nil, true, state, snapshot)
+	pinned, err := fixture.service.pinCrossingLanes(
+		fixture.ctx, fixture.engine, runID, snapshot, control, lanes, state,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := pinned[fixture.track.ID]; ok {
+		t.Fatalf(
+			"pinCrossingLanes pinned lane %s for a credential-lifetime crossing, want it excluded from pinning entirely",
+			fixture.track.ID,
+		)
+	}
+
+	status, err := fixture.service.Status(fixture.ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *PinnedWork
+	for index := range status.PinnedWork {
+		if status.PinnedWork[index].WorkID == outerWork {
+			found = &status.PinnedWork[index]
+		}
+	}
+	if found == nil || found.Cause != ParkCauseCredentialLifetime ||
+		found.Code != "CREDENTIAL_STALE" {
+		t.Fatalf(
+			"status.PinnedWork = %#v, want a credential_lifetime entry for the enclosing git.seal work %s",
+			status.PinnedWork, outerWork,
+		)
+	}
+}

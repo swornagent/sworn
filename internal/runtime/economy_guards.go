@@ -827,19 +827,10 @@ func identicalFailureParkCrossings(
 			runLength  int64
 			lastFailed journal.Effect
 			failed     bool
-			broken     bool
 		)
 		for try := int64(1); try <= 3; try++ {
 			effect, ok := byWork[work][try]
 			if !ok {
-				break
-			}
-			if effect.State != journal.OperationalFailed {
-				// A later try already exists and has not itself failed
-				// (claimed, pending, uncertain, or succeeded): the work is
-				// making progress past the earlier failure streak, so that
-				// streak no longer describes anything stuck.
-				broken = true
 				break
 			}
 			if runCode != "" && effect.ErrorCode != runCode {
@@ -856,7 +847,7 @@ func identicalFailureParkCrossings(
 			lastFailed = effect
 			failed = true
 		}
-		if broken || !failed || runCode == "" || runLength < threshold {
+		if !failed || runCode == "" || runLength < threshold {
 			continue
 		}
 		if context, ok := dispatchContext(commands, lastFailed.ReplayKey); ok {
