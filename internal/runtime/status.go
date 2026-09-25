@@ -576,14 +576,14 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	// as its own case, not only handle the "no longer parked" direction.
 	if control.Desired == "running" && !uncertain {
 		switch {
+		case active:
+			result.State = "running"
 		case parked:
 			result.State = "parked"
 		case proposalFound && !proposalActivated:
 			result.State = "awaiting_approval"
 		case state.Assembly.Outcome == "merged":
 			result.State = "complete"
-		case active:
-			result.State = "running"
 		case ownerExpired:
 			result.State = "takeover_required"
 		default:
