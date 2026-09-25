@@ -1,0 +1,84 @@
+{
+  "outcome": "A host environment park is legible wherever the run is read: the status projection shows the run as parked with cause host_environment, the typed code, the check and the missing command, both while serve holds the run and after it lets go; every environment park path is proven through the real entry points; and every event kind S1 introduced is admitted where event kinds are enumerated.",
+  "scope": {
+    "include": [
+      "cmd/sworn",
+      "internal/runtime",
+      "internal/journal",
+      "internal/gitx",
+      "internal/driver",
+      "internal/cockpit",
+      "internal/observe",
+      "internal/tui",
+      "internal/skill",
+      "internal/protocol",
+      "tools/protocolgolden",
+      "test/e2e",
+      "docs/run.md",
+      "docs/launch.md",
+      "docs/policy/manager.md",
+      "skills/sworn-orchestrate/SKILL.md"
+    ],
+    "exclude": []
+  },
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "When a slice or assembly host check parks on a host environment failure (an unresolved first word before the process starts, or exit 127), the status projection reports the run as parked, never running or uncertain, with Park.Cause host_environment, FailureCode HOST_CHECK_ENVIRONMENT and a bounded detail naming the check and the missing command. This holds while the owning serve still holds the owner lease and after it releases it; a Claimed check.host (or git.seal, or prepare_assembly) effect that belongs to such a park is not counted as active work. Start and Resume return that parked status with no error. Anchor: internal/runtime/control_test.go."
+    },
+    {
+      "id": "A2",
+      "text": "The environment park paths are proven through the real entry points, not internal helpers: tests drive Start and Resume for a slice-path park, an assembly-path park and the run-start refusal, and each asserts the returned RunStatus.Park carries HOST_CHECK_ENVIRONMENT and every unresolved command. The run-start refusal test asserts no driver.dispatch effect exists. The slice-path test asserts the git.seal attempt ID does not advance (no try-2 or try-3 attempt effect exists), as the Lead's S1 correction 1 required. The exit-127 branch has its own test (a check whose interpreter does not exist). Anchor: internal/runtime/control_test.go and internal/runtime/host_checks_integration_test.go."
+    },
+    {
+      "id": "A3",
+      "text": "An environment failure on the host check rerun path is recorded under identities its reader accepts, so it pins, projects and clears exactly like a first-run environment failure; no environment record is written that no reader parses. Anchor: internal/runtime/host_checks_integration_test.go."
+    },
+    {
+      "id": "A4",
+      "text": "Every event kind S1 introduced (host_check_environment_classified, host_check_environment_resolved and any other) is admitted wherever event kinds are enumerated, including the cockpit webhook's event-kind mapping, so none falls through to a generic kind, as the Lead's S1 correction 2 required. A work-scoped environment park records its park event on the pass that parks, so the audit history and the park_updated webhook show it once. Anchor: internal/cockpit/webhook_test.go and internal/runtime/control_test.go."
+    },
+    {
+      "id": "A5",
+      "text": "A check whose first word is shell grouping syntax (for example `(cd dir && make)` or `{ a; b; }`) is resolved as the shell resolves it, never reported as a missing command, so a valid plan is not refused at start. When the host shell itself cannot be resolved, classification fails with a typed code consistent with the run-start check instead of silently skipping. docs/run.md states exactly when the environment check runs (every pass of the drive loop, not only at start or resume). Anchor: internal/runtime/host_checks_test.go and docs/run.md."
+    },
+    {
+      "id": "A6",
+      "text": "Park precedence stays as the approved S3 design set it: in-flight work that does not belong to a park reads running, and only work with nothing in flight reads parked, for every park cause. A lane pin never makes the run read parked while that lane's own work is claimed under a live owner. The existing identical-failure test TestIdenticalFailureParkBeforeTryExhaustion, including its \"claimed third try breaks the run\" case, is present and passes unchanged, and identicalFailureParkCrossings is unchanged from revision 1's base. Anchor: internal/runtime/control_test.go and internal/runtime/economy_guards_test.go."
+    }
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=8 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race -timeout=20m ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "test -z \"$(gofmt -l ./cmd ./internal ./tools)\"",
+    "go mod tidy -diff",
+    "git diff --check",
+    "GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build ./..."
+  ],
+  "host_checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=8 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race -timeout=20m ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "test -z \"$(gofmt -l ./cmd ./internal ./tools)\"",
+    "go mod tidy -diff",
+    "git diff --check",
+    "GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build ./..."
+  ],
+  "constraints": [
+    "S1's delivered behaviour stays exactly: an environment failure spends no implementer try, is never repair input, is never stored or replayed, and the run-start check refuses unresolved commands. This slice makes that behaviour legible and proven; every S1 criterion must still hold.",
+    "The shadow verification that found these defects is summarised in this revision's plan; its file and line references were checked against S1's candidate f9acb230 and may have moved since. Re-derive every location from the current tree.",
+    "The e2e host check runs at -parallel=8 on the host (measured twice on this suite: 21 and 23 minutes, no failures, against 43 minutes serially). Do not change e2e tests' parallelism in this slice.",
+    "Every listed check is a host check: contained implementers and verifiers consume engine-bound host evidence and never attempt nested containment or claim to have executed these commands. Each long process suite runs once per candidate in the phase order the engine defines.",
+    "This release changes no roster, model selection, budget, timeout, retry cap or fallback behaviour except where an acceptance criterion of this slice names the change exactly. The broad supporting package scope admits only this promised mechanism and its affected regression fixtures, adapters, status projections and documentation.",
+    "Known contained-workspace facts, not defects of this slice: cmd/sworn's TestTUIActionDriveSurvivesActionReturn fails in the sandbox with CREDENTIAL_UNAVAILABLE and prints roughly 90 KB of DEBUG output; it passes on the host. Do not chase it and do not run it in the workspace. internal/runtime exceeds Go's implicit 10-minute package deadline in the sandbox; pass -timeout=20m on your own package runs. The sandbox shell is dash without `which`. Never build a binary into the workspace root: an out-of-scope file at the root makes checkpoint capture refuse with CHECKPOINT_SCOPE_VIOLATION and fences the workspace; build into a temporary directory.",
+    "Long package runs in the workspace (internal/runtime takes 7 to 10 minutes) outlive the native CLI's tool wait; do not poll the shell while one runs. Prefer targeted `go test -run` on the packages and tests you changed; the host checks run the full suites.",
+    "If a criterion's evidence belongs in a test file other than its named anchor, either add it to the anchor or declare the substitute in the submission's `anchor_substitutes` map (criterion id to file); an undeclared substitute is refused at seal time as ANCHOR_NOT_TOUCHED.",
+    "internal/protocol is the embedded protocol package. This slice needs no change to its receipt vocabulary, check outcomes, operation assets, snapshot or pinned digests (internal/protocol/assets.go, release.json, tools/protocolgolden); if a design appears to need one, report it rather than re-pinning the bundle.",
+    "Every new failure or refusal code is admitted everywhere codes are enumerated (driver adapter error allowlist and kind classification, certification mapping where relevant, runtime park causes, status projection, cockpit catalog), carries a bounded detail with no secret, credential, absolute operator path or raw provider body, and is documented in docs/run.md."
+  ],
+  "depends_on": [],
+  "consumes": []
+}

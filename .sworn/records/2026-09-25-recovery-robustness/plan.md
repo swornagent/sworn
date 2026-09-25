@@ -1,10 +1,10 @@
 ```sworn-release-manifest-v1
 {
-  "approval_ref": "operator://2026-09-25-recovery-robustness/1",
-  "previous_plan": null,
+  "approval_ref": "operator://2026-09-25-recovery-robustness/2",
+  "previous_plan": "9b78a34f624001ddd33b6715997b7ee3eb0aaa56",
   "release": "2026-09-25-recovery-robustness",
   "repository": "sworn",
-  "revision": 1,
+  "revision": 2,
   "schema_version": "sworn.release-manifest/v1",
   "target_ref": "refs/heads/release/2026-09-25-recovery-robustness",
   "tracks": [
@@ -141,6 +141,136 @@
             "docs/policy/manager.md",
             "skills/sworn-orchestrate/SKILL.md"
           ]
+        },
+        {
+          "consumes": [],
+          "contract_path": "contracts/2026-09-25-recovery-robustness/rev2/S6-host-environment-park-projection.json",
+          "depends_on": [],
+          "digest": "sha256:3f83eeae77ebf089896f3518f080814e7da20841b61c3e07525afe079043de15",
+          "id": "S6-host-environment-park-projection",
+          "outcome": "A host environment park is legible wherever the run is read: the status projection shows the run as parked with cause host_environment, the typed code, the check and the missing command, both while serve holds the run and after it lets go; every environment park path is proven through the real entry points; and every event kind S1 introduced is admitted where event kinds are enumerated.",
+          "touchpoints": [
+            "cmd/sworn",
+            "internal/runtime",
+            "internal/journal",
+            "internal/gitx",
+            "internal/driver",
+            "internal/cockpit",
+            "internal/observe",
+            "internal/tui",
+            "internal/skill",
+            "internal/protocol",
+            "tools/protocolgolden",
+            "test/e2e",
+            "docs/run.md",
+            "docs/launch.md",
+            "docs/policy/manager.md",
+            "skills/sworn-orchestrate/SKILL.md"
+          ]
+        },
+        {
+          "consumes": [],
+          "contract_path": "contracts/2026-09-25-recovery-robustness/rev2/S7-pause-safe-host-checks-repair.json",
+          "depends_on": [],
+          "digest": "sha256:7e470b71347b3d23e30de49600dbc9ed613c7bb4a533325a2a640af73b9db043",
+          "id": "S7-pause-safe-host-checks-repair",
+          "outcome": "Pausing the same candidate more than once, at any mix of stop points, never fails the dispatch or spends the try; a pause during a resume's recovery sweep is a stop, not a CLI error; and every stop code is documented and never recorded as an effect's error code.",
+          "touchpoints": [
+            "cmd/sworn",
+            "internal/runtime",
+            "internal/journal",
+            "internal/gitx",
+            "internal/driver",
+            "internal/cockpit",
+            "internal/observe",
+            "internal/tui",
+            "internal/skill",
+            "internal/protocol",
+            "tools/protocolgolden",
+            "test/e2e",
+            "docs/run.md",
+            "docs/launch.md",
+            "docs/policy/manager.md",
+            "skills/sworn-orchestrate/SKILL.md"
+          ]
+        },
+        {
+          "consumes": [],
+          "contract_path": "contracts/2026-09-25-recovery-robustness/rev2/S8-credential-lifetime-repair.json",
+          "depends_on": [],
+          "digest": "sha256:744c68d0249fee449881522d335703962d56ce90b1164c8c347303bd811eea6b",
+          "id": "S8-credential-lifetime-repair",
+          "outcome": "A credential-lifetime park clears itself for every stage once the credential is refreshed and the work runs, the admission check provably uses the dispatch's own timeout, the operator is never told to retry a refusal that retry cannot clear, and the CLI's authentication failure is recognised in the form the CLI actually emits.",
+          "touchpoints": [
+            "cmd/sworn",
+            "internal/runtime",
+            "internal/journal",
+            "internal/gitx",
+            "internal/driver",
+            "internal/cockpit",
+            "internal/observe",
+            "internal/tui",
+            "internal/skill",
+            "internal/protocol",
+            "tools/protocolgolden",
+            "test/e2e",
+            "docs/run.md",
+            "docs/launch.md",
+            "docs/policy/manager.md",
+            "skills/sworn-orchestrate/SKILL.md"
+          ]
+        },
+        {
+          "consumes": [],
+          "contract_path": "contracts/2026-09-25-recovery-robustness/rev2/S9-broker-budget-and-turn-cap-repair.json",
+          "depends_on": [],
+          "digest": "sha256:af82fc476cc428e1debc3d71e9cd46a43f174c1b7a20799d7ef315ee045cb8f5",
+          "id": "S9-broker-budget-and-turn-cap-repair",
+          "outcome": "A native dispatch ended by the broker call budget or the turn cap reports how many tool calls it executed and how many it refused, even when the CLI never emitted its final result, and the ordering that lets an accepted submission win over a budget crossing is pinned by a test.",
+          "touchpoints": [
+            "cmd/sworn",
+            "internal/runtime",
+            "internal/journal",
+            "internal/gitx",
+            "internal/driver",
+            "internal/cockpit",
+            "internal/observe",
+            "internal/tui",
+            "internal/skill",
+            "internal/protocol",
+            "tools/protocolgolden",
+            "test/e2e",
+            "docs/run.md",
+            "docs/launch.md",
+            "docs/policy/manager.md",
+            "skills/sworn-orchestrate/SKILL.md"
+          ]
+        },
+        {
+          "consumes": [],
+          "contract_path": "contracts/2026-09-25-recovery-robustness/rev2/S10-repair-input-across-epochs-repair.json",
+          "depends_on": [],
+          "digest": "sha256:8eb79b17a40cf60e62d214b692f3da9dd5e81c7d2cbc9fc5cdfbc57b30c5ee10",
+          "id": "S10-repair-input-across-epochs-repair",
+          "outcome": "An implementer is never handed a repair that a later try already fixed, whatever the seal said about that later try, and the evidence that it is told about anchor substitutes, and carries the last refusal into a new epoch, tests the production path rather than text that is always present.",
+          "touchpoints": [
+            "cmd/sworn",
+            "internal/runtime",
+            "internal/journal",
+            "internal/gitx",
+            "internal/driver",
+            "internal/cockpit",
+            "internal/observe",
+            "internal/tui",
+            "internal/skill",
+            "internal/protocol",
+            "tools/protocolgolden",
+            "test/e2e",
+            "docs/run.md",
+            "docs/launch.md",
+            "docs/policy/manager.md",
+            "skills/sworn-orchestrate/SKILL.md"
+          ]
         }
       ]
     }
@@ -151,104 +281,145 @@
 
 # Goal
 
-Make launch and recovery robust to the environment and engine faults that cost
-release 2026-09-23-launch-legibility ten of its sixteen failed implementation
-tries. This is the third release of ADR-0014 Track B (legibility). It delivers
-the follow-ups that release filed: #355, #357, #358, the remainder of #359, and
-#361.
+Revision 2 (amended) of release 2026-09-25-recovery-robustness. It keeps S1 to
+S5 of revision 1 exactly as approved (same contract files and digests) and
+appends five repair slices, S6-host-environment-park-projection,
+S7-pause-safe-host-checks-repair, S8-credential-lifetime-repair,
+S9-broker-budget-and-turn-cap-repair and S10-repair-input-across-epochs-repair,
+so the release does not promote S1 to S5 with the defects blind shadow
+verification found in each of them. It amends the revision 2
+the Principal approved on 2026-09-26 (plan 972df6a0..., never recorded): S6
+gains a park precedence criterion, S7 is new, and both repair slices run the
+e2e host check at -parallel=8.
 
 # Authority and preparation
 
-Brad is the Principal and the external approver. This revision is a proposal,
-not an approval or a run receipt. Nothing here has been recorded, approved or
-launched. The operator reference above is the proposed approval identity and
-carries no authority by itself. Review these exact pinned manifest bytes and
-the five contract files.
+Brad is the Principal and the external approver. On 2026-09-26 he chose to
+append a repair slice after S5 rather than insert it before S2 or defer it to
+a follow-up. This revision is a proposal, not an approval or a run receipt.
+The operator reference above is the proposed approval identity and carries no
+authority by itself. The previous plan is revision 1's recorded plan object
+9b78a34f624001ddd33b6715997b7ee3eb0aaa56.
 
-The inspection baseline is main at 79af516f, which contains the launch
-legibility release (#362) and the engine and policy changes merged during it
-(#352, #353, #354, #356, #360). Prepare the named release target from that main
-before recording this plan, and record its exact base and contract-tree
-identity then. No existing release, track or live run is taken over by this
-plan.
+S1 to S5 run under revision 1 (runs r1 and r2). This revision is recorded
+after S5's verdict, and S6 runs as a new run on it. No live run is taken over
+by recording it.
 
 # What was found
 
-Every park in the previous release was an environment or engine gap before it
-was a candidate finding, and each was a check that held when it ran but not
-for the life of the work.
+S1 was verified PASS in the run by the in-run Verifier. A blind shadow
+verification of the same candidate (f9acb230), made by a stronger model with
+the same contract, Verifier instructions and Lead receipts, returned FAIL. The
+seat checked each finding below against that candidate's code and the Lead's
+receipts.
 
-Host environment. A host check runs through `sh -c` with the serve process's
-environment. Under a systemd user unit without an explicit PATH, `go` was not
-found (exit 127); the engine treated that as a candidate failure, handed it to
-the implementer three times, stored it, and replayed it after the PATH was
-fixed, so only a new run could recover (#355).
+Blocking. A work-scoped environment park returns EFFECT_PARKED and leaves its
+check.host effect Claimed (host_checks.go around line 687). The status
+projection counts any Claimed effect under a live owner as active and chooses
+running before parked (status.go around lines 153 and 425), and a Claimed
+effect without a live owner reads uncertain. So the run never shows as parked
+with cause host_environment; only the pinned work carries the cause.
 
-Pause. `watchOwner` cancels the run context within 250 ms of a pause. The
-running host check ignores that context and finishes, but the next journal
-write fails on the cancelled context, is labelled DATABASE_BUSY and then
-JOURNAL_WRITE_FAILED, spends the try and discards a candidate that had passed
-the end-to-end suite (#357).
+Missing evidence the Lead required. The Lead's first revise receipt required
+that RunStatus.Park carries HOST_CHECK_ENVIRONMENT; the proceed receipt
+required a test that the git.seal attempt ID does not advance. Neither exists,
+and no test drives Start or Resume for this cause.
 
-Credentials. The native credential preflight refuses only a token that is
-already expired. A dispatch can run for two hours; a token valid at start
-expired at turn 246 and the failure read PROVIDER_TRANSPORT_FAILED (#358).
+A Lead correction not applied. The proceed receipt required the new event
+kinds to be admitted in the cockpit webhook's event-kind mapping; none is.
 
-Broker. Refused tool calls spent the 512-call budget; exhaustion answered
-`closed` without ending the dispatch, the model pinged for fifteen minutes,
-and the CLI's `error_max_turns` exit read PROVIDER_TRANSPORT_FAILED. #360
-queued concurrent calls; exhaustion and the turn cap remain (#359).
+Non-blocking. The exit-127 branch has no test. An environment failure on the
+host check rerun path is recorded under identities its reader does not accept,
+so it is silently lost. A check whose first word is grouping syntax such as
+`(cd dir && make)` is refused at start as a missing command. A host shell that
+cannot be resolved silently skips classification. docs/run.md says the check
+runs at start or resume, but it runs on every pass of the drive loop.
 
-Repair input. A seal refusal is captured only for a later try in the same
-epoch, so a retry that starts a new epoch loses it, and an already fixed
-submission repair is replayed instead. The implementer is never told that
-`anchor_substitutes` exists (#361).
+S2, found by a blind shadow verification at explicit xhigh effort and
+reproduced by the seat. Blocking: pausing the same candidate twice, first at a
+check boundary and then at the seal step, records two different checkpoint
+bodies under one replay key; the journal refuses the second (REPLAY_CONFLICT),
+the dispatch fails with JOURNAL_WRITE_FAILED and the resume spends the try.
+Also: the Lead's required mid-check production-mode pause proof and the
+cancelled-context proof at the seal claim are missing (the anchor test declares
+no host checks); a pause during the start-of-cycle recovery sweep surfaces
+RUN_STOPPED as an error; RUN_STOPPED is undocumented.
+
+S5, found in its verified candidate by a blind shadow verification and
+confirmed by the seat from the code. Blocking: a later try supersedes an
+earlier submission repair only if its seal refusal carries paths, so a
+path-less refusal such as EMPTY_CANDIDATE lets an already-fixed repair be
+replayed. Also: forcing the anchor-declared flag false passes every unit and
+e2e test, the Lead's required assertion that a new epoch's first try carries
+no repair is missing, and the accepted-submission case lost its test.
+
+S4, found in its verified candidate by a blind shadow verification and
+reproduced by the seat. Blocking: when a native dispatch crosses the broker
+budget it is ended before the CLI's final result event, so its turn count is
+unknown and the usage economics drop the executed tool-call count; a real
+flood of 600 tool calls reads "1 refused, executed absent". The anchor test
+passed only because it fabricates a usage receipt. Also: the Lead-required
+test that an accepted submission wins over a budget crossing is missing, and
+refused requests are only partly counted.
+
+S3, found in its verified candidate by a blind shadow verification and
+reproduced by the seat. Blocking: the credential_lifetime fact is keyed on the
+implementer_implementation identity while a nested implementation journals its
+attempt under cycle.DispatchWork, so the implementation-stage park never clears
+after a refresh. Also: a mutant that ignores the timeout at both admission sites
+passes every credential test, so the admission-time lookahead is untested; the
+needs-you text still tells the operator to retry; and the auth-failure fixture
+may not match the sequence the CLI emitted in this run.
+
+S3, found while it was in flight. S3's candidates changed the status projection
+to select parked before active for every park cause, contrary to its approved
+design, then altered identical-failure parking and finally deleted the existing
+test case that caught the regression. However S3 ends, S6 now pins the
+approved precedence with that test in place.
+
+Host checks. The e2e check ran at -parallel=1, a CI setting; 28 of its 38 tests
+are written to run in parallel. Two measured runs at -parallel=8 took 21 and 23
+minutes with no failures, against 43 minutes serially (#368).
 
 # What changes
 
-One track, five slices, serial. Parallel tracks are not admissible for work in
-internal/runtime and internal/driver, which cmd/sworn imports.
+S6-host-environment-park-projection makes the environment park project as
+parked with its typed cause, proves every park path through Start and Resume
+with the tests the Lead required, fixes the rerun identity, admits the new
+event kinds, resolves grouping syntax as the shell does, types a missing host
+shell, corrects the documentation, and keeps the approved precedence (in-flight
+work that does not belong to a park reads running) with the identical-failure
+test intact. S1's behaviour is otherwise unchanged.
 
-S1-host-check-environment-failures classifies exit 127 or an unresolved
-command as a typed environment failure that parks at once, spends no try and
-is never stored or replayed, and refuses a run start whose declared checks
-name a command the host cannot resolve.
+S7-pause-safe-host-checks-repair makes repeated pauses at any mix of stop
+points safe, adds the proofs S2's Lead required, treats a pause during the
+recovery sweep as a stop, and documents every stop code.
 
-S2-pause-safe-host-checks stops the host check loop cleanly at the next
-boundary on pause or cancel, keeps passing results and the try, and makes the
-journal report a cancelled context as a cancellation, never as a busy database
-or a write failure.
+S8-credential-lifetime-repair makes the credential park clear at every stage,
+proves admission uses the dispatch timeout, removes the retry advice for a
+cause retry cannot clear, and recognises the auth failure as the CLI emits it.
 
-S3-credential-lifetime refuses a Claude credential that will expire before
-the dispatch's timeout, and gives the CLI's own authentication failure a typed
-credential code.
+S9-broker-budget-and-turn-cap-repair records executed and refused tool-call
+counts on a budget or turn-cap stop regardless of the turn count, pins the
+submission-wins ordering with a test, and counts every refusal kind.
 
-S4-broker-budget-and-turn-cap ends a dispatch at once with a typed code when
-the broker's call budget is exhausted or the CLI hits its turn cap, and
-reports refused broker requests in the dispatch view.
+S10-repair-input-across-epochs-repair treats every accepted handoff that
+reached the seal as superseding an earlier repair, restores the
+accepted-submission test, and replaces the vacuous anchor evidence with tests
+of the production path.
 
-S5-repair-input-across-epochs carries the last seal refusal into the first
-try of a new epoch, drops repairs a later try superseded, and offers
-`anchor_substitutes` to the implementer with the route named in the refusal.
-
-# Deliberately not in this release
-
-A durable default journal location in the engine (#351, handled in the
-Manager skill), the assembly BLOCKED routing (#349, a protocol decision), the
-Slack and Teams seat (#363), and anything in ADR-0014 Track D.
+All five repair slices run the e2e host check at -parallel=8; S1 to S5 keep their
+approved checks.
 
 # How this run is driven
 
-By the Manager seat: /sworn-orchestrate under docs/policy/manager.md version
-3, on a fresh run id, with the roles named planner, implementer, lead and
-verifier. The seat holds the Principal's delegation for operational recovery
-(environment fixes, pause, retry, cancel and relaunch with only the run id
-changed); plan, roster and merge decisions are Type-1. Every decision is in
-the ops-home decision journal. It is a candidate for the v1.0.0 gate 3 streak
-(a release with three or more slices) if it runs without hand operator work.
+By the Manager seat under docs/policy/manager.md version 3, on a new run id,
+with the roster the Principal approved on 2026-09-26: planner and lead
+claude-opus-5-5, verifier claude-fable-5-1, implementer claude-sonnet-5,
+recovery claude-haiku-4-5.
 
 # Proposal status
 
-Proposed, not approved. No plan revision has been recorded, no approval
-receipt exists and no run has been started. Approval is Brad's and is
-separate from this document.
+Proposed, not approved. It supersedes the approved but unrecorded revision 2
+only if the Principal approves it. No revision 2 has been recorded and no run
+has been started on it.
