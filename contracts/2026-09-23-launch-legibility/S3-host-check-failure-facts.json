@@ -1,0 +1,82 @@
+{
+  "outcome": "When a candidate's host check fails, the status projection shared by sworn status, sworn_status, the board and the TUI says which check failed, its exit code, whether it was re-executed and with what result, which declared checks were therefore not run, and a bounded excerpt of its output; check effects show whether the check passed, not only that it executed; and an assembly BLOCKED park's advice names the route that fits it.",
+  "scope": {
+    "include": [
+      "cmd/sworn",
+      "internal/runtime",
+      "internal/journal",
+      "internal/gitx",
+      "internal/driver",
+      "internal/cockpit",
+      "internal/observe",
+      "internal/tui",
+      "internal/skill",
+      "internal/protocol",
+      "tools/protocolgolden",
+      "test/e2e",
+      "docs/run.md",
+      "docs/launch.md",
+      "docs/policy/manager.md",
+      "README.md"
+    ],
+    "exclude": []
+  },
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "For the latest failed host check of a work, the status projection carries one bounded host check failure fact: the check command as declared in the contract, its outcome and exit code, whether it was re-executed and that re-execution's outcome, the declared checks that were not run because this one failed (derived from the contract's check list and the phase order the engine used), and a bounded output excerpt taken from the same stored result the implementer's repair context already holds. Anchor: internal/runtime/host_repair_test.go and internal/runtime/host_checks_integration_test.go."
+    },
+    {
+      "id": "A2",
+      "text": "The HOST_CHECK_FAILED refusal detail, used for pinned work and parks, names the check command and exit code, not only the outcome and candidate. Anchor: internal/runtime/economy_guards_test.go."
+    },
+    {
+      "id": "A3",
+      "text": "Each check.host effect in the projection reports the check's outcome (pass, fail, timeout, overflow) beside the effect state, so an executed-and-failed check no longer reads only as `succeeded`. Journal effect states are unchanged. Anchor: internal/runtime/host_checks_integration_test.go."
+    },
+    {
+      "id": "A4",
+      "text": "The board and the TUI render the host check failure fact in their work detail beside the existing failure code and failure turn context; `sworn status --json` and sworn_status return it; the surfaces stay in parity. Anchor: internal/cockpit/projector_test.go and internal/tui/model_test.go."
+    },
+    {
+      "id": "A5",
+      "text": "A bootstrap authority park caused by an assembly verification BLOCKED receipt no longer advises revising the contract. Its advice names manager policy M9: record a plan revision whose slice contracts are byte-identical to the approved revision, have it approved, then relaunch. A park caused by a slice's planner-bound receipt keeps the current advice. Anchor: internal/runtime/bootstrap_replan_honesty_test.go."
+    },
+    {
+      "id": "A6",
+      "text": "In a built-product journey where a scripted candidate fails a declared host check, `sworn status --json` for that work shows the failing check command, its exit code, the not-run checks and the excerpt, and the check effect shows its failing outcome; after a following passing candidate no stale fact remains. docs/run.md documents the fact and its bounds where it documents host checks, and corrects its stale `sworn.runtime-manifest/v3` reference to the current version. Anchor: test/e2e/production_journey_linux_test.go and docs/run.md."
+    }
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race -timeout=20m ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "test -z \"$(gofmt -l ./cmd ./internal ./tools)\"",
+    "go mod tidy -diff",
+    "git diff --check",
+    "GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build ./..."
+  ],
+  "host_checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=1 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race -timeout=20m ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "test -z \"$(gofmt -l ./cmd ./internal ./tools)\"",
+    "go mod tidy -diff",
+    "git diff --check",
+    "GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build ./..."
+  ],
+  "constraints": [
+    "Follow the failure turn context pattern of the previous release (internal/runtime/failure_turn_context.go): one typed, versioned, bounded projection, read back through a digest-checked journal read, with records written before this release reporting the fact as absent rather than corrupt.",
+    "Do not add fields to productionHostRepair, hostCheckResult or the work-context input: they are re-parsed strictly by canonical comparison and old journals must keep reading. Derive the fact from the stored results. Do not add a `skipped` check outcome: outcomes are protocol vocabulary.",
+    "Evidence, never authority. Nothing in the engine reads the new fact to decide a retry, a park, a verdict or a repair; the repair context the implementer receives is unchanged.",
+    "Every listed check is a host check: contained implementers and verifiers consume engine-bound host evidence and never attempt nested containment or claim to have executed these commands. Each long process suite runs once per candidate in the phase order the engine defines.",
+    "This release changes no roster, model selection, budget, retry cap or fallback behaviour except where an acceptance criterion of this slice names the change exactly. The broad supporting package scope admits only this promised mechanism and its affected regression fixtures, adapters, status projections and documentation.",
+    "Known contained-workspace facts, not defects of this slice: cmd/sworn's TestTUIActionDriveSurvivesActionReturn fails in the sandbox with CREDENTIAL_UNAVAILABLE and prints roughly 90 KB of DEBUG output; it passes on the host. Do not chase it and do not run it in the workspace. internal/runtime exceeds Go's implicit 10-minute package deadline in the sandbox; pass -timeout=20m on your own package runs. The sandbox shell is dash without `which`. Never build a binary into the workspace root: an out-of-scope file at the root makes checkpoint capture refuse with CHECKPOINT_SCOPE_VIOLATION and fences the workspace; build into a temporary directory.",
+    "internal/protocol is the embedded protocol package. This slice needs no change to its receipt vocabulary, check outcomes, operation assets, snapshot or pinned digests (internal/protocol/assets.go, release.json, tools/protocolgolden); if a design appears to need one, report it rather than re-pinning the bundle.",
+    "No secret, credential, absolute operator path or raw provider body reaches any message, journal record or projection this slice adds. Existing content-free guarantees (for example the serve and operator-config tests that assert no secret or path is echoed) keep holding; where a message now names an input, it names the input kind and flag, not its contents."
+  ],
+  "depends_on": [],
+  "consumes": []
+}

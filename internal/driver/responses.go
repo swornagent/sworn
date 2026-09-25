@@ -17,6 +17,13 @@ type responsesConversation struct {
 	// emitted as max_output_tokens on the responses surface. Zero omits the
 	// field entirely.
 	maxOutputTokens int64
+	// contextWindowTokens is the profile's declared total context window
+	// (S6-context-window-clamp A1). Zero disables the clamp.
+	contextWindowTokens int64
+	// lastInputTokens is the previous turn's reported input-token count,
+	// nil until accept() has processed a turn carrying usage. The clamp
+	// never applies before the first accepted turn (A2).
+	lastInputTokens *int64
 	// reasoningSummary is the adapter's reasoning_summary, emitted as
 	// reasoning.summary so the provider streams summary deltas while it
 	// thinks. Empty omits the field entirely.
@@ -59,7 +66,7 @@ func newResponsesConversation(
 			dialect != providerDialectXAIResponses) {
 		return nil, fail("INVALID_ADAPTER")
 	}
-	outputLimit, err := optionalOutputLimit(maxOutputTokens)
+	outputLimit, contextWindowTokens, err := optionalOutputLimits(maxOutputTokens)
 	if err != nil {
 		return nil, err
 	}
@@ -75,16 +82,17 @@ func newResponsesConversation(
 		return nil, fail("RESOURCE_LIMIT")
 	}
 	return &responsesConversation{
-		endpoint:        endpoint,
-		model:           model,
-		dialect:         dialect,
-		reasoningEffort: reasoningEffort,
-		enableThinking:  enableThinking,
-		stream:          stream,
-		tools:           tools,
-		input:           []json.RawMessage{initial},
-		ledger:          newContinuationLedger(),
-		maxOutputTokens: outputLimit,
+		endpoint:            endpoint,
+		model:               model,
+		dialect:             dialect,
+		reasoningEffort:     reasoningEffort,
+		enableThinking:      enableThinking,
+		stream:              stream,
+		tools:               tools,
+		input:               []json.RawMessage{initial},
+		ledger:              newContinuationLedger(),
+		maxOutputTokens:     outputLimit,
+		contextWindowTokens: contextWindowTokens,
 	}, nil
 }
 
@@ -116,6 +124,21 @@ func (conversation *responsesConversation) request() (providerRequest, error) {
 	if conversation == nil || len(conversation.pending) != 0 {
 		return providerRequest{}, failContinuation("continuation.responses.request_pending_tool_calls")
 	}
+	maxOutputTokens, exhausted := contextWindowClamp(
+		conversation.maxOutputTokens,
+		conversation.contextWindowTokens,
+		conversation.lastInputTokens,
+	)
+	if exhausted {
+		return providerRequest{}, failWithDetail(
+			"ECONOMY_CONTEXT_EXHAUSTED",
+			contextWindowExhaustedDetail(
+				conversation.contextWindowTokens,
+				*conversation.lastInputTokens,
+				conversation.maxOutputTokens,
+			),
+		)
+	}
 	body, err := json.Marshal(struct {
 		Model             string             `json:"model"`
 		Input             []json.RawMessage  `json:"input"`
@@ -140,7 +163,7 @@ func (conversation *responsesConversation) request() (providerRequest, error) {
 		EnableThinking:  conversation.enableThinking,
 		Store:           false,
 		Stream:          conversation.stream,
-		MaxOutputTokens: conversation.maxOutputTokens,
+		MaxOutputTokens: maxOutputTokens,
 	})
 	if err != nil || len(body) > MaxProviderRequestBytes {
 		clearBytes(body)
@@ -216,6 +239,7 @@ func (conversation *responsesConversation) accept(
 			}
 			turn.Usage = usage
 			turn.Cost = cost
+			conversation.lastInputTokens = &usage.InputTokens
 		}
 		return turn, nil
 	}
@@ -291,6 +315,7 @@ func (conversation *responsesConversation) accept(
 		}
 		turn.Usage = usage
 		turn.Cost = cost
+		conversation.lastInputTokens = &usage.InputTokens
 	}
 	return turn, nil
 }

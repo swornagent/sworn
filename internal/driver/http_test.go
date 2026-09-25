@@ -425,6 +425,68 @@ func TestOpenAIAdapterOutputCeilingConfigValidationAndCanonicalForm(t *testing.T
 	}
 }
 
+// TestOpenAIAdapterContextWindowTokensConfigValidationAndCanonicalForm
+// anchors A1: the field is absent-by-default (byte-identical canonical
+// form to today), admits its declared bound, and an explicit zero is not
+// the canonical spelling of absence, on the same discipline
+// TestOpenAIAdapterOutputCeilingConfigValidationAndCanonicalForm already
+// pins for max_output_tokens.
+func TestOpenAIAdapterContextWindowTokensConfigValidationAndCanonicalForm(t *testing.T) {
+	config := completeDriverConfigFixture(t)
+	before, err := EncodeDriverConfig(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(before, []byte("context_window_tokens")) {
+		t.Fatalf("absent context window leaked into canonical form: %s", before)
+	}
+	setWindow := func(value int64) DriverConfig {
+		clone := config
+		clone.Adapters = append([]DriverAdapterConfig(nil), config.Adapters...)
+		for index := range clone.Adapters {
+			if clone.Adapters[index].OpenAI != nil &&
+				clone.Adapters[index].OpenAI.Key == "a-openai" {
+				openAI := cloneOpenAIProfileConfig(*clone.Adapters[index].OpenAI)
+				openAI.ContextWindowTokens = value
+				clone.Adapters[index].OpenAI = &openAI
+			}
+		}
+		return clone
+	}
+	body, err := EncodeDriverConfig(setWindow(200_000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(body, []byte(`"context_window_tokens":200000`)) {
+		t.Fatalf("context window missing from canonical form: %s", body)
+	}
+	loaded, err := DecodeDriverConfig(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.ConfigurationDigest() != Digest(body) ||
+		loaded.ConfigurationDigest() == Digest(before) {
+		t.Fatalf("context window digest = %s", loaded.ConfigurationDigest())
+	}
+	if _, err := EncodeDriverConfig(setWindow(MaxContextWindowTokensLimit)); err != nil {
+		t.Fatalf("context window at the maximum error = %v", err)
+	}
+	for _, value := range []int64{-1, MaxContextWindowTokensLimit + 1} {
+		if _, err := EncodeDriverConfig(setWindow(value)); !IsCode(err, "INVALID_DRIVER_CONFIG") {
+			t.Fatalf("context window %d error = %v", value, err)
+		}
+	}
+	zero := bytes.Replace(
+		body,
+		[]byte(`"context_window_tokens":200000`),
+		[]byte(`"context_window_tokens":0`),
+		1,
+	)
+	if _, err := DecodeDriverConfig(zero); !IsCode(err, "NONCANONICAL_JSON") {
+		t.Fatalf("explicit zero context window error = %v", err)
+	}
+}
+
 func TestOpenAIAdapterReasoningSummaryThreadsToResponsesRequest(t *testing.T) {
 	t.Parallel()
 	resolver := func(context.Context, string) ([]byte, error) {
@@ -572,5 +634,117 @@ func TestOpenAIAdapterReasoningSummaryConfigValidationAndCanonicalForm(t *testin
 	// A chat-completions adapter has no reasoning.summary to carry.
 	if _, err := EncodeDriverConfig(setSummary("a-openai-chat", "auto")); !IsCode(err, "INVALID_DRIVER_CONFIG") {
 		t.Fatalf("chat summary error = %v", err)
+	}
+}
+
+// TestHTTPRoundTripCapturesRequestIDOnProviderRefusalsOnly pins
+// S4-lane-live-probe C1: a non-2xx response's request id rides the
+// returned ContractError for 401, 429 and 503, and no raw header block or
+// body ever reaches it - only the bounded, allowlisted extraction does.
+func TestHTTPRoundTripCapturesRequestIDOnProviderRefusalsOnly(t *testing.T) {
+	t.Parallel()
+	ref := "cred"
+	for _, test := range []struct {
+		name   string
+		status int
+		header http.Header
+		body   string
+		code   string
+	}{
+		{
+			"authorization", http.StatusUnauthorized,
+			http.Header{"X-Request-Id": {"auth-id"}},
+			`{"error":{"message":"bad key"}}`,
+			"PROVIDER_AUTHORIZATION_FAILED",
+		},
+		{
+			"limited", http.StatusTooManyRequests,
+			http.Header{"Request-Id": {"limited-id"}, "Retry-After": {"5"}},
+			`{"error":{"message":"slow down"}}`,
+			"PROVIDER_LIMITED",
+		},
+		{
+			"unavailable", http.StatusServiceUnavailable,
+			http.Header{"X-Amzn-Requestid": {"unavailable-id"}},
+			`{"error":{"message":"down"}}`,
+			"PROVIDER_UNAVAILABLE",
+		},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			transport := newProviderLimitTransport(t, roundTripperFunc(
+				func(*http.Request) (*http.Response, error) {
+					return statusResponse(test.status, test.header, test.body), nil
+				},
+			))
+			_, err := transport.roundTrip(
+				context.Background(), &ref, providerLimitRequest(),
+			)
+			var contractErr *ContractError
+			if !errors.As(err, &contractErr) || contractErr.Code != test.code {
+				t.Fatalf("error = %v, want code %s", err, test.code)
+			}
+			var wantID string
+			for key := range test.header {
+				if key == "Retry-After" {
+					continue
+				}
+				wantID = test.header.Get(key)
+			}
+			if contractErr.RequestID != wantID {
+				t.Fatalf("request id = %q, want %q", contractErr.RequestID, wantID)
+			}
+			if len(contractErr.RequestID) > maxLaneProbeRequestIDBytes {
+				t.Fatalf("request id exceeds its bound: %d bytes", len(contractErr.RequestID))
+			}
+			if strings.ContainsAny(contractErr.RequestID, "\r\n\t") {
+				t.Fatalf("request id carried a control character: %q", contractErr.RequestID)
+			}
+		})
+	}
+}
+
+// TestHTTPRoundTripHonorsHeaderRequestIDOverBody pins the extractor's
+// stated priority: an allowlisted header wins over a body id field when
+// both are present.
+func TestHTTPRoundTripHonorsHeaderRequestIDOverBody(t *testing.T) {
+	t.Parallel()
+	ref := "cred"
+	transport := newProviderLimitTransport(t, roundTripperFunc(
+		func(*http.Request) (*http.Response, error) {
+			return statusResponse(
+				http.StatusBadRequest,
+				http.Header{"X-Request-Id": {"header-id"}},
+				`{"error":{"message":"bad request"},"id":"body-id"}`,
+			), nil
+		},
+	))
+	_, err := transport.roundTrip(context.Background(), &ref, providerLimitRequest())
+	var contractErr *ContractError
+	if !errors.As(err, &contractErr) || contractErr.RequestID != "header-id" {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+// TestHTTPRoundTripSuccessCarriesNoRequestIDField pins the scope boundary:
+// a successful (2xx) round trip returns only the response body, exactly as
+// before - request id extraction on success happens only inside the lane
+// probe, which reads the body itself.
+func TestHTTPRoundTripSuccessCarriesNoRequestIDField(t *testing.T) {
+	t.Parallel()
+	ref := "cred"
+	transport := newProviderLimitTransport(t, roundTripperFunc(
+		func(*http.Request) (*http.Response, error) {
+			return statusResponse(
+				http.StatusOK,
+				http.Header{"X-Request-Id": {"success-id"}},
+				`{"id":"resp-id"}`,
+			), nil
+		},
+	))
+	body, err := transport.roundTrip(context.Background(), &ref, providerLimitRequest())
+	if err != nil || string(body) != `{"id":"resp-id"}` {
+		t.Fatalf("body = %s, err = %v", body, err)
 	}
 }

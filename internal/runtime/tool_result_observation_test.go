@@ -81,6 +81,77 @@ func toolResultTestHook(
 	return hook
 }
 
+// TestLastInputTokensForSnapshotReadsLatestReportedValuePerEffect anchors
+// A4: the latest turn's reported input-token count projects per effect ID
+// regardless of the dispatch's current state (in flight or failed alike -
+// this helper reads only the journaled events, never the effect state),
+// a later part carrying none never erases an earlier part's value, and a
+// later turn's report supersedes an earlier one.
+func TestLastInputTokensForSnapshotReadsLatestReportedValuePerEffect(t *testing.T) {
+	service, store, run := toolResultRuntimeFixture(t)
+	hook := toolResultTestHook(t, service, run.ID)
+	ctx := context.Background()
+	effectID := journal.AttemptEffectID("work-tool-result-events", 1, 3)
+
+	first := int64(4_200)
+	if err := hook(ctx, driver.ToolResultTurn{
+		Turn:        1,
+		InputTokens: &first,
+		Results: []driver.ToolResultRecord{{
+			Sequence: 1, ToolCallID: "call-1", Tool: "Read",
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.Snapshot(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokens := lastInputTokensForSnapshot(snapshot)
+	if tokens[effectID] == nil || *tokens[effectID] != first {
+		t.Fatalf("tokens[%s] = %#v, want *4200", effectID, tokens[effectID])
+	}
+
+	// A later part with no InputTokens (every part but the first of a
+	// coalesced turn) never erases the value the first part carried.
+	if err := hook(ctx, driver.ToolResultTurn{
+		Turn: 1, Part: 2, Parts: 2,
+		Results: []driver.ToolResultRecord{{
+			Sequence: 2, ToolCallID: "call-2", Tool: "Read",
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err = store.Snapshot(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokens = lastInputTokensForSnapshot(snapshot)
+	if tokens[effectID] == nil || *tokens[effectID] != first {
+		t.Fatalf("tokens[%s] after part 2 = %#v, want unchanged *4200", effectID, tokens[effectID])
+	}
+
+	// A later turn's own report supersedes the earlier one.
+	second := int64(9_900)
+	if err := hook(ctx, driver.ToolResultTurn{
+		Turn:        3,
+		InputTokens: &second,
+		Results: []driver.ToolResultRecord{{
+			Sequence: 1, ToolCallID: "call-3", Tool: "Read",
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err = store.Snapshot(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokens = lastInputTokensForSnapshot(snapshot)
+	if tokens[effectID] == nil || *tokens[effectID] != second {
+		t.Fatalf("tokens[%s] after turn 3 = %#v, want *9900", effectID, tokens[effectID])
+	}
+}
+
 func TestToolResultObservationHookJournalsIdentityAndExactBytes(t *testing.T) {
 	service, store, run := toolResultRuntimeFixture(t)
 	hook := toolResultTestHook(t, service, run.ID)

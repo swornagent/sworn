@@ -941,6 +941,165 @@ func TestSafeActionsOffersGrantActionForEconomyPinnedWorkOnly(t *testing.T) {
 	}
 }
 
+// TestSafeActionsOffersRetryForEconomyContextPinnedWorkAtAnyTry anchors
+// S6-context-window-clamp A3's board action: economy_context_window is
+// never Grant-eligible (there is no manifest Limits value a Grant could
+// raise to fix a fixed driver-config context window), so a PinnedWork of
+// that cause offers a bare Retry naming the owner and its current epoch -
+// at try 1, not only the third - and never a grant action.
+func TestSafeActionsOffersRetryForEconomyContextPinnedWorkAtAnyTry(t *testing.T) {
+	t.Parallel()
+
+	owner := "sha256:" + strings.Repeat("a", 64)
+	control := journal.ControlProjection{
+		Generation: 3, Desired: "running",
+		RetryEpochs: map[string]int64{owner: 2},
+	}
+	status := runtimepkg.RunStatus{
+		State: "parked", ControlGeneration: 3,
+		PinnedWork: []runtimepkg.PinnedWork{{
+			WorkID: owner, Lane: "T1", Cause: runtimepkg.ParkCauseEconomyContext,
+			Code: "ECONOMY_CONTEXT_EXHAUSTED", Detail: "context_window_tokens=50000",
+		}},
+	}
+	actions := safeActions(status, control)
+	if hasAction(actions, string(journal.Grant)) {
+		t.Fatalf("economy_context_window pinned work offered a grant action: %#v", actions)
+	}
+	var retries []Action
+	for _, action := range actions {
+		if action.Kind == string(journal.Retry) {
+			retries = append(retries, action)
+		}
+	}
+	if len(retries) != 1 {
+		t.Fatalf("retry actions = %#v, want exactly 1", retries)
+	}
+	if retries[0].WorkID != owner || retries[0].ExpectedEpoch != 2 ||
+		retries[0].ExpectedGeneration != 3 {
+		t.Fatalf("retry action = %#v, want work=%s epoch=2 generation=3", retries[0], owner)
+	}
+}
+
+// TestSafeActionsDedupesEconomyContextRetryAgainstTryThreeLoop proves the
+// t3 exhaustedAttempt loop and the new PinnedWork branch never both offer a
+// Retry for the same economy_context_window crossing: the t3 loop skips
+// ECONOMY_CONTEXT_EXHAUSTED-coded effects entirely (mirroring how
+// isEconomyErrorCode's codes are skipped there), so PinnedWork is this
+// cause's sole source of a board action even when the crossing happens to
+// land exactly on try 3.
+func TestSafeActionsDedupesEconomyContextRetryAgainstTryThreeLoop(t *testing.T) {
+	t.Parallel()
+
+	owner := "sha256:" + strings.Repeat("a", 64)
+	control := journal.ControlProjection{
+		Generation: 1, Desired: "running",
+		RetryEpochs: map[string]int64{owner: 1},
+	}
+	status := runtimepkg.RunStatus{
+		State: "parked", ControlGeneration: 1,
+		Effects: []runtimepkg.EffectStatus{{
+			ID:   "attempt/" + strings.Repeat("a", 64) + "/e1/t3",
+			Kind: "driver.dispatch", State: string(journal.OperationalFailed),
+			ErrorCode: "ECONOMY_CONTEXT_EXHAUSTED",
+		}},
+		PinnedWork: []runtimepkg.PinnedWork{{
+			WorkID: owner, Lane: "T1", Cause: runtimepkg.ParkCauseEconomyContext,
+			Code: "ECONOMY_CONTEXT_EXHAUSTED",
+		}},
+	}
+	actions := safeActions(status, control)
+	var retries []Action
+	for _, action := range actions {
+		if action.Kind == string(journal.Retry) {
+			retries = append(retries, action)
+		}
+	}
+	if len(retries) != 1 {
+		t.Fatalf("retry actions = %#v, want exactly 1 (deduped against the t3 loop)", retries)
+	}
+	if retries[0].WorkID != owner {
+		t.Fatalf("retry action = %#v, want work=%s", retries[0], owner)
+	}
+}
+
+// TestIsEconomyErrorCodeExcludesContextExhausted pins the Lead's explicit
+// allowance: isEconomyErrorCode stays unchanged for this release, since a
+// t3 economy_context_window crossing is admissible as a bare Retry (unlike
+// the two Grant-gated economy codes it names), so it must never be
+// classified alongside them.
+func TestIsEconomyErrorCodeExcludesContextExhausted(t *testing.T) {
+	t.Parallel()
+	if isEconomyErrorCode("ECONOMY_CONTEXT_EXHAUSTED") {
+		t.Fatal("isEconomyErrorCode(ECONOMY_CONTEXT_EXHAUSTED) = true, want false")
+	}
+	if economyGrantUnit(runtimepkg.ParkCauseEconomyContext) != "" {
+		t.Fatalf(
+			"economyGrantUnit(%s) = %q, want empty (never Grant-eligible)",
+			runtimepkg.ParkCauseEconomyContext, economyGrantUnit(runtimepkg.ParkCauseEconomyContext),
+		)
+	}
+}
+
+// TestActivityTurnCarriesReportedInputTokens anchors A4's live-activity-
+// stream half: a tool_result_observed event's input_tokens field rides
+// unchanged onto the projected ActivityTurn.
+func TestActivityTurnCarriesReportedInputTokens(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, err := journal.Open(ctx, filepath.Join(t.TempDir(), "activity-input-tokens.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	now := time.Unix(1_700_300_000, 0).UTC()
+	run := journal.Run{
+		ID: "run-activity-input-tokens", ManifestDigest: "sha256:" + strings.Repeat("a", 64),
+		Repository: t.TempDir(), Release: "release-activity-input-tokens",
+		TargetRef: "refs/heads/main", CreatedAt: now,
+	}
+	if err := store.RegisterRun(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(map[string]any{
+		"schema_version": "sworn.tool-result-turn/v1", "run_id": run.ID,
+		"track": "T1", "slice": "S1", "role": "implementer",
+		"responsibility": "implementer_implementation",
+		"attempt":        int64(1), "epoch": int64(1), "try": int64(1),
+		"work_id": "work-1", "effect_id": "attempt/work-1/e1/t1",
+		"turn": int64(1), "encoding": "base64", "input_tokens": int64(4_200),
+		"results": []map[string]any{{
+			"sequence": int64(1), "tool_call_id": "call-1", "tool": "Read",
+			"failed": false, "total_bytes": int64(2),
+			"omitted_bytes": int64(0), "redacted_bytes": int64(0),
+			"head": base64.StdEncoding.EncodeToString([]byte("ok")), "tail": "",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AppendEvent(ctx, run.ID, "tool_result_observed", body, now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	var calls []string
+	projector, err := NewProjector(
+		store,
+		&fakeRuntime{statuses: []runtimepkg.RunStatus{{}}, calls: &calls},
+		&fakeStateReader{states: []protocol.State{{}}, errs: []error{nil}, calls: &calls},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := projector.Activity(ctx, run.ID, 0, 128, ActivityFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Turns) != 1 || page.Turns[0].InputTokens == nil ||
+		*page.Turns[0].InputTokens != 4_200 {
+		t.Fatalf("turns = %#v, want one turn with InputTokens=*4200", page.Turns)
+	}
+}
+
 // A1: the activity projection joins journaled worker-turn and tool-result
 // events by (effect_id, turn), merges parts, decodes spans, and pages with
 // one cursor. It reads only what S1 journaled, performs no new redaction,
@@ -1538,4 +1697,237 @@ func tamperJournalEventBody(t *testing.T, store *journal.Store, runID string, ta
 		return err
 	}
 	return nil
+}
+
+// S3-host-check-failure-facts A4: the projector copies the host-check
+// failure fact from EffectStatus to EffectView and from PinnedWork to the
+// actionable Node via the same lane->actionable-node rule as the failure
+// turn context, with the release lane mapping to the assembly node.
+// CheckOutcome copies field-for-field beside the effect state.
+func TestProjectorHostCheckFailureCopiesEffectAndNode(t *testing.T) {
+	t.Parallel()
+	run, observation, status, state := projectionFixture()
+	rerunExit := 3
+	fact := &runtimepkg.HostCheckFailureFact{
+		SchemaVersion: "sworn.host-check-failure-fact/v1",
+		Check:         "exit 7", Outcome: "fail", ExitCode: 7,
+		Reran: true, RerunOutcome: "fail", RerunExitCode: &rerunExit,
+		NotRun: []string{"printf 'third\\n'"}, Excerpt: "needs repair",
+		OutputDigest: "sha256:" + strings.Repeat("d", 64),
+		HostEffect:   "attempt/aaa/e1/t1", RerunEffect: "attempt/bbb/e1/t1",
+		Candidate: strings.Repeat("c", 40), ContractDigest: "sha256:" + strings.Repeat("e", 64),
+	}
+	status.Effects = []runtimepkg.EffectStatus{
+		{ID: "attempt/" + strings.Repeat("b", 64) + "/e2/t3", Kind: "driver.dispatch", State: string(journal.OperationalFailed), ErrorCode: "HOST_CHECK_FAILED", HostCheckFailure: fact},
+		{ID: "attempt/" + strings.Repeat("c", 64) + "/e1/t1", Kind: "driver.dispatch", State: string(journal.OperationalFailed), ErrorCode: "other"},
+		{ID: "attempt/" + strings.Repeat("d", 64) + "/e1/t1", Kind: "check.host", State: string(journal.Succeeded), CheckOutcome: "fail"},
+		{ID: "attempt/" + strings.Repeat("e", 64) + "/e1/t1", Kind: "check.host", State: string(journal.Succeeded), CheckOutcome: "pass"},
+		{ID: "attempt/" + strings.Repeat("f", 64) + "/e1/t1", Kind: "check.host", State: string(journal.Succeeded)},
+	}
+	status.PinnedWork = []runtimepkg.PinnedWork{{
+		WorkID: "sha256:" + strings.Repeat("b", 64), Lane: "T1", Cause: "identical_failure",
+		Code: "HOST_CHECK_FAILED", HostCheckFailure: fact,
+	}}
+	var calls []string
+	projector, err := NewProjector(
+		&fakeJournal{binding: run, observations: []journal.Observation{observation}, calls: &calls},
+		&fakeRuntime{statuses: []runtimepkg.RunStatus{status, status}, calls: &calls},
+		&fakeStateReader{states: []protocol.State{state, state}, errs: []error{nil, nil}, calls: &calls},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projector.now = func() time.Time { return run.CreatedAt }
+	snapshot, err := projector.Snapshot(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Runtime.Effects) != 5 {
+		t.Fatalf("effects = %d", len(snapshot.Runtime.Effects))
+	}
+	if got := snapshot.Runtime.Effects[0].HostCheckFailure; got == nil || got.Check != "exit 7" || got.ExitCode != 7 || !got.Reran || got.RerunOutcome != "fail" || got.RerunExitCode == nil || *got.RerunExitCode != 3 || len(got.NotRun) != 1 {
+		t.Fatalf("effect fact = %#v", got)
+	}
+	if got := snapshot.Runtime.Effects[1].HostCheckFailure; got != nil {
+		t.Fatalf("absent effect fact = %#v, want nil", got)
+	}
+	if got := snapshot.Runtime.Effects[2].CheckOutcome; got != "fail" {
+		t.Fatalf("failing check outcome = %q, want fail", got)
+	}
+	if got := snapshot.Runtime.Effects[3].CheckOutcome; got != "pass" {
+		t.Fatalf("passing check outcome = %q, want pass", got)
+	}
+	if got := snapshot.Runtime.Effects[4].CheckOutcome; got != "" {
+		t.Fatalf("absent check outcome = %q, want empty", got)
+	}
+	var sliceNode, assemblyNode *Node
+	for i := range snapshot.Graph.Nodes {
+		node := &snapshot.Graph.Nodes[i]
+		if node.ID == "slice:S1" {
+			sliceNode = node
+		}
+		if node.Kind == "assembly" {
+			assemblyNode = node
+		}
+	}
+	if sliceNode == nil || sliceNode.HostCheckFailure == nil || sliceNode.HostCheckFailure.Check != "exit 7" {
+		t.Fatalf("slice node fact = %#v", sliceNode)
+	}
+	if assemblyNode != nil && assemblyNode.HostCheckFailure != nil {
+		t.Fatalf("assembly node fact = %#v, want nil (release lane not pinned)", assemblyNode.HostCheckFailure)
+	}
+}
+
+func TestProjectorProviderStallCopiesToNode(t *testing.T) {
+	t.Parallel()
+	run, observation, status, state := projectionFixture()
+	stall := runtimepkg.ProviderStallStatus{
+		WorkID: "sha256:" + strings.Repeat("b", 64), Lane: "T1",
+		FailureCode: "PROVIDER_UNAVAILABLE", Profile: "openai", Model: "gpt",
+		Index: 2, NextProbeAt: run.CreatedAt, LastProbeCode: "certification_provider_unavailable",
+		ElapsedMillis: 180_000, BoundMillis: 1_800_000,
+	}
+	status.ProviderStall = []runtimepkg.ProviderStallStatus{stall}
+	var calls []string
+	projector, err := NewProjector(
+		&fakeJournal{binding: run, observations: []journal.Observation{observation}, calls: &calls},
+		&fakeRuntime{statuses: []runtimepkg.RunStatus{status, status}, calls: &calls},
+		&fakeStateReader{states: []protocol.State{state, state}, errs: []error{nil, nil}, calls: &calls},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projector.now = func() time.Time { return run.CreatedAt }
+	snapshot, err := projector.Snapshot(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sliceNode, assemblyNode *Node
+	for i := range snapshot.Graph.Nodes {
+		node := &snapshot.Graph.Nodes[i]
+		if node.ID == "slice:S1" {
+			sliceNode = node
+		}
+		if node.Kind == "assembly" {
+			assemblyNode = node
+		}
+	}
+	if sliceNode == nil || sliceNode.ProviderStall == nil ||
+		sliceNode.ProviderStall.FailureCode != "PROVIDER_UNAVAILABLE" ||
+		sliceNode.ProviderStall.LastProbeCode != "certification_provider_unavailable" {
+		t.Fatalf("slice node provider stall = %#v", sliceNode)
+	}
+	if assemblyNode != nil && assemblyNode.ProviderStall != nil {
+		t.Fatalf("assembly node provider stall = %#v, want nil (release lane not waiting)", assemblyNode.ProviderStall)
+	}
+}
+
+func TestProjectorProviderStallReleaseLaneMapsToAssembly(t *testing.T) {
+	t.Parallel()
+	run, observation, status, state := projectionFixture()
+	status.ProviderStall = []runtimepkg.ProviderStallStatus{{
+		WorkID: "sha256:" + strings.Repeat("f", 64), Lane: "release",
+		FailureCode: "PROVIDER_LIMITED", Index: 1, NextProbeAt: run.CreatedAt,
+	}}
+	var calls []string
+	projector, err := NewProjector(
+		&fakeJournal{binding: run, observations: []journal.Observation{observation}, calls: &calls},
+		&fakeRuntime{statuses: []runtimepkg.RunStatus{status, status}, calls: &calls},
+		&fakeStateReader{states: []protocol.State{state, state}, errs: []error{nil, nil}, calls: &calls},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projector.now = func() time.Time { return run.CreatedAt }
+	snapshot, err := projector.Snapshot(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, node := range snapshot.Graph.Nodes {
+		if node.Kind == "assembly" {
+			if node.ProviderStall == nil || node.ProviderStall.FailureCode != "PROVIDER_LIMITED" {
+				t.Fatalf("assembly provider stall = %#v", node.ProviderStall)
+			}
+			return
+		}
+	}
+	t.Fatal("assembly node missing")
+}
+
+func TestProjectorHostCheckFailureReleaseLaneMapsToAssembly(t *testing.T) {
+	t.Parallel()
+	run, observation, status, state := projectionFixture()
+	fact := &runtimepkg.HostCheckFailureFact{
+		SchemaVersion: "sworn.host-check-failure-fact/v1",
+		Check:         "exit 7", Outcome: "fail", ExitCode: 7,
+		Excerpt: "out", OutputDigest: "sha256:" + strings.Repeat("d", 64),
+		HostEffect: "attempt/aaa/e1/t1",
+		Candidate:  strings.Repeat("c", 40), ContractDigest: "sha256:" + strings.Repeat("e", 64),
+	}
+	status.PinnedWork = []runtimepkg.PinnedWork{{
+		WorkID: "sha256:" + strings.Repeat("f", 64), Lane: "release", Cause: "exhaustion",
+		HostCheckFailure: fact,
+	}}
+	var calls []string
+	projector, err := NewProjector(
+		&fakeJournal{binding: run, observations: []journal.Observation{observation}, calls: &calls},
+		&fakeRuntime{statuses: []runtimepkg.RunStatus{status, status}, calls: &calls},
+		&fakeStateReader{states: []protocol.State{state, state}, errs: []error{nil, nil}, calls: &calls},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projector.now = func() time.Time { return run.CreatedAt }
+	snapshot, err := projector.Snapshot(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, node := range snapshot.Graph.Nodes {
+		if node.Kind == "assembly" {
+			if node.HostCheckFailure == nil || node.HostCheckFailure.Check != "exit 7" {
+				t.Fatalf("assembly fact = %#v", node.HostCheckFailure)
+			}
+			return
+		}
+	}
+	t.Fatal("assembly node missing")
+}
+
+// Lead correction 4: for a work that is failing but not pinned, the fact
+// still appears on its EffectStatus/EffectView through sworn status --json
+// and sworn_status.
+func TestProjectorHostCheckFailureSurfacesWithoutPin(t *testing.T) {
+	t.Parallel()
+	run, observation, status, state := projectionFixture()
+	fact := &runtimepkg.HostCheckFailureFact{
+		SchemaVersion: "sworn.host-check-failure-fact/v1",
+		Check:         "exit 7", Outcome: "fail", ExitCode: 7,
+		Excerpt: "out", OutputDigest: "sha256:" + strings.Repeat("d", 64),
+		HostEffect: "attempt/aaa/e1/t1",
+		Candidate:  strings.Repeat("c", 40), ContractDigest: "sha256:" + strings.Repeat("e", 64),
+	}
+	status.Effects = []runtimepkg.EffectStatus{
+		{ID: "attempt/" + strings.Repeat("b", 64) + "/e1/t1", Kind: "driver.dispatch", State: string(journal.OperationalFailed), ErrorCode: "HOST_CHECK_FAILED", HostCheckFailure: fact},
+	}
+	status.PinnedWork = nil
+	var calls []string
+	projector, err := NewProjector(
+		&fakeJournal{binding: run, observations: []journal.Observation{observation}, calls: &calls},
+		&fakeRuntime{statuses: []runtimepkg.RunStatus{status, status}, calls: &calls},
+		&fakeStateReader{states: []protocol.State{state, state}, errs: []error{nil, nil}, calls: &calls},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projector.now = func() time.Time { return run.CreatedAt }
+	snapshot, err := projector.Snapshot(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Runtime.Effects) != 1 || snapshot.Runtime.Effects[0].HostCheckFailure == nil {
+		t.Fatalf("unpinned failing effect lost its fact: %#v", snapshot.Runtime.Effects)
+	}
+	if got := snapshot.Runtime.Effects[0].HostCheckFailure.Check; got != "exit 7" {
+		t.Fatalf("unpinned fact check = %q", got)
+	}
 }

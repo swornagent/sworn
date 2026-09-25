@@ -1790,8 +1790,11 @@ func TestFailureTurnContextBuiltProductJourney(t *testing.T) {
 	manifestPath := writeManifest(t, root, recoveryE2EManifest(t, runID, repository, loaded))
 	journalPath := filepath.Join(root, "run.sqlite")
 	swornBinary := filepath.Join(root, "sworn")
-	buildBinary(t, swornBinary, "./cmd/sworn", "")
-	environment := map[string]string{"SWORN_TURN_RECOVERY_KEY": recoveryE2ESecret}
+	buildBinary(t, swornBinary, "./cmd/sworn", hookGateLDFlags)
+	environment := map[string]string{
+		"SWORN_TURN_RECOVERY_KEY":               recoveryE2ESecret,
+		"SWORN_TEST_PROVIDER_STALL_STEP_MILLIS": "50",
+	}
 
 	stdout, stderr := runBinaryWithEnvironment(t, swornBinary, 0, environment,
 		"run", "--manifest", manifestPath, "--journal", journalPath, "--config", configPath)
@@ -1956,6 +1959,16 @@ func (provider *failureTurnContextProvider) serve(writer http.ResponseWriter, re
 	if err != nil || model != "turn-recovery-model" {
 		provider.t.Errorf("S3 provider model=%q: %v", model, err)
 		http.Error(writer, "invalid request", http.StatusBadRequest)
+		return
+	}
+	if promptBody == journeyProviderStallProbePrompt {
+		// The injected transport failure below is a 5xx, which S5's
+		// wait-then-probe gate now intercepts before the automatic retry;
+		// its live-probe request reaches this same fake provider and must
+		// pass at once so the retry this journey expects still proceeds.
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(http.StatusOK)
+		_, _ = writer.Write([]byte(`{}`))
 		return
 	}
 	var header struct {

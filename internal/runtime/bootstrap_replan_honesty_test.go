@@ -373,9 +373,18 @@ func TestDriveLoopStopsPlannerDispatchUnderBootstrapAuthority_AssemblyVerifierBl
 	if parsed.Cause != ParkCauseBootstrapAuthority {
 		t.Fatalf("cause = %q, want %q", parsed.Cause, ParkCauseBootstrapAuthority)
 	}
-	wantReason := assemblySummary + "\n\n" + bootstrapParkUnblockDirective
+	wantReason := assemblySummary + "\n\n" + assemblyBlockedUnblockDirective
 	if parsed.Reason != wantReason {
 		t.Fatalf("reason = %q, want %q", parsed.Reason, wantReason)
+	}
+	if !strings.Contains(parsed.Reason, "M9") ||
+		!strings.Contains(parsed.Reason, "byte-identical") ||
+		!strings.Contains(parsed.Reason, "approved") ||
+		!strings.Contains(parsed.Reason, "relaunch") {
+		t.Fatalf("assembly BLOCKED reason does not name M9 route: %q", parsed.Reason)
+	}
+	if strings.Contains(parsed.Reason, "Revise the contract") {
+		t.Fatalf("assembly BLOCKED reason still advises revising the contract: %q", parsed.Reason)
 	}
 }
 
@@ -880,5 +889,128 @@ func TestTriggeringPlannerReceiptNilAndEmptySummarySafety(t *testing.T) {
 	reason = bootstrapParkReasonForState(assemblyNilReceipt)
 	if reason != wantDefault {
 		t.Fatalf("reason for assembly nil CurrentReceipt = %q, want %q", reason, wantDefault)
+	}
+}
+
+// S3-host-check-failure-facts A5: an assembly verification BLOCKED receipt
+// parks with manager policy M9 advice (byte-identical revision, approved,
+// relaunch), never with the slice revise-the-contract advice. A slice's
+// planner-bound receipt keeps the current advice. The journaled park event
+// and the Status projection agree because both use
+// bootstrapParkReasonForState.
+func TestAssemblyBlockedBootstrapParkAdviceNamesM9(t *testing.T) {
+	t.Parallel()
+	assemblyBlocked := protocol.State{
+		Slices: []*protocol.SliceState{
+			{NextRole: "merge", CurrentReceipt: &protocol.ReceiptEntry{
+				Receipt: protocol.Receipt{Summary: "slice done"},
+			}},
+		},
+		Assembly: protocol.AssemblyState{
+			NextRole: "planner", Outcome: "blocked",
+			CurrentReceipt: &protocol.ReceiptEntry{
+				Receipt: protocol.Receipt{Summary: "assembly BLOCKED: engine gap"},
+			},
+		},
+	}
+	reason := bootstrapParkReasonForState(assemblyBlocked)
+	if !strings.Contains(reason, "M9") ||
+		!strings.Contains(reason, "byte-identical") ||
+		!strings.Contains(reason, "approved") ||
+		!strings.Contains(reason, "relaunch") {
+		t.Fatalf("assembly BLOCKED reason does not name M9 route: %q", reason)
+	}
+	if strings.Contains(reason, "Revise the contract") {
+		t.Fatalf("assembly BLOCKED reason still advises revising the contract: %q", reason)
+	}
+	if !strings.HasPrefix(reason, "assembly BLOCKED: engine gap\n\n") {
+		t.Fatalf("assembly BLOCKED reason does not preserve triggering summary: %q", reason)
+	}
+
+	slicePlanner := protocol.State{
+		Slices: []*protocol.SliceState{
+			{NextRole: "planner", CurrentReceipt: &protocol.ReceiptEntry{
+				Receipt: protocol.Receipt{Summary: "slice needs planner"},
+			}},
+		},
+		Assembly: protocol.AssemblyState{NextRole: "merge", Outcome: "pass"},
+	}
+	reason = bootstrapParkReasonForState(slicePlanner)
+	wantSlice := "slice needs planner\n\n" + bootstrapParkUnblockDirective
+	if reason != wantSlice {
+		t.Fatalf("slice planner reason = %q, want %q", reason, wantSlice)
+	}
+
+	assemblyPlannerWithoutBlocked := protocol.State{
+		Assembly: protocol.AssemblyState{
+			NextRole: "planner", Outcome: "none",
+			CurrentReceipt: &protocol.ReceiptEntry{
+				Receipt: protocol.Receipt{Summary: "assembly needs planner"},
+			},
+		},
+	}
+	reason = bootstrapParkReasonForState(assemblyPlannerWithoutBlocked)
+	wantAssemblyPlan := "assembly needs planner\n\n" + bootstrapParkUnblockDirective
+	if reason != wantAssemblyPlan {
+		t.Fatalf("assembly planner without blocked outcome = %q, want slice directive %q", reason, wantAssemblyPlan)
+	}
+
+	bothPlanner := protocol.State{
+		Slices: []*protocol.SliceState{
+			{NextRole: "planner", CurrentReceipt: &protocol.ReceiptEntry{
+				Receipt: protocol.Receipt{Summary: "slice planner wins"},
+			}},
+		},
+		Assembly: protocol.AssemblyState{
+			NextRole: "planner", Outcome: "blocked",
+			CurrentReceipt: &protocol.ReceiptEntry{
+				Receipt: protocol.Receipt{Summary: "assembly blocked"},
+			},
+		},
+	}
+	reason = bootstrapParkReasonForState(bothPlanner)
+	wantBoth := "slice planner wins\n\n" + bootstrapParkUnblockDirective
+	if reason != wantBoth {
+		t.Fatalf("slice+assembly planner reason = %q, want slice directive %q", reason, wantBoth)
+	}
+}
+
+func TestAssemblyBlockedJournaledParkAndStatusAgreeOnM9(t *testing.T) {
+	t.Parallel()
+	fixture := newDegradationStatusFixture(t)
+	assemblySummary := "Assembly verification BLOCKED on engine gap."
+	passAllSlicesAndBlockAssembly(t, fixture, assemblySummary)
+	if err := fixture.service.driveLoop(fixture.ctx, fixture.engine, fixture.owner, false); err != nil {
+		t.Fatalf("driveLoop error: %v", err)
+	}
+	snapshot, err := fixture.store.Snapshot(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var journaled string
+	for _, event := range snapshot.Events {
+		if event.Kind != ParkEventKind {
+			continue
+		}
+		parsed, parseErr := ParseDegradationParkEvent(event.Body)
+		if parseErr == nil && parsed.Cause == ParkCauseBootstrapAuthority {
+			journaled = parsed.Reason
+		}
+	}
+	if journaled == "" {
+		t.Fatal("no journaled bootstrap-authority park event")
+	}
+	status, err := fixture.service.Status(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Park == nil || status.Park.Cause != ParkCauseBootstrapAuthority {
+		t.Fatalf("status park = %#v, want bootstrap_authority", status.Park)
+	}
+	if status.Park.Reason != journaled {
+		t.Fatalf("status reason %q != journaled reason %q", status.Park.Reason, journaled)
+	}
+	if !strings.Contains(status.Park.Reason, "M9") || strings.Contains(status.Park.Reason, "Revise the contract") {
+		t.Fatalf("agreed reason does not name M9: %q", status.Park.Reason)
 	}
 }

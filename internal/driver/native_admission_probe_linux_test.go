@@ -335,3 +335,140 @@ func TestProbeNativeCredentialLivenessIsANoOpForUnboundOrUnknownRef(t *testing.T
 		t.Fatalf("unknown-ref probe = (%v, %v), want (nil, nil)", body, err)
 	}
 }
+
+// laneProbeNativeTestSelection builds a native SelectedProfile with a real
+// scripted CLI (mirroring nativeAdmissionProbeTestSelection) and an
+// explicit CredentialRef bound to resolve, so probeNativeAdapter
+// (S4-lane-live-probe A2) can be exercised end to end: version identity
+// plus credential liveness, both live.
+func laneProbeNativeTestSelection(
+	t *testing.T,
+	scriptBody string,
+	resolve FileCredentialResolver,
+) SelectedProfile {
+	t.Helper()
+	selected := nativeAdmissionProbeTestSelection(t, scriptBody)
+	native := selected.adapter.(*nativeAdapter)
+	native.resolve = resolve
+	ref := "claude-file"
+	selected.Profile.CredentialRef = &ref
+	return selected
+}
+
+func laneProbeFreshCredentialFile(t *testing.T) string {
+	t.Helper()
+	credential := filepath.Join(t.TempDir(), "credential")
+	future := int64(8_000_000_000_000_000)
+	body := []byte(
+		`{"claudeAiOauth":{"accessToken":"a","expiresAt":` +
+			strconv.FormatInt(future, 10) + `}}`,
+	)
+	if err := os.WriteFile(credential, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return credential
+}
+
+// TestProbeNativeAdapterReadyOnLiveVersionAndFreshCredential pins A2's
+// healthy path: a live CLI plus a positively fresh credential reports
+// ready.
+func TestProbeNativeAdapterReadyOnLiveVersionAndFreshCredential(t *testing.T) {
+	credential := laneProbeFreshCredentialFile(t)
+	selected := laneProbeNativeTestSelection(
+		t, "#!/usr/bin/sh\necho probe-fixture-version\nexit 0\n",
+		func(context.Context, string) (string, error) { return credential, nil },
+	)
+	native := selected.adapter.(*nativeAdapter)
+	ready, code := probeNativeAdapter(
+		context.Background(), native, selected.Profile.CredentialRef,
+	)
+	if !ready || code != laneProbeCodeLivePassed {
+		t.Fatalf("ready = %t, code = %q", ready, code)
+	}
+}
+
+// TestProbeNativeAdapterNotReadyOnDeadPin pins A2's version-identity leg: a
+// CLI that cannot report its exact pinned version reports not ready.
+func TestProbeNativeAdapterNotReadyOnDeadPin(t *testing.T) {
+	selected := laneProbeNativeTestSelection(
+		t, "#!/usr/bin/sh\nexit 7\n",
+		func(context.Context, string) (string, error) {
+			return laneProbeFreshCredentialFile(t), nil
+		},
+	)
+	native := selected.adapter.(*nativeAdapter)
+	ready, code := probeNativeAdapter(
+		context.Background(), native, selected.Profile.CredentialRef,
+	)
+	if ready || code != "native_version_changed" {
+		t.Fatalf("ready = %t, code = %q", ready, code)
+	}
+}
+
+// TestProbeNativeAdapterInvertsAdmissionHonestyForUnevaluableCredential
+// pins A2's deliberate strictness inversion: where dispatch admission and
+// certify treat an unevaluated credential as unproven-not-refused, the
+// probe reports it as not ready rather than shrugging and passing.
+func TestProbeNativeAdapterInvertsAdmissionHonestyForUnevaluableCredential(t *testing.T) {
+	selected := laneProbeNativeTestSelection(
+		t, "#!/usr/bin/sh\necho probe-fixture-version\nexit 0\n",
+		func(context.Context, string) (string, error) {
+			return filepath.Join(t.TempDir(), "does-not-exist"), nil
+		},
+	)
+	native := selected.adapter.(*nativeAdapter)
+	ready, code := probeNativeAdapter(
+		context.Background(), native, selected.Profile.CredentialRef,
+	)
+	if ready || code != "native_credential_preflight_unevaluated" {
+		t.Fatalf("ready = %t, code = %q", ready, code)
+	}
+}
+
+// TestProbeNativeAdapterNotReadyOnStaleCredential pins A2's credential leg:
+// a positively expired credential reports not ready even when the CLI
+// itself is live.
+func TestProbeNativeAdapterNotReadyOnStaleCredential(t *testing.T) {
+	credential := filepath.Join(t.TempDir(), "credential")
+	expired := time.Now().UnixMilli() - 60_000
+	body := []byte(
+		`{"claudeAiOauth":{"accessToken":"a","expiresAt":` +
+			strconv.FormatInt(expired, 10) + `}}`,
+	)
+	if err := os.WriteFile(credential, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	selected := laneProbeNativeTestSelection(
+		t, "#!/usr/bin/sh\necho probe-fixture-version\nexit 0\n",
+		func(context.Context, string) (string, error) { return credential, nil },
+	)
+	native := selected.adapter.(*nativeAdapter)
+	ready, code := probeNativeAdapter(
+		context.Background(), native, selected.Profile.CredentialRef,
+	)
+	if ready || code != "native_credential_stale" {
+		t.Fatalf("ready = %t, code = %q", ready, code)
+	}
+}
+
+// TestProbeNativeAdapterRefusesMissingOrUnknownCredentialRef pins the
+// closed applicability boundary a nil or unregistered CredentialRef hits.
+func TestProbeNativeAdapterRefusesMissingOrUnknownCredentialRef(t *testing.T) {
+	selected := laneProbeNativeTestSelection(
+		t, "#!/usr/bin/sh\necho probe-fixture-version\nexit 0\n",
+		func(context.Context, string) (string, error) {
+			return laneProbeFreshCredentialFile(t), nil
+		},
+	)
+	native := selected.adapter.(*nativeAdapter)
+	if ready, code := probeNativeAdapter(context.Background(), native, nil); ready ||
+		code != "credential_reference_missing" {
+		t.Fatalf("ready = %t, code = %q", ready, code)
+	}
+	unknown := "not-a-registered-ref"
+	if ready, code := probeNativeAdapter(
+		context.Background(), native, &unknown,
+	); ready || code != "credential_reference_unknown" {
+		t.Fatalf("ready = %t, code = %q", ready, code)
+	}
+}

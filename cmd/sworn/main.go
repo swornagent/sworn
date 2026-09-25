@@ -17,6 +17,7 @@ import (
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/gitx"
 	"github.com/swornagent/sworn/internal/journal"
+	"github.com/swornagent/sworn/internal/observe"
 	"github.com/swornagent/sworn/internal/protocol"
 	runtimepkg "github.com/swornagent/sworn/internal/runtime"
 )
@@ -42,6 +43,7 @@ Commands:
   driver    Check configured AI connections.
   skill     Install or upgrade the one supported Sworn agent skill.
   plan      Author a release manifest: pin, lint, or record a plan revision.
+  manifest  Print or write canonical launch inputs.
   version   Show the Sworn version and embedded role-asset identity.
   help      Show this help.
 
@@ -60,10 +62,12 @@ Exact syntax:
   sworn board --run ID --journal ABS [--json]
   sworn serve --run ID --journal ABS [--manifest ABS] [--config ABS] [--operator-config ABS]
   sworn driver inspect|doctor|certify --config ABS (--profile PROFILE --model MODEL | --all) --json
+  sworn driver probe --config ABS --profile PROFILE --model MODEL [--json]
   sworn skill install [--home ABS]
-  sworn plan pin --manifest ABS --project ABS [--commit OID]
+  sworn plan pin --manifest ABS --project ABS [--commit OID] [--write]
   sworn plan lint --manifest ABS --project ABS [--commit OID]
   sworn plan record --manifest ABS --project ABS --summary TEXT [--detail-file ABS] [--commit OID] [--contract-tree OID]
+  sworn manifest canonical (--manifest ABS | --driver-config ABS) [--write]
 `
 
 const (
@@ -105,6 +109,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runSkill(args[1:], stdout, stderr)
 	case "plan":
 		return runPlan(args[1:], stdout, stderr)
+	case "manifest":
+		return runManifest(args[1:], stdout, stderr)
 	case "resume":
 		return runControl(journal.Resume, args[1:], stdout, stderr)
 	case "pause":
@@ -1001,7 +1007,7 @@ func openRuntimeService(
 	}
 	loaded, err := driver.LoadDriverConfig(configPath)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, &driverConfigError{err: err}
 	}
 	factory, err := driver.NewProductionDriverFactory(loaded)
 	if err != nil {
@@ -1019,6 +1025,40 @@ func openRuntimeService(
 	}
 	return service, factory, nil
 }
+
+// driverConfigError marks an error that came from loading the driver config
+// file (--config) through driver.LoadDriverConfig. It unwraps to the
+// underlying admission error so commandErrorCode and commandErrorDetail keep
+// reporting the true code and detail, while isDriverConfigSource lets
+// writeCommandFailure scope the NONCANONICAL_JSON hint to exactly those
+// errors instead of every command that happens to load a config.
+type driverConfigError struct {
+	err error
+}
+
+func (e *driverConfigError) Error() string {
+	if e == nil || e.err == nil {
+		return "driver config unavailable"
+	}
+	return e.err.Error()
+}
+
+func (e *driverConfigError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.err
+}
+
+func isDriverConfigSource(err error) bool {
+	var marked *driverConfigError
+	return errors.As(err, &marked)
+}
+
+const (
+	manifestCanonicalHint = "Run `sworn manifest canonical --manifest ABS` to rewrite it in canonical form."
+	driverCanonicalHint   = "Run `sworn manifest canonical --driver-config ABS` to rewrite it in canonical form."
+)
 
 func resolveGitExecutable() (string, error) {
 	return gitx.ResolveGitExecutable()
@@ -1158,6 +1198,14 @@ func commandErrorDetail(err error) string {
 	if err == nil {
 		return ""
 	}
+	var serveErr *serveInputError
+	if errors.As(err, &serveErr) {
+		return sanitizeErrorDetail(serveInputDetail(serveErr.input))
+	}
+	var operatorErr *operatorConfigError
+	if errors.As(err, &operatorErr) {
+		return sanitizeErrorDetail(operatorErr.reason)
+	}
 	var gitxErr *gitx.Error
 	if errors.As(err, &gitxErr) {
 		var raw string
@@ -1220,39 +1268,60 @@ func writeCommandFailure(
 ) {
 	code := commandErrorCode(err)
 	message := fallback
-	switch code {
-	case "OWNER_TRANSITION_PENDING":
-		if expiry, ok := runtimepkg.OwnerLeaseExpiry(err); ok {
-			remaining := time.Until(expiry).Round(time.Second)
-			if remaining > 0 {
-				message = fmt.Sprintf("The previous Sworn process has not released its owner lease yet. Wait %s for the lease to expire before retrying.", remaining)
+	var serveErr *serveInputError
+	isServe := errors.As(err, &serveErr)
+	if !isServe {
+		switch code {
+		case "OWNER_TRANSITION_PENDING":
+			if expiry, ok := runtimepkg.OwnerLeaseExpiry(err); ok {
+				remaining := time.Until(expiry).Round(time.Second)
+				if remaining > 0 {
+					message = fmt.Sprintf("The previous Sworn process has not released its owner lease yet. Wait %s for the lease to expire before retrying.", remaining)
+				} else {
+					message = "The previous Sworn process has not released its owner lease yet. Wait for the lease to expire before retrying."
+				}
 			} else {
 				message = "The previous Sworn process has not released its owner lease yet. Wait for the lease to expire before retrying."
 			}
-		} else {
-			message = "The previous Sworn process has not released its owner lease yet. Wait for the lease to expire before retrying."
+		case "APPROVAL_PENDING":
+			message = "The plan is waiting for approval."
+		case "RECOVERY_UNCERTAIN":
+			message = "Cannot confirm whether the last external action finished. Recover the run before retrying it."
+		case "EFFECT_PARKED":
+			message = "The work stopped after repeated failures. Review the latest board before retrying."
+		case "RUN_NOT_FOUND", "INVALID_RUN":
+			message = "Could not find that run in the saved record."
+		case "PROTOCOL_UNAVAILABLE":
+			message = "Could not confirm the current release records."
+		case "GIT_UNAVAILABLE":
+			message = "Could not find or use Git."
 		}
-	case "APPROVAL_PENDING":
-		message = "The plan is waiting for approval."
-	case "RECOVERY_UNCERTAIN":
-		message = "Cannot confirm whether the last external action finished. Recover the run before retrying it."
-	case "EFFECT_PARKED":
-		message = "The work stopped after repeated failures. Review the latest board before retrying."
-	case "RUN_NOT_FOUND", "INVALID_RUN":
-		message = "Could not find that run in the saved record."
-	case "PROTOCOL_UNAVAILABLE":
-		message = "Could not confirm the current release records."
-	case "GIT_UNAVAILABLE":
-		message = "Could not find or use Git."
 	}
 	var details []string
-	switch code {
-	case "OWNER_TRANSITION_PENDING", "APPROVAL_PENDING", "RECOVERY_UNCERTAIN",
-		"EFFECT_PARKED", "RUN_NOT_FOUND", "INVALID_RUN", "PROTOCOL_UNAVAILABLE", "GIT_UNAVAILABLE":
-		// Custom messages do not append detail.
-	default:
+	if isServe {
 		if detail := commandErrorDetail(err); detail != "" {
 			details = append(details, detail)
+		}
+	} else {
+		switch code {
+		case "OWNER_TRANSITION_PENDING", "APPROVAL_PENDING", "RECOVERY_UNCERTAIN",
+			"EFFECT_PARKED", "RUN_NOT_FOUND", "INVALID_RUN", "PROTOCOL_UNAVAILABLE", "GIT_UNAVAILABLE":
+			// Custom messages do not append detail.
+		default:
+			if detail := commandErrorDetail(err); detail != "" {
+				details = append(details, detail)
+			}
+		}
+	}
+	if code == "NONCANONICAL_MANIFEST" {
+		details = append(details, manifestCanonicalHint)
+	} else if code == "NONCANONICAL_JSON" && isDriverConfigSource(err) {
+		if isServe {
+			if serveErr.input == serveInputDriverConfig {
+				details = append(details, driverCanonicalHint)
+			}
+		} else {
+			details = append(details, driverCanonicalHint)
 		}
 	}
 	writeKnownFailure(out, command, message, code, details...)
@@ -1282,6 +1351,14 @@ func commandErrorCode(err error) string {
 	var protocolErr *protocol.RecordError
 	if errors.As(err, &protocolErr) {
 		return protocolErr.Code
+	}
+	var operatorErr *operatorConfigError
+	if errors.As(err, &operatorErr) {
+		return operatorErr.Code
+	}
+	var observeErr *observe.Error
+	if errors.As(err, &observeErr) {
+		return observeErr.Code
 	}
 	return ""
 }

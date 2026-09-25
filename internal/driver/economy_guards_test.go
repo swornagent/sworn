@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -440,6 +441,195 @@ func TestOutputBytesWiredToRecordedRequestSurfaces(t *testing.T) {
 	}
 	if !bytes.Contains(request.Body, []byte(`"inferenceConfig":{"maxTokens":65536}`)) {
 		t.Fatalf("bedrock request lacks the output limit: %s", request.Body)
+	}
+}
+
+// TestContextWindowClampLowersOutputCeilingAfterReportedUsage anchors A2's
+// clamp arithmetic on the chat-completions surface: the first request of a
+// dispatch is unaffected (no prior turn to clamp against, byte-identical to
+// an unclamped ceiling), and the request after an accepted turn clamps
+// max_completion_tokens to context_window_tokens - last_input_tokens - the
+// declared safety margin, strictly below the configured ceiling.
+func TestContextWindowClampLowersOutputCeilingAfterReportedUsage(t *testing.T) {
+	t.Parallel()
+	const ceiling = 100_000
+	const window = 50_000
+	chat, err := newOpenAIConversation(
+		"https://provider.example.invalid/chat/completions",
+		"exact-model",
+		toolDefinitions(ReadWrite),
+		[]byte(`{}`),
+		providerDialectOpenAIChat,
+		"",
+		ceiling,
+		window,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer chat.close()
+	first, err := chat.request()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(first.Body, []byte(`"max_completion_tokens":100000`)) {
+		t.Fatalf("first request clamped before any turn reported usage: %s", first.Body)
+	}
+	if _, err := chat.accept([]byte(
+		`{"choices":[{"message":{"role":"assistant","content":"chosen."},` +
+			`"finish_reason":"stop"}],"usage":{"prompt_tokens":20000,"completion_tokens":5}}`,
+	)); err != nil {
+		t.Fatal(err)
+	}
+	second, err := chat.request()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// room = 50000 - 20000 - 1024 (margin) = 28976, below the 100000 ceiling.
+	if !bytes.Contains(second.Body, []byte(`"max_completion_tokens":28976`)) {
+		t.Fatalf("second request = %s, want max_completion_tokens:28976", second.Body)
+	}
+}
+
+// TestContextWindowClampAppliesToResponsesSurface anchors the identical
+// arithmetic on the responses surface, and that a ceiling stricter than the
+// clamped room stays unchanged (the clamp only ever lowers, never raises).
+func TestContextWindowClampAppliesToResponsesSurface(t *testing.T) {
+	t.Parallel()
+	const ceiling = 10_000
+	const window = 50_000
+	responses, err := newResponsesConversation(
+		"https://provider.example.invalid/v1/responses",
+		"exact-model",
+		toolDefinitions(ReadWrite),
+		[]byte(`{}`),
+		"medium",
+		nil,
+		false,
+		providerDialectOpenAIResponses,
+		ceiling,
+		window,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer responses.close()
+	first, err := responses.request()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(first.Body, []byte(`"max_output_tokens":10000`)) {
+		t.Fatalf("first request clamped before any turn reported usage: %s", first.Body)
+	}
+	if _, err := responses.accept([]byte(
+		`{"id":"r","object":"response","status":"completed","error":null,"output":[` +
+			`{"type":"message","role":"assistant","status":"completed",` +
+			`"content":[{"type":"output_text","text":"ok"}]}],` +
+			`"usage":{"input_tokens":20000,"output_tokens":5,"total_tokens":20005}}`,
+	)); err != nil {
+		t.Fatal(err)
+	}
+	second, err := responses.request()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// room = 50000 - 20000 - 1024 = 28976, above the 10000 ceiling: the
+	// ceiling stays the stricter, unchanged value.
+	if !bytes.Contains(second.Body, []byte(`"max_output_tokens":10000`)) {
+		t.Fatalf("second request = %s, want the unchanged ceiling max_output_tokens:10000", second.Body)
+	}
+}
+
+// TestContextWindowUnsetFieldRequestsStayByteIdentical anchors A2's
+// constraint that an unset context_window_tokens leaves the sent output
+// ceiling exactly today's configured value, even after a turn reports a
+// huge input-token usage that would otherwise force a deep clamp: the
+// clamp helper is disabled entirely, not merely never triggered by chance.
+// (The request body as a whole necessarily grows turn to turn - each
+// accepted turn appends its own message - so the ceiling field alone, not
+// the full body, is the byte-identical fact this constraint names.)
+func TestContextWindowUnsetFieldRequestsStayByteIdentical(t *testing.T) {
+	t.Parallel()
+	chat, err := newOpenAIConversation(
+		"https://provider.example.invalid/chat/completions",
+		"exact-model",
+		toolDefinitions(ReadWrite),
+		[]byte(`{}`),
+		providerDialectOpenAIChat,
+		"",
+		65_536,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer chat.close()
+	first, err := chat.request()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(first.Body, []byte(`"max_completion_tokens":65536`)) {
+		t.Fatalf("first request = %s, want max_completion_tokens:65536", first.Body)
+	}
+	if _, err := chat.accept([]byte(
+		`{"choices":[{"message":{"role":"assistant","content":"chosen."},` +
+			`"finish_reason":"stop"}],"usage":{"prompt_tokens":999999,"completion_tokens":5}}`,
+	)); err != nil {
+		t.Fatal(err)
+	}
+	second, err := chat.request()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(second.Body, []byte(`"max_completion_tokens":65536`)) {
+		t.Fatalf("second request = %s, want the unchanged max_completion_tokens:65536 (clamp disabled)", second.Body)
+	}
+}
+
+// TestContextWindowClampRefusesRequestBelowMinimalOutput anchors A3: when
+// the room left cannot fit the declared minimal output, request() refuses
+// before sending, with the typed code and a detail naming the window, the
+// last input tokens, and the ceiling.
+func TestContextWindowClampRefusesRequestBelowMinimalOutput(t *testing.T) {
+	t.Parallel()
+	const ceiling = 100_000
+	const window = 50_000
+	chat, err := newOpenAIConversation(
+		"https://provider.example.invalid/chat/completions",
+		"exact-model",
+		toolDefinitions(ReadWrite),
+		[]byte(`{}`),
+		providerDialectOpenAIChat,
+		"",
+		ceiling,
+		window,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer chat.close()
+	if _, err := chat.accept([]byte(
+		`{"choices":[{"message":{"role":"assistant","content":"chosen."},` +
+			`"finish_reason":"stop"}],"usage":{"prompt_tokens":49900,"completion_tokens":5}}`,
+	)); err != nil {
+		t.Fatal(err)
+	}
+	_, requestErr := chat.request()
+	if !IsCode(requestErr, "ECONOMY_CONTEXT_EXHAUSTED") {
+		t.Fatalf("error = %v, want ECONOMY_CONTEXT_EXHAUSTED", requestErr)
+	}
+	var contractErr *ContractError
+	if !errors.As(requestErr, &contractErr) {
+		t.Fatal("error is not a *ContractError")
+	}
+	for _, want := range []string{
+		"context_window_tokens=50000", "last_input_tokens=49900", "ceiling=100000", "fix:",
+	} {
+		if !strings.Contains(contractErr.Detail, want) {
+			t.Fatalf("detail = %q, want it to contain %q", contractErr.Detail, want)
+		}
+	}
+	if validateText(contractErr.Detail, maxProviderErrorDetailBytes, false) != nil {
+		t.Fatalf("detail fails the bounded provider-detail validation: %q", contractErr.Detail)
 	}
 }
 

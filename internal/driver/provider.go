@@ -91,21 +91,31 @@ type providerConversationFactory func(
 	limits Limits,
 ) (providerConversation, error)
 
-// optionalOutputLimit reads the optional trailing output-limit argument the
-// conversation constructors accept: absent means zero (the field is omitted
-// from every request surface), and a present value must stay inside the same
-// bound ValidateRequest already enforces on Limits.OutputBytes.
-func optionalOutputLimit(values []int64) (int64, error) {
+// optionalOutputLimits reads the optional trailing output-limit arguments
+// the conversation constructors accept: zero values means both zero (the
+// output-ceiling field is omitted from every request surface and the
+// context-window clamp is disabled, exactly as before this feature); one
+// value is the configured output ceiling alone, bounds-checked exactly as
+// before; a second value is the profile's declared context window
+// (S6-context-window-clamp A1), already bounds-checked at admission by
+// newHTTPTransport, so only the same shared bound is re-asserted here.
+func optionalOutputLimits(values []int64) (ceiling, contextWindowTokens int64, err error) {
 	switch len(values) {
 	case 0:
-		return 0, nil
+		return 0, 0, nil
 	case 1:
 		if values[0] < 0 || values[0] > MaxProviderOutputBytes {
-			return 0, fail("INVALID_ADAPTER")
+			return 0, 0, fail("INVALID_ADAPTER")
 		}
-		return values[0], nil
+		return values[0], 0, nil
+	case 2:
+		if values[0] < 0 || values[0] > MaxProviderOutputBytes ||
+			values[1] < 0 || values[1] > MaxContextWindowTokensLimit {
+			return 0, 0, fail("INVALID_ADAPTER")
+		}
+		return values[0], values[1], nil
 	default:
-		return 0, fail("INVALID_ADAPTER")
+		return 0, 0, fail("INVALID_ADAPTER")
 	}
 }
 
@@ -193,6 +203,13 @@ type loopAdapter struct {
 	// quota; zero disables proactive pacing (reactive 429 pacing always
 	// applies).
 	pacingCap int64
+	// reasoningEffort is the OpenAI-family adapter's configured reasoning
+	// effort, set only for the responses dialects (where it is admission-
+	// required) and read only by the lane probe (S4-lane-live-probe) to
+	// build a minimal request the provider will not reject for a missing
+	// reasoning block; dispatch itself keeps reading it from the
+	// conversation factory's own closure, unchanged.
+	reasoningEffort string
 }
 
 func newLoopAdapter(
@@ -449,6 +466,9 @@ func (adapter *loopAdapter) resumeProviderContinuation(
 		return Observation{}, nil, failContinuation("continuation.provider.resume_conversation_failed")
 	}
 	request, err := state.conversation.request()
+	if IsCode(err, "ECONOMY_CONTEXT_EXHAUSTED") {
+		return Observation{}, nil, err
+	}
 	if err != nil || len(request.Body) < 1 ||
 		len(request.Body) > MaxProviderRequestBytes {
 		clearBytes(request.Body)
@@ -581,6 +601,9 @@ func (adapter *loopAdapter) runConversation(
 		} else {
 			request, err = conversation.request()
 		}
+		if IsCode(err, "ECONOMY_CONTEXT_EXHAUSTED") {
+			return Observation{}, nil, err
+		}
 		if err != nil || len(request.Body) > MaxProviderRequestBytes {
 			clearBytes(request.Body)
 			liveStream.driverError("request-build", err)
@@ -648,6 +671,7 @@ func (adapter *loopAdapter) runConversation(
 			}
 			usageAvailable = true
 			pacer.record(providerTurn.Usage.InputTokens, time.Now())
+			session.noteReportedInputTokens(providerTurn.Usage.InputTokens)
 		}
 		if err := addTurnCost(&totalCost, providerTurn.Cost); err != nil {
 			return Observation{}, nil, err

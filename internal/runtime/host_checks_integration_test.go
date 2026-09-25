@@ -641,3 +641,520 @@ func (fixture *hostCheckFixture) commandPayload(t *testing.T, effectID string) [
 	t.Fatalf("no check.host command journaled for %s", effectID)
 	return nil
 }
+
+func recordFixtureManifestCommand(t *testing.T, fixture *hostCheckFixture) {
+	t.Helper()
+	if err := fixture.store.RecordCommand(fixture.ctx, journal.Command{
+		RunID: fixture.manifest.value.RunID, ReplayKey: "manifest", Kind: "start",
+		Payload: fixture.manifest.raw, CreatedAt: fixture.service.now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func buildRepairFromHostResult(t *testing.T, fixture *hostCheckFixture, result hostCheckResult, epoch, try int64) productionHostRepair {
+	t.Helper()
+	invocationID := fixture.manifest.value.RunID + "/S1/implementer_implementation/1/" + fmt.Sprintf("%d", epoch) + "/" + fmt.Sprintf("%d", try)
+	checks, err := driver.NewCheckBytes([]byte("test checks\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repair := productionHostRepair{
+		SchemaVersion: hostRepairVersion,
+		Before:        "sha256:" + strings.Repeat("a", 64),
+		Plan:          fixture.state.Plan.OID,
+		PreparedBase:  fixture.candidate,
+		ProductTree:   "sha256:" + strings.Repeat("b", 64),
+		SourceEpoch:   epoch, SourceTry: try,
+		Submission: driver.Submission{
+			SchemaVersion:  driver.SubmissionSchemaVersion,
+			InvocationID:   invocationID,
+			Responsibility: driver.ImplementerImplementation,
+			Summary:        "Test submission.",
+			Detail:         "Test detail.",
+			Checks:         checks,
+		},
+		FailedCheck: result,
+	}
+	if err := validateHostRepair(repair, invocationID, "S1"); err != nil {
+		t.Fatalf("test repair does not validate: %v", err)
+	}
+	return repair
+}
+
+func journalHostFailedDispatchForFact(t *testing.T, fixture *hostCheckFixture, work string, epoch, try int64, repair productionHostRepair) string {
+	t.Helper()
+	effectID := journal.AttemptEffectID(work, epoch, try)
+	payload := mustJSON(map[string]string{"work": work})
+	if err := fixture.store.RecordCommandEffect(fixture.ctx, journal.Command{
+		RunID: fixture.manifest.value.RunID, ReplayKey: effectID, Kind: "driver.dispatch",
+		Payload: payload, CreatedAt: fixture.service.now().UTC(),
+	}, journal.Effect{
+		RunID: fixture.manifest.value.RunID, ID: effectID, ReplayKey: effectID,
+		Kind: "driver.dispatch", State: journal.Pending,
+		BeforeDigest: sha256Digest(payload), ExpectedDigest: "sha256:" + strings.Repeat("d", 64),
+		UpdatedAt: fixture.service.now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	claim, err := fixture.store.Claim(fixture.ctx, fixture.manifest.value.RunID, effectID, fixture.service.now().UTC(), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.store.Complete(fixture.ctx, journal.Completion{
+		RunID: fixture.manifest.value.RunID, EffectID: effectID, Token: claim.Token,
+		State: journal.OperationalFailed, ErrorCode: "HOST_CHECK_FAILED",
+		Result:    mustJSON(repair),
+		EventKind: "dispatch_operational_failure", EventBody: []byte("{}"), At: fixture.service.now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return effectID
+}
+
+// S3-host-check-failure-facts A1: for the latest failed host check of a
+// work, the status projection carries one bounded fact with the declared
+// command, outcome and exit, rerun linkage, phase-ordered not-run checks
+// and the excerpt from the stored result.
+func TestHostCheckFailureFactDerivesCommandExitRerunNotRunExcerpt(t *testing.T) {
+	first := "printf 'first ok\\n'"
+	failing := "echo 'one.txt needs repair'; exit 7"
+	third := "printf 'third\\n'"
+	fixture := newHostCheckFixture(t, []string{first, failing, third})
+	_, err := fixture.service.runHostChecks(
+		fixture.ctx, fixture.engine, fixture.owner, fixture.plan,
+		"S1", fixture.candidate, fixture.targetHead, fixture.releaseHead)
+	var failure *hostCheckFailure
+	if !errors.As(err, &failure) || failure.result.Check != failing {
+		t.Fatalf("expected failure on %q, got %#v %v", failing, failure, err)
+	}
+	work := "sha256:" + strings.Repeat("c", 64)
+	repair := buildRepairFromHostResult(t, fixture, failure.result, 1, 1)
+	dispatchID := journalHostFailedDispatchForFact(t, fixture, work, 1, 1, repair)
+	snapshot, err := fixture.store.Snapshot(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := func(sliceID string) ([]string, string, bool) {
+		if sliceID != "S1" {
+			return nil, "", false
+		}
+		return fixture.hostChecks, fixture.contractDgst, true
+	}
+	facts := hostCheckFailureFactsForSnapshot(snapshot, resolver)
+	fact := facts[dispatchID]
+	if fact == nil {
+		t.Fatalf("no fact for %s (facts %v)", dispatchID, facts)
+	}
+	if fact.SchemaVersion != HostCheckFailureFactSchemaVersion {
+		t.Fatalf("schema = %q", fact.SchemaVersion)
+	}
+	if fact.Check != failing {
+		t.Fatalf("check = %q, want %q", fact.Check, failing)
+	}
+	if fact.Outcome != protocol.CheckOutcomeFail || fact.ExitCode != 7 {
+		t.Fatalf("outcome/exit = %q/%d", fact.Outcome, fact.ExitCode)
+	}
+	if fact.Reran {
+		t.Fatalf("reran = true, want false (no re-execution yet)")
+	}
+	if fact.RerunOutcome != "" || fact.RerunExitCode != nil || fact.RerunEffect != "" {
+		t.Fatalf("rerun fields set without re-execution: %#v", fact)
+	}
+	if fact.NotRunUnknown || len(fact.NotRun) != 1 || fact.NotRun[0] != third {
+		t.Fatalf("not_run = %v unknown=%v, want [%q]", fact.NotRun, fact.NotRunUnknown, third)
+	}
+	wantExcerpt, wantTruncated := hostOutputExcerpt(failure.result.Output, failure.result.Truncated)
+	if fact.Excerpt != wantExcerpt || fact.ExcerptTruncated != wantTruncated {
+		t.Fatalf("excerpt = %q/%v, want %q/%v", fact.Excerpt, fact.ExcerptTruncated, wantExcerpt, wantTruncated)
+	}
+	if !strings.Contains(fact.Excerpt, "one.txt needs repair") {
+		t.Fatalf("excerpt does not carry stored output: %q", fact.Excerpt)
+	}
+	if fact.OutputDigest != failure.result.OutputDigest {
+		t.Fatalf("output_digest = %q, want %q", fact.OutputDigest, failure.result.OutputDigest)
+	}
+	if fact.HostEffect != failure.result.EffectID {
+		t.Fatalf("host_effect = %q, want %q", fact.HostEffect, failure.result.EffectID)
+	}
+	if fact.Candidate != fixture.candidate || fact.ContractDigest != fixture.contractDgst {
+		t.Fatalf("candidate/contract = %q/%q", fact.Candidate, fact.ContractDigest)
+	}
+	body, _ := json.Marshal(fact)
+	if len(body) > HostCheckFailureFactMaxBytes {
+		t.Fatalf("fact len %d exceeds %d", len(body), HostCheckFailureFactMaxBytes)
+	}
+	// Old journals (no repair, unparsable) report absent, never corrupt.
+	emptyWork := "sha256:" + strings.Repeat("e", 64)
+	emptyID := journal.AttemptEffectID(emptyWork, 1, 1)
+	payload := mustJSON(map[string]string{"work": emptyWork})
+	if err := fixture.store.RecordCommandEffect(fixture.ctx, journal.Command{
+		RunID: fixture.manifest.value.RunID, ReplayKey: emptyID, Kind: "driver.dispatch",
+		Payload: payload, CreatedAt: fixture.service.now().UTC(),
+	}, journal.Effect{
+		RunID: fixture.manifest.value.RunID, ID: emptyID, ReplayKey: emptyID,
+		Kind: "driver.dispatch", State: journal.Pending,
+		BeforeDigest: sha256Digest(payload), ExpectedDigest: "sha256:" + strings.Repeat("d", 64),
+		UpdatedAt: fixture.service.now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	claim, err := fixture.store.Claim(fixture.ctx, fixture.manifest.value.RunID, emptyID, fixture.service.now().UTC(), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.store.Complete(fixture.ctx, journal.Completion{
+		RunID: fixture.manifest.value.RunID, EffectID: emptyID, Token: claim.Token,
+		State: journal.OperationalFailed, ErrorCode: "HOST_CHECK_FAILED",
+		EventKind: "dispatch_operational_failure", EventBody: []byte("{}"), At: fixture.service.now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err = fixture.store.Snapshot(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts = hostCheckFailureFactsForSnapshot(snapshot, resolver)
+	if _, found := facts[emptyID]; found {
+		t.Fatal("empty repair produced a fact, want absent")
+	}
+}
+
+// S3 A1 re-execution direction, both ways: a stored FailedCheck that is
+// itself the re-execution result reads the first execution through RerunOf,
+// and a first-execution FailedCheck with a succeeded re-execution in the
+// snapshot reports it, without confusing the two outcomes.
+func TestHostCheckFailureFactRerunBothDirections(t *testing.T) {
+	counter := filepath.Join(t.TempDir(), "runs")
+	check := countingHostCheck(counter, 0, "")
+	fixture := newHostCheckFixture(t, []string{check})
+	run := func() *hostCheckFailure {
+		_, err := fixture.service.runHostChecks(
+			fixture.ctx, fixture.engine, fixture.owner, fixture.plan,
+			"S1", fixture.candidate, fixture.targetHead, fixture.releaseHead)
+		var failure *hostCheckFailure
+		if !errors.As(err, &failure) {
+			t.Fatalf("expected HOST_CHECK_FAILED, got %v", err)
+		}
+		return failure
+	}
+	firstFailure := run()
+	if firstFailure.result.RerunOf != "" {
+		t.Fatalf("first failure carries RerunOf: %#v", firstFailure.result)
+	}
+	rerunFailure := run()
+	if rerunFailure.result.RerunOf == "" {
+		t.Fatalf("second failure is not a re-execution: %#v", rerunFailure.result)
+	}
+	if rerunFailure.result.RerunOf != firstFailure.result.EffectID {
+		t.Fatalf("rerun RerunOf %q != first effect %q", rerunFailure.result.RerunOf, firstFailure.result.EffectID)
+	}
+	resolver := func(sliceID string) ([]string, string, bool) {
+		if sliceID != "S1" {
+			return nil, "", false
+		}
+		return fixture.hostChecks, fixture.contractDgst, true
+	}
+	// FailedCheck is the re-execution result.
+	rerunWork := "sha256:" + strings.Repeat("c", 64)
+	rerunRepair := buildRepairFromHostResult(t, fixture, rerunFailure.result, 1, 2)
+	rerunDispatchID := journalHostFailedDispatchForFact(t, fixture, rerunWork, 1, 2, rerunRepair)
+	snapshot, err := fixture.store.Snapshot(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts := hostCheckFailureFactsForSnapshot(snapshot, resolver)
+	fact := facts[rerunDispatchID]
+	if fact == nil {
+		t.Fatalf("no fact for rerun dispatch %s", rerunDispatchID)
+	}
+	if !fact.Reran {
+		t.Fatal("reran = false for stored re-execution, want true")
+	}
+	if fact.Outcome != firstFailure.result.Outcome || fact.ExitCode != firstFailure.result.ExitCode {
+		t.Fatalf("first outcome/exit = %q/%d, want %q/%d", fact.Outcome, fact.ExitCode, firstFailure.result.Outcome, firstFailure.result.ExitCode)
+	}
+	if fact.RerunOutcome != rerunFailure.result.Outcome || fact.RerunExitCode == nil || *fact.RerunExitCode != rerunFailure.result.ExitCode {
+		t.Fatalf("rerun outcome/exit = %q/%v, want %q/%d", fact.RerunOutcome, fact.RerunExitCode, rerunFailure.result.Outcome, rerunFailure.result.ExitCode)
+	}
+	if fact.HostEffect != firstFailure.result.EffectID || fact.RerunEffect != rerunFailure.result.EffectID {
+		t.Fatalf("host/rerun effects = %q/%q", fact.HostEffect, fact.RerunEffect)
+	}
+	wantExcerpt, _ := hostOutputExcerpt(rerunFailure.result.Output, rerunFailure.result.Truncated)
+	if fact.Excerpt != wantExcerpt {
+		t.Fatal("excerpt is not from the stored re-execution result")
+	}
+	// FailedCheck is the first execution, with the succeeded re-execution
+	// already in the snapshot.
+	firstWork := "sha256:" + strings.Repeat("d", 64)
+	firstRepair := buildRepairFromHostResult(t, fixture, firstFailure.result, 1, 1)
+	firstDispatchID := journalHostFailedDispatchForFact(t, fixture, firstWork, 1, 1, firstRepair)
+	snapshot, err = fixture.store.Snapshot(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts = hostCheckFailureFactsForSnapshot(snapshot, resolver)
+	firstFact := facts[firstDispatchID]
+	if firstFact == nil {
+		t.Fatalf("no fact for first dispatch %s", firstDispatchID)
+	}
+	if !firstFact.Reran {
+		t.Fatal("reran = false for first with succeeded re-execution in snapshot, want true")
+	}
+	if firstFact.Outcome != firstFailure.result.Outcome {
+		t.Fatalf("first outcome = %q", firstFact.Outcome)
+	}
+	if firstFact.RerunOutcome != rerunFailure.result.Outcome {
+		t.Fatalf("rerun outcome = %q, want %q", firstFact.RerunOutcome, rerunFailure.result.Outcome)
+	}
+}
+
+// S3 A1 not-run derivation and contract binding: not_run is the checks
+// after the failed check's position in the phase order the engine used,
+// resolved only when the plan contract equals the stored digest and
+// contains the failed check; otherwise it is absent and marked unknown,
+// and a resolution error never fails Status.
+func TestHostCheckFailureFactNotRunPhaseOrderAndContractBinding(t *testing.T) {
+	quickPass := "printf 'quick pass\\n'"
+	quickFail := "false"
+	quickAfter := "printf 'quick after\\n'"
+	longSuite := "GOFLAGS=-buildvcs=false go test -count=1 ./..."
+	fixture := newHostCheckFixture(t, []string{longSuite, quickPass, quickFail, quickAfter})
+	_, err := fixture.service.runHostChecks(
+		fixture.ctx, fixture.engine, fixture.owner, fixture.plan,
+		"S1", fixture.candidate, fixture.targetHead, fixture.releaseHead)
+	var failure *hostCheckFailure
+	if !errors.As(err, &failure) || failure.result.Check != quickFail {
+		t.Fatalf("expected failure on quick check, got %#v %v", failure, err)
+	}
+	work := "sha256:" + strings.Repeat("c", 64)
+	repair := buildRepairFromHostResult(t, fixture, failure.result, 1, 1)
+	dispatchID := journalHostFailedDispatchForFact(t, fixture, work, 1, 1, repair)
+	snapshot, err := fixture.store.Snapshot(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	phaseResolver := func(sliceID string) ([]string, string, bool) {
+		if sliceID != "S1" {
+			return nil, "", false
+		}
+		return fixture.hostChecks, fixture.contractDgst, true
+	}
+	facts := hostCheckFailureFactsForSnapshot(snapshot, phaseResolver)
+	fact := facts[dispatchID]
+	if fact == nil {
+		t.Fatal("no fact for phase-ordered failure")
+	}
+	wantNotRun := []string{quickAfter, longSuite}
+	if fact.NotRunUnknown || len(fact.NotRun) != len(wantNotRun) {
+		t.Fatalf("not_run = %v unknown=%v, want %v", fact.NotRun, fact.NotRunUnknown, wantNotRun)
+	}
+	for index := range wantNotRun {
+		if fact.NotRun[index] != wantNotRun[index] {
+			t.Fatalf("not_run = %v, want %v", fact.NotRun, wantNotRun)
+		}
+	}
+	// A different contract digest never guesses.
+	wrongDigest := func(sliceID string) ([]string, string, bool) {
+		return fixture.hostChecks, "sha256:" + strings.Repeat("9", 64), true
+	}
+	facts = hostCheckFailureFactsForSnapshot(snapshot, wrongDigest)
+	fact = facts[dispatchID]
+	if fact == nil || !fact.NotRunUnknown || len(fact.NotRun) != 0 {
+		t.Fatalf("wrong-digest not_run = %v unknown=%v, want unknown", fact.NotRun, fact.NotRunUnknown)
+	}
+	// A contract that does not contain the failed check never guesses.
+	missingCheck := func(sliceID string) ([]string, string, bool) {
+		return []string{quickPass, quickAfter}, fixture.contractDgst, true
+	}
+	facts = hostCheckFailureFactsForSnapshot(snapshot, missingCheck)
+	fact = facts[dispatchID]
+	if fact == nil || !fact.NotRunUnknown {
+		t.Fatalf("missing-check not_run = %v unknown=%v, want unknown", fact.NotRun, fact.NotRunUnknown)
+	}
+	// A resolution error reports unknown, never corrupt and never fails.
+	failingResolver := func(sliceID string) ([]string, string, bool) {
+		return nil, "", false
+	}
+	facts = hostCheckFailureFactsForSnapshot(snapshot, failingResolver)
+	fact = facts[dispatchID]
+	if fact == nil || !fact.NotRunUnknown {
+		t.Fatalf("unresolved not_run = %v unknown=%v, want unknown", fact.NotRun, fact.NotRunUnknown)
+	}
+	if fact.Check != quickFail || fact.Outcome != protocol.CheckOutcomeFail {
+		t.Fatalf("unresolved fact lost check/outcome: %#v", fact)
+	}
+}
+
+// S3 A3: each check.host effect in the projection reports the check's
+// outcome beside the effect state, so an executed-and-failed check no
+// longer reads only as succeeded. Journal effect states are unchanged.
+func TestCheckHostEffectReportsOutcomeBesideState(t *testing.T) {
+	passing := "printf 'pass\\n'"
+	failing := "exit 7"
+	fixture := newHostCheckFixture(t, []string{passing, failing})
+	_, err := fixture.service.runHostChecks(
+		fixture.ctx, fixture.engine, fixture.owner, fixture.plan,
+		"S1", fixture.candidate, fixture.targetHead, fixture.releaseHead)
+	if !IsCode(err, "HOST_CHECK_FAILED") {
+		t.Fatalf("expected HOST_CHECK_FAILED, got %v", err)
+	}
+	recordFixtureManifestCommand(t, fixture)
+	status, err := fixture.service.Status(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := make(map[string]EffectStatus, len(status.Effects))
+	for _, effect := range status.Effects {
+		byID[effect.ID] = effect
+	}
+	passWork := hostCheckWork("S1", fixture.candidate, fixture.contractDgst, passing)
+	failWork := hostCheckWork("S1", fixture.candidate, fixture.contractDgst, failing)
+	passStatus, ok := byID[hostCheckEffectID(passWork)]
+	if !ok {
+		t.Fatalf("no status for passing check.host effect (effects %v)", status.Effects)
+	}
+	if passStatus.State != string(journal.Succeeded) || passStatus.CheckOutcome != protocol.CheckOutcomePass {
+		t.Fatalf("passing check status = %#v, want state succeeded + outcome pass", passStatus)
+	}
+	failStatus, ok := byID[hostCheckEffectID(failWork)]
+	if !ok {
+		t.Fatalf("no status for failing check.host effect")
+	}
+	if failStatus.State != string(journal.Succeeded) || failStatus.CheckOutcome != protocol.CheckOutcomeFail {
+		t.Fatalf("failing check status = %#v, want state succeeded + outcome fail", failStatus)
+	}
+	snapshot, err := fixture.store.Snapshot(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, effect := range snapshot.Effects {
+		if effect.Kind != "check.host" {
+			continue
+		}
+		if effect.State != journal.Succeeded {
+			t.Fatalf("journal check.host state changed: %#v", effect)
+		}
+	}
+	// Timeout and overflow variants, plus an assembly (slice "") effect,
+	// bind through the journaled command payload the same way.
+	timeoutWork := hostCheckWork("S1", fixture.candidate, fixture.contractDgst, "timeout-check")
+	timeoutCommand := hostCheckCommand{
+		SchemaVersion: hostCheckSchemaVersion, Slice: "S1",
+		Candidate: fixture.candidate, ContractDigest: fixture.contractDgst,
+		Check: "timeout-check", OutputBytes: hostCheckOutputBytes, TimeoutMillis: 1000,
+	}
+	timeoutResult := hostCheckResult{
+		Slice: "S1", Candidate: fixture.candidate, ContractDigest: fixture.contractDgst,
+		Check: "timeout-check", Outcome: protocol.CheckOutcomeTimeout, ExitCode: -1,
+		Output: "timed out", OutputDigest: protocol.DigestBytes([]byte("timed out")),
+		EffectID: hostCheckEffectID(timeoutWork),
+	}
+	journalDirectHostEffect(t, fixture, timeoutWork, timeoutCommand, timeoutResult)
+	overflowWork := hostCheckWork("S1", fixture.candidate, fixture.contractDgst, "overflow-check")
+	overflowCommand := hostCheckCommand{
+		SchemaVersion: hostCheckSchemaVersion, Slice: "S1",
+		Candidate: fixture.candidate, ContractDigest: fixture.contractDgst,
+		Check: "overflow-check", OutputBytes: hostCheckOutputBytes, TimeoutMillis: 1000,
+	}
+	overflowResult := hostCheckResult{
+		Slice: "S1", Candidate: fixture.candidate, ContractDigest: fixture.contractDgst,
+		Check: "overflow-check", Outcome: protocol.CheckOutcomeOverflow, ExitCode: 0,
+		Output: "overflowed", OutputDigest: protocol.DigestBytes([]byte("overflowed")),
+		EffectID: hostCheckEffectID(overflowWork),
+	}
+	journalDirectHostEffect(t, fixture, overflowWork, overflowCommand, overflowResult)
+	assemblyWork := assemblyHostCheckWork(fixture.candidate, fixture.contractDgst, "assembly-check")
+	assemblyCommand := hostCheckCommand{
+		SchemaVersion: hostCheckSchemaVersion, Slice: "",
+		Candidate: fixture.candidate, ContractDigest: fixture.contractDgst,
+		Check: "assembly-check", OutputBytes: hostCheckOutputBytes, TimeoutMillis: 1000,
+	}
+	assemblyResult := hostCheckResult{
+		Slice: "", Candidate: fixture.candidate, ContractDigest: fixture.contractDgst,
+		Check: "assembly-check", Outcome: protocol.CheckOutcomeFail, ExitCode: 3,
+		Output: "assembly failed", OutputDigest: protocol.DigestBytes([]byte("assembly failed")),
+		EffectID: hostCheckEffectID(assemblyWork),
+	}
+	journalDirectHostEffect(t, fixture, assemblyWork, assemblyCommand, assemblyResult)
+	status, err = fixture.service.Status(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID = make(map[string]EffectStatus, len(status.Effects))
+	for _, effect := range status.Effects {
+		byID[effect.ID] = effect
+	}
+	if got := byID[hostCheckEffectID(timeoutWork)].CheckOutcome; got != protocol.CheckOutcomeTimeout {
+		t.Fatalf("timeout check outcome = %q", got)
+	}
+	if got := byID[hostCheckEffectID(overflowWork)].CheckOutcome; got != protocol.CheckOutcomeOverflow {
+		t.Fatalf("overflow check outcome = %q", got)
+	}
+	if got := byID[hostCheckEffectID(assemblyWork)].CheckOutcome; got != protocol.CheckOutcomeFail {
+		t.Fatalf("assembly check outcome = %q, want fail", got)
+	}
+	// A binding mismatch leaves the outcome absent, never corrupt.
+	mismatchWork := hostCheckWork("S1", fixture.candidate, fixture.contractDgst, "mismatch-check")
+	mismatchCommand := hostCheckCommand{
+		SchemaVersion: hostCheckSchemaVersion, Slice: "S1",
+		Candidate: fixture.candidate, ContractDigest: fixture.contractDgst,
+		Check: "other-check", OutputBytes: hostCheckOutputBytes, TimeoutMillis: 1000,
+	}
+	mismatchResult := hostCheckResult{
+		Slice: "S1", Candidate: fixture.candidate, ContractDigest: fixture.contractDgst,
+		Check: "mismatch-check", Outcome: protocol.CheckOutcomeFail, ExitCode: 1,
+		Output: "mismatch", OutputDigest: protocol.DigestBytes([]byte("mismatch")),
+		EffectID: hostCheckEffectID(mismatchWork),
+	}
+	journalDirectHostEffect(t, fixture, mismatchWork, mismatchCommand, mismatchResult)
+	status, err = fixture.service.Status(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID = make(map[string]EffectStatus, len(status.Effects))
+	for _, effect := range status.Effects {
+		byID[effect.ID] = effect
+	}
+	if got := byID[hostCheckEffectID(mismatchWork)].CheckOutcome; got != "" {
+		t.Fatalf("mismatched check outcome = %q, want absent", got)
+	}
+}
+
+func journalDirectHostEffect(t *testing.T, fixture *hostCheckFixture, work string, command hostCheckCommand, result hostCheckResult) {
+	t.Helper()
+	effectID := hostCheckEffectID(work)
+	payload := mustJSON(command)
+	body := mustJSON(result)
+	now := fixture.service.now().UTC()
+	if err := fixture.store.EnsureAttempt(fixture.ctx,
+		journal.Command{RunID: fixture.manifest.value.RunID, ReplayKey: effectID,
+			Kind: "check.host", Payload: payload, CreatedAt: now},
+		journal.Effect{RunID: fixture.manifest.value.RunID, ID: effectID, ReplayKey: effectID,
+			Kind: "check.host", BeforeDigest: work,
+			ExpectedDigest: sha256Digest(payload), UpdatedAt: now},
+		journal.EffectAttempt{WorkID: work, Epoch: 1, Try: 1}); err != nil {
+		t.Fatal(err)
+	}
+	effect, err := fixture.store.Effect(fixture.ctx, fixture.manifest.value.RunID, effectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effect.State == journal.Succeeded {
+		return
+	}
+	claim, err := fixture.store.ClaimOwned(fixture.ctx, fixture.owner, effectID, now, effectLease)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.store.CompleteOwned(fixture.ctx, fixture.owner, journal.Completion{
+		RunID: fixture.manifest.value.RunID, EffectID: effectID, Token: claim.Token,
+		State: journal.Succeeded, Result: body,
+		Receipts:  []journal.Receipt{{Kind: "host_check_result", Body: body}},
+		EventKind: "host_check_completed",
+		EventBody: MarshalAssociation(EventAssociation{EffectID: effectID, WorkID: work, Slice: command.Slice}),
+		At:        fixture.service.now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+}

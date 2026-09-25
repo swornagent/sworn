@@ -11,12 +11,42 @@ import (
 )
 
 const driverReadinessSchemaVersion = "sworn.driver-readiness/v1"
+const driverProbeSchemaVersion = "sworn.driver-probe/v1"
 
 type driverReadinessOutput struct {
 	SchemaVersion       string                 `json:"schema_version"`
 	Command             string                 `json:"command"`
 	ConfigurationDigest string                 `json:"configuration_digest"`
 	Reports             []driver.ProfileReport `json:"reports"`
+	// LiveCall states plainly whether this command made a live provider
+	// call: false for inspect/doctor, true for certify. It rides every
+	// readiness output, not only doctor's, so a reader never has to infer
+	// it from the command name alone.
+	LiveCall bool `json:"live_call"`
+	// MissingFamilies, MissingSurfaces and RosterNote are set only for a
+	// not-ready --all report: the single production roster declaration
+	// (driver.ProductionRequiredFamilies/Surfaces) names exactly what the
+	// built registry is missing (S4-lane-live-probe A4).
+	MissingFamilies []driver.ProfileFamily  `json:"missing_families,omitempty"`
+	MissingSurfaces []driver.ProfileSurface `json:"missing_surfaces,omitempty"`
+	RosterNote      string                  `json:"roster_note,omitempty"`
+}
+
+type driverProbeOutput struct {
+	SchemaVersion       string                `json:"schema_version"`
+	Profile             string                `json:"profile"`
+	Model               string                `json:"model"`
+	Family              driver.ProfileFamily  `json:"family"`
+	Surface             driver.ProfileSurface `json:"surface,omitempty"`
+	AdapterID           string                `json:"adapter_id"`
+	AdapterVersion      string                `json:"adapter_version"`
+	ConfigurationDigest string                `json:"configuration_digest"`
+	Ready               bool                  `json:"ready"`
+	Code                string                `json:"code"`
+	Message             string                `json:"message,omitempty"`
+	RequestID           string                `json:"request_id,omitempty"`
+	LatencyMillis       int64                 `json:"latency_ms"`
+	LiveCall            bool                  `json:"live_call"`
 }
 
 type driverCommandOptions struct {
@@ -26,13 +56,25 @@ type driverCommandOptions struct {
 	all     bool
 }
 
+type driverProbeOptions struct {
+	config  string
+	profile string
+	model   string
+	json    bool
+}
+
 func runDriver(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "probe" {
+		return runDriverProbe(args[1:], stdout, stderr)
+	}
 	command, options, ok := parseDriverCommand(args)
 	if !ok {
 		fmt.Fprintln(
 			stderr,
 			"usage: sworn driver inspect|doctor|certify --config ABS --json "+
-				"(--profile PROFILE --model MODEL | --all)",
+				"(--profile PROFILE --model MODEL | --all)\n"+
+				"       sworn driver probe --config ABS --profile PROFILE "+
+				"--model MODEL [--json]",
 		)
 		return 2
 	}
@@ -43,7 +85,7 @@ func runDriver(args []string, stdout, stderr io.Writer) int {
 			stderr,
 			"driver "+command,
 			"Could not read the AI connection configuration.",
-			err,
+			&driverConfigError{err: err},
 		)
 		return 1
 	}
@@ -83,7 +125,7 @@ func runDriver(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	reports, ready := driverReports(
+	reports, ready, missingFamilies, missingSurfaces := driverReports(
 		context.Background(),
 		command,
 		registry,
@@ -94,6 +136,12 @@ func runDriver(args []string, stdout, stderr io.Writer) int {
 		Command:             command,
 		ConfigurationDigest: registry.ConfigurationDigest(),
 		Reports:             reports,
+		LiveCall:            command == "certify",
+		MissingFamilies:     missingFamilies,
+		MissingSurfaces:     missingSurfaces,
+	}
+	if len(missingFamilies) > 0 || len(missingSurfaces) > 0 {
+		output.RosterNote = driver.ProductionRosterNote
 	}
 	encoder := json.NewEncoder(stdout)
 	encoder.SetIndent("", "  ")
@@ -166,7 +214,7 @@ func driverReports(
 	command string,
 	registry driver.ConfiguredDriverRegistry,
 	options driverCommandOptions,
-) ([]driver.ProfileReport, bool) {
+) ([]driver.ProfileReport, bool, []driver.ProfileFamily, []driver.ProfileSurface) {
 	certifications := registry.Certifications()
 	if !options.all {
 		configured := false
@@ -194,7 +242,8 @@ func driverReports(
 		}
 		return []driver.ProfileReport{report},
 			configured && report.State == driver.ReadinessPass &&
-				report.Family != driver.ProfileFake
+				report.Family != driver.ProfileFake,
+			nil, nil
 	}
 
 	reports := make([]driver.ProfileReport, 0, len(certifications))
@@ -236,7 +285,8 @@ func driverReports(
 		}
 		return reports[left].Surface < reports[right].Surface
 	})
-	return reports, ready && completeProductionReadiness(reports)
+	complete, missingFamilies, missingSurfaces := completeProductionReadiness(reports)
+	return reports, ready && complete, missingFamilies, missingSurfaces
 }
 
 func runDriverCheck(
@@ -256,30 +306,183 @@ func runDriverCheck(
 	}
 }
 
-func completeProductionReadiness(reports []driver.ProfileReport) bool {
-	families := make(map[driver.ProfileFamily]bool)
-	surfaces := make(map[driver.ProfileSurface]bool)
+// completeProductionReadiness reads the single production roster
+// declaration (driver.ProductionRequiredFamilies/Surfaces,
+// S4-lane-live-probe A4) instead of its own copy, so a registry that builds
+// can never then be reported not ready for a family or surface the build
+// did not require. It reports readiness plus exactly what is missing, in
+// roster order, so the CLI can name it.
+func completeProductionReadiness(
+	reports []driver.ProfileReport,
+) (bool, []driver.ProfileFamily, []driver.ProfileSurface) {
+	presentFamilies := make(map[driver.ProfileFamily]bool)
+	presentSurfaces := make(map[driver.ProfileSurface]bool)
+	allPass := true
 	for _, report := range reports {
 		if report.State != driver.ReadinessPass {
-			return false
+			allPass = false
 		}
-		families[report.Family] = true
+		presentFamilies[report.Family] = true
 		if report.Surface != "" {
-			surfaces[report.Surface] = true
+			presentSurfaces[report.Surface] = true
 		}
 	}
-	for _, family := range []driver.ProfileFamily{
-		driver.ProfileCodex,
-		driver.ProfileClaude,
-		driver.ProfileOpenAIHTTP,
-		driver.ProfileDeepSeek,
-		driver.ProfileGemini,
-		driver.ProfileBedrock,
-	} {
-		if !families[family] {
-			return false
+	missingFamilies, missingSurfaces := driver.MissingProductionMembers(
+		presentFamilies, presentSurfaces,
+	)
+	ready := allPass && len(missingFamilies) == 0 && len(missingSurfaces) == 0
+	return ready, missingFamilies, missingSurfaces
+}
+
+func parseDriverProbeCommand(args []string) (driverProbeOptions, bool) {
+	var options driverProbeOptions
+	seen := make(map[string]struct{})
+	for index := 0; index < len(args); index++ {
+		name := args[index]
+		if _, duplicate := seen[name]; duplicate {
+			return driverProbeOptions{}, false
+		}
+		seen[name] = struct{}{}
+		switch name {
+		case "--json":
+			options.json = true
+		case "--config", "--profile", "--model":
+			if index+1 >= len(args) || args[index+1] == "" ||
+				len(args[index+1]) >= 2 && args[index+1][:2] == "--" {
+				return driverProbeOptions{}, false
+			}
+			index++
+			switch name {
+			case "--config":
+				options.config = args[index]
+			case "--profile":
+				options.profile = args[index]
+			case "--model":
+				options.model = args[index]
+			}
+		default:
+			return driverProbeOptions{}, false
 		}
 	}
-	return surfaces[driver.ProfileSurfaceBedrockRuntimeConverse] &&
-		surfaces[driver.ProfileSurfaceBedrockMantleChat]
+	if options.config == "" || options.profile == "" || options.model == "" {
+		return driverProbeOptions{}, false
+	}
+	return options, true
+}
+
+// runDriverProbe implements `sworn driver probe`: one minimal live request
+// for an explicitly named profile and model (S4-lane-live-probe A1). Unlike
+// inspect/doctor/certify, --json is optional; the default is a human-
+// readable line carrying the same typed code, message, request id and
+// latency the JSON form carries.
+func runDriverProbe(args []string, stdout, stderr io.Writer) int {
+	options, ok := parseDriverProbeCommand(args)
+	if !ok {
+		fmt.Fprintln(
+			stderr,
+			"usage: sworn driver probe --config ABS --profile PROFILE "+
+				"--model MODEL [--json]",
+		)
+		return 2
+	}
+	loaded, err := driver.LoadDriverConfig(options.config)
+	if err != nil {
+		writeCommandFailure(
+			stderr,
+			"driver probe",
+			"Could not read the AI connection configuration.",
+			&driverConfigError{err: err},
+		)
+		return 1
+	}
+	factory, err := driver.NewProductionDriverFactory(loaded)
+	if err != nil {
+		writeCommandFailure(
+			stderr,
+			"driver probe",
+			"Could not prepare the configured AI connections.",
+			err,
+		)
+		return 1
+	}
+	defer factory.Close()
+	registry, err := loaded.BuildRegistry(
+		[]string{options.profile},
+		factory.Options(),
+	)
+	if err != nil {
+		message := "The AI connection configuration could not be built" +
+			" into a driver registry."
+		if commandErrorCode(err) == "UNKNOWN_PROFILE" {
+			message = "Could not find that profile and model" +
+				" in the AI connection configuration."
+		}
+		writeCommandFailure(stderr, "driver probe", message, err)
+		return 1
+	}
+	result, err := driver.ProbeLane(
+		context.Background(), registry, options.profile, options.model,
+	)
+	if err != nil {
+		message := "Could not send the lane probe."
+		if commandErrorCode(err) == "UNKNOWN_PROFILE" {
+			message = "Could not find that profile and model" +
+				" in the AI connection configuration."
+		}
+		writeCommandFailure(stderr, "driver probe", message, err)
+		return 1
+	}
+	output := driverProbeOutput{
+		SchemaVersion:       driverProbeSchemaVersion,
+		Profile:             result.Profile,
+		Model:               result.Model,
+		Family:              result.Family,
+		Surface:             result.Surface,
+		AdapterID:           result.AdapterID,
+		AdapterVersion:      result.AdapterVersion,
+		ConfigurationDigest: result.ConfigurationDigest,
+		Ready:               result.Ready,
+		Code:                result.Code,
+		Message:             result.Message,
+		RequestID:           result.RequestID,
+		LatencyMillis:       result.LatencyMillis,
+		LiveCall:            true,
+	}
+	if options.json {
+		encoder := json.NewEncoder(stdout)
+		encoder.SetIndent("", "  ")
+		if err := encoder.Encode(output); err != nil {
+			fmt.Fprintln(stderr, "sworn driver probe: output failed")
+			return 1
+		}
+	} else {
+		writeDriverProbeText(stdout, output)
+	}
+	if !result.Ready {
+		return 1
+	}
+	return 0
+}
+
+func writeDriverProbeText(out io.Writer, output driverProbeOutput) {
+	if output.Ready {
+		fmt.Fprintf(
+			out,
+			"sworn driver probe: %s / %s is admitting requests (%dms).\n",
+			output.Profile, output.Model, output.LatencyMillis,
+		)
+	} else {
+		fmt.Fprintf(
+			out,
+			"sworn driver probe: %s / %s is not admitting requests (%dms).\n",
+			output.Profile, output.Model, output.LatencyMillis,
+		)
+	}
+	fmt.Fprintf(out, "Technical code: %s\n", output.Code)
+	if output.Message != "" {
+		fmt.Fprintf(out, "Provider message: %s\n", output.Message)
+	}
+	if output.RequestID != "" {
+		fmt.Fprintf(out, "Provider request id: %s\n", output.RequestID)
+	}
 }

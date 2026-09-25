@@ -57,13 +57,21 @@ Situation: the pinned work's failure code is `PROVIDER_LIMITED` or
 `PROVIDER_UNAVAILABLE`, with the provider's message in the detail.
 Decision: do not retry into the wall. Wait until the message's reset time,
 or 30 minutes when it names none, or until a live probe of the lane passes
-if that is sooner (probe every few minutes with `sworn driver certify`;
-`doctor` makes no live call and proves nothing here), then retry the work on
-a fresh epoch. Cite the failure detail and the probe result. A second park of
-the same shape on the same work after a passing probe is Type-1.
+if that is sooner (probe every few minutes with
+`sworn driver probe --config ABS --profile P --model M`; `doctor` makes no
+live call and proves nothing here), then retry the work on a fresh epoch.
+Cite the failure detail and the probe result. A second park of the same
+shape on the same work after a passing probe is Type-1.
 Origin: sworn#310 (2026-09-12); refined 2026-09-22 from run
 2026-09-22-worker-observability-r2 (three provider admission stalls in one
-hour; a retry three minutes after a passing probe recovered the run).
+hour; a retry three minutes after a passing probe recovered the run);
+refined 2026-09-23 from S4-lane-live-probe (`sworn driver probe` replaces
+`certify` as the cheap, bounded admission probe the seat runs by hand;
+`certify` remains the release-wide, separately authorized live check);
+refined 2026-09-23 from S5-transient-provider-backoff (the engine now waits
+and probes the same lane automatically before the next try, so this park
+only fires once that automatic wait-and-probe window is exhausted; the
+Decision above is otherwise unchanged and still applies once it does).
 
 ### M5. An identical candidate tree resubmitted after a plain host-check fail
 

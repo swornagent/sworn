@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -1109,6 +1110,144 @@ func TestFailureTurnContextDetailNarrowHonestAndMore(t *testing.T) {
 		}
 	}
 	// Truncation honesty inside the existing detail budget.
+	short := m.detailLines(100, 12)
+	if len(short) != 12 {
+		t.Fatalf("truncated detail has %d lines, want 12", len(short))
+	}
+	joined = strings.Join(short, "\n")
+	if !strings.Contains(joined, "more") {
+		t.Fatalf("truncated detail omits honest +N more:\n%s", joined)
+	}
+}
+
+// S3-host-check-failure-facts A4: the TUI work detail renders the host-check
+// failure fact beside the failure code and failure-turn context, inside the
+// existing truncation discipline with an honest +N more line, neutralising
+// controls and honest about narrow terminals.
+func TestHostCheckFailureDetailRendersBesideFailureContext(t *testing.T) {
+	selection := Selection{Release: "release", RunID: "run", Source: "source"}
+	rerunExit := 3
+	fact := &runtimepkg.HostCheckFailureFact{
+		SchemaVersion: "sworn.host-check-failure-fact/v1",
+		Check:         "grep -q repaired one.txt || exit 7", Outcome: "fail", ExitCode: 7,
+		Reran: true, RerunOutcome: "fail", RerunExitCode: &rerunExit,
+		NotRun: []string{"printf 'third\\n'"}, Excerpt: "one.txt needs repair",
+		OutputDigest: "sha256:" + strings.Repeat("d", 64),
+		HostEffect:   "attempt/aaa/e1/t1", RerunEffect: "attempt/bbb/e1/t1",
+		Candidate: strings.Repeat("c", 40), ContractDigest: "sha256:" + strings.Repeat("e", 64),
+	}
+	_, m := readyBoardModel(selection)
+	m.board.Graph.Nodes[1].FailureTurnContext = &runtimepkg.FailureTurnContext{
+		SchemaVersion: "sworn.failure-turn-context/v1", Status: "empty", Turns: []runtimepkg.FailureTurn{},
+	}
+	m.board.Graph.Nodes[1].HostCheckFailure = fact
+	m.nodeCursor = 1
+	lines := m.detailLines(100, 40)
+	joined := strings.Join(lines, "\n")
+	for _, required := range []string{"HOST CHECK FAILURE", "grep -q repaired", "fail", "exit 7", "re-executed: yes", "fail", "not run:", "printf", "one.txt needs repair", "FAILURE TURNS"} {
+		if !strings.Contains(joined, required) {
+			t.Fatalf("detail omits %q:\n%s", required, joined)
+		}
+	}
+	// Absent (nil) renders no host section.
+	_, m = readyBoardModel(selection)
+	m.nodeCursor = 1
+	joined = strings.Join(m.detailLines(100, 30), "\n")
+	if strings.Contains(joined, "HOST CHECK FAILURE") {
+		t.Fatalf("absent detail leaked host section:\n%s", joined)
+	}
+	// Unknown not-run renders honestly.
+	_, m = readyBoardModel(selection)
+	m.board.Graph.Nodes[1].HostCheckFailure = &runtimepkg.HostCheckFailureFact{
+		SchemaVersion: "sworn.host-check-failure-fact/v1",
+		Check:         "exit 7", Outcome: "fail", ExitCode: 7,
+		NotRunUnknown: true, Excerpt: "out",
+		OutputDigest: "sha256:" + strings.Repeat("d", 64),
+		HostEffect:   "attempt/aaa/e1/t1",
+		Candidate:    strings.Repeat("c", 40), ContractDigest: "sha256:" + strings.Repeat("e", 64),
+	}
+	m.nodeCursor = 1
+	joined = strings.Join(m.detailLines(100, 30), "\n")
+	if !strings.Contains(joined, "unknown") {
+		t.Fatalf("unknown not-run detail = %q", joined)
+	}
+}
+
+// S5-transient-provider-backoff A2: the TUI work detail renders a
+// currently-waiting provider stall beside failure context and the
+// host-check fact, so a live wait reads as a wait, not a hang.
+func TestProviderStallDetailRendersWaitStatus(t *testing.T) {
+	selection := Selection{Release: "release", RunID: "run", Source: "source"}
+	nextProbe := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
+	_, m := readyBoardModel(selection)
+	m.board.Graph.Nodes[1].ProviderStall = &runtimepkg.ProviderStallStatus{
+		WorkID: "sha256:" + strings.Repeat("b", 64), Lane: "T1",
+		FailureCode: "PROVIDER_UNAVAILABLE", Index: 2, NextProbeAt: nextProbe,
+		LastProbeCode: "certification_provider_unavailable",
+		ElapsedMillis: 180_000, BoundMillis: 1_800_000,
+	}
+	m.nodeCursor = 1
+	joined := strings.Join(m.detailLines(100, 40), "\n")
+	for _, required := range []string{
+		"PROVIDER STALL", "PROVIDER_UNAVAILABLE", "next probe: 2026-09-23T12:00:00Z",
+		"elapsed: 180s of 1800s bound", "last probe: certification_provider_unavailable",
+	} {
+		if !strings.Contains(joined, required) {
+			t.Fatalf("detail omits %q:\n%s", required, joined)
+		}
+	}
+	// Absent (nil) renders no provider-stall section.
+	_, m = readyBoardModel(selection)
+	m.nodeCursor = 1
+	joined = strings.Join(m.detailLines(100, 30), "\n")
+	if strings.Contains(joined, "PROVIDER STALL") {
+		t.Fatalf("absent detail leaked provider-stall section:\n%s", joined)
+	}
+}
+
+func TestHostCheckFailureDetailNeutralisesControlsAndTruncates(t *testing.T) {
+	selection := Selection{Release: "release", RunID: "run", Source: "source"}
+	_, m := readyBoardModel(selection)
+	m.board.Graph.Nodes[1].HostCheckFailure = &runtimepkg.HostCheckFailureFact{
+		SchemaVersion: "sworn.host-check-failure-fact/v1",
+		Check:         "exit\x1b[31m7\x00", Outcome: "fail", ExitCode: 7,
+		Excerpt:      "hello\x1b[31mred\x00put",
+		OutputDigest: "sha256:" + strings.Repeat("d", 64),
+		HostEffect:   "attempt/aaa/e1/t1",
+		Candidate:    strings.Repeat("c", 40), ContractDigest: "sha256:" + strings.Repeat("e", 64),
+	}
+	m.nodeCursor = 1
+	m.width, m.height = 100, 30
+	view := m.View()
+	if strings.Contains(view, "\x1b[31m") || strings.Contains(view, "\x00") {
+		t.Fatalf("detail leaked terminal escapes:\n%q", view)
+	}
+	// Narrow honesty at width <60.
+	narrow := m.detailLines(40, 30)
+	joined := strings.Join(narrow, "\n")
+	if !strings.Contains(joined, "Narrow terminal") {
+		t.Fatalf("narrow detail omits honesty:\n%s", joined)
+	}
+	for _, line := range narrow {
+		if got := lipgloss.Width(line); got > 40 {
+			t.Fatalf("narrow line width = %d, want <=40: %q", got, line)
+		}
+	}
+	// Truncation honesty inside the existing detail budget.
+	longExcerpt := ""
+	for i := 0; i < 30; i++ {
+		longExcerpt += "line content for truncation honesty\n"
+	}
+	_, m = readyBoardModel(selection)
+	m.board.Graph.Nodes[1].HostCheckFailure = &runtimepkg.HostCheckFailureFact{
+		SchemaVersion: "sworn.host-check-failure-fact/v1",
+		Check:         "exit 7", Outcome: "fail", ExitCode: 7,
+		Excerpt:      longExcerpt,
+		OutputDigest: "sha256:" + strings.Repeat("d", 64),
+		HostEffect:   "attempt/aaa/e1/t1",
+		Candidate:    strings.Repeat("c", 40), ContractDigest: "sha256:" + strings.Repeat("e", 64),
+	}
+	m.nodeCursor = 1
 	short := m.detailLines(100, 12)
 	if len(short) != 12 {
 		t.Fatalf("truncated detail has %d lines, want 12", len(short))

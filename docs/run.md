@@ -10,7 +10,7 @@ Sworn does not yet create a delivery plan, run manifest, or AI connection file.
 The release or deployment process must provide:
 
 - a repository with the required release records;
-- an approved, canonical `sworn.runtime-manifest/v3` file;
+- an approved, canonical `sworn.runtime-manifest/v5` file;
 - a canonical, secret-free `sworn.driver-config/v1` file whose digest matches
   the manifest; and
 - an absolute path for the private SQLite journal that will hold this run.
@@ -84,9 +84,11 @@ The checks are deliberately different:
 - `inspect` confirms that the profile, model, adapter, and configuration fit
   together. It does not contact the provider.
 - `doctor` checks the local executable or connection boundary. It does not make
-  a paid HTTP model request.
+  a paid HTTP model request. Its JSON output carries `"live_call": false`, so
+  a reader never has to infer that from the command name alone.
 - `certify` makes the separately authorized live check. It needs real
-  credentials and may consume provider usage.
+  credentials, runs the whole agent loop, and may consume provider usage.
+  Its JSON output carries `"live_call": true`.
 
 Run live certification only when that use is intended:
 
@@ -99,8 +101,14 @@ sworn driver certify \
 ```
 
 Use `--all` instead of `--profile` and `--model` only with a release-wide
-configuration that includes every supported production connection family and
-both Bedrock surfaces.
+configuration that includes every profile of the single declared production
+roster: the `codex_cli`, `claude_code_cli`, `openai_compatible_http`,
+`gemini_generate_content` and `bedrock` families, plus the
+`bedrock_runtime_converse` surface. `doctor --all` and `certify --all` name
+every missing family and surface in the refusal detail (for example
+`missing families: bedrock; missing surfaces: bedrock_runtime_converse`), with
+a note that `--all` checks the complete production roster while
+`--profile P --model M` checks one lane.
 
 Each JSON report has a `state` and a stable `code`:
 
@@ -111,6 +119,33 @@ Each JSON report has a `state` and a stable `code`:
 
 Read the result in the context of the command: an `inspect` pass confirms
 configuration, while only a `certify` pass confirms the live provider path.
+
+### Live lane probe
+
+`sworn driver probe` proves one configured lane is admitting requests right
+now, without running the agent loop or submitting a repository byte:
+
+```sh
+sworn driver probe \
+  --config /absolute/path/drivers.json \
+  --profile openai \
+  --model YOUR_EXACT_MODEL \
+  --json
+```
+
+Its cost is one minimal request per lane: no tools, a small declared output
+bound (16 tokens), the fixed literal prompt `sworn lane probe`, and no
+repository content. Unlike `inspect`, `doctor` and `certify`, `--json` is
+optional; the default is one human-readable line carrying the same typed
+code, provider message, provider request id and latency.
+
+Use `probe` instead of `certify` when the question is "is this lane admitting
+requests right now", not "does the whole submission contract still hold":
+probe checks admission only (a live 2xx response), never the agent loop or
+the submission contract certify proves. It is the check a Manager seat runs
+every few minutes while waiting out a provider stall (manager policy M4);
+`certify` stays the release-wide, separately authorized live check. `probe`
+always makes a live call (`"live_call": true`), just as `certify` does.
 
 ## 2. Start the run
 
@@ -321,7 +356,9 @@ http://127.0.0.1:7337/runs/RUN_ID
 
 Add `--manifest` only when the operator service must accept a start request for
 that exact manifest. Without an operator configuration, there is no public
-listener, webhook delivery, or telemetry export.
+listener, webhook delivery, or telemetry export. See
+[docs/launch.md](launch.md) for the launch refusals `serve` prints and what
+to do about them.
 
 ## 5. Pause, resume, cancel, or recover
 
@@ -575,6 +612,28 @@ integer from 1 to 1048576, when the provider's output ceiling is lower than
 the limit Sworn would send. Certification and dispatch then send the smaller
 of the two; leaving the field out changes nothing.
 
+Either OpenAI-compatible surface (chat completions or responses) may also
+declare `context_window_tokens`, an optional integer up to 10,000,000
+naming the model's total context window. When set, every request after the
+first clamps the output ceiling actually sent to the room left in that
+window after the previous turn's reported input tokens, minus a small fixed
+safety margin: `min(max_output_tokens, context_window_tokens -
+last_input_tokens - margin)`. This only ever lowers what would have been
+sent; the first request of a dispatch carries no prior turn to clamp
+against and is unaffected, and leaving the field out changes nothing. When
+the room left cannot fit even a minimal reply, the adapter refuses the turn
+before sending it with the typed code `ECONOMY_CONTEXT_EXHAUSTED`, naming
+the window, the last input tokens, and the ceiling. That refusal parks the
+work under the `economy_context_window` cause: unlike a turn- or
+output-token economy park, it is never Grant-eligible (there is no
+manifest limit to raise for a fixed context window), so its only unblock
+verb is a bare retry, admitted immediately on any try. A retry issued
+without first editing `context_window_tokens` or `max_output_tokens` in the
+driver config will simply reach the same refusal again. The status
+projection's dispatch view and the live activity stream also show the
+latest turn's reported input tokens for an in-flight or failed dispatch, so
+a context approaching its window is visible before it is exhausted.
+
 A Responses adapter may also declare `reasoning_summary` (`auto`, `concise`
 or `detailed`), which asks the provider to stream a reasoning summary while
 the model thinks. Set it when a provider cuts a streaming request whose first
@@ -620,7 +679,7 @@ report what happened but cannot approve, block, or advance work.
 
 Linux production execution requires root-owned `bwrap` discoverable on PATH
 (for example `/usr/bin/bwrap`) and unprivileged user namespaces. Live
-`driver certify` and production runs can
+`driver certify`, `driver probe`, and production runs can
 consume provider usage; the ordinary Go test suite does not make live provider
 requests.
 ## Host-check repair input
@@ -639,6 +698,59 @@ gate, with a retained-candidate diagnostic, so configured notification
 consumers can observe the stop without waiting for another scheduler tick.
 This does not invent a human approval question or authorize an automatic
 budget increase.
+
+### Transient provider stall backoff
+
+When a try fails with `PROVIDER_UNAVAILABLE`, or `PROVIDER_LIMITED` with no
+provider-named reset time, the engine does not start the next try
+immediately: it waits with a bounded backoff (60, 120, 240, then 240
+seconds; a `PROVIDER_LIMITED` reset time is used instead of the first step
+when one is named), probes the same lane after each wait with the identical
+live probe `sworn driver probe` makes, and starts the next try only once a
+probe passes. Every wait and probe is journaled, and the status projection
+shows a work waiting this way, its next probe time and the last probe
+result, so it reads as a wait, not a hang. If no probe passes within a
+declared total bound of 30 minutes, the run parks with the typed
+`provider_stall` cause, naming the failure code, the wait so far and the
+last probe result; manager policy M4 covers it exactly as it covers any
+other provider refusal. The try budget, `identical_failure_park_after` and
+every other failure code's handling are unchanged: this only changes when
+the next try of a transient provider failure starts.
+
+### Host-check failure fact
+
+For the latest failed host check of a work, the status projection shared by
+`sworn status --json`, `sworn_status`, the board and the TUI carries one
+bounded host-check failure fact (`sworn.host-check-failure-fact/v1`): the
+check command as declared in the contract, its outcome and exit code,
+whether it was re-executed and that re-execution's outcome, the declared
+checks that were not run because this one failed, and a bounded output
+excerpt taken from the same stored result the implementer's repair context
+already holds.
+
+The fact is derived at Status time from the already-journaled,
+digest-checked `check.host` results; it adds no journal write and no new
+field on the repair, result or work-context records. It is evidence, never
+authority: nothing in the engine reads it to decide a retry, a park, a
+verdict or a repair, and the repair context the implementer receives is
+unchanged. Records written before this release report the fact as absent
+rather than corrupt.
+
+Bounds: the excerpt carries at most 4096 bytes of the stored output with a
+truthful truncation marker; the whole fact is capped at about 8 KiB;
+`not_run` is bounded by the declared contract length and is derived as the
+checks after the failed check's position in the phase order the engine used
+(quick checks first, long suites after). When the resolved contract does not
+match the stored result's contract digest, the failed check is not in its
+list, or the contract cannot be resolved at Status time, `not_run` is
+absent and marked unknown rather than guessed. A later terminal dispatch
+for the same work clears the fact; an in-flight next try does not.
+
+Each `check.host` effect in the projection also reports the check's outcome
+(`pass`, `fail`, `timeout`, `overflow`) beside the effect state, so an
+executed-and-failed check no longer reads only as `succeeded`. Journal
+effect states are unchanged. The `HOST_CHECK_FAILED` refusal detail names
+the check command and exit code alongside the outcome and candidate.
 
 ## Assembly host-check evidence
 

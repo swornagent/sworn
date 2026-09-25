@@ -73,6 +73,24 @@ const (
 	// limits.max_native_output_stream_bytes: 256MB, the same 16x step
 	// above the default that the default is above the per-line floor.
 	MaxNativeOutputStreamBytesLimit int64 = 268_435_456
+	// MaxContextWindowTokensLimit bounds
+	// HTTPProfileConfig.ContextWindowTokens (S6-context-window-clamp A1):
+	// an ordinary bounded-constant admission ceiling, well above every
+	// shipped model's declared window, not a claim about any provider's
+	// actual context size.
+	MaxContextWindowTokensLimit int64 = 10_000_000
+	// contextWindowSafetyMarginTokens is the fixed reserve the clamp keeps
+	// below the declared context window, beyond the previous turn's own
+	// reported input tokens, to absorb the small per-request overhead
+	// (framing, tool schemas) the reported input-token count does not
+	// itself include (S6-context-window-clamp A2).
+	contextWindowSafetyMarginTokens int64 = 1_024
+	// contextWindowMinimumOutputTokens is the smallest output ceiling the
+	// clamp will ever send; when the room left after the margin falls
+	// below it, the adapter refuses the turn with ECONOMY_CONTEXT_EXHAUSTED
+	// instead of sending a request too small to carry a useful reply
+	// (S6-context-window-clamp A3).
+	contextWindowMinimumOutputTokens int64 = 256
 )
 
 var (
@@ -129,6 +147,13 @@ type ContractError struct {
 	// per-site churn. A code this slice does not place classifies to the
 	// empty RefusalKind ("").
 	Kind RefusalKind
+	// RequestID is the provider's own request identifier, extracted from a
+	// closed header/body allowlist and bounded to 128 bytes of single-line,
+	// control-free text (S4-lane-live-probe C1). It is set only on the
+	// provider status codes an HTTP or Bedrock round trip can produce, and
+	// only the lane probe reads it today: dispatch, the journal, and every
+	// existing projection keep reading Code and Detail exactly as before.
+	RequestID string
 }
 
 // RefusalKind distinguishes the cause of a driver-boundary refusal from its

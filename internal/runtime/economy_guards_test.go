@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -1879,6 +1881,170 @@ func TestDispatchAttemptIsCurrentEpochFailsClosedOnUnparseableReplayKey(t *testi
 	}
 }
 
+// TestEconomyContextCrossingAtEpochResolvesLikeDispatchAttemptIsCurrentEpoch
+// proves economyContextCrossingAtEpoch (S6-context-window-clamp A3, the
+// Lead's required correction) resolves nested identity exactly the way
+// dispatchAttemptIsCurrentEpoch does, via the shared dispatchBuiltEpoch
+// derivation, but compares against a caller-fixed epoch instead of the
+// live "current" one - so the same work/epoch pair still matches after
+// the owner's RetryEpochs has since advanced past it (the exact
+// replay-stability property Service.admitEconomyControl's stamp depends
+// on).
+func TestEconomyContextCrossingAtEpochResolvesLikeDispatchAttemptIsCurrentEpoch(t *testing.T) {
+	t.Parallel()
+
+	t.Run("direct dispatch matches its own epoch only", func(t *testing.T) {
+		t.Parallel()
+		work := testWork()
+		snapshot := journal.Snapshot{
+			Effects: []journal.Effect{{
+				ID: journal.AttemptEffectID(work, 1, 1), Kind: "driver.dispatch",
+				State: journal.OperationalFailed, ErrorCode: "ECONOMY_CONTEXT_EXHAUSTED",
+			}},
+		}
+		if !economyContextCrossingAtEpoch(snapshot, work, 1) {
+			t.Fatal("direct dispatch crossing at its own epoch not found")
+		}
+		if economyContextCrossingAtEpoch(snapshot, work, 2) {
+			t.Fatal("direct dispatch crossing matched a different epoch")
+		}
+	})
+
+	t.Run("stable nested identity matches the outer epoch it was built under, at any try", func(t *testing.T) {
+		t.Parallel()
+		outerBefore := "outer-before-fingerprint"
+		owner := workIdentity(outerBefore, "git.seal")
+		dispatchWork := workIdentity(owner, "driver.dispatch")
+		payload, err := json.Marshal(struct {
+			Before       string `json:"before"`
+			DispatchWork string `json:"dispatch_work"`
+		}{Before: outerBefore, DispatchWork: dispatchWork})
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The stable identity is constant across every epoch: the same
+		// git.seal command names it at owner epoch 2, and the dispatch
+		// effect's own parsed epoch carries that outer epoch directly
+		// (childEpoch is set to it at build time, per this convention).
+		snapshot := journal.Snapshot{
+			Commands: []journal.Command{{Kind: "git.seal", Payload: payload}},
+			Effects: []journal.Effect{{
+				ID: journal.AttemptEffectID(dispatchWork, 2, 1), Kind: "driver.dispatch",
+				State: journal.OperationalFailed, ErrorCode: "ECONOMY_CONTEXT_EXHAUSTED",
+			}},
+		}
+		if !economyContextCrossingAtEpoch(snapshot, owner, 2) {
+			t.Fatal("stable nested identity crossing at owner epoch 2, try 1 not found")
+		}
+		if economyContextCrossingAtEpoch(snapshot, owner, 1) {
+			t.Fatal("stable nested identity crossing matched the wrong owner epoch")
+		}
+	})
+
+	t.Run("replay-stable: a since-advanced live epoch never changes the fixed-epoch answer", func(t *testing.T) {
+		t.Parallel()
+		work := testWork()
+		snapshot := journal.Snapshot{
+			Effects: []journal.Effect{{
+				ID: journal.AttemptEffectID(work, 1, 1), Kind: "driver.dispatch",
+				State: journal.OperationalFailed, ErrorCode: "ECONOMY_CONTEXT_EXHAUSTED",
+			}},
+		}
+		// dispatchAttemptIsCurrentEpoch would now report this attempt
+		// stale (RetryEpochs[work] has advanced to 2), which is exactly
+		// why economyContextCrossingAtEpoch must never consult a live
+		// ControlProjection at all: it takes none, and the fixed-epoch
+		// comparison against the original ExpectedEpoch (1) still holds.
+		control := journal.ControlProjection{RetryEpochs: map[string]int64{work: 2}}
+		if dispatchAttemptIsCurrentEpoch(snapshot, control, work, 1) {
+			t.Fatal("test setup: expected the live comparison to report stale after the epoch advanced")
+		}
+		if !economyContextCrossingAtEpoch(snapshot, work, 1) {
+			t.Fatal("fixed-epoch crossing check changed its answer after the live epoch advanced")
+		}
+	})
+
+	t.Run("unparseable nested owning ReplayKey fails closed: never contributes a match", func(t *testing.T) {
+		t.Parallel()
+		outerBefore := "outer-before-fingerprint"
+		dispatchWork := workIdentity("some-malformed-owner-key", "driver.dispatch")
+		payload, err := json.Marshal(struct {
+			Before       string `json:"before"`
+			DispatchWork string `json:"dispatch_work"`
+		}{Before: outerBefore, DispatchWork: dispatchWork})
+		if err != nil {
+			t.Fatal(err)
+		}
+		snapshot := journal.Snapshot{
+			Commands: []journal.Command{
+				{Kind: "git.seal", ReplayKey: "not-a-valid-attempt-effect-id", Payload: payload},
+			},
+			Effects: []journal.Effect{{
+				ID: journal.AttemptEffectID(dispatchWork, 1, 1), Kind: "driver.dispatch",
+				State: journal.OperationalFailed, ErrorCode: "ECONOMY_CONTEXT_EXHAUSTED",
+			}},
+		}
+		owner := workIdentity(outerBefore, "git.seal")
+		if economyContextCrossingAtEpoch(snapshot, owner, 1) {
+			t.Fatal("unparseable nested ReplayKey contributed a match (fails open); want no match (fails closed)")
+		}
+	})
+
+	t.Run("wrong error code never matches", func(t *testing.T) {
+		t.Parallel()
+		work := testWork()
+		snapshot := journal.Snapshot{
+			Effects: []journal.Effect{{
+				ID: journal.AttemptEffectID(work, 1, 1), Kind: "driver.dispatch",
+				State: journal.OperationalFailed, ErrorCode: "ECONOMY_TURN_BUDGET_EXCEEDED",
+			}},
+		}
+		if economyContextCrossingAtEpoch(snapshot, work, 1) {
+			t.Fatal("a different error code matched the context-exhaustion crossing check")
+		}
+	})
+}
+
+// TestEconomyContextParkCrossingsMirrorsEconomyParkCrossingsShape proves
+// economyContextParkCrossings (the live, current-epoch projection status
+// and pinCrossingLanes read) finds a current-epoch ECONOMY_CONTEXT_EXHAUSTED
+// failure, carries its durable refusal detail, and - unlike
+// economyContextCrossingAtEpoch - excludes a crossing whose epoch is no
+// longer current.
+func TestEconomyContextParkCrossingsMirrorsEconomyParkCrossingsShape(t *testing.T) {
+	t.Parallel()
+	work := testWork()
+	refusal, err := json.Marshal(productionRefusalBinding{
+		Code: "ECONOMY_CONTEXT_EXHAUSTED",
+		Detail: "context_window_tokens=50000 last_input_tokens=49900 ceiling=100000 " +
+			"fix: raise context_window_tokens or lower max_output_tokens in the driver config",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := journal.Snapshot{
+		Effects: []journal.Effect{{
+			ID: journal.AttemptEffectID(work, 1, 1), Kind: "driver.dispatch",
+			State: journal.OperationalFailed, ErrorCode: "ECONOMY_CONTEXT_EXHAUSTED",
+			Result: refusal,
+		}},
+	}
+	control := journal.ControlProjection{}
+	crossings := economyContextParkCrossings(snapshot, control)
+	if len(crossings) != 1 || crossings[0].work != work {
+		t.Fatalf("economyContextParkCrossings = %#v, want exactly one crossing naming %s", crossings, work)
+	}
+	if !strings.Contains(crossings[0].detail, "context_window_tokens=50000") {
+		t.Fatalf("crossing detail = %q, want the durable refusal detail", crossings[0].detail)
+	}
+	// Advancing the owner's epoch past the crossing's own drops it: this
+	// is the live projection, not the replay-stable admission check.
+	advanced := journal.ControlProjection{RetryEpochs: map[string]int64{work: 2}}
+	if crossings := economyContextParkCrossings(snapshot, advanced); len(crossings) != 0 {
+		t.Fatalf("economyContextParkCrossings after epoch advance = %#v, want none", crossings)
+	}
+}
+
 // TestEconomyParkFactsForCarriesCrossingWorkAndDispatchedBudget pins C6/V1:
 // the reported budget is the exact per-work ceiling the crossing's own
 // attempt was dispatched under - never a live, cumulative recomputation
@@ -2044,6 +2210,84 @@ func TestGrantAdmissionUnblocksCrossingAndReplaysOnce(t *testing.T) {
 	conflict.Amount = 999
 	if _, err := fixture.service.Control(fixture.ctx, conflict); !IsCode(err, "CONTROL_REJECTED") {
 		t.Fatalf("conflicting grant = %v, want CONTROL_REJECTED (REPLAY_CONFLICT)", err)
+	}
+}
+
+// TestServiceControlAdmitsContextExhaustionRetryAtTryOneAndAdvancesEpoch is
+// this attempt's own required end-to-end proof (S6-context-window-clamp
+// A3, closing the Lead's exact gap): a work parked by economy_context_window
+// at try 1 (not the third) gets a bare Retry admitted through the full
+// Service.Control stack, the epoch advances, the next epoch's try 1
+// dispatches, and an exact replay of the same command still returns the
+// cached receipt after the live epoch has since moved past the crossing's
+// own - the replay-stability property the internal EconomyContextRetry
+// stamp is designed to preserve.
+func TestServiceControlAdmitsContextExhaustionRetryAtTryOneAndAdvancesEpoch(t *testing.T) {
+	t.Parallel()
+	fixture := newEconomyGuardFixture(t, driver.Limits{
+		TimeoutMillis: 30_000,
+		OutputBytes:   65_536,
+	})
+	work := fixture.readyWork(t)
+	detail := "context_window_tokens=50000 last_input_tokens=49900 ceiling=100000 " +
+		"fix: raise context_window_tokens or lower max_output_tokens in the driver config"
+	fixture.failedDispatchAttempt(
+		t, work, 1, 1, "ECONOMY_CONTEXT_EXHAUSTED", detail,
+		economyUsageReceipt(t, "sworn.openai", 49_900, 5, 1, 0),
+	)
+
+	before, err := fixture.service.Status(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.State != "parked" || before.Park == nil ||
+		before.Park.Cause != ParkCauseEconomyContext {
+		t.Fatalf("status before retry = %#v", before)
+	}
+
+	command := journal.ControlCommand{
+		RunID: fixture.manifest.value.RunID, ID: "retry-context-1", Kind: journal.Retry,
+		ExpectedGeneration: 0, WorkID: work, ExpectedEpoch: 1,
+	}
+	if _, err := fixture.service.Control(fixture.ctx, command); err != nil {
+		t.Fatalf("retry at try 1 (not t3) = %v, want admitted", err)
+	}
+	projection, err := fixture.store.ControlProjection(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projection.RetryEpochs[work] != 2 {
+		t.Fatalf("retry epoch after retry = %d, want 2", projection.RetryEpochs[work])
+	}
+	after, err := fixture.service.Status(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Park != nil {
+		t.Fatalf("status after retry still parks = %#v", after.Park)
+	}
+
+	nextID := journal.AttemptEffectID(work, 2, 1)
+	if err := fixture.store.EnsureAttempt(fixture.ctx, journal.Command{
+		RunID: fixture.manifest.value.RunID, ReplayKey: nextID, Kind: "driver.dispatch",
+		Payload: []byte("epoch-2-try-1"), CreatedAt: fixture.now,
+	}, journal.Effect{
+		RunID: fixture.manifest.value.RunID, ID: nextID, ReplayKey: nextID, Kind: "driver.dispatch",
+		BeforeDigest: sha256Digest([]byte("before-2")), ExpectedDigest: sha256Digest([]byte("after-2")),
+		UpdatedAt: fixture.now,
+	}, journal.EffectAttempt{WorkID: work, Epoch: 2, Try: 1}); err != nil {
+		t.Fatalf("next epoch try 1 refused: %v", err)
+	}
+
+	if _, err := fixture.service.Control(fixture.ctx, command); err != nil {
+		t.Fatalf("replayed retry = %v, want nil (idempotent replay)", err)
+	}
+	replayed, err := fixture.store.ControlProjection(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replayed.RetryEpochs[work] != 2 {
+		t.Fatalf("retry epoch after replay = %d, want unchanged 2", replayed.RetryEpochs[work])
 	}
 }
 
@@ -2292,5 +2536,398 @@ func TestProductionWorkContextV1RefusesAnEffectiveGrantDowngrade(t *testing.T) {
 	)
 	if !IsCode(err, "ECONOMY_GRANT_INCOMPATIBLE_V1") {
 		t.Fatalf("v1 downgrade of an effective-grant work context = %v, want ECONOMY_GRANT_INCOMPATIBLE_V1", err)
+	}
+}
+
+func testHostRepairForRefusalDetail(t *testing.T, check string, exitCode int) []byte {
+	t.Helper()
+	candidate := strings.Repeat("c", 40)
+	contractDigest := "sha256:" + strings.Repeat("d", 64)
+	work := hostCheckWork("S1", candidate, contractDigest, check)
+	output := "check output for " + check + "\n"
+	result := hostCheckResult{
+		Slice: "S1", Candidate: candidate, ContractDigest: contractDigest,
+		Check: check, Outcome: protocol.CheckOutcomeFail, ExitCode: exitCode,
+		Output: output, OutputDigest: protocol.DigestBytes([]byte(output)),
+		EffectID: hostCheckEffectID(work),
+	}
+	invocationID := "test-run/S1/implementer_implementation/1/1/1"
+	checks, err := driver.NewCheckBytes([]byte("test checks\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repair := productionHostRepair{
+		SchemaVersion: hostRepairVersion,
+		Before:        "sha256:" + strings.Repeat("a", 64),
+		Plan:          strings.Repeat("b", 40),
+		PreparedBase:  strings.Repeat("e", 40),
+		ProductTree:   "sha256:" + strings.Repeat("f", 64),
+		SourceEpoch:   1, SourceTry: 1,
+		Submission: driver.Submission{
+			SchemaVersion:  driver.SubmissionSchemaVersion,
+			InvocationID:   invocationID,
+			Responsibility: driver.ImplementerImplementation,
+			Summary:        "Test submission.",
+			Detail:         "Test detail.",
+			Checks:         checks,
+		},
+		FailedCheck: result,
+	}
+	if err := validateHostRepair(repair, invocationID, "S1"); err != nil {
+		t.Fatalf("test repair does not validate: %v", err)
+	}
+	return mustJSON(repair)
+}
+
+// S3-host-check-failure-facts A2: the HOST_CHECK_FAILED refusal detail
+// names the check command and exit code, not only the outcome and
+// candidate, and stays within validParkDetail, including a long-command
+// truncation case.
+func TestHostCheckFailedRefusalDetailNamesCheckCommandAndExit(t *testing.T) {
+	t.Parallel()
+	check := "grep -q repaired one.txt || exit 7"
+	detail := refusalDetail(testHostRepairForRefusalDetail(t, check, 7), "HOST_CHECK_FAILED")
+	if !strings.Contains(detail, check) {
+		t.Fatalf("detail does not name check command: %q", detail)
+	}
+	if !strings.Contains(detail, "exit 7") {
+		t.Fatalf("Detail does not name exit code: %q", detail)
+	}
+	if !strings.Contains(detail, "retained unverified candidate") {
+		t.Fatalf("Detail lost retained-candidate diagnostic: %q", detail)
+	}
+	if !validParkDetail(detail) {
+		t.Fatalf("Detail violates validParkDetail: %q", detail)
+	}
+
+	longCheck := "printf '" + strings.Repeat("x", 3000) + "'"
+	longDetail := refusalDetail(testHostRepairForRefusalDetail(t, longCheck, 3), "HOST_CHECK_FAILED")
+	if !validParkDetail(longDetail) {
+		t.Fatalf("long-command detail violates validParkDetail (len %d)", len(longDetail))
+	}
+	if len(longDetail) > 2_048 {
+		t.Fatalf("long-command detail len %d exceeds 2048", len(longDetail))
+	}
+	if !strings.Contains(longDetail, "exit 3") || !strings.Contains(longDetail, "Host check") {
+		t.Fatalf("truncated detail lost outcome/exit: %q", longDetail)
+	}
+}
+
+// providerStallRoundTripperFunc lets a test script exactly the HTTP status
+// sequence S4's live probe observes, with no real network: 2xx is the only
+// status ProbeLane's own transport call ever reads as Ready.
+type providerStallRoundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f providerStallRoundTripperFunc) RoundTrip(
+	request *http.Request,
+) (*http.Response, error) {
+	return f(request)
+}
+
+// providerStallScriptedRoundTripper answers the first failProbes requests
+// with a scripted 503, then every later request with a live 200, mirroring
+// A5's built-product journey fixture at the unit level.
+func providerStallScriptedRoundTripper(failProbes int) (
+	http.RoundTripper, *int,
+) {
+	calls := 0
+	roundTripper := providerStallRoundTripperFunc(
+		func(request *http.Request) (*http.Response, error) {
+			calls++
+			_, _ = io.Copy(io.Discard, request.Body)
+			status := http.StatusOK
+			if calls <= failProbes {
+				status = http.StatusServiceUnavailable
+			}
+			return &http.Response{
+				StatusCode: status,
+				Status:     http.StatusText(status),
+				Header:     http.Header{},
+				Body:       io.NopCloser(bytes.NewReader([]byte("{}"))),
+			}, nil
+		},
+	)
+	return roundTripper, &calls
+}
+
+// providerStallFixture is the direct-call fixture A1/A3's gate tests drive
+// (A1's declared anchor): a real production manifest and driver config
+// (S5's gate refuses to run at all without engine.configured, C2's
+// non-production guard), a controllable in-process HTTP round tripper
+// standing in for the "planner" profile's live lane, and an injectable
+// clock and sleep so no test actually waits out a backoff step.
+type providerStallFixture struct {
+	ctx      context.Context
+	manifest admittedManifest
+	store    *journal.Store
+	now      time.Time
+	sleeps   []time.Duration
+	service  *Service
+	engine   *engine
+}
+
+func newProviderStallFixture(
+	t *testing.T,
+	roundTripper http.RoundTripper,
+) *providerStallFixture {
+	t.Helper()
+	ctx := context.Background()
+	repository := productionRepository(t)
+	config := productionConfig(t)
+	manifest := productionManifest(t, repository, config)
+	production, err := newProductionDriverRuntime(config, driver.DriverFactoryOptions{
+		RoundTrippers: map[string]http.RoundTripper{"openai": roundTripper},
+		// The probe's credential resolves through this options hook, not a
+		// live os.Getenv read (config.go's headerSourceResolver): without
+		// it every probe fails closed on CREDENTIAL_UNAVAILABLE before the
+		// round tripper this fixture controls is ever reached.
+		EnvironmentCredentials: func(context.Context, string) ([]byte, error) {
+			return []byte("sworn-provider-stall-test-token"), nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitExecutable, err := resolveGitExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 7, 30, 5, 6, 7, 0, time.UTC)
+	store, err := journal.Open(ctx, filepath.Join(t.TempDir(), "journal.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.RegisterRun(ctx, journal.Run{
+		ID: manifest.value.RunID, ManifestDigest: manifest.digest,
+		Repository: manifest.value.Repository,
+		Release:    manifest.value.Release, TargetRef: manifest.value.TargetRef,
+		CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	fixture := &providerStallFixture{ctx: ctx, manifest: manifest, store: store, now: now}
+	fixture.service = &Service{
+		journal: store, dispatcher: fixtureDriver(func(
+			_ context.Context, _ driver.Invocation,
+		) (driver.Observation, error) {
+			t.Fatal("provider-stall gate test dispatched a driver invocation")
+			return driver.Observation{}, nil
+		}), production: production,
+		gitExecutable: gitExecutable,
+		now:           func() time.Time { return fixture.now },
+		sleep: func(_ context.Context, d time.Duration) error {
+			fixture.sleeps = append(fixture.sleeps, d)
+			if d > 0 {
+				fixture.now = fixture.now.Add(d)
+			}
+			return nil
+		},
+	}
+	engine, err := fixture.service.openEngine(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = engine.Close() })
+	fixture.engine = engine
+	return fixture
+}
+
+func (f *providerStallFixture) failedEffect(errorCode string, resetAfterMillis int64) journal.Effect {
+	effect := journal.Effect{ErrorCode: errorCode}
+	if resetAfterMillis > 0 {
+		body, err := json.Marshal(productionRefusalBinding{ResetAfterMillis: resetAfterMillis})
+		if err != nil {
+			panic(err)
+		}
+		effect.Result = body
+	}
+	return effect
+}
+
+func providerStallWork() string {
+	return "sha256:" + strings.Repeat("c", 64)
+}
+
+// A1: PROVIDER_UNAVAILABLE waits the fixed 60/120/240/240 schedule,
+// probing the failed try's own profile and model after each wait, and
+// admits the next try (stalled=false) the moment a probe passes.
+func TestProviderStallGateWaitsWithScheduleThenAdmitsNextTryOnPassingProbe(t *testing.T) {
+	roundTripper, calls := providerStallScriptedRoundTripper(2)
+	fixture := newProviderStallFixture(t, roundTripper)
+	work := providerStallWork()
+
+	stalled, err := fixture.service.providerStallGuardsParked(
+		fixture.ctx, fixture.engine, fixture.manifest.value.RunID, work,
+		1, 1, driver.RoleImplementer, fixture.failedEffect("PROVIDER_UNAVAILABLE", 0),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stalled {
+		t.Fatal("gate parked despite a passing probe inside the bound")
+	}
+	if *calls != 3 {
+		t.Fatalf("probe calls = %d, want 3 (2 failing, 1 passing)", *calls)
+	}
+	wantSleeps := []time.Duration{
+		60 * time.Second, 120 * time.Second, 240 * time.Second,
+	}
+	if len(fixture.sleeps) != len(wantSleeps) {
+		t.Fatalf("sleeps = %v, want %v", fixture.sleeps, wantSleeps)
+	}
+	for index, want := range wantSleeps {
+		if fixture.sleeps[index] != want {
+			t.Fatalf("sleeps = %v, want %v", fixture.sleeps, wantSleeps)
+		}
+	}
+	snapshot, err := fixture.store.Snapshot(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waits, probes := providerStallEventsFor(snapshot, work, 1, 1)
+	if len(waits) != 3 || len(probes) != 3 {
+		t.Fatalf("waits = %d, probes = %d, want 3 and 3", len(waits), len(probes))
+	}
+	for index, wait := range waits {
+		if wait.Index != int64(index+1) || wait.Reason != providerStallReasonSchedule {
+			t.Fatalf("wait[%d] = %#v", index, wait)
+		}
+	}
+	if probes[0].Code == providerStallProbePassedCode ||
+		probes[1].Code == providerStallProbePassedCode ||
+		probes[2].Code != providerStallProbePassedCode {
+		t.Fatalf("probes = %#v", probes)
+	}
+	if probes[2].Profile != "planner" || probes[2].Model != "implementer-model" {
+		t.Fatalf("probe named wrong lane: %#v", probes[2])
+	}
+}
+
+// A1: a PROVIDER_LIMITED failure with a provider-named reset time waits
+// exactly that long (clamped to the bound) before its first probe, instead
+// of the fixed schedule's first step.
+func TestProviderStallGateWaitsForProviderNamedResetTime(t *testing.T) {
+	roundTripper, calls := providerStallScriptedRoundTripper(0)
+	fixture := newProviderStallFixture(t, roundTripper)
+	work := providerStallWork()
+
+	stalled, err := fixture.service.providerStallGuardsParked(
+		fixture.ctx, fixture.engine, fixture.manifest.value.RunID, work,
+		1, 1, driver.RoleImplementer,
+		fixture.failedEffect("PROVIDER_LIMITED", 5_000),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stalled {
+		t.Fatal("gate parked despite a passing probe inside the bound")
+	}
+	if *calls != 1 {
+		t.Fatalf("probe calls = %d, want 1", *calls)
+	}
+	if len(fixture.sleeps) != 1 || fixture.sleeps[0] != 5*time.Second {
+		t.Fatalf("sleeps = %v, want [5s]", fixture.sleeps)
+	}
+	snapshot, err := fixture.store.Snapshot(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waits, probes := providerStallEventsFor(snapshot, work, 1, 1)
+	if len(waits) != 1 || waits[0].Reason != providerStallReasonReset ||
+		waits[0].WaitDurationMillis != 5_000 {
+		t.Fatalf("waits = %#v", waits)
+	}
+	if len(probes) != 1 || probes[0].Code != providerStallProbePassedCode {
+		t.Fatalf("probes = %#v", probes)
+	}
+}
+
+// A1: every other failure code is untouched - the gate admits the next
+// try at once, waits and probes nothing, and journals nothing.
+func TestProviderStallGateIgnoresOtherFailureCodes(t *testing.T) {
+	roundTripper, calls := providerStallScriptedRoundTripper(0)
+	fixture := newProviderStallFixture(t, roundTripper)
+	work := providerStallWork()
+
+	for _, code := range []string{
+		"INVOCATION_TIMEOUT", "PROVIDER_TRANSPORT_FAILED", "PROVIDER_AUTHORIZATION_FAILED",
+		// S6-context-window-clamp A3: an economy context-exhaustion never
+		// enters S5's provider-stall backoff. provider_stall.go's own
+		// guard already excludes any code but PROVIDER_UNAVAILABLE and
+		// PROVIDER_LIMITED; this pins that fact against regression for the
+		// new code specifically.
+		"ECONOMY_CONTEXT_EXHAUSTED",
+	} {
+		stalled, err := fixture.service.providerStallGuardsParked(
+			fixture.ctx, fixture.engine, fixture.manifest.value.RunID, work,
+			1, 1, driver.RoleImplementer, fixture.failedEffect(code, 0),
+		)
+		if err != nil || stalled {
+			t.Fatalf("code %s: stalled=%v err=%v", code, stalled, err)
+		}
+	}
+	if *calls != 0 {
+		t.Fatalf("probe calls = %d, want 0", *calls)
+	}
+	if len(fixture.sleeps) != 0 {
+		t.Fatalf("sleeps = %v, want none", fixture.sleeps)
+	}
+}
+
+// A3: a stall that never resolves a passing probe within the declared
+// 30-minute bound parks with the typed provider_stall cause, naming the
+// failure code, the elapsed wait and the last probe's closed code.
+func TestProviderStallGateParksAfterBoundExceeded(t *testing.T) {
+	roundTripper, calls := providerStallScriptedRoundTripper(1_000_000)
+	fixture := newProviderStallFixture(t, roundTripper)
+	work := providerStallWork()
+
+	stalled, err := fixture.service.providerStallGuardsParked(
+		fixture.ctx, fixture.engine, fixture.manifest.value.RunID, work,
+		1, 1, driver.RoleImplementer, fixture.failedEffect("PROVIDER_UNAVAILABLE", 0),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stalled {
+		t.Fatal("gate admitted a next try past the declared bound")
+	}
+	if *calls == 0 {
+		t.Fatal("gate parked without ever probing")
+	}
+	var total time.Duration
+	for _, sleep := range fixture.sleeps {
+		total += sleep
+	}
+	if total != providerStallTotalBound() {
+		t.Fatalf(
+			"total waited = %s, want exactly the declared bound %s",
+			total, providerStallTotalBound(),
+		)
+	}
+	snapshot, err := fixture.store.Snapshot(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parkEvent *journal.Event
+	for index := range snapshot.Events {
+		if snapshot.Events[index].Kind == ParkEventKind {
+			parkEvent = &snapshot.Events[index]
+		}
+	}
+	if parkEvent == nil {
+		t.Fatal("no park event recorded")
+	}
+	parsed, err := ParseDegradationParkEvent(parkEvent.Body)
+	if err != nil {
+		t.Fatalf("park event unparsable: %v", err)
+	}
+	if parsed.Cause != ParkCauseProviderStall ||
+		parsed.Work != work ||
+		parsed.FailureCode != "PROVIDER_UNAVAILABLE" ||
+		!strings.Contains(parsed.FailureDetail, "PROVIDER_UNAVAILABLE") ||
+		!strings.Contains(parsed.FailureDetail, "waited 30m0s") {
+		t.Fatalf("park event = %#v", parsed)
 	}
 }

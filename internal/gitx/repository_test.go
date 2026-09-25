@@ -1029,3 +1029,160 @@ func TestRecordRootDiffOutputHasPrivateEightMiBBound(t *testing.T) {
 		t.Fatalf("whole-tree bound changed to %d", MaxTreeBytes)
 	}
 }
+func TestResolveCommitRevisionResolvesFullAbbrevRefAndBranch(t *testing.T) {
+	repository, head := newRepository(t, SHA1)
+	if got, err := repository.ResolveCommitRevision(head.String()); err != nil || got != head {
+		t.Fatalf("full id = %v, %v, want %v", got, err, head)
+	}
+	abbrev := head.String()[:7]
+	if got, err := repository.ResolveCommitRevision(abbrev); err != nil || got != head {
+		t.Fatalf("abbrev %q = %v, %v, want %v", abbrev, got, err, head)
+	}
+	if got, err := repository.ResolveCommitRevision("HEAD"); err != nil || got != head {
+		t.Fatalf("HEAD = %v, %v, want %v", got, err, head)
+	}
+	if got, err := repository.ResolveCommitRevision("main"); err != nil || got != head {
+		t.Fatalf("main = %v, %v, want %v", got, err, head)
+	}
+	// Second branch resolving to the same head.
+	runTestGit(t, repository.Root(), nil, "branch", "feature")
+	featureText := runTestGit(t, repository.Root(), nil, "rev-parse", "feature")
+	feature, err := ParseOID(SHA1, featureText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := repository.ResolveCommitRevision("feature"); err != nil || got != feature {
+		t.Fatalf("feature = %v, %v, want %v", got, err, feature)
+	}
+	// HEAD~1 style syntax is admitted where it resolves to exactly one commit.
+	// Create a second commit on main so HEAD~1 resolves to the first head.
+	if err := os.WriteFile(filepath.Join(repository.Root(), "second.txt"), []byte("second\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runTestGit(t, repository.Root(), nil, "add", "--", "second.txt")
+	runTestGit(t, repository.Root(), nil, "commit", "--quiet", "-m", "second")
+	secondText := runTestGit(t, repository.Root(), nil, "rev-parse", "HEAD")
+	second, err := ParseOID(SHA1, secondText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := repository.ResolveCommitRevision("HEAD"); err != nil || got != second {
+		t.Fatalf("HEAD after second = %v, %v, want %v", got, err, second)
+	}
+	if got, err := repository.ResolveCommitRevision("HEAD~1"); err != nil || got != head {
+		t.Fatalf("HEAD~1 = %v, %v, want %v", got, err, head)
+	}
+}
+
+func TestResolveCommitRevisionRejectsAmbiguousUnresolvableAndMalformed(t *testing.T) {
+	repository, head := newRepository(t, SHA1)
+	checkCode := func(rev, want string) {
+		t.Helper()
+		_, err := repository.ResolveCommitRevision(rev)
+		if err == nil {
+			t.Fatalf("rev %q admitted, want %s", rev, want)
+		}
+		requireGitxErrorCode(t, err, want)
+		var typed *Error
+		if !errors.As(err, &typed) {
+			t.Fatalf("rev %q err = %#v", rev, err)
+		}
+		if typed.Op != "resolve revision" {
+			t.Fatalf("rev %q Op = %q, want fixed", rev, typed.Op)
+		}
+		if typed.Err == nil {
+			t.Fatalf("rev %q Err is nil", rev)
+		}
+		if rev != "" && strings.Contains(typed.Err.Error(), rev) {
+			t.Fatalf("rev %q Err echoes value: %v", rev, typed.Err)
+		}
+		if rev != "" && strings.Contains(err.Error(), rev) {
+			t.Fatalf("rev %q Error() echoes value: %v", rev, err)
+		}
+		if strings.Contains(err.Error(), "fatal:") || strings.Contains(err.Error(), "ls-tree") {
+			t.Fatalf("rev %q echoes git output: %v", rev, err)
+		}
+	}
+	// Unresolvable ref and nonexistent full id.
+	checkCode("does-not-exist", "REVISION_NOT_FOUND")
+	checkCode(strings.Repeat("1", 40), "REVISION_NOT_FOUND")
+	// Malformed inputs fail closed without reaching git.
+	checkCode("", "REVISION_NOT_FOUND")
+	checkCode("   ", "REVISION_NOT_FOUND")
+	checkCode(strings.Repeat("a", 257), "REVISION_NOT_FOUND")
+	checkCode("bad\x00rev", "REVISION_NOT_FOUND")
+	checkCode("bad\nrev", "REVISION_NOT_FOUND")
+	checkCode("bad\trev", "REVISION_NOT_FOUND")
+	checkCode("-HEAD", "REVISION_NOT_FOUND")
+	checkCode("--verify", "REVISION_NOT_FOUND")
+	// Non-commit objects map to NON_COMMIT_OBJECT where told apart.
+	blobText := runTestGit(t, repository.Root(), nil, "rev-parse", "HEAD:product.txt")
+	checkCode(blobText, "NON_COMMIT_OBJECT")
+	treeText := runTestGit(t, repository.Root(), nil, "rev-parse", "HEAD^{tree}")
+	checkCode(treeText, "NON_COMMIT_OBJECT")
+	// Full head still resolves after the rejections.
+	if got, err := repository.ResolveCommitRevision(head.String()); err != nil || got != head {
+		t.Fatalf("head after rejections = %v, %v", got, err)
+	}
+	// Sanitized environment is respected.
+	t.Setenv("GIT_DIR", "/definitely/not/the/repository")
+	t.Setenv("GIT_OBJECT_DIRECTORY", "/definitely/not/the/object-store")
+	if got, err := repository.ResolveCommitRevision("HEAD"); err != nil || got != head {
+		t.Fatalf("HEAD with hostile env = %v, %v", got, err)
+	}
+}
+
+func TestResolveCommitRevisionRefusesAmbiguousShortID(t *testing.T) {
+	repository, _ := newRepository(t, SHA1)
+	// Generate enough blobs to guarantee a 4-character prefix collision,
+	// then prove the colliding prefix is refused as ambiguous with a
+	// value-free error. 1500 blobs is seconds and cannot flake: the
+	// expected collision count is ~17.
+	var oids []string
+	for i := 0; i < 1500; i++ {
+		content := []byte("collide-content-" + strings.Repeat("x", i%32) + "-" + string(rune('0'+i%10)) + "\n")
+		// Vary content deterministically; the index alone suffices.
+		content = []byte("collide-ambiguous-" + itoa(i) + "\n")
+		oid := runTestGit(t, repository.Root(), content, "hash-object", "-w", "--stdin")
+		oids = append(oids, oid)
+	}
+	prefixes := make(map[string][]string)
+	for _, oid := range oids {
+		prefix := oid[:4]
+		prefixes[prefix] = append(prefixes[prefix], oid)
+	}
+	var ambiguous string
+	for prefix, group := range prefixes {
+		if len(group) > 1 {
+			ambiguous = prefix
+			break
+		}
+	}
+	if ambiguous == "" {
+		t.Fatal("no colliding prefix found")
+	}
+	_, err := repository.ResolveCommitRevision(ambiguous)
+	if err == nil {
+		t.Fatalf("ambiguous prefix %q admitted", ambiguous)
+	}
+	requireGitxErrorCode(t, err, "AMBIGUOUS_REVISION")
+	var typed *Error
+	if !errors.As(err, &typed) || typed.Op != "resolve revision" {
+		t.Fatalf("ambiguous err = %#v", err)
+	}
+	if strings.Contains(err.Error(), ambiguous) {
+		t.Fatalf("ambiguous Error() echoes value: %v", err)
+	}
+}
+
+func itoa(i int) string {
+	if i == 0 {
+		return "0"
+	}
+	var digits []byte
+	for i > 0 {
+		digits = append([]byte{byte('0' + i%10)}, digits...)
+		i /= 10
+	}
+	return string(digits)
+}

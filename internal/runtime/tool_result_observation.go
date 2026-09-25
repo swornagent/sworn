@@ -36,23 +36,27 @@ const (
 // drop count — sufficient to derive a per-track stream and to bind a cursor
 // to a position through the existing events and observer_cursors machinery.
 type toolResultEventBody struct {
-	SchemaVersion  string                    `json:"schema_version"`
-	RunID          string                    `json:"run_id"`
-	Track          string                    `json:"track,omitempty"`
-	Slice          string                    `json:"slice,omitempty"`
-	Role           driver.Role               `json:"role"`
-	Responsibility driver.Responsibility     `json:"responsibility"`
-	Attempt        int64                     `json:"attempt"`
-	Epoch          int64                     `json:"epoch"`
-	Try            int64                     `json:"try"`
-	WorkID         string                    `json:"work_id,omitempty"`
-	EffectID       string                    `json:"effect_id,omitempty"`
-	Turn           int64                     `json:"turn"`
-	Part           int64                     `json:"part,omitempty"`
-	Parts          int64                     `json:"parts,omitempty"`
-	DroppedEvents  int64                     `json:"dropped_events,omitempty"`
-	Encoding       string                    `json:"encoding"`
-	Results        []driver.ToolResultRecord `json:"results"`
+	SchemaVersion  string                `json:"schema_version"`
+	RunID          string                `json:"run_id"`
+	Track          string                `json:"track,omitempty"`
+	Slice          string                `json:"slice,omitempty"`
+	Role           driver.Role           `json:"role"`
+	Responsibility driver.Responsibility `json:"responsibility"`
+	Attempt        int64                 `json:"attempt"`
+	Epoch          int64                 `json:"epoch"`
+	Try            int64                 `json:"try"`
+	WorkID         string                `json:"work_id,omitempty"`
+	EffectID       string                `json:"effect_id,omitempty"`
+	Turn           int64                 `json:"turn"`
+	Part           int64                 `json:"part,omitempty"`
+	Parts          int64                 `json:"parts,omitempty"`
+	DroppedEvents  int64                 `json:"dropped_events,omitempty"`
+	Encoding       string                `json:"encoding"`
+	// InputTokens carries the driver's own ToolResultTurn.InputTokens
+	// through unchanged (S6-context-window-clamp A4): the latest turn's
+	// reported input-token count, nil when absent.
+	InputTokens *int64                    `json:"input_tokens,omitempty"`
+	Results     []driver.ToolResultRecord `json:"results"`
 }
 
 // workerTurnEventBody is the versioned, identity-carrying envelope the
@@ -123,6 +127,7 @@ func (s *Service) toolResultObservationHook(
 			Parts:         turn.Parts,
 			DroppedEvents: turn.DroppedEvents,
 			Encoding:      "base64",
+			InputTokens:   turn.InputTokens,
 			Results:       turn.Results,
 		}
 		encoded, err := json.Marshal(body)
@@ -145,6 +150,30 @@ func (s *Service) toolResultObservationHook(
 		s.feedFailureTailTool(body.EffectID, turn)
 		return nil
 	}
+}
+
+// lastInputTokensForSnapshot builds the latest reported input-token count
+// per driver.dispatch effect ID, from the same tool_result_observed events
+// the failure-turn tail already reads (S6-context-window-clamp A4): a
+// later event's non-nil InputTokens supersedes an earlier one, and a part
+// event carrying none (every part but the first of a coalesced turn) never
+// erases the value the turn's first part already carried, so the map holds
+// the honest latest report for an in-flight or failed dispatch alike.
+func lastInputTokensForSnapshot(snapshot journal.Snapshot) map[string]*int64 {
+	result := make(map[string]*int64)
+	for _, event := range snapshot.Events {
+		if event.Kind != toolResultEventKind {
+			continue
+		}
+		var body toolResultEventBody
+		if json.Unmarshal(event.Body, &body) != nil || body.EffectID == "" ||
+			body.InputTokens == nil {
+			continue
+		}
+		value := *body.InputTokens
+		result[body.EffectID] = &value
+	}
+	return result
 }
 
 // workerTurnObservationHook builds the durable hook for one dispatch's

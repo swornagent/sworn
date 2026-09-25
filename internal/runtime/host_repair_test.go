@@ -519,3 +519,119 @@ func TestAnchorGateAdmitsCandidateThatTouchesTheDeclaredAnchor(t *testing.T) {
 		t.Fatalf("expected the anchor-touching candidate to clear the gate, got %v", dispatchErr)
 	}
 }
+
+// S3-host-check-failure-facts A1 + lead correction 1: an in-flight next try
+// (claimed, not terminal) must not clear the fact; a later terminal
+// dispatch does, as A6 requires. The fact appears on EffectStatus even when
+// the work is not pinned (lead correction 4).
+func TestHostCheckFailureFactSurvivesInFlightNextTryAndClearsAfterPassing(t *testing.T) {
+	failing := "echo 'needs repair'; exit 7"
+	fixture := newHostCheckFixture(t, []string{failing})
+	_, err := fixture.service.runHostChecks(
+		fixture.ctx, fixture.engine, fixture.owner, fixture.plan,
+		"S1", fixture.candidate, fixture.targetHead, fixture.releaseHead)
+	var failure *hostCheckFailure
+	if err == nil {
+		t.Fatal("expected HOST_CHECK_FAILED")
+	}
+	if !isHostCheckFailure(err, &failure) {
+		t.Fatalf("expected hostCheckFailure, got %v", err)
+	}
+	recordFixtureManifestCommand(t, fixture)
+	work := "sha256:" + strings.Repeat("c", 64)
+	repair := buildRepairFromHostResult(t, fixture, failure.result, 1, 1)
+	failedID := journalHostFailedDispatchForFact(t, fixture, work, 1, 1, repair)
+	// In-flight next try: claimed, never terminal.
+	nextID := journal.AttemptEffectID(work, 1, 2)
+	payload := mustJSON(map[string]string{"work": work})
+	if err := fixture.store.RecordCommandEffect(fixture.ctx, journal.Command{
+		RunID: fixture.manifest.value.RunID, ReplayKey: nextID, Kind: "driver.dispatch",
+		Payload: payload, CreatedAt: fixture.service.now().UTC(),
+	}, journal.Effect{
+		RunID: fixture.manifest.value.RunID, ID: nextID, ReplayKey: nextID,
+		Kind: "driver.dispatch", State: journal.Pending,
+		BeforeDigest: sha256Digest(payload), ExpectedDigest: "sha256:" + strings.Repeat("d", 64),
+		UpdatedAt: fixture.service.now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.store.Claim(fixture.ctx, fixture.manifest.value.RunID, nextID, fixture.service.now().UTC(), time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	status, err := fixture.service.Status(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := make(map[string]EffectStatus, len(status.Effects))
+	for _, effect := range status.Effects {
+		byID[effect.ID] = effect
+	}
+	failedStatus, ok := byID[failedID]
+	if !ok || failedStatus.HostCheckFailure == nil {
+		t.Fatalf("in-flight next try cleared the fact: %#v", failedStatus)
+	}
+	if failedStatus.HostCheckFailure.Check != failing || failedStatus.HostCheckFailure.ExitCode != 7 {
+		t.Fatalf("fact = %#v", failedStatus.HostCheckFailure)
+	}
+	if nextStatus, ok := byID[nextID]; !ok || nextStatus.HostCheckFailure != nil {
+		t.Fatalf("in-flight dispatch carries a fact: %#v", nextStatus)
+	}
+	if len(status.PinnedWork) != 0 {
+		t.Fatalf("single failure pinned work: %#v", status.PinnedWork)
+	}
+	// A later terminal success for the same owner clears the fact everywhere
+	// for that owner, as A6 requires (no stale fact remains).
+	snapshot, err := fixture.store.Snapshot(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var claimed journal.Effect
+	for _, effect := range snapshot.Effects {
+		if effect.ID == nextID {
+			claimed = effect
+		}
+	}
+	if claimed.State != journal.Claimed {
+		t.Fatalf("next try state = %q, want claimed", claimed.State)
+	}
+	if err := fixture.store.Complete(fixture.ctx, journal.Completion{
+		RunID: fixture.manifest.value.RunID, EffectID: nextID, Token: claimed.CurrentClaim,
+		State: journal.Succeeded, Result: []byte("{}"),
+		EventKind: "dispatch_completed", EventBody: []byte("{}"), At: fixture.service.now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	status, err = fixture.service.Status(fixture.ctx, fixture.manifest.value.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, effect := range status.Effects {
+		if effect.HostCheckFailure != nil {
+			t.Fatalf("stale fact remains on %s after passing candidate: %#v", effect.ID, effect.HostCheckFailure)
+		}
+	}
+	for _, pinned := range status.PinnedWork {
+		if pinned.HostCheckFailure != nil {
+			t.Fatalf("stale pinned fact remains: %#v", pinned)
+		}
+	}
+}
+
+func isHostCheckFailure(err error, failure **hostCheckFailure) bool {
+	if err == nil {
+		return false
+	}
+	type causer interface{ Unwrap() error }
+	for current := err; current != nil; {
+		if candidate, ok := current.(*hostCheckFailure); ok {
+			*failure = candidate
+			return true
+		}
+		unwrapped, ok := current.(causer)
+		if !ok {
+			return false
+		}
+		current = unwrapped.Unwrap()
+	}
+	return false
+}

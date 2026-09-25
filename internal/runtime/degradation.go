@@ -72,6 +72,18 @@ const (
 	// its authority is a bootstrap-approved plan digest and a planner revision
 	// is needed.
 	ParkCauseBootstrapAuthority = "bootstrap_authority"
+	// ParkCauseProviderStall is the park cause for a work whose transient
+	// provider failure (PROVIDER_UNAVAILABLE, or PROVIDER_LIMITED with no
+	// usable reset time) outlasted the bounded wait-and-probe backoff.
+	ParkCauseProviderStall = "provider_stall"
+	// ParkCauseEconomyContext is the park cause for a work whose dispatch
+	// could not fit a minimal output in its declared context window
+	// (ECONOMY_CONTEXT_EXHAUSTED). It is a KindEconomy failure but is never
+	// Grant-eligible - there is no manifest Limits value a Grant could
+	// raise to fix a fixed driver-config context window - so it parks on
+	// any try and is cleared by a bare Retry once the operator edits the
+	// driver config (S6-context-window-clamp A3).
+	ParkCauseEconomyContext = "economy_context_window"
 )
 
 // DegradationFallback is one counted fallback fact inside a degradation park
@@ -235,6 +247,44 @@ func canonicalDegradationParkEvent(event DegradationParkEvent) ([]byte, error) {
 			return nil, runtimeFail("INVALID_PARK_EVENT", nil)
 		}
 	case event.SchemaVersion == ParkEventVersion &&
+		event.Cause == ParkCauseProviderStall:
+		// A provider-stall park names the work whose transient provider
+		// failure outlasted the bound. FailureCode is always one of the
+		// two qualifying codes; FailureDetail renders the elapsed wait and
+		// the last probe's closed code. There is no unblock knob: a retry
+		// control clears this park, not a manifest value.
+		if event.UnblockKnob != "" ||
+			!runtimeDigestPattern.MatchString(event.Work) ||
+			(event.FailureCode != "PROVIDER_UNAVAILABLE" &&
+				event.FailureCode != "PROVIDER_LIMITED") ||
+			!validParkDetail(event.FailureDetail) ||
+			event.Count != 0 || event.Budget != 0 ||
+			len(event.Fallbacks) != 0 || event.Spent != 0 ||
+			event.Consecutive != 0 || event.Threshold != 0 ||
+			event.Reason != "" {
+			return nil, runtimeFail("INVALID_PARK_EVENT", nil)
+		}
+	case event.SchemaVersion == ParkEventVersion &&
+		event.Cause == ParkCauseEconomyContext:
+		// A context-window park names the work whose dispatch could not
+		// fit a minimal output in its declared context window.
+		// FailureCode is always ECONOMY_CONTEXT_EXHAUSTED; FailureDetail
+		// renders the window, the last input tokens, and the ceiling.
+		// There is no unblock knob: no manifest Limits value fixes a
+		// fixed driver-config context window, so a bare Retry (after the
+		// operator edits the driver config) clears this park, not a
+		// manifest value.
+		if event.UnblockKnob != "" ||
+			!runtimeDigestPattern.MatchString(event.Work) ||
+			event.FailureCode != "ECONOMY_CONTEXT_EXHAUSTED" ||
+			!validParkDetail(event.FailureDetail) ||
+			event.Count != 0 || event.Budget != 0 ||
+			len(event.Fallbacks) != 0 || event.Spent != 0 ||
+			event.Consecutive != 0 || event.Threshold != 0 ||
+			event.Reason != "" {
+			return nil, runtimeFail("INVALID_PARK_EVENT", nil)
+		}
+	case event.SchemaVersion == ParkEventVersion &&
 		event.Cause == ParkCauseExhaustion:
 		// An exhaustion park names the work whose current-epoch try budget
 		// is spent. FailureCode and FailureDetail carry the durable refusal
@@ -313,6 +363,12 @@ func degradationParkEvent(
 const (
 	maxParkReasonBytes            = 240 * 1024
 	bootstrapParkUnblockDirective = "Revise the contract, run sworn plan record to record the next revision, then relaunch the run."
+	// assemblyBlockedUnblockDirective is the bootstrap-authority park
+	// advice for an assembly verification BLOCKED receipt (manager
+	// policy M9). It names the route that fits it: a byte-identical
+	// plan revision, approved, then relaunch. It never advises revising
+	// the contract.
+	assemblyBlockedUnblockDirective = "Manager policy M9: record a plan revision whose slice contracts are byte-identical to the approved revision, have it approved, then relaunch the run."
 )
 
 func bootstrapAuthorityParkEvent(runID, reason string) ([]byte, error) {

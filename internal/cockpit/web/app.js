@@ -779,6 +779,12 @@ function renderFailureTurnContext(node) {
       meta.textContent = `+${result.omitted_bytes || 0} omitted, +${result.redacted_bytes || 0} redacted`;
       item.append(meta);
     }
+    if (Number.isSafeInteger(turn.input_tokens)) {
+      const inputTokensLine = document.createElement("p");
+      inputTokensLine.className = "quiet";
+      inputTokensLine.textContent = `input tokens: ${turn.input_tokens}`;
+      item.append(inputTokensLine);
+    }
     if (Number.isSafeInteger(turn.dropped_events) && turn.dropped_events > 0) {
       const droppedLine = document.createElement("p");
       droppedLine.className = "quiet";
@@ -1482,6 +1488,12 @@ function renderActivityTurn(turn) {
       note.textContent = `+${result.omitted_bytes || 0} omitted, +${result.redacted_bytes || 0} redacted`;
       item.append(note);
     }
+  }
+  if (Number.isSafeInteger(turn.input_tokens)) {
+    const inputTokens = document.createElement("p");
+    inputTokens.className = "quiet";
+    inputTokens.textContent = `input tokens: ${turn.input_tokens}`;
+    item.append(inputTokens);
   }
   if ((turn.dropped_events || 0) > 0) {
     const dropped = document.createElement("p");

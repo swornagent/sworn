@@ -108,6 +108,17 @@ type Node struct {
 	// via lane->actionable-node. Nil means absent. Evidence, never
 	// authority.
 	FailureTurnContext *runtimepkg.FailureTurnContext `json:"failure_turn_context,omitempty"`
+	// HostCheckFailure carries the pinned work's latest failed host
+	// check fact for the board/TUI/MCP detail, copied from PinnedWork
+	// via the same lane->actionable-node rule. Nil means absent.
+	// Evidence, never authority.
+	HostCheckFailure *runtimepkg.HostCheckFailureFact `json:"host_check_failure,omitempty"`
+	// ProviderStall carries the lane's currently-waiting S5
+	// transient-provider-backoff status (never a pin or a park: the try
+	// loop is still inside its bounded wait), copied from
+	// RunStatus.ProviderStall via the same lane->actionable-node rule.
+	// Nil means no work on this lane is currently waiting.
+	ProviderStall *runtimepkg.ProviderStallStatus `json:"provider_stall,omitempty"`
 }
 
 // Touchpoint is the cockpit's read-only presentation of one
@@ -190,6 +201,14 @@ type EffectView struct {
 	// FailureTurnContext copies the runtime Effect's bounded tail
 	// field-for-field. Nil means absent. Evidence, never authority.
 	FailureTurnContext *runtimepkg.FailureTurnContext `json:"failure_turn_context,omitempty"`
+	// HostCheckFailure copies the runtime Effect's bounded host-check
+	// failure fact field-for-field. Nil means absent. Evidence, never
+	// authority.
+	HostCheckFailure *runtimepkg.HostCheckFailureFact `json:"host_check_failure,omitempty"`
+	// CheckOutcome copies the runtime Effect's journaled check outcome
+	// for a check.host effect (pass, fail, timeout, overflow), beside
+	// the effect state. Empty means absent.
+	CheckOutcome string `json:"check_outcome,omitempty"`
 }
 
 type AttemptView struct {

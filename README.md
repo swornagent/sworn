@@ -90,7 +90,10 @@ runtime requirements.
 
 The [run guide](docs/run.md) covers the files an operator supplies, AI
 connection checks, starting a run, viewing progress, recovery states, and the
-local browser board.
+local browser board. The [launch guide](docs/launch.md) walks through
+launching a release with `plan pin`, `plan lint`, `plan record`, the
+canonical manifest, operator config and `serve`, with each launch refusal
+code and what to do about it.
 
 From anywhere inside a Git project, run:
 
@@ -111,12 +114,13 @@ exact run control.
 | `sworn` or `sworn tui` | Open the interactive project view. |
 | `sworn run` | Start or continue the run described by a manifest. |
 | `sworn board` | Show what Sworn is doing, what is next, and whether a person is needed. |
-| `sworn serve` | Open the same run board in a local browser service. |
+| `sworn serve` | Open the same run board in a local browser service. See the [launch guide](docs/launch.md) for launch refusals. |
 | `sworn pause`, `resume`, `cancel`, `takeover` | Safely control a saved run. |
 | `sworn retry` | Retry one stopped work item with its current safety values. |
 | `sworn answer` | Answer a question that has paused one part of the work. |
 | `sworn status --json` | Return the stable run record for another program. |
 | `sworn driver inspect`, `doctor`, `certify` | Check configured AI connections at increasing depth. |
+| `sworn driver probe` | Send one minimal live request to prove one named lane is admitting requests right now. |
 
 Exact command syntax:
 
@@ -132,6 +136,7 @@ sworn status --run ID --journal ABS --json
 sworn board --run ID --journal ABS [--json]
 sworn serve --run ID --journal ABS [--manifest ABS] [--config ABS] [--operator-config ABS]
 sworn driver inspect|doctor|certify --config ABS (--profile PROFILE --model MODEL | --all) --json
+sworn driver probe --config ABS --profile PROFILE --model MODEL [--json]
 ```
 
 ## AI connections
