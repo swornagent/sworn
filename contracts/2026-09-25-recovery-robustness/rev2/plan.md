@@ -193,6 +193,32 @@
             "docs/policy/manager.md",
             "skills/sworn-orchestrate/SKILL.md"
           ]
+        },
+        {
+          "consumes": [],
+          "contract_path": "contracts/2026-09-25-recovery-robustness/rev2/S8-credential-lifetime-repair.json",
+          "depends_on": [],
+          "digest": "sha256:744c68d0249fee449881522d335703962d56ce90b1164c8c347303bd811eea6b",
+          "id": "S8-credential-lifetime-repair",
+          "outcome": "A credential-lifetime park clears itself for every stage once the credential is refreshed and the work runs, the admission check provably uses the dispatch's own timeout, the operator is never told to retry a refusal that retry cannot clear, and the CLI's authentication failure is recognised in the form the CLI actually emits.",
+          "touchpoints": [
+            "cmd/sworn",
+            "internal/runtime",
+            "internal/journal",
+            "internal/gitx",
+            "internal/driver",
+            "internal/cockpit",
+            "internal/observe",
+            "internal/tui",
+            "internal/skill",
+            "internal/protocol",
+            "tools/protocolgolden",
+            "test/e2e",
+            "docs/run.md",
+            "docs/launch.md",
+            "docs/policy/manager.md",
+            "skills/sworn-orchestrate/SKILL.md"
+          ]
         }
       ]
     }
@@ -205,9 +231,10 @@
 
 Revision 2 (amended) of release 2026-09-25-recovery-robustness. It keeps S1 to
 S5 of revision 1 exactly as approved (same contract files and digests) and
-appends two repair slices, S6-host-environment-park-projection and
-S7-pause-safe-host-checks-repair, so the release does not promote S1 or S2 with
-the defects blind shadow verification found in them. It amends the revision 2
+appends three repair slices, S6-host-environment-park-projection,
+S7-pause-safe-host-checks-repair and S8-credential-lifetime-repair, so the
+release does not promote S1, S2 or S3 with the defects blind shadow
+verification found in them. It amends the revision 2
 the Principal approved on 2026-09-26 (plan 972df6a0..., never recorded): S6
 gains a park precedence criterion, S7 is new, and both repair slices run the
 e2e host check at -parallel=8.
@@ -265,6 +292,15 @@ cancelled-context proof at the seal claim are missing (the anchor test declares
 no host checks); a pause during the start-of-cycle recovery sweep surfaces
 RUN_STOPPED as an error; RUN_STOPPED is undocumented.
 
+S3, found in its verified candidate by a blind shadow verification and
+reproduced by the seat. Blocking: the credential_lifetime fact is keyed on the
+implementer_implementation identity while a nested implementation journals its
+attempt under cycle.DispatchWork, so the implementation-stage park never clears
+after a refresh. Also: a mutant that ignores the timeout at both admission sites
+passes every credential test, so the admission-time lookahead is untested; the
+needs-you text still tells the operator to retry; and the auth-failure fixture
+may not match the sequence the CLI emitted in this run.
+
 S3, found while it was in flight. S3's candidates changed the status projection
 to select parked before active for every park cause, contrary to its approved
 design, then altered identical-failure parking and finally deleted the existing
@@ -289,7 +325,11 @@ S7-pause-safe-host-checks-repair makes repeated pauses at any mix of stop
 points safe, adds the proofs S2's Lead required, treats a pause during the
 recovery sweep as a stop, and documents every stop code.
 
-Both repair slices run the e2e host check at -parallel=8; S1 to S5 keep their
+S8-credential-lifetime-repair makes the credential park clear at every stage,
+proves admission uses the dispatch timeout, removes the retry advice for a
+cause retry cannot clear, and recognises the auth failure as the CLI emits it.
+
+All three repair slices run the e2e host check at -parallel=8; S1 to S5 keep their
 approved checks.
 
 # How this run is driven
