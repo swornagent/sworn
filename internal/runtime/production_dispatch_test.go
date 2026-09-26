@@ -352,7 +352,7 @@ func TestProductionDriverConfigBindsDigestAndBuildsOnlySelectedProfiles(
 	drifted := manifest
 	drifted.value.DriverConfigDigest =
 		"sha256:" + strings.Repeat("f", 64)
-	if _, err := production.registryFor(drifted); !IsCode(err, "DRIVER_CONFIG_DRIFT") {
+	if _, err := production.registryFor(drifted, nil); !IsCode(err, "DRIVER_CONFIG_DRIFT") {
 		t.Fatalf("config drift = %v", err)
 	}
 	if _, err := (&Service{
@@ -389,6 +389,7 @@ func TestProductionDriverConfigBindsDigestAndBuildsOnlySelectedProfiles(
 	}
 	if _, err := differentRuntime.registryFor(
 		manifest,
+		nil,
 	); !IsCode(err, "DRIVER_CONFIG_DRIFT") {
 		t.Fatalf("different restart config = %v", err)
 	}
@@ -465,7 +466,7 @@ func TestProductionDriverConfigBindsDigestAndBuildsOnlySelectedProfiles(
 		Planner: fakeRole, Implementer: fakeRole,
 		Lead: fakeRole, Verifier: fakeRole,
 	}
-	if _, err := fakeProduction.registryFor(fakeManifest); !IsCode(err, "DRIVER_UNAVAILABLE") {
+	if _, err := fakeProduction.registryFor(fakeManifest, nil); !IsCode(err, "DRIVER_UNAVAILABLE") {
 		t.Fatalf("production fake profile = %v", err)
 	}
 }

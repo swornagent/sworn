@@ -777,8 +777,14 @@ func (s *Service) openEngine(manifest admittedManifest) (*engine, error) {
 	var registry driver.SelectionRegistry
 	var configured *configuredRuntimeRegistry
 	if manifest.value.production() {
-		var err error
-		configured, err = s.production.registryFor(manifest)
+		snapshots, err := s.recordedNativeCLISnapshots(
+			context.Background(),
+			manifest,
+		)
+		if err != nil {
+			return nil, err
+		}
+		configured, err = s.production.registryFor(manifest, snapshots)
 		if err != nil {
 			return nil, err
 		}

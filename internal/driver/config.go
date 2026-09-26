@@ -118,6 +118,11 @@ type DriverFactoryOptions struct {
 	AWSCredentials         AWSRuntimeResolver
 	LiveProbes             map[string]ProfileLiveProbe
 	RoundTrippers          map[string]http.RoundTripper
+	// NativeCLISnapshots binds each run-snapshot native adapter, by adapter
+	// key, to the CLI it executes: a run's recorded snapshot facts, or the
+	// previews a readiness command resolved. A run-snapshot adapter without
+	// one is refused.
+	NativeCLISnapshots map[string]NativeCLISnapshot
 }
 
 type ConfiguredDriverRegistry struct {
@@ -422,6 +427,13 @@ func buildConfiguredAdapter(
 		)
 	case driverAdapterNative:
 		value := cloneNativeAdapterConfig(*config.Native)
+		if value.CLIResolution == NativeCLIResolutionRunSnapshot {
+			bound, err := bindNativeCLISnapshot(value, options.NativeCLISnapshots)
+			if err != nil {
+				return nil, err
+			}
+			value = bound
+		}
 		return NewNativeAdapter(
 			value,
 			filePathResolver(sources),

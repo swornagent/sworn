@@ -20,9 +20,11 @@ type NetworkPolicy string
 
 // ExecutableIdentity is deliberately private to the process adapter. Profiles
 // and the common dispatcher bind only provider-neutral adapter identity.
+// Digest is omitempty only so a native run-snapshot declaration can leave it
+// absent; every admitted pin carries one, so its canonical bytes are unchanged.
 type ExecutableIdentity struct {
 	Path   string `json:"path"`
-	Digest string `json:"digest"`
+	Digest string `json:"digest,omitempty"`
 }
 
 // AdapterIdentity binds one registered adapter implementation without assuming

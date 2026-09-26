@@ -33,6 +33,46 @@ func (s *Store) Effect(ctx context.Context, runID, effectID string) (Effect, err
 	return effectOnConnection(ctx, s.conn, runID, effectID)
 }
 
+// Command returns one recorded command by its replay key without reading the
+// rest of the run.
+func (s *Store) Command(ctx context.Context, runID, replayKey string) (Command, error) {
+	if err := validateIdentity(runID, "run"); err != nil {
+		return Command{}, err
+	}
+	if err := validateIdentity(replayKey, "replay_key"); err != nil {
+		return Command{}, err
+	}
+	if s == nil {
+		return Command{}, fail("CLOSED", nil)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil || s.conn == nil {
+		return Command{}, fail("CLOSED", nil)
+	}
+	command := Command{RunID: runID, ReplayKey: replayKey}
+	var payloadDigest, createdAt string
+	err := s.conn.QueryRowContext(
+		ctx,
+		`SELECT kind, payload_digest, payload, created_at
+		 FROM commands WHERE run_id = ? AND replay_key = ?`,
+		runID,
+		replayKey,
+	).Scan(&command.Kind, &payloadDigest, &command.Payload, &createdAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Command{}, fail("COMMAND_NOT_FOUND", nil)
+	}
+	if err != nil {
+		return Command{}, dbError(err)
+	}
+	command.CreatedAt, err = parseTime(createdAt)
+	if err != nil || digest(command.Payload) != payloadDigest {
+		return Command{}, fail("CORRUPT_JOURNAL", nil)
+	}
+	command.Payload = append([]byte(nil), command.Payload...)
+	return command, nil
+}
+
 func effectOnConnection(
 	ctx context.Context,
 	conn *sql.Conn,

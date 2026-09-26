@@ -7485,6 +7485,9 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 	if manifest.legacyVersion != "" {
 		return RunStatus{}, runtimeFail("MIGRATION_REQUIRED", nil)
 	}
+	if err := s.recordNativeCLISnapshots(ownedCtx, manifest); err != nil {
+		return RunStatus{}, err
+	}
 	engine, err := s.openEngine(manifest)
 	if err != nil {
 		return RunStatus{}, err
