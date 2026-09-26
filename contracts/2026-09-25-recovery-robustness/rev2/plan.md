@@ -219,6 +219,32 @@
             "docs/policy/manager.md",
             "skills/sworn-orchestrate/SKILL.md"
           ]
+        },
+        {
+          "consumes": [],
+          "contract_path": "contracts/2026-09-25-recovery-robustness/rev2/S9-broker-budget-and-turn-cap-repair.json",
+          "depends_on": [],
+          "digest": "sha256:af82fc476cc428e1debc3d71e9cd46a43f174c1b7a20799d7ef315ee045cb8f5",
+          "id": "S9-broker-budget-and-turn-cap-repair",
+          "outcome": "A native dispatch ended by the broker call budget or the turn cap reports how many tool calls it executed and how many it refused, even when the CLI never emitted its final result, and the ordering that lets an accepted submission win over a budget crossing is pinned by a test.",
+          "touchpoints": [
+            "cmd/sworn",
+            "internal/runtime",
+            "internal/journal",
+            "internal/gitx",
+            "internal/driver",
+            "internal/cockpit",
+            "internal/observe",
+            "internal/tui",
+            "internal/skill",
+            "internal/protocol",
+            "tools/protocolgolden",
+            "test/e2e",
+            "docs/run.md",
+            "docs/launch.md",
+            "docs/policy/manager.md",
+            "skills/sworn-orchestrate/SKILL.md"
+          ]
         }
       ]
     }
@@ -231,10 +257,10 @@
 
 Revision 2 (amended) of release 2026-09-25-recovery-robustness. It keeps S1 to
 S5 of revision 1 exactly as approved (same contract files and digests) and
-appends three repair slices, S6-host-environment-park-projection,
-S7-pause-safe-host-checks-repair and S8-credential-lifetime-repair, so the
-release does not promote S1, S2 or S3 with the defects blind shadow
-verification found in them. It amends the revision 2
+appends four repair slices, S6-host-environment-park-projection,
+S7-pause-safe-host-checks-repair, S8-credential-lifetime-repair and
+S9-broker-budget-and-turn-cap-repair, so the release does not promote S1 to
+S4 with the defects blind shadow verification found in them. It amends the revision 2
 the Principal approved on 2026-09-26 (plan 972df6a0..., never recorded): S6
 gains a park precedence criterion, S7 is new, and both repair slices run the
 e2e host check at -parallel=8.
@@ -292,6 +318,15 @@ cancelled-context proof at the seal claim are missing (the anchor test declares
 no host checks); a pause during the start-of-cycle recovery sweep surfaces
 RUN_STOPPED as an error; RUN_STOPPED is undocumented.
 
+S4, found in its verified candidate by a blind shadow verification and
+reproduced by the seat. Blocking: when a native dispatch crosses the broker
+budget it is ended before the CLI's final result event, so its turn count is
+unknown and the usage economics drop the executed tool-call count; a real
+flood of 600 tool calls reads "1 refused, executed absent". The anchor test
+passed only because it fabricates a usage receipt. Also: the Lead-required
+test that an accepted submission wins over a budget crossing is missing, and
+refused requests are only partly counted.
+
 S3, found in its verified candidate by a blind shadow verification and
 reproduced by the seat. Blocking: the credential_lifetime fact is keyed on the
 implementer_implementation identity while a nested implementation journals its
@@ -329,7 +364,11 @@ S8-credential-lifetime-repair makes the credential park clear at every stage,
 proves admission uses the dispatch timeout, removes the retry advice for a
 cause retry cannot clear, and recognises the auth failure as the CLI emits it.
 
-All three repair slices run the e2e host check at -parallel=8; S1 to S5 keep their
+S9-broker-budget-and-turn-cap-repair records executed and refused tool-call
+counts on a budget or turn-cap stop regardless of the turn count, pins the
+submission-wins ordering with a test, and counts every refusal kind.
+
+All four repair slices run the e2e host check at -parallel=8; S1 to S5 keep their
 approved checks.
 
 # How this run is driven
