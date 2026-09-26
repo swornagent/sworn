@@ -146,9 +146,35 @@
           "consumes": [],
           "contract_path": "contracts/2026-09-25-recovery-robustness/rev2/S6-host-environment-park-projection.json",
           "depends_on": [],
-          "digest": "sha256:04202d39b11bc55616fe498af40b43d49e26a7a1a25e68f3bf909cfcafabc819",
+          "digest": "sha256:3f83eeae77ebf089896f3518f080814e7da20841b61c3e07525afe079043de15",
           "id": "S6-host-environment-park-projection",
           "outcome": "A host environment park is legible wherever the run is read: the status projection shows the run as parked with cause host_environment, the typed code, the check and the missing command, both while serve holds the run and after it lets go; every environment park path is proven through the real entry points; and every event kind S1 introduced is admitted where event kinds are enumerated.",
+          "touchpoints": [
+            "cmd/sworn",
+            "internal/runtime",
+            "internal/journal",
+            "internal/gitx",
+            "internal/driver",
+            "internal/cockpit",
+            "internal/observe",
+            "internal/tui",
+            "internal/skill",
+            "internal/protocol",
+            "tools/protocolgolden",
+            "test/e2e",
+            "docs/run.md",
+            "docs/launch.md",
+            "docs/policy/manager.md",
+            "skills/sworn-orchestrate/SKILL.md"
+          ]
+        },
+        {
+          "consumes": [],
+          "contract_path": "contracts/2026-09-25-recovery-robustness/rev2/S7-pause-safe-host-checks-repair.json",
+          "depends_on": [],
+          "digest": "sha256:7e470b71347b3d23e30de49600dbc9ed613c7bb4a533325a2a640af73b9db043",
+          "id": "S7-pause-safe-host-checks-repair",
+          "outcome": "Pausing the same candidate more than once, at any mix of stop points, never fails the dispatch or spends the try; a pause during a resume's recovery sweep is a stop, not a CLI error; and every stop code is documented and never recorded as an effect's error code.",
           "touchpoints": [
             "cmd/sworn",
             "internal/runtime",
@@ -177,10 +203,14 @@
 
 # Goal
 
-Revision 2 of release 2026-09-25-recovery-robustness. It keeps S1 to S5 of
-revision 1 exactly as approved (same contract files and digests) and appends
-one repair slice, S6-host-environment-park-projection, so the release does not
-promote S1 with the illegible park it exists to remove.
+Revision 2 (amended) of release 2026-09-25-recovery-robustness. It keeps S1 to
+S5 of revision 1 exactly as approved (same contract files and digests) and
+appends two repair slices, S6-host-environment-park-projection and
+S7-pause-safe-host-checks-repair, so the release does not promote S1 or S2 with
+the defects blind shadow verification found in them. It amends the revision 2
+the Principal approved on 2026-09-26 (plan 972df6a0..., never recorded): S6
+gains a park precedence criterion, S7 is new, and both repair slices run the
+e2e host check at -parallel=8.
 
 # Authority and preparation
 
@@ -225,13 +255,42 @@ so it is silently lost. A check whose first word is grouping syntax such as
 cannot be resolved silently skips classification. docs/run.md says the check
 runs at start or resume, but it runs on every pass of the drive loop.
 
+S2, found by a blind shadow verification at explicit xhigh effort and
+reproduced by the seat. Blocking: pausing the same candidate twice, first at a
+check boundary and then at the seal step, records two different checkpoint
+bodies under one replay key; the journal refuses the second (REPLAY_CONFLICT),
+the dispatch fails with JOURNAL_WRITE_FAILED and the resume spends the try.
+Also: the Lead's required mid-check production-mode pause proof and the
+cancelled-context proof at the seal claim are missing (the anchor test declares
+no host checks); a pause during the start-of-cycle recovery sweep surfaces
+RUN_STOPPED as an error; RUN_STOPPED is undocumented.
+
+S3, found while it was in flight. S3's candidates changed the status projection
+to select parked before active for every park cause, contrary to its approved
+design, then altered identical-failure parking and finally deleted the existing
+test case that caught the regression. However S3 ends, S6 now pins the
+approved precedence with that test in place.
+
+Host checks. The e2e check ran at -parallel=1, a CI setting; 28 of its 38 tests
+are written to run in parallel. Two measured runs at -parallel=8 took 21 and 23
+minutes with no failures, against 43 minutes serially (#368).
+
 # What changes
 
 S6-host-environment-park-projection makes the environment park project as
 parked with its typed cause, proves every park path through Start and Resume
 with the tests the Lead required, fixes the rerun identity, admits the new
 event kinds, resolves grouping syntax as the shell does, types a missing host
-shell, and corrects the documentation. S1's behaviour is otherwise unchanged.
+shell, corrects the documentation, and keeps the approved precedence (in-flight
+work that does not belong to a park reads running) with the identical-failure
+test intact. S1's behaviour is otherwise unchanged.
+
+S7-pause-safe-host-checks-repair makes repeated pauses at any mix of stop
+points safe, adds the proofs S2's Lead required, treats a pause during the
+recovery sweep as a stop, and documents every stop code.
+
+Both repair slices run the e2e host check at -parallel=8; S1 to S5 keep their
+approved checks.
 
 # How this run is driven
 
@@ -242,6 +301,6 @@ recovery claude-haiku-4-5.
 
 # Proposal status
 
-Proposed, not approved. No revision 2 has been recorded, no approval receipt
-exists and no run has been started on it. Approval is Brad's and is separate
-from this document.
+Proposed, not approved. It supersedes the approved but unrecorded revision 2
+only if the Principal approves it. No revision 2 has been recorded and no run
+has been started on it.
