@@ -245,6 +245,32 @@
             "docs/policy/manager.md",
             "skills/sworn-orchestrate/SKILL.md"
           ]
+        },
+        {
+          "consumes": [],
+          "contract_path": "contracts/2026-09-25-recovery-robustness/rev2/S10-repair-input-across-epochs-repair.json",
+          "depends_on": [],
+          "digest": "sha256:8eb79b17a40cf60e62d214b692f3da9dd5e81c7d2cbc9fc5cdfbc57b30c5ee10",
+          "id": "S10-repair-input-across-epochs-repair",
+          "outcome": "An implementer is never handed a repair that a later try already fixed, whatever the seal said about that later try, and the evidence that it is told about anchor substitutes, and carries the last refusal into a new epoch, tests the production path rather than text that is always present.",
+          "touchpoints": [
+            "cmd/sworn",
+            "internal/runtime",
+            "internal/journal",
+            "internal/gitx",
+            "internal/driver",
+            "internal/cockpit",
+            "internal/observe",
+            "internal/tui",
+            "internal/skill",
+            "internal/protocol",
+            "tools/protocolgolden",
+            "test/e2e",
+            "docs/run.md",
+            "docs/launch.md",
+            "docs/policy/manager.md",
+            "skills/sworn-orchestrate/SKILL.md"
+          ]
         }
       ]
     }
@@ -257,10 +283,11 @@
 
 Revision 2 (amended) of release 2026-09-25-recovery-robustness. It keeps S1 to
 S5 of revision 1 exactly as approved (same contract files and digests) and
-appends four repair slices, S6-host-environment-park-projection,
-S7-pause-safe-host-checks-repair, S8-credential-lifetime-repair and
-S9-broker-budget-and-turn-cap-repair, so the release does not promote S1 to
-S4 with the defects blind shadow verification found in them. It amends the revision 2
+appends five repair slices, S6-host-environment-park-projection,
+S7-pause-safe-host-checks-repair, S8-credential-lifetime-repair,
+S9-broker-budget-and-turn-cap-repair and S10-repair-input-across-epochs-repair,
+so the release does not promote S1 to S5 with the defects blind shadow
+verification found in each of them. It amends the revision 2
 the Principal approved on 2026-09-26 (plan 972df6a0..., never recorded): S6
 gains a park precedence criterion, S7 is new, and both repair slices run the
 e2e host check at -parallel=8.
@@ -318,6 +345,14 @@ cancelled-context proof at the seal claim are missing (the anchor test declares
 no host checks); a pause during the start-of-cycle recovery sweep surfaces
 RUN_STOPPED as an error; RUN_STOPPED is undocumented.
 
+S5, found in its verified candidate by a blind shadow verification and
+confirmed by the seat from the code. Blocking: a later try supersedes an
+earlier submission repair only if its seal refusal carries paths, so a
+path-less refusal such as EMPTY_CANDIDATE lets an already-fixed repair be
+replayed. Also: forcing the anchor-declared flag false passes every unit and
+e2e test, the Lead's required assertion that a new epoch's first try carries
+no repair is missing, and the accepted-submission case lost its test.
+
 S4, found in its verified candidate by a blind shadow verification and
 reproduced by the seat. Blocking: when a native dispatch crosses the broker
 budget it is ended before the CLI's final result event, so its turn count is
@@ -368,7 +403,12 @@ S9-broker-budget-and-turn-cap-repair records executed and refused tool-call
 counts on a budget or turn-cap stop regardless of the turn count, pins the
 submission-wins ordering with a test, and counts every refusal kind.
 
-All four repair slices run the e2e host check at -parallel=8; S1 to S5 keep their
+S10-repair-input-across-epochs-repair treats every accepted handoff that
+reached the seal as superseding an earlier repair, restores the
+accepted-submission test, and replaces the vacuous anchor evidence with tests
+of the production path.
+
+All five repair slices run the e2e host check at -parallel=8; S1 to S5 keep their
 approved checks.
 
 # How this run is driven
