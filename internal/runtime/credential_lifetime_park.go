@@ -61,10 +61,21 @@ func (s *Service) recordCredentialLifetimeParkFact(
 	code string,
 	detail string,
 ) error {
-	workID := driverWorkIdentity(
-		engine.manifest.digest, coordinates.Slice, coordinates.Responsibility,
-		coordinates.ProtocolAttempt, before,
-	)
+	// A nested implementer_implementation dispatch journals its attempt
+	// under coordinates.DispatchWork (cycle.DispatchWork), an identity
+	// driverWorkIdentity alone can never reconstruct - every call site that
+	// can reach this probe already sets it (scheduler.go, dispatch.go), so
+	// preferring it here, with the pre-existing computation kept only as
+	// the fallback for callers that predate this field, is the same
+	// fallback contract captureEffectiveLimits already uses
+	// (production_dispatch.go).
+	workID := coordinates.DispatchWork
+	if workID == "" {
+		workID = driverWorkIdentity(
+			engine.manifest.digest, coordinates.Slice, coordinates.Responsibility,
+			coordinates.ProtocolAttempt, before,
+		)
+	}
 	fact := credentialLifetimeParkFact{
 		SchemaVersion:  CredentialLifetimeParkFactSchemaVersion,
 		RunID:          engine.manifest.value.RunID,

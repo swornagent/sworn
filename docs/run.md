@@ -864,12 +864,30 @@ refusal on a `planner_proposal` or `lead_plan_review` dispatch is not yet
 projected onto the board and is visible only in the run's own operational
 error at the time it occurs.
 
-When the native Claude CLI's own result reports an authentication failure
-(for example "Failed to authenticate" or "OAuth session expired" in its
-own terminal result text, never assistant or model prose), the dispatch
-fails with `PROVIDER_AUTHORIZATION_FAILED` instead of
-`PROVIDER_TRANSPORT_FAILED`, whether the CLI process exited non-zero or
-exited cleanly without a submission.
+Visibility follows the run's approved park precedence exactly. In a run
+with only one active lane, the run's own `State` reads `parked` once no
+other lane holds it, with this entry named as the `Park` cause. In a run
+with more than one lane, this entry stays visible in `PinnedWork` beside
+the still-running lanes even while `State` reads `running`, because a
+credential-lifetime crossing is deliberately excluded from the lanes
+`pinCrossingLanes` itself pins, so it never by itself forces every lane
+into park.
+
+The CLI's own authentication failure is recognised in either of two
+sequences it actually produces, never from ordinary model prose: its own
+terminal result event naming the failure (for example "Failed to
+authenticate" or "OAuth session expired" in the result text), or - only
+when no result event ever arrives - its own synthesized assistant turn,
+marked `message.model` equal to the literal `"<synthetic>"` (the CLI's own
+convention for a turn it generates itself rather than the model), carrying
+the identical closed phrase vocabulary. This second sequence is asserted
+from the CLI's documented source convention, not from a captured event log
+in this repository. Either sequence fails the dispatch with
+`PROVIDER_AUTHORIZATION_FAILED` instead of `PROVIDER_TRANSPORT_FAILED`,
+whether the CLI process exited non-zero or exited cleanly without a
+submission. An ordinary model turn - any `message.model` other than that
+synthetic marker - is never read as an authentication failure, however its
+text reads.
 
 ### Broker budget and turn cap
 

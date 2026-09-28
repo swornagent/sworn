@@ -176,6 +176,15 @@ func main() {
 		case "auth_failed_clean":
 			emitClaudeAuthFailureResult()
 			return
+		case "auth_failed_worker_turn_exit":
+			emitClaudeSyntheticAuthFailureWorkerTurn()
+			os.Exit(2)
+		case "auth_failed_worker_turn_prose_exit":
+			emitClaudeOrdinaryAuthPhraseWorkerTurn()
+			os.Exit(2)
+		case "auth_failed_worker_turn_prose_clean":
+			emitClaudeOrdinaryAuthPhraseWorkerTurn()
+			return
 		case "turn_cap_exit":
 			emitTurnCapResult()
 			os.Exit(2)
@@ -361,6 +370,8 @@ func credentialFixtureMode(family string) string {
 	switch mode {
 	case "unreachable", "unauthorized", "exitone", "expire", "rotation", "crash",
 		"auth_failed_exit", "auth_failed_clean",
+		"auth_failed_worker_turn_exit",
+		"auth_failed_worker_turn_prose_exit", "auth_failed_worker_turn_prose_clean",
 		"turn_cap_exit", "turn_cap_clean":
 		return mode
 	default:
@@ -375,6 +386,27 @@ func credentialFixtureMode(family string) string {
 func emitClaudeAuthFailureResult() {
 	fmt.Println(`{"type":"result","subtype":"error_during_execution",` +
 		`"is_error":true,"result":"Failed to authenticate"}`)
+}
+
+// emitClaudeSyntheticAuthFailureWorkerTurn emits the CLI's own synthesized
+// assistant turn reporting an authentication failure
+// (S8-credential-lifetime-repair A4): message.model carries the CLI's own
+// "<synthetic>" marker for a turn it generates itself rather than the
+// model, carrying the exact release-observed phrase, with no terminal
+// result event ever following it - reproducing "reached the journal as
+// worker turn text before a non-zero exit" precisely.
+func emitClaudeSyntheticAuthFailureWorkerTurn() {
+	fmt.Println(`{"type":"assistant","message":{"model":"<synthetic>","content":[` +
+		`{"type":"text","text":"Failed to authenticate: OAuth session expired and could not be refreshed"}]}}`)
+}
+
+// emitClaudeOrdinaryAuthPhraseWorkerTurn emits the identical phrase as an
+// ordinary model turn: message.model carries the fixture's real model id,
+// never the CLI's synthetic marker, proving recognition never trips on
+// text content alone.
+func emitClaudeOrdinaryAuthPhraseWorkerTurn() {
+	fmt.Println(`{"type":"assistant","message":{"model":"native-continuation-model","content":[` +
+		`{"type":"text","text":"Failed to authenticate: OAuth session expired and could not be refreshed"}]}}`)
 }
 
 // emitTurnCapResult emits the CLI's own terminal result event reporting its

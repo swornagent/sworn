@@ -232,6 +232,16 @@ type nativeEventState struct {
 	resultErrored     bool
 	resultSubtype     string
 	resultErrorDetail string
+	// resultSeen and workerTurnAuthFailureDetail retain the CLI's own
+	// authentication-failure worker-turn fallback (S8-credential-lifetime-
+	// repair A4): resultSeen is set unconditionally by every terminal
+	// "result" event, success or error, so a genuine result can never be
+	// overridden; workerTurnAuthFailureDetail (first match wins) is
+	// captured only from the CLI's own synthesized assistant turn (never
+	// ordinary model prose - see captureWorkerTurnAuthFailureLocked) and is
+	// used by resultError() only when no result event ever arrived.
+	resultSeen                  bool
+	workerTurnAuthFailureDetail string
 }
 
 // nativeResultError is the retained error result handed to the spontaneous
@@ -3692,6 +3702,11 @@ func (state *nativeEventState) accept(body []byte) error {
 			// its present meaning exactly.
 			state.flushPendingWorkerTurnLocked(state.observationTurn)
 			state.observationTurn++
+			// A4 (S8-credential-lifetime-repair): runs independently of
+			// appendClaudeMessageContentLocked, which returns early when
+			// state.broker is nil - this capture must not depend on a
+			// broker being present.
+			state.captureWorkerTurnAuthFailureLocked(root)
 			state.appendClaudeMessageContentLocked(root)
 		}
 		if eventType == "user" {
@@ -3835,6 +3850,52 @@ func (state *nativeEventState) dropWorkerTurnEventLocked() {
 	}
 }
 
+// nativeClaudeSyntheticMessageModel is the Claude CLI's own convention for
+// an assistant turn it generates itself rather than the model: message.model
+// carries this literal value instead of a real model id. This is the CLI's
+// documented source convention, not an event shape captured from a run in
+// this repository (S8-credential-lifetime-repair A4).
+const nativeClaudeSyntheticMessageModel = "<synthetic>"
+
+// captureWorkerTurnAuthFailureLocked recognizes the CLI's own synthesized
+// authentication-failure assistant turn (A4): the fallback for a dispatch
+// where the auth text reaches the journal as worker-turn text before a
+// non-zero exit, with no terminal "result" event ever following it.
+// Recognition is gated on the CLI's own message.model ==
+// nativeClaudeSyntheticMessageModel marker, never on text content alone -
+// an ordinary model turn (any other message.model value, including a real
+// model reporting an unrelated failure in its own words) can never trip
+// this, so the signal never depends on unaudited model prose. Only the
+// first match wins; runs independently of state.broker and of
+// appendClaudeMessageContentLocked. Callers hold state.mu.
+func (state *nativeEventState) captureWorkerTurnAuthFailureLocked(root map[string]any) {
+	if state.workerTurnAuthFailureDetail != "" {
+		return
+	}
+	message, ok := root["message"].(map[string]any)
+	if !ok || message["model"] != nativeClaudeSyntheticMessageModel {
+		return
+	}
+	content, ok := message["content"].([]any)
+	if !ok {
+		return
+	}
+	for _, raw := range content {
+		block, ok := raw.(map[string]any)
+		if !ok || block["type"] != "text" {
+			continue
+		}
+		text, ok := block["text"].(string)
+		if !ok {
+			continue
+		}
+		if nativeClaudeAuthFailureMatch(text) {
+			state.workerTurnAuthFailureDetail = nativeResultErrorDetail("", text)
+			return
+		}
+	}
+}
+
 // appendClaudeMessageContentLocked walks one Claude "assistant" or "user"
 // event's message.content blocks (both events carry content under the same
 // field) and appends a bounded, redacted WorkerTurnPart to the pending
@@ -3974,6 +4035,12 @@ func (state *nativeEventState) acceptSessionID(body []byte) error {
 // result text prefixed by the subtype, normalized and bounded exactly like
 // an HTTP provider error message, so it can ride a refusal's Detail.
 func (state *nativeEventState) captureResultError(root map[string]any) {
+	// A4 (S8-credential-lifetime-repair): set unconditionally, before the
+	// early return below, so any terminal "result" event - success or
+	// error - marks that one arrived. resultError() only ever synthesizes
+	// its worker-turn fallback when this stays false, so a genuine result
+	// can never be overridden by a stale worker-turn capture.
+	state.resultSeen = true
 	subtype, _ := root["subtype"].(string)
 	isError, _ := root["is_error"].(bool)
 	if !isError && (subtype == "" || subtype == "success") {
@@ -4003,6 +4070,17 @@ func nativeResultErrorDetail(subtype, text string) string {
 func (state *nativeEventState) resultError() nativeResultError {
 	state.mu.Lock()
 	defer state.mu.Unlock()
+	// A4 (S8-credential-lifetime-repair): only when no terminal "result"
+	// event of any kind ever arrived does a captured worker-turn auth
+	// failure stand in for one - the fallback for a dispatch that exits
+	// non-zero (or cleanly, without a submission) after the CLI's own
+	// synthesized assistant turn but before any result event.
+	if !state.resultSeen && state.workerTurnAuthFailureDetail != "" {
+		return nativeResultError{
+			errored: true,
+			detail:  state.workerTurnAuthFailureDetail,
+		}
+	}
 	return nativeResultError{
 		errored: state.resultErrored,
 		subtype: state.resultSubtype,
@@ -4038,28 +4116,44 @@ func nativeLimitReached(detail string) bool {
 }
 
 // nativeClaudeAuthFailurePhrases is the closed, Claude-only phrase table
-// (A3) recognized in the CLI's own terminal result text - never assistant
-// or model prose - as reporting an authentication failure.
+// (A3, S3-credential-lifetime) recognized as reporting an authentication
+// failure, in either of the CLI's own two produced sequences - its terminal
+// result text, or its own synthesized assistant turn - never in ordinary
+// assistant or model prose (S8-credential-lifetime-repair A4:
+// captureWorkerTurnAuthFailureLocked gates the second sequence on the CLI's
+// own message.model synthetic marker before this table is ever consulted).
 var nativeClaudeAuthFailurePhrases = []string{
 	"failed to authenticate",
 	"oauth session expired",
 }
 
-// nativeAuthFailureReported reports whether result - the CLI's own terminal
-// result event, never assistant/model prose - names an authentication
-// failure. Bounded to ProfileClaude: other families ship no vocabulary and
-// stay fail-open, exactly like nativeAuthExitCode.
-func nativeAuthFailureReported(family ProfileFamily, result nativeResultError) bool {
-	if family != ProfileClaude || !result.errored || result.detail == "" {
-		return false
-	}
-	lower := strings.ToLower(result.detail)
+// nativeClaudeAuthFailureMatch reports whether text names an authentication
+// failure from the closed nativeClaudeAuthFailurePhrases table,
+// case-insensitively. Shared by nativeAuthFailureReported (the CLI's
+// terminal result text) and captureWorkerTurnAuthFailureLocked (the CLI's
+// synthesized assistant turn), so the vocabulary has one source of truth
+// regardless of which of the CLI's two sequences carries it.
+func nativeClaudeAuthFailureMatch(text string) bool {
+	lower := strings.ToLower(text)
 	for _, phrase := range nativeClaudeAuthFailurePhrases {
 		if strings.Contains(lower, phrase) {
 			return true
 		}
 	}
 	return false
+}
+
+// nativeAuthFailureReported reports whether result - the CLI's own terminal
+// result event, or (through resultError()'s own fallback) its synthesized
+// assistant turn when no result event ever arrived, never ordinary
+// assistant/model prose - names an authentication failure. Bounded to
+// ProfileClaude: other families ship no vocabulary and stay fail-open,
+// exactly like nativeAuthExitCode.
+func nativeAuthFailureReported(family ProfileFamily, result nativeResultError) bool {
+	if family != ProfileClaude || !result.errored || result.detail == "" {
+		return false
+	}
+	return nativeClaudeAuthFailureMatch(result.detail)
 }
 
 func (state *nativeEventState) captureUsage(value any) {
