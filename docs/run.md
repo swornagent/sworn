@@ -914,16 +914,24 @@ Both codes carry a short, bounded, secret-free detail (for example "calls
 513, budget 512" or "turn cap 1000") and park like any other operational
 failure - after a work's third failed try, or sooner on repeated identical
 failures - clearing with a bare `retry`. Neither offers a `grant` action:
-nothing manifest-governed can raise either budget.
+nothing manifest-governed can raise either budget. A retry after
+exhaustion is a fresh dispatch against a fresh broker with a fresh
+`MaxBrokerCalls` budget, not a resumption of the exhausted one.
 
 A tool call that arrives while another is still executing waits for the
 open call slot instead of being refused (sworn#360): this was already the
 broker's behavior and is documented here for the first time. A refused
-request - `not_open`, `closed`, `cancelled`, or any `invalid` shape - is
-counted separately from executed tool calls. Both counts are stamped onto
-the dispatch's failure record and shown in the status projection's dispatch
-view, so a budget that is approaching or has already crossed is legible
-without reading the journal.
+request - `not_open`, `closed`, `cancelled`, any `invalid` shape, a
+rejected protocol version, an out-of-order or repeated handshake step, or
+the tool-list reply itself failing to build - is counted separately from
+executed tool calls. Both counts are stamped onto the dispatch's failure
+record and shown in the status projection's dispatch view, so a budget
+that is approaching or has already crossed is legible without reading the
+journal, even when the CLI's own turn count is unknown because its final
+result event never arrived. Two request shapes spend no budget and are
+counted in neither total: a malformed transport request (wrong method,
+path, host, or content type) and an unauthorized request, both rejected
+before the broker's own call counter advances.
 
 ### Transient provider stall backoff
 

@@ -4020,6 +4020,99 @@ func TestFailedDispatchProjectsExecutedAndRefusedToolCallsOntoStatus(t *testing.
 	}
 }
 
+// TestFailedDispatchProjectsExecutedToolCallsWhenTurnsUnknown pins A1
+// (S9-broker-budget-and-turn-cap-repair): the runtime cannot dispatch
+// through the real native driver (fixtureDriver replaces the whole
+// adapter), so this test uses the exact receipt shape the real path
+// produces on a broker-budget or turn-cap crossing whose CLI final result
+// event never arrived - Turns and ToolCalls absent (turn count unknown),
+// ExecutedToolCalls present at the hundreds scale, RefusedToolCalls
+// present - and proves that shape (not the Turns/ToolCalls-keyed one
+// TestFailedDispatchProjectsExecutedAndRefusedToolCallsOntoStatus already
+// covers as the fallback path) survives EncodeUsageReceipt validation,
+// StampAttemptFacts, journaling through failureEventBodyFor, and the
+// Status() dispatch view unchanged. That this is the shape the real
+// adapter path actually produces is proven independently by
+// TestNativeBrokerCallBudgetExhaustionEndsDispatchAtRealAdapterDispatch
+// (internal/driver), which asserts Turns/ToolCalls absent and
+// ExecutedToolCalls at the hundreds scale through a real flood of
+// executed tools/call requests, never a hand-built receipt.
+func TestFailedDispatchProjectsExecutedToolCallsWhenTurnsUnknown(t *testing.T) {
+	t.Parallel()
+
+	executed := int64(511)
+	refused := int64(1)
+	dispatcher := fixtureDriver(func(
+		_ context.Context,
+		_ driver.Invocation,
+	) (driver.Observation, error) {
+		return driver.Observation{
+			TransportStatus: driver.RunnerError,
+			Usage: driver.UsageReceipt{
+				SchemaVersion:     driver.UsageSchemaV2,
+				Surface:           "sworn.native-claude",
+				TokenStatus:       driver.UsageUnavailable,
+				CostStatus:        driver.UsageUnavailable,
+				CacheStatus:       driver.UsageUnavailable,
+				RefusedToolCalls:  &refused,
+				ExecutedToolCalls: &executed,
+			},
+			Diagnostic: driver.Diagnostic{Code: "broker_call_budget_exhausted"},
+		}, &driver.ContractError{Code: "BROKER_CALL_BUDGET_EXHAUSTED"}
+	})
+	fixture := newProductionImplementationRecoveryFixture(t, dispatcher)
+	runID := fixture.manifest.value.RunID
+	if err := fixture.store.RecordCommand(fixture.ctx, journal.Command{
+		RunID: runID, ReplayKey: "manifest", Kind: "start",
+		Payload: fixture.manifest.raw, CreatedAt: fixture.now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, dispatchErr := fixture.service.runDriverEffectWithPreparation(
+		fixture.ctx,
+		fixture.engine,
+		fixture.workspace,
+		driver.RoleImplementer,
+		fixture.coordinates,
+		journal.EffectAttempt{
+			WorkID: fixture.cycle.DispatchWork,
+			Epoch:  fixture.coordinates.Epoch,
+			Try:    1,
+		},
+		fixture.cycle.Before,
+		fixture.owner,
+		nil,
+		true,
+	)
+	if !IsCode(dispatchErr, "DRIVER_OPERATIONAL_FAILURE") {
+		t.Fatalf("dispatch error = %v, want DRIVER_OPERATIONAL_FAILURE", dispatchErr)
+	}
+	status, err := fixture.service.Status(fixture.ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *EffectStatus
+	for index := range status.Effects {
+		if status.Effects[index].ID == fixture.cycle.DispatchEffect {
+			found = &status.Effects[index]
+			break
+		}
+	}
+	if found == nil || found.FailureTurnContext == nil {
+		t.Fatalf(
+			"dispatch effect %s FailureTurnContext missing, effects = %#v",
+			fixture.cycle.DispatchEffect,
+			status.Effects,
+		)
+	}
+	if got := found.FailureTurnContext.ExecutedToolCalls; got == nil || *got != executed {
+		t.Fatalf("ExecutedToolCalls = %#v, want %d", got, executed)
+	}
+	if got := found.FailureTurnContext.RefusedToolCalls; got == nil || *got != refused {
+		t.Fatalf("RefusedToolCalls = %#v, want %d", got, refused)
+	}
+}
+
 // TestFailedDispatchWithNoBrokerCountsProjectsNilNeverZero extends A3's
 // honest-absence discipline: a non-native (or native-without-broker-usage)
 // dispatch failure carries no ExecutedToolCalls/RefusedToolCalls, and the

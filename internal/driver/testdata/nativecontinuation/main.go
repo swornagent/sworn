@@ -117,14 +117,24 @@ func main() {
 	}
 	if strings.Contains(prompt.InvocationID, "broker-call-budget-pad") {
 		// Drive the broker's own MaxBrokerCalls (512) request-count
-		// budget past its crossing with cheap, argument-free requests
-		// (S4-broker-budget-and-turn-cap A1): the top gate counts every
-		// request regardless of what it asks, so a flood of already-
-		// listed tools/list calls is sufficient. The engine's terminal
-		// watch SIGTERMs this process once the broker crosses, so no
-		// exit path here needs to run deliberately.
+		// budget past its crossing with real executed tools/call requests
+		// (S9-broker-budget-and-turn-cap-repair A1): the flood must be
+		// genuine tool executions, not cheap already-listed tools/list
+		// replies, so the broker's own toolCallTotal() reaches the
+		// hundreds scale the real path is required to prove - a bare
+		// crossing-request count alone (what tools/list drove before)
+		// left the executed count silently absent. The read target need
+		// not exist: a failed Read result still executed and still
+		// spends a broker calls unit exactly like a successful one. The
+		// engine's terminal watch SIGTERMs this process once the broker
+		// crosses, so no exit path here needs to run deliberately.
 		for id := 0; id < 600; id++ {
-			rpc(brokerURL, token, 1000+id, "tools/list", map[string]any{})
+			rpc(brokerURL, token, 1000+id, "tools/call", map[string]any{
+				"name": "Read",
+				"arguments": map[string]any{
+					"path": "/workspace/native-broker-call-budget-flood.txt",
+				},
+			})
 		}
 		select {}
 	}

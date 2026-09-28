@@ -40,6 +40,13 @@ const (
 	brokerCancelled
 )
 
+// testSubmissionRaceHook is the link-time test-only seam for A2
+// (S9-broker-budget-and-turn-cap-repair): nil in production (zero cost,
+// never invoked by any non-test caller), assigned only by tests in this
+// package to deterministically race the broker's own call-budget crossing
+// against an already-accepted submission. See its call site in callTool.
+var testSubmissionRaceHook func(*nativeBroker)
+
 type nativeHandshakeEvidence struct {
 	Protocol           string
 	ClientName         string
@@ -485,6 +492,7 @@ func (broker *nativeBroker) ServeHTTP(writer http.ResponseWriter, request *http.
 			return
 		}
 		if err := broker.markNotified(root["params"]); err != nil {
+			broker.incrementRefused()
 			writeBrokerError(writer, http.StatusConflict, id, -32000, "state_invalid")
 			return
 		}
@@ -521,12 +529,14 @@ func (broker *nativeBroker) initialize(
 		[]string{"_meta"},
 	)
 	if err != nil {
+		broker.incrementRefused()
 		writeBrokerError(writer, http.StatusBadRequest, id, -32602, "invalid_params")
 		return
 	}
 	protocol, _ := object["protocolVersion"].(string)
 	if protocol != "2024-11-05" && protocol != "2025-03-26" &&
 		protocol != "2025-06-18" && protocol != "2025-11-25" {
+		broker.incrementRefused()
 		writeBrokerError(writer, http.StatusBadRequest, id, -32602, "protocol_refused")
 		return
 	}
@@ -554,6 +564,7 @@ func (broker *nativeBroker) initialize(
 		validateText(clientName, 256, false) != nil ||
 		validateText(clientVersion, 256, false) != nil ||
 		initializeErr != nil {
+		broker.incrementRefused()
 		writeBrokerError(writer, http.StatusBadRequest, id, -32602, "invalid_params")
 		return
 	}
@@ -565,6 +576,7 @@ func (broker *nativeBroker) initialize(
 				clientVersion != broker.expected.ClientVersion ||
 				Digest(initializeBody) != broker.expected.InitializeDigest)) {
 		broker.mu.Unlock()
+		broker.incrementRefused()
 		writeBrokerError(writer, http.StatusConflict, id, -32000, "state_invalid")
 		return
 	}
@@ -607,6 +619,7 @@ func (broker *nativeBroker) listTools(
 ) {
 	paramsBody, err := canonicalJSON(params)
 	if err != nil {
+		broker.incrementRefused()
 		writeBrokerError(writer, http.StatusBadRequest, id, -32602, "invalid_params")
 		return
 	}
@@ -618,6 +631,7 @@ func (broker *nativeBroker) listTools(
 		(broker.expected != nil &&
 			paramsDigest != broker.expected.ListDigest) {
 		broker.mu.Unlock()
+		broker.incrementRefused()
 		writeBrokerError(writer, http.StatusConflict, id, -32000, "state_invalid")
 		return
 	}
@@ -627,6 +641,7 @@ func (broker *nativeBroker) listTools(
 	for index, definition := range definitions {
 		var schema any
 		if json.Unmarshal(definition.InputSchema, &schema) != nil {
+			broker.incrementRefused()
 			writeBrokerError(writer, http.StatusInternalServerError, id, -32603, "internal")
 			return
 		}
@@ -638,6 +653,7 @@ func (broker *nativeBroker) listTools(
 	broker.mu.Lock()
 	if broker.state != brokerClosed || broker.listed {
 		broker.mu.Unlock()
+		broker.incrementRefused()
 		writeBrokerError(writer, http.StatusConflict, id, -32000, "state_invalid")
 		return
 	}
@@ -747,6 +763,16 @@ func (broker *nativeBroker) callTool(
 		"isError": result.Failed,
 	})
 	if terminated {
+		// testSubmissionRaceHook (S9-broker-budget-and-turn-cap-repair A2)
+		// fires exactly once here, in the exact window between the
+		// accepted submission's own session.execute returning terminated
+		// and finish(brokerTerminal) running - never on the
+		// RECOVERY_STEP_REFUSED early return above, which is a refusal,
+		// not an accepted submission. Nil in production; only test code
+		// in this package ever assigns it.
+		if testSubmissionRaceHook != nil {
+			testSubmissionRaceHook(broker)
+		}
 		broker.finish(brokerTerminal)
 	}
 }

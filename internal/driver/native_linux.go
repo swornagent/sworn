@@ -3542,7 +3542,10 @@ func nativeStreamBudgetFailure(
 // diagnostic "native_turn_cap"): both are engine-counted, receipt-bearing
 // facts with no provider text, mirroring nativeStreamBudgetFailure's shape
 // exactly but for the executed/refused broker counts (A3) instead of a
-// byte total.
+// byte total. ExecutedToolCalls (S9-broker-budget-and-turn-cap-repair A1)
+// is stamped independently of applyTurnEconomics's Turns-gated ToolCalls,
+// so the exact broker-counted executed total survives even when the CLI's
+// final result event never arrived and turns reads 0.
 func nativeCountedFailure(
 	started time.Time,
 	adapterID string,
@@ -3561,6 +3564,7 @@ func nativeCountedFailure(
 	}
 	applyTurnEconomics(&usage, turns, toolCalls, toolCallsByName)
 	stampRefusedToolCalls(&usage, refusedToolCalls)
+	stampExecutedToolCalls(&usage, toolCalls)
 	return Observation{
 		TransportStatus: RunnerError,
 		DurationMillis:  time.Since(started).Milliseconds(),

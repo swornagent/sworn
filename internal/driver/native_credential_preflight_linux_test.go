@@ -462,6 +462,27 @@ func credentialFixtureInvoke(
 	timeoutMillis int64,
 ) error {
 	t.Helper()
+	_, err := credentialFixtureInvokeObservation(
+		t, family, binary, digest, credentialBody, timeoutMillis,
+	)
+	return err
+}
+
+// credentialFixtureInvokeObservation is credentialFixtureInvoke's own
+// underlying call, keeping the full (Observation, error) pair instead of
+// discarding the Observation: needed wherever a test must assert the
+// receipt-bearing Usage or the ContractError.Detail a diagnostic code
+// carries (A4, S9-broker-budget-and-turn-cap-repair), not only the code
+// itself.
+func credentialFixtureInvokeObservation(
+	t *testing.T,
+	family ProfileFamily,
+	binary string,
+	digest string,
+	credentialBody []byte,
+	timeoutMillis int64,
+) (Observation, error) {
+	t.Helper()
 	_, _, _, selected, _ := nativeCredentialFixtureAdapter(
 		t,
 		family,
@@ -477,8 +498,7 @@ func credentialFixtureInvoke(
 	base.Request.Limits.TimeoutMillis = timeoutMillis
 	pair := nativeSmokeInvocationsFixture(t, base)
 	invocation := pair.FreshReadWrite
-	_, err := (Dispatcher{}).Invoke(context.Background(), invocation)
-	return err
+	return (Dispatcher{}).Invoke(context.Background(), invocation)
 }
 
 // TestNativeSpontaneousExitClassification pins A2 at the terminal
