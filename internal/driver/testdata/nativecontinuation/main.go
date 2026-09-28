@@ -117,14 +117,24 @@ func main() {
 	}
 	if strings.Contains(prompt.InvocationID, "broker-call-budget-pad") {
 		// Drive the broker's own MaxBrokerCalls (512) request-count
-		// budget past its crossing with cheap, argument-free requests
-		// (S4-broker-budget-and-turn-cap A1): the top gate counts every
-		// request regardless of what it asks, so a flood of already-
-		// listed tools/list calls is sufficient. The engine's terminal
-		// watch SIGTERMs this process once the broker crosses, so no
-		// exit path here needs to run deliberately.
+		// budget past its crossing with real executed tools/call requests
+		// (S9-broker-budget-and-turn-cap-repair A1): the flood must be
+		// genuine tool executions, not cheap already-listed tools/list
+		// replies, so the broker's own toolCallTotal() reaches the
+		// hundreds scale the real path is required to prove - a bare
+		// crossing-request count alone (what tools/list drove before)
+		// left the executed count silently absent. The read target need
+		// not exist: a failed Read result still executed and still
+		// spends a broker calls unit exactly like a successful one. The
+		// engine's terminal watch SIGTERMs this process once the broker
+		// crosses, so no exit path here needs to run deliberately.
 		for id := 0; id < 600; id++ {
-			rpc(brokerURL, token, 1000+id, "tools/list", map[string]any{})
+			rpc(brokerURL, token, 1000+id, "tools/call", map[string]any{
+				"name": "Read",
+				"arguments": map[string]any{
+					"path": "/workspace/native-broker-call-budget-flood.txt",
+				},
+			})
 		}
 		select {}
 	}
@@ -175,6 +185,15 @@ func main() {
 			os.Exit(2)
 		case "auth_failed_clean":
 			emitClaudeAuthFailureResult()
+			return
+		case "auth_failed_worker_turn_exit":
+			emitClaudeSyntheticAuthFailureWorkerTurn()
+			os.Exit(2)
+		case "auth_failed_worker_turn_prose_exit":
+			emitClaudeOrdinaryAuthPhraseWorkerTurn()
+			os.Exit(2)
+		case "auth_failed_worker_turn_prose_clean":
+			emitClaudeOrdinaryAuthPhraseWorkerTurn()
 			return
 		case "turn_cap_exit":
 			emitTurnCapResult()
@@ -361,6 +380,8 @@ func credentialFixtureMode(family string) string {
 	switch mode {
 	case "unreachable", "unauthorized", "exitone", "expire", "rotation", "crash",
 		"auth_failed_exit", "auth_failed_clean",
+		"auth_failed_worker_turn_exit",
+		"auth_failed_worker_turn_prose_exit", "auth_failed_worker_turn_prose_clean",
 		"turn_cap_exit", "turn_cap_clean":
 		return mode
 	default:
@@ -375,6 +396,27 @@ func credentialFixtureMode(family string) string {
 func emitClaudeAuthFailureResult() {
 	fmt.Println(`{"type":"result","subtype":"error_during_execution",` +
 		`"is_error":true,"result":"Failed to authenticate"}`)
+}
+
+// emitClaudeSyntheticAuthFailureWorkerTurn emits the CLI's own synthesized
+// assistant turn reporting an authentication failure
+// (S8-credential-lifetime-repair A4): message.model carries the CLI's own
+// "<synthetic>" marker for a turn it generates itself rather than the
+// model, carrying the exact release-observed phrase, with no terminal
+// result event ever following it - reproducing "reached the journal as
+// worker turn text before a non-zero exit" precisely.
+func emitClaudeSyntheticAuthFailureWorkerTurn() {
+	fmt.Println(`{"type":"assistant","message":{"model":"<synthetic>","content":[` +
+		`{"type":"text","text":"Failed to authenticate: OAuth session expired and could not be refreshed"}]}}`)
+}
+
+// emitClaudeOrdinaryAuthPhraseWorkerTurn emits the identical phrase as an
+// ordinary model turn: message.model carries the fixture's real model id,
+// never the CLI's synthetic marker, proving recognition never trips on
+// text content alone.
+func emitClaudeOrdinaryAuthPhraseWorkerTurn() {
+	fmt.Println(`{"type":"assistant","message":{"model":"native-continuation-model","content":[` +
+		`{"type":"text","text":"Failed to authenticate: OAuth session expired and could not be refreshed"}]}}`)
 }
 
 // emitTurnCapResult emits the CLI's own terminal result event reporting its

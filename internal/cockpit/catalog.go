@@ -100,7 +100,23 @@ func BuildProjectCatalog(
 // generic "review the failed item" string with the actual affected-work
 // evidence (A2).
 func pinnedWorkNeedsYouReason(pinned []runtimepkg.PinnedWork) string {
+	// S8-credential-lifetime-repair A3: retry cannot clear a
+	// credential_lifetime entry (it self-clears on the next drive once the
+	// credential is refreshed), so the guidance must never ask for one -
+	// not even implicitly, through a leading sentence written for the rest
+	// of a mixed park. Each credential_lifetime entry states this on its
+	// own, and the leading sentence is scoped to whether any other cause is
+	// present to retry at all.
 	reasons := make([]string, 0, len(pinned))
+	hasCredentialLifetime := false
+	hasOtherCause := false
+	for _, work := range pinned {
+		if work.Cause == runtimepkg.ParkCauseCredentialLifetime {
+			hasCredentialLifetime = true
+		} else {
+			hasOtherCause = true
+		}
+	}
 	for _, work := range pinned {
 		reason := work.Lane + ": " + work.Cause
 		if work.Code != "" {
@@ -109,19 +125,22 @@ func pinnedWorkNeedsYouReason(pinned []runtimepkg.PinnedWork) string {
 		if work.Detail != "" {
 			reason += " - " + work.Detail
 		}
-		// S3-credential-lifetime A2: this cause takes no Retry or Grant -
-		// it self-clears on the next drive once the credential is
-		// refreshed, so the guidance names the actual fix instead of the
-		// generic retry sentence below.
-		if work.Code == "CREDENTIAL_STALE" ||
-			work.Code == "CREDENTIAL_EXPIRES_DURING_DISPATCH" {
-			reason += ". Any interactive use of the CLI on this host " +
-				"refreshes the credential."
+		if work.Cause == runtimepkg.ParkCauseCredentialLifetime {
+			reason += ". Retry does not apply to this entry: any " +
+				"interactive use of the CLI on this host refreshes the " +
+				"credential."
 		}
 		reasons = append(reasons, reason)
 	}
-	return "Review the pinned work, then retry it using the latest action. " +
-		strings.Join(reasons, "; ")
+	lead := "Review the pinned work, then retry it using the latest action. "
+	switch {
+	case hasCredentialLifetime && !hasOtherCause:
+		lead = "Review the pinned work below; retry cannot clear any of it. "
+	case hasCredentialLifetime && hasOtherCause:
+		lead = "Review the pinned work, then retry the entries below that " +
+			"retry can clear, using the latest action. "
+	}
+	return lead + strings.Join(reasons, "; ")
 }
 
 // ProjectNeedsYou extracts human-action-required items across runs with precedence:

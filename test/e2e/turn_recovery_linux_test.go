@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -102,7 +103,13 @@ type recoveryE2EModelPrompt struct {
 	SchemaVersion  string                `json:"schema_version"`
 	InvocationID   string                `json:"invocation_id"`
 	Responsibility driver.Responsibility `json:"responsibility"`
-	Recovery       *struct {
+	// ResultFields and Instruction are read only by the A3 e2e assertion
+	// (S10-repair-input-across-epochs-repair): decoding the actual prompt
+	// envelope's own conditional fields, not the raw request body's
+	// always-present tool schema text.
+	ResultFields []string `json:"result_fields"`
+	Instruction  string   `json:"instruction"`
+	Recovery     *struct {
 		Kind    driver.RecoverableInputKind `json:"kind"`
 		Content string                      `json:"content"`
 	} `json:"recovery,omitempty"`
@@ -2197,6 +2204,13 @@ type epochCarryProvider struct {
 	mu        sync.Mutex
 	turns     map[string]int
 	prompts   map[string]map[int][]byte
+	// promptTexts holds the extracted single model-prompt text per turn
+	// (openAIJourneyPrompt's own decode, the same one this handler already
+	// performs into promptBody below), alongside the raw request bytes in
+	// prompts: A3's non-vacuous e2e assertion decodes this text's own
+	// result_fields/instruction, which the raw body's always-present tool
+	// schema JSON cannot distinguish between AnchorDeclared true and false.
+	promptTexts map[string]map[int][]byte
 }
 
 func (provider *epochCarryProvider) serve(
@@ -2242,6 +2256,10 @@ func (provider *epochCarryProvider) serve(
 	// surfaces, and that tool result is exactly where the carried refusal
 	// (A1) actually appears.
 	provider.prompts[prompt.InvocationID][turn] = append([]byte(nil), body...)
+	if provider.promptTexts[prompt.InvocationID] == nil {
+		provider.promptTexts[prompt.InvocationID] = make(map[int][]byte)
+	}
+	provider.promptTexts[prompt.InvocationID][turn] = []byte(promptBody)
 	provider.mu.Unlock()
 	toolName, arguments, err := provider.workerResponse(prompt, turn)
 	if err != nil {
@@ -2440,7 +2458,9 @@ func TestEpochCarryAnchorRefusalRetriesFreshEpochThenSubstituteSeals(t *testing.
 	planBytes, plan := s5EpochCarryPlan(t)
 	provider := &epochCarryProvider{
 		t: t, planBytes: planBytes,
-		turns: make(map[string]int), prompts: make(map[string]map[int][]byte),
+		turns:       make(map[string]int),
+		prompts:     make(map[string]map[int][]byte),
+		promptTexts: make(map[string]map[int][]byte),
 	}
 	providerHTTP := httptest.NewServer(http.HandlerFunc(provider.serve))
 	defer providerHTTP.Close()
@@ -2547,21 +2567,46 @@ func TestEpochCarryAnchorRefusalRetriesFreshEpochThenSubstituteSeals(t *testing.
 			epoch2Invocation = invocationID
 		}
 	}
-	var turn1Body, turn2Body []byte
+	var turn2Body, turn1Text []byte
 	if epoch2Invocation != "" {
-		turn1Body = provider.prompts[epoch2Invocation][1]
 		turn2Body = provider.prompts[epoch2Invocation][2]
+		turn1Text = provider.promptTexts[epoch2Invocation][1]
 	}
 	provider.mu.Unlock()
 	if epoch2Invocation == "" {
 		t.Fatal("S5 no epoch-2 try-1 implementer invocation captured")
 	}
-	if !strings.Contains(string(turn1Body), "anchor_substitutes") {
-		t.Fatalf("S5 epoch-2 first prompt does not advertise anchor_substitutes: %s", turn1Body)
+	// A3 (S10-repair-input-across-epochs-repair): decode the actual prompt
+	// envelope's own result_fields/instruction rather than substring-
+	// matching the raw request body, which always carries the sworn_submit
+	// tool's static JSON schema (and so always contains the literal text
+	// "anchor_substitutes" independent of whether AnchorDeclared is true).
+	var turn1Prompt recoveryE2EModelPrompt
+	if err := json.Unmarshal(turn1Text, &turn1Prompt); err != nil {
+		t.Fatalf("S5 epoch-2 first prompt text=%q error=%v", turn1Text, err)
+	}
+	if !slices.Contains(turn1Prompt.ResultFields, "anchor_substitutes") {
+		t.Fatalf(
+			"S5 epoch-2 first prompt result_fields does not advertise anchor_substitutes: %#v",
+			turn1Prompt.ResultFields,
+		)
+	}
+	if !strings.Contains(turn1Prompt.Instruction, "ANCHOR_NOT_TOUCHED") {
+		t.Fatalf(
+			"S5 epoch-2 first prompt instruction does not name ANCHOR_NOT_TOUCHED: %s",
+			turn1Prompt.Instruction,
+		)
 	}
 	if !strings.Contains(string(turn2Body), "ANCHOR_NOT_TOUCHED") ||
 		!strings.Contains(string(turn2Body), "A-S1") {
 		t.Fatalf("S5 epoch-2 repair prompt does not carry the epoch-1 refusal: %s", turn2Body)
+	}
+	// A4 (S5 Lead requirement): the new epoch's first try carries no
+	// submission_repair - no static source in this fixture (including the
+	// tool schema) contains this string, so its presence would mean a
+	// stale repair leaked into a fresh epoch's own first try.
+	if strings.Contains(string(turn2Body), "submission_repair") {
+		t.Fatalf("S5 epoch-2 first try's request carries a stale submission_repair: %s", turn2Body)
 	}
 
 	// The sealed candidate records the honoured substitute on the seal

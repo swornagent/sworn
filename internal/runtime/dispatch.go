@@ -1967,6 +1967,13 @@ func (s *Service) loadPausedHandoffCheckpoint(
 		if journal.IsCode(err, "EFFECT_NOT_FOUND") {
 			return driver.Observation{}, nil, false, nil
 		}
+		// Same stop, not opaque-failure, treatment as
+		// claimedPreparedImplementation's Snapshot read just before this
+		// call (S7-pause-safe-host-checks-repair A2): this checkpoint
+		// lookup is on the same prepareHandoff entry path.
+		if journal.IsCode(err, "OPERATION_CANCELLED") {
+			return driver.Observation{}, nil, false, runtimeFail("RUN_STOPPED", err)
+		}
 		return driver.Observation{}, nil, false, runtimeFail("JOURNAL_READ_FAILED", err)
 	}
 	if effect.State != journal.Succeeded {
@@ -2585,13 +2592,23 @@ func (s *Service) runDriverEffectWithPreparation(ctx context.Context, engine *en
 	// assembled once through the one helper for every failure/uncertain
 	// site below. Success keeps the plain eventBody above and never
 	// carries a context, so a following successful try shows no stale
-	// copy.
+	// copy. executedToolCalls prefers the independent broker-counted
+	// ExecutedToolCalls fact (S9-broker-budget-and-turn-cap-repair A1),
+	// stamped only on the counted-failure path (a budget or turn-cap
+	// crossing whose turn count may be unknown), and falls back to the
+	// turn-derived ToolCalls for every other failure/uncertain kind -
+	// which stays byte-identical to today, since ExecutedToolCalls is nil
+	// there.
+	executedToolCalls := stampedUsage.ExecutedToolCalls
+	if executedToolCalls == nil {
+		executedToolCalls = stampedUsage.ToolCalls
+	}
 	failureEventBody := func(defaultBody []byte) []byte {
 		var assoc EventAssociation
 		_ = json.Unmarshal(defaultBody, &assoc)
 		return s.failureEventBodyFor(
 			assoc, continuationFact, replayKey,
-			stampedUsage.ToolCalls, stampedUsage.RefusedToolCalls,
+			executedToolCalls, stampedUsage.RefusedToolCalls,
 		)
 	}
 	if testCrashAfterEffect == "driver.dispatch" {

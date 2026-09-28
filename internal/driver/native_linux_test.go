@@ -3459,7 +3459,198 @@ func TestNativeBrokerCallBudgetExhaustionEndsDispatchAtRealAdapterDispatch(t *te
 					err,
 				)
 			}
+			// A1 (S9-broker-budget-and-turn-cap-repair): the fixture
+			// flood is now real executed tools/call requests, so the
+			// broker's own toolCallTotal() reaches the hundreds scale -
+			// proving ExecutedToolCalls is present on the exact receipt
+			// platformInvokeNative -> nativeCountedFailure builds, never
+			// fabricated by a hand-built receipt (the outer sanitize
+			// wrapper's own preservation of this shape is proven
+			// separately by TestNativeCLITurnCapResultSurfacesTypedCode,
+			// which drives Dispatcher{}.Invoke). Turns/ToolCalls stay
+			// absent: the CLI's
+			// final result event never arrived, so the turn-derived pair
+			// (gated on turns*MaxToolCalls) has nothing valid to report -
+			// exactly the shape applyTurnEconomics alone used to drop
+			// silently.
+			if observation.Usage.ExecutedToolCalls == nil ||
+				*observation.Usage.ExecutedToolCalls < 500 ||
+				*observation.Usage.ExecutedToolCalls > MaxBrokerCalls {
+				t.Fatalf(
+					"ExecutedToolCalls = %#v, want present at the hundreds scale (<= %d)",
+					observation.Usage.ExecutedToolCalls,
+					MaxBrokerCalls,
+				)
+			}
+			if observation.Usage.Turns != nil || observation.Usage.ToolCalls != nil {
+				t.Fatalf(
+					"turns/tool_calls = %#v/%#v, want both absent (turn count unknown)",
+					observation.Usage.Turns,
+					observation.Usage.ToolCalls,
+				)
+			}
 		})
+	}
+}
+
+// TestNativeAcceptedSubmissionWinsOverConcurrentBudgetCrossing pins A2
+// (S9-broker-budget-and-turn-cap-repair): native_linux.go nests
+// broker.BudgetExhausted() strictly inside `if !terminated`, so a session
+// whose accepted submission has already made terminated() true must never
+// be read as a budget failure, however the broker's own request-count
+// crossing lands. testSubmissionRaceHook fires synchronously inside
+// callTool, in the exact window between the accepted submission's own
+// session.execute returning and finish(brokerTerminal) running, and floods
+// the broker (with cheap, already-listed tools/list requests, which touch
+// only ServeHTTP's top-level calls counter, never the callSlot this very
+// call still holds) past MaxBrokerCalls before finish ever runs. If the
+// ordering these two checks depend on were ever swapped, this dispatch
+// would fail BROKER_CALL_BUDGET_EXHAUSTED instead of succeeding.
+func TestNativeAcceptedSubmissionWinsOverConcurrentBudgetCrossing(t *testing.T) {
+	setNativeMemoryRootEnv(t)
+	binary := buildNativeContinuation(t)
+	digest, err := executableDigest(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := nativeContinuationConfigFixture(t, ProfileClaude, binary, digest)
+	configBody, err := canonicalJSON(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := AdapterIdentity{
+		Key: config.Key, ID: config.ID, Version: config.Version,
+		ConfigurationDigest: Digest(configBody),
+	}
+	ref := config.CredentialRefs[0]
+	credential := filepath.Join(t.TempDir(), "credential")
+	if err := os.WriteFile(
+		credential,
+		[]byte(`{"token":"native-submission-race-credential-canary"}`),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	adapter := &nativeAdapter{
+		identity: identity,
+		config:   config,
+		resolve: func(context.Context, string) (string, error) {
+			return credential, nil
+		},
+		refs: map[string]struct{}{ref: {}},
+	}
+	profile := ProfileConfig{
+		Key:     "native-submission-race-profile",
+		Adapter: identity.Key, Network: NetworkRequired,
+		CredentialRef: &ref,
+	}
+	selected := SelectedProfile{
+		Profile: profile,
+		Adapter: identity,
+		Model:   "native-continuation-model",
+		adapter: adapter,
+	}
+	base, _, _ := memoryInvocationFixture(t)
+	base.Selected = selected
+	request, err := NewRequest(
+		"native-submission-race-pad",
+		RoleImplementer,
+		profile.Key,
+		selected.Model,
+		Workspace{Path: GuestWorkspacePath, Access: ReadOnly},
+		base.Request.Inputs,
+		true,
+		Limits{
+			TimeoutMillis: 30_000,
+			OutputBytes:   65_536,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	permission, err := NewSubmissionPermission(
+		request,
+		selected,
+		ContainmentReadOnly,
+		ImplementerDesign,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocation := base
+	invocation.Request = request
+	invocation.Permission = permission
+
+	var racedBroker *nativeBroker
+	var raceFired bool
+	testSubmissionRaceHook = func(broker *nativeBroker) {
+		if raceFired {
+			t.Errorf("testSubmissionRaceHook fired more than once")
+			return
+		}
+		raceFired = true
+		racedBroker = broker
+		capability := broker.capability()
+		defer clearBytes(capability)
+		listRequest, marshalErr := json.Marshal(map[string]any{
+			"jsonrpc": "2.0", "id": 9_000, "method": "tools/list",
+			"params": map[string]any{},
+		})
+		if marshalErr != nil {
+			t.Errorf("marshal race flood request: %v", marshalErr)
+			return
+		}
+		client := &http.Client{Timeout: 5 * time.Second}
+		// The handshake plus this in-flight submission call have already
+		// spent 4 calls; drive the remainder past MaxBrokerCalls before
+		// returning, so the crossing lands before finish(brokerTerminal)
+		// runs on the accepted-submission return path.
+		for index := 0; index < MaxBrokerCalls; index++ {
+			httpRequest, requestErr := http.NewRequest(
+				http.MethodPost, broker.URL(), bytes.NewReader(listRequest),
+			)
+			if requestErr != nil {
+				t.Errorf("build race flood request: %v", requestErr)
+				return
+			}
+			httpRequest.Header.Set("Authorization", "Bearer "+string(capability))
+			httpRequest.Header.Set("Content-Type", "application/json")
+			response, doErr := client.Do(httpRequest)
+			if doErr != nil {
+				continue
+			}
+			_ = response.Body.Close()
+			if broker.BudgetExhausted() {
+				break
+			}
+		}
+	}
+	t.Cleanup(func() { testSubmissionRaceHook = nil })
+
+	observation, err := platformInvokeNative(
+		context.Background(),
+		invocation,
+		config,
+		credential,
+		nativeSurfaceCertificate{},
+	)
+	if !raceFired {
+		t.Fatalf("testSubmissionRaceHook never fired: no accepted submission reached the race window; observation=%#v err=%v", observation, err)
+	}
+	if racedBroker == nil || !racedBroker.BudgetExhausted() {
+		t.Fatal("race flood never crossed the broker's own call budget")
+	}
+	if got := racedBroker.BudgetExhaustedCalls(); got <= MaxBrokerCalls {
+		t.Fatalf("BudgetExhaustedCalls = %d, want > %d", got, MaxBrokerCalls)
+	}
+	if err != nil || observation.TransportStatus != Completed {
+		t.Fatalf(
+			"accepted submission raced by a budget crossing = observation %#v, error %v, want an ordinary success",
+			observation, err,
+		)
+	}
+	if IsCode(err, "BROKER_CALL_BUDGET_EXHAUSTED") {
+		t.Fatal("accepted submission was read as BROKER_CALL_BUDGET_EXHAUSTED")
 	}
 }
 
@@ -3738,27 +3929,17 @@ func TestNativeCLITurnCapResultSurfacesTypedCode(t *testing.T) {
 	turnCapClean := []byte(`{"offline_provider":"turn_cap_clean"}`)
 
 	t.Run("non-zero exit reports the typed turn-cap code on claude", func(t *testing.T) {
-		err := credentialFixtureInvoke(
+		observation, err := credentialFixtureInvokeObservation(
 			t, ProfileClaude, probe, digest, turnCapExit, 2_000,
 		)
-		if !IsCode(err, "NATIVE_TURN_CAP_EXCEEDED") {
-			t.Fatalf(
-				"turn-cap exit error = %v, want NATIVE_TURN_CAP_EXCEEDED",
-				err,
-			)
-		}
+		assertNativeTurnCapObservation(t, observation, err)
 	})
 
 	t.Run("clean exit without a submission reports the typed turn-cap code on claude", func(t *testing.T) {
-		err := credentialFixtureInvoke(
+		observation, err := credentialFixtureInvokeObservation(
 			t, ProfileClaude, probe, digest, turnCapClean, 2_000,
 		)
-		if !IsCode(err, "NATIVE_TURN_CAP_EXCEEDED") {
-			t.Fatalf(
-				"clean-exit turn-cap error = %v, want NATIVE_TURN_CAP_EXCEEDED",
-				err,
-			)
-		}
+		assertNativeTurnCapObservation(t, observation, err)
 	})
 
 	t.Run("the vocabulary is claude-only: codex keeps its unrelated classification", func(t *testing.T) {
@@ -3781,4 +3962,59 @@ func TestNativeCLITurnCapResultSurfacesTypedCode(t *testing.T) {
 			)
 		}
 	})
+}
+
+// assertNativeTurnCapObservation pins A4 (S9-broker-budget-and-turn-cap-
+// repair): the turn-cap failure's detail and usage record are asserted on
+// the real adapter path, not only its code. Both fixture-driven sub-cases
+// (non-zero exit, clean exit) reach nativeCountedFailure with the exact
+// same shape: the fixture's own scripted "result" event with subtype
+// error_max_turns makes turns known (state.turns increments on every
+// result event, whatever its subtype) before either exit path runs, and
+// no tool call ever ran, so ExecutedToolCalls and RefusedToolCalls are
+// both present at zero rather than absent.
+func assertNativeTurnCapObservation(
+	t *testing.T,
+	observation Observation,
+	err error,
+) {
+	t.Helper()
+	if !IsCode(err, "NATIVE_TURN_CAP_EXCEEDED") {
+		t.Fatalf("turn-cap error = %v, want NATIVE_TURN_CAP_EXCEEDED", err)
+	}
+	var contractErr *ContractError
+	if !errors.As(err, &contractErr) || contractErr.Detail != "turn cap 1000" {
+		t.Fatalf(
+			"turn-cap detail = %q, want exactly %q",
+			errorDetail(err), "turn cap 1000",
+		)
+	}
+	if observation.Usage.Turns == nil || *observation.Usage.Turns != 1 {
+		t.Fatalf(
+			"Turns = %#v, want 1 (the fixture's own scripted result event)",
+			observation.Usage.Turns,
+		)
+	}
+	if observation.Usage.ExecutedToolCalls == nil ||
+		*observation.Usage.ExecutedToolCalls != 0 {
+		t.Fatalf(
+			"ExecutedToolCalls = %#v, want 0 (no tool call ran before the cap)",
+			observation.Usage.ExecutedToolCalls,
+		)
+	}
+	if observation.Usage.RefusedToolCalls == nil ||
+		*observation.Usage.RefusedToolCalls != 0 {
+		t.Fatalf(
+			"RefusedToolCalls = %#v, want 0",
+			observation.Usage.RefusedToolCalls,
+		)
+	}
+}
+
+func errorDetail(err error) string {
+	var contractErr *ContractError
+	if errors.As(err, &contractErr) {
+		return contractErr.Detail
+	}
+	return ""
 }

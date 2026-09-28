@@ -732,21 +732,43 @@ missing command): it spends no implementer try, is never handed to the
 implementer as repair input, and is never stored as the candidate's result
 or replayed. It stays claimed until the environment is fixed and the same
 work resumes, at which point the identical check re-executes normally. The
-status projection's host-check environment fact
-(`sworn.host-check-environment-fact/v1`, served on `EffectStatus` and
-`PinnedWork` beside, never replacing, the unchanged host-check failure fact
-above) names the check and the missing command for as long as the park is
-active, and clears itself the moment the check actually runs.
+run itself projects as parked with this same cause and code - never
+running, never uncertain - both while the serve process that hit the park
+still holds the run's owner lease and after it releases that lease; a
+Claimed `check.host` effect, and the one `git.seal` or
+`protocol.prepare_assembly` effect it is nested inside, are never counted
+as active work while they belong to this park. The status projection's
+host-check environment fact (`sworn.host-check-environment-fact/v1`,
+served on `EffectStatus` and `PinnedWork` beside, never replacing, the
+unchanged host-check failure fact above) names the check and the missing
+command for as long as the park is active, and clears itself the moment
+the check actually runs.
 
-At run start, and at serve start when it drives a run, the engine also
-resolves the first word of every declared `checks` and `host_checks` entry
-of every slice's approved contract (the deduplicated union of both lists)
-against the host runner's own environment, before any dispatch, and
-refuses to start with the same `HOST_CHECK_ENVIRONMENT` code naming every
-unresolved command. Fix the host's `PATH` (or the systemd unit's
-`Environment=PATH=...`), then resume the run with the identical run id;
-no plan, contract, or manifest change is needed or admitted for this
+At run start, and at the top of every drive-loop pass afterward for as
+long as the run keeps advancing (not only once at the run's opening
+boundary), the engine also resolves the first word of every declared
+`checks` and `host_checks` entry of every slice's approved contract (the
+deduplicated union of both lists) against the host runner's own
+environment, before any dispatch, and refuses to make further progress
+with the same `HOST_CHECK_ENVIRONMENT` code naming every unresolved
+command. This re-validation on every pass, not merely at start or resume,
+is what catches a `PATH` regression an operator makes partway through a
+run, before the very next dispatch. Fix the host's `PATH` (or the systemd
+unit's `Environment=PATH=...`), then resume the run with the identical run
+id; no plan, contract, or manifest change is needed or admitted for this
 cause.
+
+A host shell that cannot be resolved at all (`SWORN_SH` names an invalid
+executable, or no `sh` is found on `PATH`) is a distinct, typed failure,
+code `HOST_SHELL_UNAVAILABLE`: the run-start gate above already fails
+closed with it before any dispatch, and a mid-run check.host classification
+(a fresh claim or a crash-recovered one) fails closed with the identical
+code instead of silently skipping classification and running the command
+unclassified. Because nothing is ever journaled for this failure, it can
+never spend an implementer try or become repair input; it surfaces as a
+plain error from `sworn start` or `sworn resume`, exactly like the
+run-start gate's own refusal. Fix the host's shell configuration, then
+resume.
 
 ### Pause-safe host checks
 
@@ -789,6 +811,22 @@ cancelled instead of resumed, its stopped dispatch and the candidate it was
 mid-check on are left exactly as they stopped, inert, like any other
 in-flight work a cancel leaves behind.
 
+`RUN_STOPPED` is the single code every stop point reports once it has
+recognised a pause or cancel: a host-check boundary, the candidate's seal
+claim, a pause or cancel that lands during `sworn resume`'s own
+start-of-cycle recovery sweep, and the assembly host-check path inside
+`prepare_assembly`. It is always layered over the lower-level
+`CONTROL_STOPPED` (the run's desired state) or `OPERATION_CANCELLED` (a
+cancelled context observed mid-write) that first detected the stop, never
+raised on its own. `RUN_STOPPED` is never itself journaled as an effect's
+error code: wherever it is returned, the effect it stopped is left exactly
+where the stop found it - Claimed, not completed as operationally failed -
+so the try it was on is never spent and a later resume continues the same
+try rather than starting a new one. Pausing the same candidate more than
+once, at any mix of stop points, is safe for the same reason: every stop
+point records the same checkpoint body under its replay key, so a second
+or later pause never conflicts with the first.
+
 ### Credential lifetime
 
 At dispatch preparation, a native Claude credential is refused before any
@@ -826,12 +864,30 @@ refusal on a `planner_proposal` or `lead_plan_review` dispatch is not yet
 projected onto the board and is visible only in the run's own operational
 error at the time it occurs.
 
-When the native Claude CLI's own result reports an authentication failure
-(for example "Failed to authenticate" or "OAuth session expired" in its
-own terminal result text, never assistant or model prose), the dispatch
-fails with `PROVIDER_AUTHORIZATION_FAILED` instead of
-`PROVIDER_TRANSPORT_FAILED`, whether the CLI process exited non-zero or
-exited cleanly without a submission.
+Visibility follows the run's approved park precedence exactly. In a run
+with only one active lane, the run's own `State` reads `parked` once no
+other lane holds it, with this entry named as the `Park` cause. In a run
+with more than one lane, this entry stays visible in `PinnedWork` beside
+the still-running lanes even while `State` reads `running`, because a
+credential-lifetime crossing is deliberately excluded from the lanes
+`pinCrossingLanes` itself pins, so it never by itself forces every lane
+into park.
+
+The CLI's own authentication failure is recognised in either of two
+sequences it actually produces, never from ordinary model prose: its own
+terminal result event naming the failure (for example "Failed to
+authenticate" or "OAuth session expired" in the result text), or - only
+when no result event ever arrives - its own synthesized assistant turn,
+marked `message.model` equal to the literal `"<synthetic>"` (the CLI's own
+convention for a turn it generates itself rather than the model), carrying
+the identical closed phrase vocabulary. This second sequence is asserted
+from the CLI's documented source convention, not from a captured event log
+in this repository. Either sequence fails the dispatch with
+`PROVIDER_AUTHORIZATION_FAILED` instead of `PROVIDER_TRANSPORT_FAILED`,
+whether the CLI process exited non-zero or exited cleanly without a
+submission. An ordinary model turn - any `message.model` other than that
+synthetic marker - is never read as an authentication failure, however its
+text reads.
 
 ### Broker budget and turn cap
 
@@ -858,16 +914,24 @@ Both codes carry a short, bounded, secret-free detail (for example "calls
 513, budget 512" or "turn cap 1000") and park like any other operational
 failure - after a work's third failed try, or sooner on repeated identical
 failures - clearing with a bare `retry`. Neither offers a `grant` action:
-nothing manifest-governed can raise either budget.
+nothing manifest-governed can raise either budget. A retry after
+exhaustion is a fresh dispatch against a fresh broker with a fresh
+`MaxBrokerCalls` budget, not a resumption of the exhausted one.
 
 A tool call that arrives while another is still executing waits for the
 open call slot instead of being refused (sworn#360): this was already the
 broker's behavior and is documented here for the first time. A refused
-request - `not_open`, `closed`, `cancelled`, or any `invalid` shape - is
-counted separately from executed tool calls. Both counts are stamped onto
-the dispatch's failure record and shown in the status projection's dispatch
-view, so a budget that is approaching or has already crossed is legible
-without reading the journal.
+request - `not_open`, `closed`, `cancelled`, any `invalid` shape, a
+rejected protocol version, an out-of-order or repeated handshake step, or
+the tool-list reply itself failing to build - is counted separately from
+executed tool calls. Both counts are stamped onto the dispatch's failure
+record and shown in the status projection's dispatch view, so a budget
+that is approaching or has already crossed is legible without reading the
+journal, even when the CLI's own turn count is unknown because its final
+result event never arrived. Two request shapes spend no budget and are
+counted in neither total: a malformed transport request (wrong method,
+path, host, or content type) and an unauthorized request, both rejected
+before the broker's own call counter advances.
 
 ### Transient provider stall backoff
 
@@ -991,7 +1055,12 @@ same or a later try is not replayed as outstanding, nor is one whose own
 try instead reached seal preparation and was refused there (an anchor,
 scope or other seal-time gate) - reaching the seal means the field-level
 refusal that preceded it was itself corrected in-session, even though that
-try's own dispatch effect never decodes as an accepted submission.
+try's own dispatch effect never decodes as an accepted submission. This
+holds equally for a seal-time refusal that carries no named paths, such as
+an empty candidate, an unreadable anchor gate, a candidate-seal failure or
+a contract-resolution failure: reaching the seal is detected from the
+dispatch effect's own recorded event, never from the shape of its stored
+result, so a path-less refusal is not replayed as outstanding either.
 
 ## Seal-time gates and their repair input
 
@@ -1035,6 +1104,12 @@ correction route, only when the slice's approved contract declares an
 Anchor for at least one acceptance criterion - it is never a hidden field
 the model has to already know to reach for. An unreadable base tree or an
 ambiguous diff refuses `ANCHOR_GATE_UNREADABLE` instead of silently passing.
+The `ANCHOR_NOT_TOUCHED` detail handed to the implementer is bounded to
+2048 bytes, matching the existing host-repair refusal-detail convention:
+only the variable part (the missing-criteria list, anchor base and any
+substitute failures) is truncated, deterministically and on a valid UTF-8
+boundary, so the fixed closing sentence naming the `anchor_substitutes`
+route is never the part that gets cut off.
 
 **Degenerate submission body.** At the same author-side boundary that
 already refuses a self-declared probe, Sworn also measures a submission's

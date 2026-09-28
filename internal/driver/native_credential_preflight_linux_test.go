@@ -462,6 +462,27 @@ func credentialFixtureInvoke(
 	timeoutMillis int64,
 ) error {
 	t.Helper()
+	_, err := credentialFixtureInvokeObservation(
+		t, family, binary, digest, credentialBody, timeoutMillis,
+	)
+	return err
+}
+
+// credentialFixtureInvokeObservation is credentialFixtureInvoke's own
+// underlying call, keeping the full (Observation, error) pair instead of
+// discarding the Observation: needed wherever a test must assert the
+// receipt-bearing Usage or the ContractError.Detail a diagnostic code
+// carries (A4, S9-broker-budget-and-turn-cap-repair), not only the code
+// itself.
+func credentialFixtureInvokeObservation(
+	t *testing.T,
+	family ProfileFamily,
+	binary string,
+	digest string,
+	credentialBody []byte,
+	timeoutMillis int64,
+) (Observation, error) {
+	t.Helper()
 	_, _, _, selected, _ := nativeCredentialFixtureAdapter(
 		t,
 		family,
@@ -477,8 +498,7 @@ func credentialFixtureInvoke(
 	base.Request.Limits.TimeoutMillis = timeoutMillis
 	pair := nativeSmokeInvocationsFixture(t, base)
 	invocation := pair.FreshReadWrite
-	_, err := (Dispatcher{}).Invoke(context.Background(), invocation)
-	return err
+	return (Dispatcher{}).Invoke(context.Background(), invocation)
 }
 
 // TestNativeSpontaneousExitClassification pins A2 at the terminal
@@ -664,6 +684,126 @@ func TestNativeCLIReportedAuthFailureSurfacesTypedCode(t *testing.T) {
 		if !IsCode(err, "MISSING_SUBMISSION") {
 			t.Fatalf(
 				"codex clean-exit error = %v, want MISSING_SUBMISSION", err,
+			)
+		}
+	})
+}
+
+// TestNativeCLIAuthFailureRecognizedFromSyntheticWorkerTurn pins A4
+// (S8-credential-lifetime-repair) end to end through the nativecontinuation
+// fixture: the CLI's own synthesized assistant turn (message.model ==
+// "<synthetic>"), reaching the journal as worker-turn text before a
+// non-zero exit with no terminal result event ever following it, is
+// recognised as the typed credential code - reproducing this release's
+// observed sequence precisely. The two negative subtests pin the Lead's
+// required bound at both classification sites named in the criterion: the
+// identical phrase as an ordinary model turn (message.model carrying the
+// fixture's real model id, never the synthetic marker) keeps today's
+// classification unchanged, whether the process then exits non-zero or
+// cleanly without a submission - proving the marker, not the text, gates
+// recognition.
+func TestNativeCLIAuthFailureRecognizedFromSyntheticWorkerTurn(t *testing.T) {
+	probe := buildNativeContinuation(t)
+	digest, err := executableDigest(probe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	syntheticExit := []byte(`{"offline_provider":"auth_failed_worker_turn_exit"}`)
+	proseExit := []byte(`{"offline_provider":"auth_failed_worker_turn_prose_exit"}`)
+	proseClean := []byte(`{"offline_provider":"auth_failed_worker_turn_prose_clean"}`)
+
+	t.Run("synthetic worker turn before a non-zero exit reports the typed credential code on claude", func(t *testing.T) {
+		err := credentialFixtureInvoke(
+			t, ProfileClaude, probe, digest, syntheticExit, 2_000,
+		)
+		if !IsCode(err, "PROVIDER_AUTHORIZATION_FAILED") {
+			t.Fatalf(
+				"synthetic-worker-turn exit error = %v, want PROVIDER_AUTHORIZATION_FAILED",
+				err,
+			)
+		}
+	})
+
+	t.Run("ordinary model prose with the identical phrase, non-zero exit, keeps transport classification", func(t *testing.T) {
+		err := credentialFixtureInvoke(
+			t, ProfileClaude, probe, digest, proseExit, 2_000,
+		)
+		if !IsCode(err, "PROVIDER_TRANSPORT_FAILED") {
+			t.Fatalf(
+				"ordinary-prose exit error = %v, want PROVIDER_TRANSPORT_FAILED",
+				err,
+			)
+		}
+	})
+
+	t.Run("ordinary model prose with the identical phrase, clean exit without a submission, keeps missing-submission classification", func(t *testing.T) {
+		err := credentialFixtureInvoke(
+			t, ProfileClaude, probe, digest, proseClean, 2_000,
+		)
+		if !IsCode(err, "MISSING_SUBMISSION") {
+			t.Fatalf(
+				"ordinary-prose clean-exit error = %v, want MISSING_SUBMISSION",
+				err,
+			)
+		}
+	})
+}
+
+// TestNativeEventStateCapturesSyntheticWorkerTurnAuthFailure pins A4's own
+// gate directly against nativeEventState.accept(), independent of a spawned
+// CLI process (the bubblewrap-sandboxed fixture in
+// TestNativeCLIAuthFailureRecognizedFromSyntheticWorkerTurn above proves the
+// identical behaviour end to end): resultError() synthesizes an errored
+// result from a captured worker-turn auth failure only when its
+// message.model carries the CLI's own "<synthetic>" marker, only until a
+// genuine terminal "result" event arrives (which always wins, success or
+// error), and never from the identical phrase on an ordinary model turn.
+func TestNativeEventStateCapturesSyntheticWorkerTurnAuthFailure(t *testing.T) {
+	t.Parallel()
+
+	synthetic := []byte(`{"type":"assistant","message":{"model":"<synthetic>","content":[` +
+		`{"type":"text","text":"Failed to authenticate: OAuth session expired and could not be refreshed"}]}}`)
+	ordinary := []byte(`{"type":"assistant","message":{"model":"claude-x","content":[` +
+		`{"type":"text","text":"Failed to authenticate: OAuth session expired and could not be refreshed"}]}}`)
+
+	t.Run("synthetic marker with the closed phrase synthesizes an errored result before any result event", func(t *testing.T) {
+		state := &nativeEventState{family: ProfileClaude}
+		if err := state.accept(synthetic); err != nil {
+			t.Fatal(err)
+		}
+		result := state.resultError()
+		if !result.errored || !nativeAuthFailureReported(ProfileClaude, result) {
+			t.Fatalf("resultError() = %#v, want a synthesized auth failure", result)
+		}
+	})
+
+	t.Run("ordinary model turn with the identical phrase never trips it", func(t *testing.T) {
+		state := &nativeEventState{family: ProfileClaude}
+		if err := state.accept(ordinary); err != nil {
+			t.Fatal(err)
+		}
+		if result := state.resultError(); result.errored {
+			t.Fatalf(
+				"resultError() = %#v, want no synthesized failure from ordinary model prose",
+				result,
+			)
+		}
+	})
+
+	t.Run("a genuine result event always wins over a captured worker-turn detail", func(t *testing.T) {
+		state := &nativeEventState{family: ProfileClaude}
+		if err := state.accept(synthetic); err != nil {
+			t.Fatal(err)
+		}
+		if err := state.accept(
+			[]byte(`{"type":"result","subtype":"success","result":"done"}`),
+		); err != nil {
+			t.Fatal(err)
+		}
+		if result := state.resultError(); result.errored {
+			t.Fatalf(
+				"resultError() = %#v, want the genuine success result to win",
+				result,
 			)
 		}
 	})

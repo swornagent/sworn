@@ -1693,14 +1693,20 @@ func (s *Service) reconcileClaimedProtocolAction(ctx context.Context, engine *en
 	result, actionErr := action()
 	engine.actionMu.Unlock()
 	if actionErr != nil {
-		if IsCode(actionErr, "EFFECT_PARKED") {
+		if IsCode(actionErr, "EFFECT_PARKED") ||
+			IsCode(actionErr, "HOST_SHELL_UNAVAILABLE") ||
+			IsCode(actionErr, "RUN_STOPPED") {
 			// A nested check.host effect this action depends on classified
-			// as a host environment failure (S1): that inner effect stays
-			// exactly where it is - Claimed, never completed - so this
-			// outer effect must too. Completing it here as
+			// as a host environment failure, the host shell itself could
+			// not be resolved (S1, S6-host-environment-park-projection
+			// A5(ii)), or a pause/cancel stopped the action mid-flight
+			// (S7-pause-safe-host-checks-repair A4): that inner effect
+			// stays exactly where it is - Claimed, never completed - so
+			// this outer effect must too. Completing it here as
 			// OperationalFailed would spend this try, and the next call
 			// (fresh or recovered) would advance to a fresh try instead of
-			// re-hitting the identical still-Claimed inner effect.
+			// re-hitting the identical still-Claimed inner effect, or
+			// would record RUN_STOPPED as an effect's error code.
 			return actionAllOld, protocol.ActionResult{}, actionErr
 		}
 		after, afterState, classifyErr := classifyProtocolAction(
@@ -1839,6 +1845,9 @@ func (s *Service) runAction(ctx context.Context, engine *engine, owner journal.O
 			Kind: kind, BeforeDigest: workID, ExpectedDigest: sha256Digest(payload), UpdatedAt: now}
 		if err := s.journal.EnsureAttempt(ctx, command, effectInput,
 			journal.EffectAttempt{WorkID: workID, Epoch: epoch, Try: try}); err != nil {
+			if journal.IsCode(err, "CONTROL_STOPPED") || journal.IsCode(err, "OPERATION_CANCELLED") {
+				return protocol.ActionResult{}, runtimeFail("RUN_STOPPED", err)
+			}
 			return protocol.ActionResult{}, runtimeFail("JOURNAL_WRITE_FAILED", err)
 		}
 		effect, err := s.journal.Effect(ctx, command.RunID, id)
@@ -1876,7 +1885,9 @@ func (s *Service) runAction(ctx context.Context, engine *engine, owner journal.O
 				// stays exactly where it is, admitting no try 2/3
 				// attempt), unlike every other actionAllOld outcome this
 				// loop retries under a fresh try.
-				if IsCode(recoverErr, "EFFECT_PARKED") {
+				if IsCode(recoverErr, "EFFECT_PARKED") ||
+					IsCode(recoverErr, "HOST_SHELL_UNAVAILABLE") ||
+					IsCode(recoverErr, "RUN_STOPPED") {
 					return protocol.ActionResult{}, recoverErr
 				}
 				if truth == actionAllOld {
@@ -1897,6 +1908,9 @@ func (s *Service) runAction(ctx context.Context, engine *engine, owner journal.O
 		}
 		claim, err := s.journal.ClaimOwned(ctx, owner, id, now, effectLease)
 		if err != nil {
+			if journal.IsCode(err, "CONTROL_STOPPED") || journal.IsCode(err, "OPERATION_CANCELLED") {
+				return protocol.ActionResult{}, runtimeFail("RUN_STOPPED", err)
+			}
 			return protocol.ActionResult{}, runtimeFail("EFFECT_CLAIM_FAILED", err)
 		}
 		effect.State, effect.CurrentClaim = journal.Claimed, claim.Token
@@ -1910,7 +1924,9 @@ func (s *Service) runAction(ctx context.Context, engine *engine, owner journal.O
 			// environment park must return at once, never spend a fresh
 			// try, so the same try's action completes without ever
 			// admitting a try 2 or try 3 attempt.
-			if IsCode(actionErr, "EFFECT_PARKED") {
+			if IsCode(actionErr, "EFFECT_PARKED") ||
+				IsCode(actionErr, "HOST_SHELL_UNAVAILABLE") ||
+				IsCode(actionErr, "RUN_STOPPED") {
 				return protocol.ActionResult{}, actionErr
 			}
 			if truth == actionAllOld &&
@@ -2347,6 +2363,16 @@ func (s *Service) advanceSlice(ctx context.Context, engine *engine, owner journa
 			return discardVerifier(resolveErr)
 		}
 		if len(hostChecks) > 0 {
+			// S6-host-environment-park-projection A1: this call can never
+			// itself create a host-environment crossing. It resolves the
+			// identical (sliceID, candidate, contractDigest, check) work
+			// claimPreparedImplementation's own runHostChecks call already
+			// ran and succeeded during the implement-stage seal - git.seal
+			// only completes, moving the slice to NextRole=="verifier",
+			// after every declared host_checks entry has Succeeded - so
+			// admitHostCheckEffect (host_checks.go) always finds the
+			// effect already journal.Succeeded here and only ever replays
+			// the recorded result; it never re-classifies or re-executes.
 			hostResults, runErr := s.runHostChecks(
 				ctx, engine, owner, plan, sliceID,
 				candidate, state.Refs.Target.Head, state.Refs.Release.Head)
@@ -2672,6 +2698,13 @@ func (s *Service) implementSlice(ctx context.Context, engine *engine, owner jour
 			return err
 		}
 		if IsCode(err, "EFFECT_PARKED") {
+			return err
+		}
+		if IsCode(err, "HOST_SHELL_UNAVAILABLE") {
+			// S6-host-environment-park-projection A5(ii): a mid-run host
+			// shell resolution failure, exactly like EFFECT_PARKED, must
+			// not spend this try - the still-Claimed check.host effect
+			// stays exactly where it is, admitting no try 2/3 attempt.
 			return err
 		}
 		if IsCode(err, "RUN_STOPPED") {
@@ -3730,6 +3763,15 @@ func (s *Service) claimedPreparedImplementation(
 ) (sealedRecord, journal.Claim, bool, error) {
 	snapshot, err := s.journal.Snapshot(ctx, owner.RunID)
 	if err != nil {
+		// This is prepareHandoff's first read on every entry, including a
+		// fresh resume re-entering it: a context a pause or cancel already
+		// cancelled must read as the same RUN_STOPPED stop every later
+		// boundary in this cycle reports, not as an opaque read failure
+		// (S7-pause-safe-host-checks-repair A2).
+		if journal.IsCode(err, "OPERATION_CANCELLED") {
+			return sealedRecord{}, journal.Claim{}, false,
+				runtimeFail("RUN_STOPPED", err)
+		}
 		return sealedRecord{}, journal.Claim{}, false,
 			runtimeFail("JOURNAL_READ_FAILED", err)
 	}
@@ -3858,15 +3900,36 @@ func (s *Service) runProductionImplementationDispatch(
 					)
 			}
 			if prepareErr != nil && IsCode(prepareErr, "RUN_STOPPED") {
-				var toSave *sealedRecord
-				if record.Candidate != "" {
-					toSave = &record
-				}
-				if persistErr := s.persistPausedHandoffCheckpoint(
-					ctx, engine.manifest.value.RunID, cycle.DispatchEffect,
-					observation, toSave,
-				); persistErr != nil {
-					return persistErr
+				// checkpointFound means this pause resumed from an
+				// already-persisted checkpoint under the same replay key:
+				// its body is already this stop's fixed identity, so
+				// re-persisting is unnecessary. Otherwise, strip Receipt
+				// before saving: Receipt.CheckResults is not fixed until
+				// every declared host check has passed
+				// (prepareProductionImplementationCandidate sets it to the
+				// submission's own bytes first, then overwrites it with the
+				// engine-built manifest once checks pass), so a pause at a
+				// check boundary and a later pause at the git.seal.prepared
+				// claim would otherwise checkpoint two different bodies
+				// under the same replay key -> REPLAY_CONFLICT
+				// (S7-pause-safe-host-checks-repair A1). No reader of a
+				// saved checkpoint's Record uses Receipt:
+				// resumePausedProductionCandidate reads only
+				// Before/Candidate/Tree/RefreshFrom/ChangedPaths and
+				// rebuilds Receipt itself.
+				if !checkpointFound {
+					var toSave *sealedRecord
+					if record.Candidate != "" {
+						stripped := record
+						stripped.Receipt = protocol.AppendReceiptInput{}
+						toSave = &stripped
+					}
+					if persistErr := s.persistPausedHandoffCheckpoint(
+						ctx, engine.manifest.value.RunID, cycle.DispatchEffect,
+						observation, toSave,
+					); persistErr != nil {
+						return persistErr
+					}
 				}
 			}
 			return prepareErr
@@ -6245,6 +6308,28 @@ func (s *Service) recoverImplementationClaims(ctx context.Context, engine *engin
 	return false, nil
 }
 
+// normalizeRecoveryStop maps a raw CONTROL_STOPPED, OPERATION_CANCELLED, or
+// bare context cancellation surfacing from one of recoverClaimedEffects'
+// steps onto the same RUN_STOPPED code the drive loop and prepareHandoff
+// already use for a pause or cancel mid-flight, so a stop that lands during
+// the start-of-cycle recovery sweep (recoverImplementationCycle in
+// particular, which journals through ordinary owned primitives) is
+// recognisable as a stop rather than an opaque error
+// (S7-pause-safe-host-checks-repair A3). An error already carrying
+// RUN_STOPPED, or any other error, passes through unchanged.
+func normalizeRecoveryStop(err error) error {
+	if err == nil || IsCode(err, "RUN_STOPPED") {
+		return err
+	}
+	if journal.IsCode(err, "CONTROL_STOPPED") ||
+		journal.IsCode(err, "OPERATION_CANCELLED") ||
+		errors.Is(err, context.Canceled) ||
+		errors.Is(err, context.DeadlineExceeded) {
+		return runtimeFail("RUN_STOPPED", err)
+	}
+	return err
+}
+
 func (s *Service) recoverClaimedEffects(
 	ctx context.Context,
 	engine *engine,
@@ -6257,21 +6342,21 @@ func (s *Service) recoverClaimedEffects(
 			owner,
 		)
 		if err != nil {
-			return err
+			return normalizeRecoveryStop(err)
 		}
 		if recovered {
 			continue
 		}
 		recovered, err = s.recoverImplementationClaims(ctx, engine, owner)
 		if err != nil {
-			return err
+			return normalizeRecoveryStop(err)
 		}
 		if recovered {
 			continue
 		}
 		recovered, err = s.recoverClaimedProtocolAction(ctx, engine, owner)
 		if err != nil {
-			return err
+			return normalizeRecoveryStop(err)
 		}
 		if recovered {
 			continue
@@ -6279,7 +6364,7 @@ func (s *Service) recoverClaimedEffects(
 		recovered, err = s.recoverStaleClaimedDispatches(
 			ctx, engine, owner)
 		if err != nil {
-			return err
+			return normalizeRecoveryStop(err)
 		}
 		if recovered {
 			continue
@@ -6287,7 +6372,7 @@ func (s *Service) recoverClaimedEffects(
 		recovered, err = s.recoverHostCheckClaims(
 			ctx, engine, owner)
 		if err != nil {
-			return err
+			return normalizeRecoveryStop(err)
 		}
 		if recovered {
 			continue
@@ -6416,6 +6501,13 @@ func (s *Service) driveLoop(ctx context.Context, engine *engine, owner journal.O
 			return err
 		}
 		if err := s.recoverClaimedEffects(ctx, engine, owner); err != nil {
+			// A stop that lands inside the recovery sweep is a stop, not a
+			// CLI error (S7-pause-safe-host-checks-repair A3): the run
+			// stays resumable, exactly like the `projection.Desired !=
+			// "running"` branch just above.
+			if IsCode(err, "RUN_STOPPED") {
+				return nil
+			}
 			return err
 		}
 		recoveryPending, err := s.driverRecoveryPending(ctx, owner.RunID)
@@ -6467,11 +6559,15 @@ func (s *Service) driveLoop(ctx context.Context, engine *engine, owner journal.O
 		}
 		// A4: refuse to make progress while any declared check's command
 		// does not resolve on the host runner's own environment, before
-		// any dispatch. This runs on every driveLoop entry (Start,
-		// Resume, and serve's autostart, which all funnel through
-		// driveOwned -> driveLoop), in the process that owns the real
-		// PATH; the answer is journaled so Status (a separate,
-		// engine-less process) never re-classifies.
+		// any dispatch. driveLoop is a loop: this gate sits at the top of
+		// every iteration, so one Start, Resume, or serve autostart call
+		// (all of which funnel through driveOwned -> driveLoop) re-enters
+		// it again each time the loop advances past a ready slice or the
+		// assembly stage - not merely once at that call's own boundary -
+		// so a mid-run PATH regression is caught before the very next
+		// dispatch. This runs in the process that owns the real PATH; the
+		// answer is journaled so Status (a separate, engine-less process)
+		// never re-classifies.
 		hostEnvironmentParked, err := s.driveHostCheckEnvironmentGate(
 			ctx, engine, owner, snapshot, state)
 		if err != nil {
@@ -6550,6 +6646,14 @@ func (s *Service) driveLoop(ctx context.Context, engine *engine, owner journal.O
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
+			// A4: a park this same fan-out just created (advanceSlice ->
+			// implementSlice -> claimPreparedImplementation ->
+			// executeHostCheck) is not yet in the snapshot pinCrossingLanes
+			// scanned at the top of this pass; reconcile against a fresh
+			// snapshot before deciding whether this pass made progress.
+			if err := s.reconcileHostEnvironmentParkEvents(ctx, owner.RunID, state); err != nil {
+				return err
+			}
 			if progress {
 				continue
 			}
@@ -6590,8 +6694,18 @@ func (s *Service) driveLoop(ctx context.Context, engine *engine, owner journal.O
 		case state.Assembly.Outcome == "merged":
 			return nil
 		case state.Assembly.NextRole == "merge" && state.Assembly.Outcome != "pass":
-			if err := s.prepareAssembly(ctx, engine, owner, state); err != nil {
-				return err
+			prepareErr := s.prepareAssembly(ctx, engine, owner, state)
+			// A4: prepareAssembly's own error (EFFECT_PARKED among them)
+			// returns immediately, before any re-scan; reconcile against a
+			// fresh snapshot first so a park this call just created is
+			// journaled in the pass that created it, not a later one.
+			if reconcileErr := s.reconcileHostEnvironmentParkEvents(
+				ctx, owner.RunID, state,
+			); reconcileErr != nil {
+				return errors.Join(prepareErr, reconcileErr)
+			}
+			if prepareErr != nil {
+				return prepareErr
 			}
 		case state.Assembly.NextRole == "verifier":
 			if err := s.verifyAssembly(ctx, engine, owner, state); err != nil {
@@ -6605,6 +6719,68 @@ func (s *Service) driveLoop(ctx context.Context, engine *engine, owner journal.O
 			return nil
 		}
 	}
+}
+
+// appendHostEnvironmentParkEvent journals crossing's typed park event
+// (idempotent via appendParkEventOnce's content-addressed replay key) and
+// returns its owner work identity, or "" when the crossing maps to no
+// owner (a stale crossing left by work the current state no longer
+// applies to, which gets no event and pins nothing). Shared by
+// pinCrossingLanes (which also pins the owner's lane) and
+// reconcileHostEnvironmentParkEvents (which does not need lane pinning).
+func (s *Service) appendHostEnvironmentParkEvent(
+	ctx context.Context,
+	runID string,
+	state protocol.State,
+	crossing hostEnvironmentCrossing,
+) (string, error) {
+	owner := hostEnvironmentCrossingOwner(state, crossing)
+	if owner == "" {
+		return "", nil
+	}
+	body, err := hostEnvironmentParkEventBody(
+		runID, owner, hostEnvironmentCrossingDetail(crossing),
+	)
+	if err != nil {
+		return "", err
+	}
+	if err := s.appendParkEventOnce(ctx, runID, ParkCauseHostEnvironment, body); err != nil {
+		return "", err
+	}
+	return owner, nil
+}
+
+// reconcileHostEnvironmentParkEvents journals the park event for every
+// host-environment crossing visible in a freshly-read snapshot
+// (S6-host-environment-park-projection A4). pinCrossingLanes only scans the
+// snapshot read at the top of a driveLoop pass, before that same pass's own
+// advanceSlice or prepareAssembly call can create a brand-new crossing
+// (executeHostCheck's classify-then-EFFECT_PARKED write happens inside
+// those calls); without this second, later-snapshot scan, such a crossing's
+// event would only be written on a later driveLoop pass - a resume, or
+// serve's next autostart tick - not the pass that actually parked it. state
+// stays the pass-top state deliberately, never re-read here: a slice or
+// assembly that just parked did not advance, so its fingerprint is
+// unchanged, and re-reading state could re-fingerprint a different lane
+// that did progress this same pass. appendParkEventOnce's content-
+// addressing makes a repeat call for an already-recorded crossing a safe
+// no-op, so calling this after every pass - whether or not that pass made
+// progress - is always safe.
+func (s *Service) reconcileHostEnvironmentParkEvents(
+	ctx context.Context,
+	runID string,
+	state protocol.State,
+) error {
+	snapshot, err := s.journal.Snapshot(ctx, runID)
+	if err != nil {
+		return runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	for _, crossing := range hostEnvironmentParkCrossings(snapshot) {
+		if _, err := s.appendHostEnvironmentParkEvent(ctx, runID, state, crossing); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // pinCrossingLanes journals the typed park event for every current-epoch
@@ -6713,18 +6889,12 @@ func (s *Service) pinCrossingLanes(
 	// is the check's own deterministic first word), so content-addressing
 	// can never wrongly absorb a later, different fact as a duplicate.
 	for _, crossing := range hostEnvironmentParkCrossings(snapshot) {
-		owner := hostEnvironmentCrossingOwner(state, crossing)
-		if owner == "" {
-			continue
-		}
-		body, err := hostEnvironmentParkEventBody(
-			runID, owner, hostEnvironmentCrossingDetail(crossing),
-		)
+		owner, err := s.appendHostEnvironmentParkEvent(ctx, runID, state, crossing)
 		if err != nil {
 			return nil, err
 		}
-		if err := s.appendParkEventOnce(ctx, runID, ParkCauseHostEnvironment, body); err != nil {
-			return nil, err
+		if owner == "" {
+			continue
 		}
 		if lane, ok := laneFor(owner); ok {
 			pinned[lane] = struct{}{}
@@ -6897,6 +7067,16 @@ func (s *Service) recoverClaimedProtocolAction(ctx context.Context, engine *engi
 			// this pass for genuine recovery work.
 			if truth == actionAllOld && IsCode(err, "EFFECT_PARKED") {
 				continue
+			}
+			if IsCode(err, "RUN_STOPPED") {
+				// Unlike EFFECT_PARKED, a stop must end this sweep, not be
+				// swallowed into a recovered=true rescan: the run is
+				// genuinely paused, so an immediate rescan would only
+				// re-find this same still-Claimed effect and spin
+				// (S7-pause-safe-host-checks-repair A3/A4).
+				// recoverClaimedEffects normalizes and returns this to its
+				// caller, which treats it as a stop, not a CLI error.
+				return true, err
 			}
 			if truth == actionAllOld && !IsCode(err, "RECOVERY_UNCERTAIN") {
 				return true, nil
@@ -7966,6 +8146,13 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 		return RunStatus{}, err
 	}
 	if err := s.recoverClaimedEffects(ownedCtx, engine, owner); err != nil {
+		// Same stop-not-error treatment as the `control.Desired != "running"`
+		// branch above (S7-pause-safe-host-checks-repair A3): ownedCtx is
+		// already cancelled by watchOwner at this point, so no further
+		// ownedCtx-scoped read is attempted.
+		if IsCode(err, "RUN_STOPPED") {
+			return s.Status(context.Background(), runID)
+		}
 		return RunStatus{}, err
 	}
 	recoveryPending, err := s.driverRecoveryPending(ownedCtx, runID)

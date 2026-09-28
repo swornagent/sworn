@@ -90,15 +90,26 @@ func parseHostEnvironmentCrossing(
 		return hostEnvironmentCrossing{}, false
 	}
 	checkHostWork := hostCheckWork(record.Slice, record.Candidate, record.ContractDigest, record.Check)
-	classificationWork := hostEnvironmentClassificationWork(checkHostWork)
+	// #296: the classification's own bound work is either the check.host
+	// work's first execution or its one re-execution (host_checks.go's
+	// hostCheckBoundWork, the same helper validateHostCheckEvidenceProof
+	// already uses for this exact first-vs-rerun ambiguity) - never
+	// assumed to be the first execution alone. A rerun's own
+	// journalHostEnvironmentClassification call journals under the rerun
+	// identity, so recomputing against the first execution only would
+	// reject every rerun classification as unparsable.
+	boundWork, ok := hostCheckBoundWork(record.HostEffect, checkHostWork)
+	if !ok {
+		return hostEnvironmentCrossing{}, false
+	}
+	classificationWork := hostEnvironmentClassificationWork(boundWork)
 	if effect.BeforeDigest != classificationWork ||
-		effect.ID != journal.AttemptEffectID(classificationWork, 1, 1) ||
-		record.HostEffect != hostCheckEffectID(checkHostWork) {
+		effect.ID != journal.AttemptEffectID(classificationWork, 1, 1) {
 		return hostEnvironmentCrossing{}, false
 	}
 	hostEffect, found := effectsByID[record.HostEffect]
 	if !found || hostEffect.Kind != "check.host" ||
-		hostEffect.BeforeDigest != checkHostWork ||
+		hostEffect.BeforeDigest != boundWork ||
 		hostEffect.State != journal.Claimed {
 		return hostEnvironmentCrossing{}, false
 	}
@@ -185,6 +196,52 @@ func hostEnvironmentParkFactsByOwner(
 		}
 	}
 	return result
+}
+
+// hostEnvironmentExcludedEffects names every effect ID that Status must not
+// fold into "active" or "uncertain" work because it belongs to a current
+// host-environment crossing (S6-host-environment-park-projection A1): the
+// crossing's own check.host effect always (needs no state), and, only when
+// state is available, the one enclosing git.seal or protocol.prepare_assembly
+// effect whose BeforeDigest equals hostEnvironmentCrossingOwner(state,
+// crossing) - the only other effect Claimed while such a crossing stands.
+// implementSlice keeps its git.seal effect Claimed across
+// claimPreparedImplementation's host-check block (which runs after the
+// nested driver.dispatch effect has already Succeeded and before
+// git.seal.prepared is ever journaled); prepareAssembly keeps
+// protocol.prepare_assembly Claimed across runAssemblyHostChecks the same
+// way. A verifier-stage host check (advanceSlice's NextRole=="verifier"
+// branch) can never itself be the Claimed effect a crossing names: it
+// resolves the identical (slice, candidate, contract digest, check) work
+// the implement-stage seal already ran, so admitHostCheckEffect always finds
+// it already journal.Succeeded and only ever replays the recorded result.
+// The owner exclusion fails closed (omitted) when stateErr != nil, exactly
+// like every other state-dependent park fact in Status.
+func hostEnvironmentExcludedEffects(
+	snapshot journal.Snapshot,
+	state protocol.State,
+	stateErr error,
+) map[string]bool {
+	excluded := make(map[string]bool)
+	crossings := hostEnvironmentParkCrossings(snapshot)
+	for _, crossing := range crossings {
+		excluded[crossing.HostEffect] = true
+	}
+	if stateErr != nil {
+		return excluded
+	}
+	for _, crossing := range crossings {
+		owner := hostEnvironmentCrossingOwner(state, crossing)
+		if owner == "" {
+			continue
+		}
+		for _, effect := range snapshot.Effects {
+			if effect.BeforeDigest == owner && effect.State == journal.Claimed {
+				excluded[effect.ID] = true
+			}
+		}
+	}
+	return excluded
 }
 
 // attachHostEnvironmentFacts derives the A5 fact for every currently-

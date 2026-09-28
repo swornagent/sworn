@@ -650,3 +650,205 @@ func TestCredentialLifetimeParkFactNestedGitSealOwnerEndToEnd(t *testing.T) {
 		)
 	}
 }
+
+// TestCredentialLifetimeParkFactClearsForNestedImplementationDispatch pins
+// A1 (S8-credential-lifetime-repair) through the real refusal path, never
+// calling recordCredentialLifetimeParkFact directly (that path is already
+// exercised by TestCredentialLifetimeParkFactNestedGitSealOwnerEndToEnd
+// above): a nested implementer_implementation dispatch's admission refusal
+// is journaled under coordinates.DispatchWork - the identity
+// runImplementationCycle actually sets (scheduler.go) - not the identity
+// driverWorkIdentity alone would reconstruct from Slice/Responsibility/
+// ProtocolAttempt/Before. The fixture's dispatcher fails the test if ever
+// invoked, proving the refusal never reaches it: prepareDriverDispatch only
+// prepares, so a passing redrive after the refresh must stop at
+// preparation too.
+func TestCredentialLifetimeParkFactClearsForNestedImplementationDispatch(t *testing.T) {
+	fixture := newProductionImplementationRecoveryFixture(t, fixtureDriver(
+		func(context.Context, driver.Invocation) (driver.Observation, error) {
+			t.Fatal("dispatcher must not be invoked")
+			return driver.Observation{}, nil
+		},
+	))
+	runID := fixture.manifest.value.RunID
+
+	if err := fixture.store.RecordCommand(fixture.ctx, journal.Command{
+		RunID: runID, ReplayKey: "manifest", Kind: "start",
+		Payload: fixture.manifest.raw, CreatedAt: fixture.now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	credential := filepath.Join(t.TempDir(), "credential")
+	expired := time.Now().Add(-60 * time.Second).UnixMilli()
+	if err := os.WriteFile(
+		credential,
+		[]byte(`{"claudeAiOauth":{"accessToken":"a","expiresAt":`+
+			strconv.FormatInt(expired, 10)+`}}`),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	credentialLifetimeGateAdapterFixture(t, fixture.engine, credential)
+
+	coordinates := fixture.coordinates
+	coordinates.DispatchWork = fixture.cycle.DispatchWork
+
+	if _, err := fixture.service.prepareDriverDispatch(
+		fixture.ctx, fixture.engine, fixture.workspace, driver.RoleImplementer,
+		coordinates, fixture.cycle.Before,
+	); !IsCode(err, "CREDENTIAL_STALE") {
+		t.Fatalf("prepareDriverDispatch error = %v, want CREDENTIAL_STALE", err)
+	}
+
+	if _, effectErr := fixture.store.Effect(
+		fixture.ctx, runID, fixture.cycle.DispatchEffect,
+	); !journal.IsCode(effectErr, "EFFECT_NOT_FOUND") {
+		t.Fatalf("effect after admission refusal = %v, want EFFECT_NOT_FOUND", effectErr)
+	}
+
+	state, err := protocol.ReadState(
+		fixture.engine.git, fixture.manifest.value.Release, fixture.engine.inertness,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := fixture.store.Snapshot(fixture.ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	crossings := credentialLifetimeParkCrossings(state, snapshot)
+	if len(crossings) != 1 || crossings[0].WorkID != fixture.cycle.DispatchWork ||
+		crossings[0].Code != "CREDENTIAL_STALE" {
+		t.Fatalf(
+			"credentialLifetimeParkCrossings = %#v, want one CREDENTIAL_STALE crossing for %s",
+			crossings, fixture.cycle.DispatchWork,
+		)
+	}
+
+	future := int64(8_000_000_000_000_000)
+	if err := os.WriteFile(
+		credential,
+		[]byte(`{"claudeAiOauth":{"accessToken":"a","expiresAt":`+
+			strconv.FormatInt(future, 10)+`}}`),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	// The credential probe must now pass cleanly under the identical
+	// coordinates (the self-heal claim). prepareDriverDispatch only
+	// prepares, so this call cannot itself reach the fail-if-invoked
+	// dispatcher above; whatever happens further into production
+	// work-context capture is outside this test's scope.
+	if _, redriveErr := fixture.service.prepareDriverDispatch(
+		fixture.ctx, fixture.engine, fixture.workspace, driver.RoleImplementer,
+		coordinates, fixture.cycle.Before,
+	); IsCode(redriveErr, "CREDENTIAL_STALE") ||
+		IsCode(redriveErr, "CREDENTIAL_EXPIRES_DURING_DISPATCH") ||
+		IsCode(redriveErr, "JOURNAL_WRITE_FAILED") {
+		t.Fatalf(
+			"redrive after refresh = %v, want the credential probe to pass (self-heal)",
+			redriveErr,
+		)
+	}
+
+	// Simulate the dispatch attempt a passing admission now proceeds to
+	// journal (runDriverEffectWithPreparation's own write, out of
+	// prepareDriverDispatch's own scope), mirroring the direct-dispatch
+	// self-heal test's identical simulated-attempt block.
+	attemptReplayKey := "credential-lifetime-nested-test-attempt"
+	if err := fixture.store.RecordCommandEffect(
+		fixture.ctx,
+		journal.Command{
+			RunID: runID, ReplayKey: attemptReplayKey, Kind: "driver.dispatch",
+			Payload: []byte("{}"), CreatedAt: fixture.now,
+		},
+		journal.Effect{
+			RunID: runID, ID: fixture.cycle.DispatchEffect, ReplayKey: attemptReplayKey,
+			Kind: "driver.dispatch", BeforeDigest: testWork(),
+			ExpectedDigest: "sha256:" + strings.Repeat("f", 64),
+			UpdatedAt:      fixture.now,
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot, err = fixture.store.Snapshot(fixture.ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if crossings := credentialLifetimeParkCrossings(state, snapshot); len(crossings) != 0 {
+		t.Fatalf("crossings after refresh and attempt = %#v, want none (cleared)", crossings)
+	}
+
+	status, err := fixture.service.Status(fixture.ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, work := range status.PinnedWork {
+		if work.WorkID == fixture.cycle.DispatchWork &&
+			work.Cause == ParkCauseCredentialLifetime {
+			t.Fatalf("status.PinnedWork still carries the cleared entry: %#v", work)
+		}
+	}
+}
+
+// TestCredentialLifetimeParkFactAdmissionUsesDispatchTimeout pins A2
+// (S8-credential-lifetime-repair): admission refuses
+// CREDENTIAL_EXPIRES_DURING_DISPATCH only when both the preflight registry
+// (dispatch.go's own driverPreflightRegistry call, which forwards the run's
+// declared Limits.TimeoutMillis) and the admission probe's own deadline
+// computation (native_admission.go, timeoutMillis plus the fixed margin)
+// honour the dispatch's own timeout. A credential with 400s of remaining
+// life sits strictly between the fixed 300s margin alone (a mutant that
+// drops timeoutMillis at either site would evaluate 300s < 400s as "not
+// expiring" and wrongly pass admission) and the declared 600s timeout plus
+// that margin (400s < 900s correctly refuses), so this fixture fails if
+// either site loses its timeoutMillis argument.
+func TestCredentialLifetimeParkFactAdmissionUsesDispatchTimeout(t *testing.T) {
+	f := newEconomyGuardFixture(t, driver.Limits{
+		TimeoutMillis: 600_000, OutputBytes: 65_536,
+	})
+	runID := f.manifest.value.RunID
+	workID, sliceID, before, attempt := credentialLifetimeReadyDesignWork(t, f)
+
+	credential := filepath.Join(t.TempDir(), "credential")
+	expiresAt := time.Now().Add(400 * time.Second).UnixMilli()
+	if err := os.WriteFile(
+		credential,
+		[]byte(`{"claudeAiOauth":{"accessToken":"a","expiresAt":`+
+			strconv.FormatInt(expiresAt, 10)+`}}`),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	credentialLifetimeGateAdapterFixture(t, f.engine, credential)
+
+	target, _ := plannerProductionAuthority(t, f.engine)
+	workspace, err := f.engine.workspaces.OpenSnapshot(target.Head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer workspace.Close()
+
+	coordinates := dispatchCoordinates{
+		Slice: sliceID, Responsibility: driver.ImplementerDesign,
+		ProtocolAttempt: attempt, Epoch: 1, Try: 1,
+	}
+
+	_, err = f.service.prepareDriverDispatch(
+		f.ctx, f.engine, workspace, driver.RoleImplementer, coordinates, before,
+	)
+	if !IsCode(err, "CREDENTIAL_EXPIRES_DURING_DISPATCH") {
+		t.Fatalf(
+			"prepareDriverDispatch error = %v, want CREDENTIAL_EXPIRES_DURING_DISPATCH",
+			err,
+		)
+	}
+
+	effectID := journal.AttemptEffectID(workID, 1, 1)
+	if _, effectErr := f.store.Effect(f.ctx, runID, effectID); !journal.IsCode(effectErr, "EFFECT_NOT_FOUND") {
+		t.Fatalf("effect after admission refusal = %v, want EFFECT_NOT_FOUND", effectErr)
+	}
+}

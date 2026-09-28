@@ -766,6 +766,62 @@ func TestRefusedToolCallsBoundIsExactSaturationBoundary(t *testing.T) {
 	}
 }
 
+// TestExecutedToolCallsBoundIsExactAndIndependentOfTurns pins A1
+// (S9-broker-budget-and-turn-cap-repair): UsageReceipt.ExecutedToolCalls
+// shares its encode-time bound with MaxBrokerCalls exactly (never
+// MaxRefusedBrokerCalls - executed calls cannot exceed the broker's own
+// request-count budget), stampExecutedToolCalls drops an out-of-range
+// input rather than stamping it, and the field stamps and encodes with no
+// Turns/ToolCalls present at all - the exact shape a budget or turn-cap
+// crossing produces when the CLI's final result event never arrived.
+func TestExecutedToolCallsBoundIsExactAndIndependentOfTurns(t *testing.T) {
+	t.Parallel()
+	base := UsageReceipt{
+		SchemaVersion:     UsageSchemaV2,
+		Surface:           "sworn.test",
+		TokenStatus:       UsageUnavailable,
+		CostStatus:        UsageUnavailable,
+		CacheStatus:       UsageUnavailable,
+		UnavailableReason: UsageReasonWireLacked,
+	}
+	atMax := base
+	stampExecutedToolCalls(&atMax, MaxBrokerCalls)
+	if atMax.ExecutedToolCalls == nil || *atMax.ExecutedToolCalls != MaxBrokerCalls {
+		t.Fatalf("stamp at max = %#v", atMax.ExecutedToolCalls)
+	}
+	if atMax.Turns != nil || atMax.ToolCalls != nil {
+		t.Fatalf(
+			"stamp at max should leave Turns/ToolCalls nil, got turns=%#v tool_calls=%#v",
+			atMax.Turns, atMax.ToolCalls,
+		)
+	}
+	if _, err := EncodeUsageReceipt(atMax); err != nil {
+		t.Fatalf("encode at max = %v", err)
+	}
+	droppedOverMax := base
+	stampExecutedToolCalls(&droppedOverMax, MaxBrokerCalls+1)
+	if droppedOverMax.ExecutedToolCalls != nil {
+		t.Fatalf(
+			"stamp over max should be dropped, got %#v",
+			droppedOverMax.ExecutedToolCalls,
+		)
+	}
+	// Bypassing the helper's own drop to exercise the encode-time bound
+	// directly, matching TestRefusedToolCallsBoundIsExactSaturationBoundary.
+	forcedOverMax := base
+	forced := int64(MaxBrokerCalls + 1)
+	forcedOverMax.ExecutedToolCalls = &forced
+	if _, err := EncodeUsageReceipt(forcedOverMax); err == nil {
+		t.Fatal("executed tool calls over max was accepted")
+	}
+	forcedNegative := base
+	negative := int64(-1)
+	forcedNegative.ExecutedToolCalls = &negative
+	if _, err := EncodeUsageReceipt(forcedNegative); err == nil {
+		t.Fatal("negative executed tool calls was accepted")
+	}
+}
+
 // A2: an unavailable receipt is loud, never a silent default. The failure
 // observation paths name the surface and a stable reason, a silent v2
 // receipt is unencodable, and a legacy v1 blob still decodes and re-encodes
@@ -873,6 +929,8 @@ func TestUsageReceiptZeroPreservesFreshRehydrateSemantics(t *testing.T) {
 		{DurationMillis: int64Pointer(1)},
 		{Profile: textPointerForTest("p")},
 		{Model: textPointerForTest("m")},
+		{RefusedToolCalls: int64Pointer(1)},
+		{ExecutedToolCalls: int64Pointer(1)},
 	}
 	for _, receipt := range variants {
 		if receipt.Zero() {

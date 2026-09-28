@@ -88,6 +88,18 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		return RunStatus{}, err
 	}
 	active, uncertain := false, false
+	// S6-host-environment-park-projection A1: every effect whose Claimed
+	// state would otherwise fold into active/uncertain is recorded here by
+	// ID first, never folded in directly, so a current host-environment
+	// crossing's own check.host effect (and its owning git.seal or
+	// protocol.prepare_assembly effect) can be excluded once state is
+	// known, before either switch below reads active/uncertain.
+	// activeFromRecovery is the recoveryClaims-deliberate branch's own
+	// direct contribution, unaffected by that exclusion (it never names a
+	// check.host or git.seal/prepare_assembly effect).
+	claimedActiveEffects := make(map[string]bool)
+	claimedUncertainEffects := make(map[string]bool)
+	activeFromRecovery := false
 	var exhausted map[string]struct{}
 	var exhaustionRefusals map[string]exhaustionRefusalFacts
 	attentionParked := false
@@ -146,13 +158,17 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		}
 		result.Effects = append(result.Effects, status)
 		if state, deliberate := recoveryClaims[effect.ID]; deliberate {
-			active = active ||
+			activeFromRecovery = activeFromRecovery ||
 				(state == journal.AttentionAnswered && ownerActive)
 			continue
 		}
-		active = active || (effect.State == journal.Claimed && ownerActive)
-		uncertain = uncertain || effect.State == journal.Uncertain ||
-			(effect.State == journal.Claimed && !ownerActive)
+		if effect.State == journal.Claimed && ownerActive {
+			claimedActiveEffects[effect.ID] = true
+		}
+		if effect.State == journal.Uncertain ||
+			(effect.State == journal.Claimed && !ownerActive) {
+			claimedUncertainEffects[effect.ID] = true
+		}
 		if effect.Kind == "driver.dispatch" {
 			if recoveryWork, recoveryEpoch, _, coordErr :=
 				attemptCoordinates(effect.ID); coordErr == nil {
@@ -287,6 +303,28 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	}
 	state, stateErr := protocol.ReadState(protocol.UseGitRepository(repository),
 		manifest.value.Release, inertness)
+	// S6-host-environment-park-projection A1: exclude a current host-
+	// environment crossing's own check.host effect (and its owning
+	// git.seal/protocol.prepare_assembly effect once state confirms the
+	// owner) from active/uncertain before either switch below reads them,
+	// so the run projects parked - never running or uncertain - while
+	// that Claimed effect is the only thing in flight, both while the
+	// owning serve still holds the owner lease and after it releases it.
+	hostEnvironmentExcluded := hostEnvironmentExcludedEffects(snapshot, state, stateErr)
+	active = activeFromRecovery
+	for id := range claimedActiveEffects {
+		if !hostEnvironmentExcluded[id] {
+			active = true
+			break
+		}
+	}
+	uncertain = false
+	for id := range claimedUncertainEffects {
+		if !hostEnvironmentExcluded[id] {
+			uncertain = true
+			break
+		}
+	}
 	statusEngine := &engine{
 		manifest: manifest, repository: repository,
 		git: protocol.UseGitRepository(repository), inertness: inertness,
