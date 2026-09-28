@@ -1055,7 +1055,12 @@ same or a later try is not replayed as outstanding, nor is one whose own
 try instead reached seal preparation and was refused there (an anchor,
 scope or other seal-time gate) - reaching the seal means the field-level
 refusal that preceded it was itself corrected in-session, even though that
-try's own dispatch effect never decodes as an accepted submission.
+try's own dispatch effect never decodes as an accepted submission. This
+holds equally for a seal-time refusal that carries no named paths, such as
+an empty candidate, an unreadable anchor gate, a candidate-seal failure or
+a contract-resolution failure: reaching the seal is detected from the
+dispatch effect's own recorded event, never from the shape of its stored
+result, so a path-less refusal is not replayed as outstanding either.
 
 ## Seal-time gates and their repair input
 
@@ -1099,6 +1104,12 @@ correction route, only when the slice's approved contract declares an
 Anchor for at least one acceptance criterion - it is never a hidden field
 the model has to already know to reach for. An unreadable base tree or an
 ambiguous diff refuses `ANCHOR_GATE_UNREADABLE` instead of silently passing.
+The `ANCHOR_NOT_TOUCHED` detail handed to the implementer is bounded to
+2048 bytes, matching the existing host-repair refusal-detail convention:
+only the variable part (the missing-criteria list, anchor base and any
+substitute failures) is truncated, deterministically and on a valid UTF-8
+boundary, so the fixed closing sentence naming the `anchor_substitutes`
+route is never the part that gets cut off.
 
 **Degenerate submission body.** At the same author-side boundary that
 already refuses a self-declared probe, Sworn also measures a submission's

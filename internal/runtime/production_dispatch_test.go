@@ -847,6 +847,31 @@ func TestProductionWorkContextProjectsPlanReceiptCandidateAndEvidence(
 		request.Inputs[3].Path != productionReceiptDetailPath {
 		t.Fatalf("production inputs = %#v", request.Inputs)
 	}
+	// S10-repair-input-across-epochs-repair A3: productionRequestForContext
+	// (via productionRequestForContextFreshness) copies workContext's own
+	// AnchorDeclared onto the built driver.Request unchanged, for both
+	// false (contextValue's own default) and true - the one line the
+	// prompt's anchor_substitutes advertisement chains through.
+	if request.AnchorDeclared != contextValue.AnchorDeclared {
+		t.Fatalf(
+			"request.AnchorDeclared = %v, want %v (copied from workContext.AnchorDeclared)",
+			request.AnchorDeclared, contextValue.AnchorDeclared,
+		)
+	}
+	anchorDeclaredContext := contextValue
+	anchorDeclaredContext.AnchorDeclared = true
+	anchorDeclaredRequest, err := productionRequestForContext(
+		manifest, anchorDeclaredContext,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if anchorDeclaredRequest.AnchorDeclared != true {
+		t.Fatalf(
+			"request.AnchorDeclared = %v, want true when workContext.AnchorDeclared is true",
+			anchorDeclaredRequest.AnchorDeclared,
+		)
+	}
 	requestBody, err := driver.EncodeRequest(request)
 	if err != nil {
 		t.Fatal(err)
