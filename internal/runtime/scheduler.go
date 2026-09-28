@@ -1694,16 +1694,19 @@ func (s *Service) reconcileClaimedProtocolAction(ctx context.Context, engine *en
 	engine.actionMu.Unlock()
 	if actionErr != nil {
 		if IsCode(actionErr, "EFFECT_PARKED") ||
-			IsCode(actionErr, "HOST_SHELL_UNAVAILABLE") {
+			IsCode(actionErr, "HOST_SHELL_UNAVAILABLE") ||
+			IsCode(actionErr, "RUN_STOPPED") {
 			// A nested check.host effect this action depends on classified
-			// as a host environment failure, or the host shell itself
-			// could not be resolved (S1, S6-host-environment-park-
-			// projection A5(ii)): that inner effect stays exactly where it
-			// is - Claimed, never completed - so this outer effect must
-			// too. Completing it here as OperationalFailed would spend
-			// this try, and the next call (fresh or recovered) would
-			// advance to a fresh try instead of re-hitting the identical
-			// still-Claimed inner effect.
+			// as a host environment failure, the host shell itself could
+			// not be resolved (S1, S6-host-environment-park-projection
+			// A5(ii)), or a pause/cancel stopped the action mid-flight
+			// (S7-pause-safe-host-checks-repair A4): that inner effect
+			// stays exactly where it is - Claimed, never completed - so
+			// this outer effect must too. Completing it here as
+			// OperationalFailed would spend this try, and the next call
+			// (fresh or recovered) would advance to a fresh try instead of
+			// re-hitting the identical still-Claimed inner effect, or
+			// would record RUN_STOPPED as an effect's error code.
 			return actionAllOld, protocol.ActionResult{}, actionErr
 		}
 		after, afterState, classifyErr := classifyProtocolAction(
@@ -1842,6 +1845,9 @@ func (s *Service) runAction(ctx context.Context, engine *engine, owner journal.O
 			Kind: kind, BeforeDigest: workID, ExpectedDigest: sha256Digest(payload), UpdatedAt: now}
 		if err := s.journal.EnsureAttempt(ctx, command, effectInput,
 			journal.EffectAttempt{WorkID: workID, Epoch: epoch, Try: try}); err != nil {
+			if journal.IsCode(err, "CONTROL_STOPPED") || journal.IsCode(err, "OPERATION_CANCELLED") {
+				return protocol.ActionResult{}, runtimeFail("RUN_STOPPED", err)
+			}
 			return protocol.ActionResult{}, runtimeFail("JOURNAL_WRITE_FAILED", err)
 		}
 		effect, err := s.journal.Effect(ctx, command.RunID, id)
@@ -1880,7 +1886,8 @@ func (s *Service) runAction(ctx context.Context, engine *engine, owner journal.O
 				// attempt), unlike every other actionAllOld outcome this
 				// loop retries under a fresh try.
 				if IsCode(recoverErr, "EFFECT_PARKED") ||
-					IsCode(recoverErr, "HOST_SHELL_UNAVAILABLE") {
+					IsCode(recoverErr, "HOST_SHELL_UNAVAILABLE") ||
+					IsCode(recoverErr, "RUN_STOPPED") {
 					return protocol.ActionResult{}, recoverErr
 				}
 				if truth == actionAllOld {
@@ -1901,6 +1908,9 @@ func (s *Service) runAction(ctx context.Context, engine *engine, owner journal.O
 		}
 		claim, err := s.journal.ClaimOwned(ctx, owner, id, now, effectLease)
 		if err != nil {
+			if journal.IsCode(err, "CONTROL_STOPPED") || journal.IsCode(err, "OPERATION_CANCELLED") {
+				return protocol.ActionResult{}, runtimeFail("RUN_STOPPED", err)
+			}
 			return protocol.ActionResult{}, runtimeFail("EFFECT_CLAIM_FAILED", err)
 		}
 		effect.State, effect.CurrentClaim = journal.Claimed, claim.Token
@@ -1915,7 +1925,8 @@ func (s *Service) runAction(ctx context.Context, engine *engine, owner journal.O
 			// try, so the same try's action completes without ever
 			// admitting a try 2 or try 3 attempt.
 			if IsCode(actionErr, "EFFECT_PARKED") ||
-				IsCode(actionErr, "HOST_SHELL_UNAVAILABLE") {
+				IsCode(actionErr, "HOST_SHELL_UNAVAILABLE") ||
+				IsCode(actionErr, "RUN_STOPPED") {
 				return protocol.ActionResult{}, actionErr
 			}
 			if truth == actionAllOld &&
@@ -3752,6 +3763,15 @@ func (s *Service) claimedPreparedImplementation(
 ) (sealedRecord, journal.Claim, bool, error) {
 	snapshot, err := s.journal.Snapshot(ctx, owner.RunID)
 	if err != nil {
+		// This is prepareHandoff's first read on every entry, including a
+		// fresh resume re-entering it: a context a pause or cancel already
+		// cancelled must read as the same RUN_STOPPED stop every later
+		// boundary in this cycle reports, not as an opaque read failure
+		// (S7-pause-safe-host-checks-repair A2).
+		if journal.IsCode(err, "OPERATION_CANCELLED") {
+			return sealedRecord{}, journal.Claim{}, false,
+				runtimeFail("RUN_STOPPED", err)
+		}
 		return sealedRecord{}, journal.Claim{}, false,
 			runtimeFail("JOURNAL_READ_FAILED", err)
 	}
@@ -3880,15 +3900,36 @@ func (s *Service) runProductionImplementationDispatch(
 					)
 			}
 			if prepareErr != nil && IsCode(prepareErr, "RUN_STOPPED") {
-				var toSave *sealedRecord
-				if record.Candidate != "" {
-					toSave = &record
-				}
-				if persistErr := s.persistPausedHandoffCheckpoint(
-					ctx, engine.manifest.value.RunID, cycle.DispatchEffect,
-					observation, toSave,
-				); persistErr != nil {
-					return persistErr
+				// checkpointFound means this pause resumed from an
+				// already-persisted checkpoint under the same replay key:
+				// its body is already this stop's fixed identity, so
+				// re-persisting is unnecessary. Otherwise, strip Receipt
+				// before saving: Receipt.CheckResults is not fixed until
+				// every declared host check has passed
+				// (prepareProductionImplementationCandidate sets it to the
+				// submission's own bytes first, then overwrites it with the
+				// engine-built manifest once checks pass), so a pause at a
+				// check boundary and a later pause at the git.seal.prepared
+				// claim would otherwise checkpoint two different bodies
+				// under the same replay key -> REPLAY_CONFLICT
+				// (S7-pause-safe-host-checks-repair A1). No reader of a
+				// saved checkpoint's Record uses Receipt:
+				// resumePausedProductionCandidate reads only
+				// Before/Candidate/Tree/RefreshFrom/ChangedPaths and
+				// rebuilds Receipt itself.
+				if !checkpointFound {
+					var toSave *sealedRecord
+					if record.Candidate != "" {
+						stripped := record
+						stripped.Receipt = protocol.AppendReceiptInput{}
+						toSave = &stripped
+					}
+					if persistErr := s.persistPausedHandoffCheckpoint(
+						ctx, engine.manifest.value.RunID, cycle.DispatchEffect,
+						observation, toSave,
+					); persistErr != nil {
+						return persistErr
+					}
 				}
 			}
 			return prepareErr
@@ -6267,6 +6308,28 @@ func (s *Service) recoverImplementationClaims(ctx context.Context, engine *engin
 	return false, nil
 }
 
+// normalizeRecoveryStop maps a raw CONTROL_STOPPED, OPERATION_CANCELLED, or
+// bare context cancellation surfacing from one of recoverClaimedEffects'
+// steps onto the same RUN_STOPPED code the drive loop and prepareHandoff
+// already use for a pause or cancel mid-flight, so a stop that lands during
+// the start-of-cycle recovery sweep (recoverImplementationCycle in
+// particular, which journals through ordinary owned primitives) is
+// recognisable as a stop rather than an opaque error
+// (S7-pause-safe-host-checks-repair A3). An error already carrying
+// RUN_STOPPED, or any other error, passes through unchanged.
+func normalizeRecoveryStop(err error) error {
+	if err == nil || IsCode(err, "RUN_STOPPED") {
+		return err
+	}
+	if journal.IsCode(err, "CONTROL_STOPPED") ||
+		journal.IsCode(err, "OPERATION_CANCELLED") ||
+		errors.Is(err, context.Canceled) ||
+		errors.Is(err, context.DeadlineExceeded) {
+		return runtimeFail("RUN_STOPPED", err)
+	}
+	return err
+}
+
 func (s *Service) recoverClaimedEffects(
 	ctx context.Context,
 	engine *engine,
@@ -6279,21 +6342,21 @@ func (s *Service) recoverClaimedEffects(
 			owner,
 		)
 		if err != nil {
-			return err
+			return normalizeRecoveryStop(err)
 		}
 		if recovered {
 			continue
 		}
 		recovered, err = s.recoverImplementationClaims(ctx, engine, owner)
 		if err != nil {
-			return err
+			return normalizeRecoveryStop(err)
 		}
 		if recovered {
 			continue
 		}
 		recovered, err = s.recoverClaimedProtocolAction(ctx, engine, owner)
 		if err != nil {
-			return err
+			return normalizeRecoveryStop(err)
 		}
 		if recovered {
 			continue
@@ -6301,7 +6364,7 @@ func (s *Service) recoverClaimedEffects(
 		recovered, err = s.recoverStaleClaimedDispatches(
 			ctx, engine, owner)
 		if err != nil {
-			return err
+			return normalizeRecoveryStop(err)
 		}
 		if recovered {
 			continue
@@ -6309,7 +6372,7 @@ func (s *Service) recoverClaimedEffects(
 		recovered, err = s.recoverHostCheckClaims(
 			ctx, engine, owner)
 		if err != nil {
-			return err
+			return normalizeRecoveryStop(err)
 		}
 		if recovered {
 			continue
@@ -6438,6 +6501,13 @@ func (s *Service) driveLoop(ctx context.Context, engine *engine, owner journal.O
 			return err
 		}
 		if err := s.recoverClaimedEffects(ctx, engine, owner); err != nil {
+			// A stop that lands inside the recovery sweep is a stop, not a
+			// CLI error (S7-pause-safe-host-checks-repair A3): the run
+			// stays resumable, exactly like the `projection.Desired !=
+			// "running"` branch just above.
+			if IsCode(err, "RUN_STOPPED") {
+				return nil
+			}
 			return err
 		}
 		recoveryPending, err := s.driverRecoveryPending(ctx, owner.RunID)
@@ -6997,6 +7067,16 @@ func (s *Service) recoverClaimedProtocolAction(ctx context.Context, engine *engi
 			// this pass for genuine recovery work.
 			if truth == actionAllOld && IsCode(err, "EFFECT_PARKED") {
 				continue
+			}
+			if IsCode(err, "RUN_STOPPED") {
+				// Unlike EFFECT_PARKED, a stop must end this sweep, not be
+				// swallowed into a recovered=true rescan: the run is
+				// genuinely paused, so an immediate rescan would only
+				// re-find this same still-Claimed effect and spin
+				// (S7-pause-safe-host-checks-repair A3/A4).
+				// recoverClaimedEffects normalizes and returns this to its
+				// caller, which treats it as a stop, not a CLI error.
+				return true, err
 			}
 			if truth == actionAllOld && !IsCode(err, "RECOVERY_UNCERTAIN") {
 				return true, nil
@@ -8066,6 +8146,13 @@ func (s *Service) driveOwnedCycle(ctx context.Context, runID string, owner journ
 		return RunStatus{}, err
 	}
 	if err := s.recoverClaimedEffects(ownedCtx, engine, owner); err != nil {
+		// Same stop-not-error treatment as the `control.Desired != "running"`
+		// branch above (S7-pause-safe-host-checks-repair A3): ownedCtx is
+		// already cancelled by watchOwner at this point, so no further
+		// ownedCtx-scoped read is attempted.
+		if IsCode(err, "RUN_STOPPED") {
+			return s.Status(context.Background(), runID)
+		}
 		return RunStatus{}, err
 	}
 	recoveryPending, err := s.driverRecoveryPending(ownedCtx, runID)

@@ -1967,6 +1967,13 @@ func (s *Service) loadPausedHandoffCheckpoint(
 		if journal.IsCode(err, "EFFECT_NOT_FOUND") {
 			return driver.Observation{}, nil, false, nil
 		}
+		// Same stop, not opaque-failure, treatment as
+		// claimedPreparedImplementation's Snapshot read just before this
+		// call (S7-pause-safe-host-checks-repair A2): this checkpoint
+		// lookup is on the same prepareHandoff entry path.
+		if journal.IsCode(err, "OPERATION_CANCELLED") {
+			return driver.Observation{}, nil, false, runtimeFail("RUN_STOPPED", err)
+		}
 		return driver.Observation{}, nil, false, runtimeFail("JOURNAL_READ_FAILED", err)
 	}
 	if effect.State != journal.Succeeded {

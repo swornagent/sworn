@@ -811,6 +811,22 @@ cancelled instead of resumed, its stopped dispatch and the candidate it was
 mid-check on are left exactly as they stopped, inert, like any other
 in-flight work a cancel leaves behind.
 
+`RUN_STOPPED` is the single code every stop point reports once it has
+recognised a pause or cancel: a host-check boundary, the candidate's seal
+claim, a pause or cancel that lands during `sworn resume`'s own
+start-of-cycle recovery sweep, and the assembly host-check path inside
+`prepare_assembly`. It is always layered over the lower-level
+`CONTROL_STOPPED` (the run's desired state) or `OPERATION_CANCELLED` (a
+cancelled context observed mid-write) that first detected the stop, never
+raised on its own. `RUN_STOPPED` is never itself journaled as an effect's
+error code: wherever it is returned, the effect it stopped is left exactly
+where the stop found it - Claimed, not completed as operationally failed -
+so the try it was on is never spent and a later resume continues the same
+try rather than starting a new one. Pausing the same candidate more than
+once, at any mix of stop points, is safe for the same reason: every stop
+point records the same checkpoint body under its replay key, so a second
+or later pause never conflicts with the first.
+
 ### Credential lifetime
 
 At dispatch preparation, a native Claude credential is refused before any

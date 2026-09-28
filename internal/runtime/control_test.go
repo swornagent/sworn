@@ -2167,3 +2167,902 @@ func TestPauseAtGitSealPreparedClaimResumesOnTheSameTryWithAFreshOwner(t *testin
 			runRuntimeGit(t, repository, "rev-parse", track.Ref), recovered.Candidate)
 	}
 }
+
+// markerGate lets a test deterministically land a pause or a context
+// cancellation exactly while a declared host check's shell process is
+// running, without a bare-sleep race: the check itself blocks on a file the
+// test creates only after the stop is durably applied, so every ordering
+// below is a real happens-before, not a timing guess
+// (S7-pause-safe-host-checks-repair A1-A4).
+type markerGate struct {
+	dir string
+}
+
+func newMarkerGate(t *testing.T) *markerGate {
+	t.Helper()
+	return &markerGate{dir: t.TempDir()}
+}
+
+// check returns a shell command that announces name has started (a
+// "running" marker file) and then blocks until the test releases it (a
+// "continue" marker file).
+func (g *markerGate) check(name string) string {
+	running := filepath.Join(g.dir, name+".running")
+	cont := filepath.Join(g.dir, name+".continue")
+	return "touch " + shellQuote(running) +
+		" && while [ ! -f " + shellQuote(cont) + " ]; do sleep 0.01; done"
+}
+
+func (g *markerGate) waitRunning(t *testing.T, name string) {
+	t.Helper()
+	running := filepath.Join(g.dir, name+".running")
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		if _, err := os.Stat(running); err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for gated check %q to start", name)
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+}
+
+func (g *markerGate) release(t *testing.T, name string) {
+	t.Helper()
+	cont := filepath.Join(g.dir, name+".continue")
+	if err := os.WriteFile(cont, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// pauseSafeHostCheckFixture is newProductionImplementationRecoveryFixture's
+// sibling for S7-pause-safe-host-checks-repair: the same production
+// dispatch scaffolding, but installed with a plan that declares real host
+// checks on S1 (hostChecksPlanBytes), so a pause or cancel can land at a
+// genuine check boundary or the git.seal.prepared claim through the real
+// production path, not a fixture-level shortcut.
+type pauseSafeHostCheckFixture struct {
+	ctx           context.Context
+	repository    string
+	config        driver.LoadedDriverConfig
+	manifest      admittedManifest
+	store         *journal.Store
+	owner         journal.OwnerLease
+	now           time.Time
+	gitExecutable string
+	service       *Service
+	engine        *engine
+	state         protocol.State
+	slice         *protocol.SliceState
+	track         *protocol.TrackState
+	cycle         implementationCycle
+	outerID       string
+	outer         journal.Effect
+	workspace     *gitx.WorkspaceLease
+	coordinates   dispatchCoordinates
+}
+
+func newPauseSafeHostCheckFixture(
+	t *testing.T,
+	hostChecks []string,
+	dispatcher driver.Driver,
+) *pauseSafeHostCheckFixture {
+	t.Helper()
+	ctx := context.Background()
+	repository := productionRepository(t)
+	config := productionConfig(t)
+	manifest := productionManifest(t, repository, config)
+	production, err := newProductionDriverRuntime(config, driver.DriverFactoryOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitExecutable, err := resolveGitExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 27, 5, 6, 7, 0, time.UTC)
+	store, err := journal.Open(ctx, filepath.Join(t.TempDir(), "journal.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.RegisterRun(ctx, journal.Run{
+		ID: manifest.value.RunID, ManifestDigest: manifest.digest,
+		Repository: manifest.value.Repository,
+		Release:    manifest.value.Release, TargetRef: manifest.value.TargetRef,
+		CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := store.AcquireOwner(ctx, manifest.value.RunID, now, time.Minute, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{
+		journal: store, dispatcher: dispatcher, production: production,
+		gitExecutable: gitExecutable, now: func() time.Time { return now },
+	}
+	engine, err := service.openEngine(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = engine.Close() })
+	planBytes := hostChecksPlanBytes(t, manifest, hostChecks)
+	if _, err := engine.actions.RecordPlanRevision(protocol.RecordPlanRevisionInput{
+		PlanBytes: planBytes,
+		Summary:   "Install the exact pause-safe host-check test plan.",
+		Detail:    []byte("S7-pause-safe-host-checks-repair fixture."),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, receipt := range []protocol.AppendReceiptInput{
+		{Release: manifest.value.Release, Slice: "S1", Role: "implementer",
+			Result: "designed", Summary: "Design the pause-safe fixture.",
+			Detail: []byte("Exact design.")},
+		{Release: manifest.value.Release, Slice: "S1", Role: "lead",
+			Result: "proceed", Summary: "Proceed with the pause-safe fixture.",
+			Detail: []byte("Exact review.")},
+	} {
+		if _, err := engine.actions.AppendReceipt(receipt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	state, err := protocol.ReadState(engine.git, manifest.value.Release, engine.inertness)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slice, sliceOK := state.Slice("S1")
+	track, trackOK := state.Track("T1")
+	if !sliceOK || !trackOK || slice.CurrentReceipt == nil ||
+		slice.Stage != "implement" || slice.NextRole != "implementer" {
+		t.Fatalf("implementation authority = %#v", state)
+	}
+	before := sliceFingerprint(state, "S1")
+	outerWork := workIdentity(before, "git.seal")
+	outerID := journal.AttemptEffectID(outerWork, 1, 1)
+	cycle := implementationCycle{
+		GitIdentity: runtimeTestGitIdentity,
+		Release:     state.Release, Slice: "S1",
+		Binds: slice.CurrentReceipt.OID, Before: before,
+		Plan: state.Plan.OID, ReleaseHead: state.Refs.Release.Head,
+		TargetHead: state.Refs.Target.Head, Track: track.ID,
+		TrackRef: track.Ref, TrackHead: track.Head,
+		DispatchWork: workIdentity(outerID, "driver.dispatch"),
+		PreparedWork: workIdentity(outerID, "git.seal.prepared"),
+	}
+	cycle.DispatchEffect = journal.AttemptEffectID(cycle.DispatchWork, 1, 1)
+	cycle.PreparedEffect = journal.AttemptEffectID(cycle.PreparedWork, 1, 1)
+	outerPayload := mustJSON(cycle)
+	if err := store.EnsureAttempt(ctx,
+		journal.Command{RunID: owner.RunID, ReplayKey: outerID,
+			Kind: "git.seal", Payload: outerPayload, CreatedAt: now},
+		journal.Effect{RunID: owner.RunID, ID: outerID, ReplayKey: outerID,
+			Kind: "git.seal", BeforeDigest: outerWork,
+			ExpectedDigest: sha256Digest(outerPayload), UpdatedAt: now},
+		journal.EffectAttempt{WorkID: outerWork, Epoch: 1, Try: 1},
+	); err != nil {
+		t.Fatal(err)
+	}
+	outerClaim, err := store.ClaimOwned(ctx, owner, outerID, now, effectLease)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, err := engine.workspaces.OpenTrack(
+		gitx.TrackKey{Release: state.Release, Track: track.ID},
+		gitx.ImplementationView,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &pauseSafeHostCheckFixture{
+		ctx: ctx, repository: repository, config: config,
+		manifest: manifest, store: store, owner: owner, now: now,
+		gitExecutable: gitExecutable,
+		service:       service, engine: engine, state: state,
+		slice: slice, track: track, cycle: cycle,
+		outerID: outerID,
+		outer: journal.Effect{
+			RunID: owner.RunID, ID: outerID, Kind: "git.seal",
+			State: journal.Claimed, CurrentClaim: outerClaim.Token,
+		},
+		workspace: workspace,
+		coordinates: dispatchCoordinates{
+			Slice: "S1", Responsibility: driver.ImplementerImplementation,
+			ProtocolAttempt: slice.Attempt, Epoch: 1, Try: 1,
+		},
+	}
+}
+
+func (f *pauseSafeHostCheckFixture) trackKey() gitx.TrackKey {
+	return gitx.TrackKey{Release: f.state.Release, Track: f.track.ID}
+}
+
+// pauseSafeModelDispatcher is the one production model mock every test below
+// shares: it writes the plan's scoped file and returns an accepted sealed
+// handoff, applying no pause or cancel of its own (each test lands its stop
+// from outside, deterministically, through a markerGate on a declared host
+// check).
+func pauseSafeModelDispatcher(t *testing.T, invocations *atomic.Int64) fixtureDriver {
+	return fixtureDriver(func(
+		_ context.Context,
+		invocation driver.Invocation,
+	) (driver.Observation, error) {
+		invocations.Add(1)
+		if err := os.WriteFile(
+			filepath.Join(invocation.HostWorkspace, "one.txt"),
+			[]byte("pause-safe host-check production implementation\n"), 0o600,
+		); err != nil {
+			t.Fatal(err)
+		}
+		submission := driver.Submission{
+			SchemaVersion:  driver.SubmissionSchemaVersion,
+			InvocationID:   invocation.Request.InvocationID,
+			Responsibility: driver.ImplementerImplementation,
+			Summary:        "Pause-safe host-check production candidate.",
+			Detail:         "Sealed before a pause or cancel lands on a check boundary or the seal claim.",
+		}
+		submission.Checks, _ = driver.NewCheckBytes(
+			[]byte("pause-safe production implementation checks\n"),
+		)
+		submissionBody, encodeErr := driver.EncodeSubmission(submission)
+		if encodeErr != nil {
+			t.Fatal(encodeErr)
+		}
+		sealBody, encodeErr := json.Marshal(driver.Seal{
+			SchemaVersion:    driver.SealSchemaVersion,
+			InvocationID:     submission.InvocationID,
+			SubmissionDigest: driver.Digest(submissionBody),
+			Accepted:         true,
+			Code:             "accepted",
+		})
+		if encodeErr != nil {
+			t.Fatal(encodeErr)
+		}
+		sealBody = append(sealBody, '\n')
+		return driver.Observation{
+			TransportStatus: driver.Completed,
+			Usage: driver.UsageReceipt{
+				TokenStatus: driver.UsageUnavailable,
+				CostStatus:  driver.UsageUnavailable,
+			},
+			Diagnostic: driver.Diagnostic{Code: "none"},
+			Handoff: &driver.SealedHandoff{
+				SubmissionBytes:  submissionBody,
+				SubmissionDigest: driver.Digest(submissionBody),
+				SealBytes:        sealBody,
+				SealDigest:       driver.Digest(sealBody),
+			},
+		}, nil
+	})
+}
+
+// failIfInvokedDispatcher fails the test if the production driver is
+// invoked again: every resume below must re-enter through its durable
+// paused-handoff checkpoint, never re-invoke the model.
+func failIfInvokedDispatcher(t *testing.T, label string) fixtureDriver {
+	return fixtureDriver(func(context.Context, driver.Invocation) (driver.Observation, error) {
+		t.Fatalf("%s invoked the production driver again", label)
+		return driver.Observation{}, nil
+	})
+}
+
+// A1: a second or later pause of the same candidate that stops at a
+// different point than the first (a check boundary, then the seal step)
+// neither fails the implementer dispatch nor spends the try: both stops
+// record the same checkpoint body under the same replay key, and a resume
+// after both pauses seals the candidate on the same try it started with.
+func TestSecondPauseAtADifferentStopPointReusesTheFirstCheckpointAndResumesOnTheSameTry(t *testing.T) {
+	gate := newMarkerGate(t)
+	firstCheck := gate.check("check1")
+	secondCheck := gate.check("check2")
+	var invocations atomic.Int64
+	fixture := newPauseSafeHostCheckFixture(
+		t, []string{firstCheck, secondCheck}, pauseSafeModelDispatcher(t, &invocations),
+	)
+
+	type dispatchResult struct {
+		err error
+	}
+
+	// Pause 1: a check boundary - between the two declared host checks,
+	// after the first has succeeded and before the second is admitted.
+	done1 := make(chan dispatchResult, 1)
+	go func() {
+		_, _, err := fixture.service.runProductionImplementationDispatch(
+			fixture.ctx, fixture.engine, fixture.owner, fixture.workspace,
+			fixture.cycle, fixture.coordinates,
+		)
+		done1 <- dispatchResult{err}
+	}()
+	gate.waitRunning(t, "check1")
+	if _, err := fixture.store.ApplyControl(fixture.ctx, journal.ControlCommand{
+		RunID: fixture.owner.RunID, ID: "pause-1", Kind: journal.Pause,
+		ExpectedGeneration: 0,
+	}, fixture.now); err != nil {
+		t.Fatal(err)
+	}
+	gate.release(t, "check1")
+	if r := <-done1; !IsCode(r.err, "RUN_STOPPED") {
+		t.Fatalf("dispatch after pause 1 = %v, want RUN_STOPPED", r.err)
+	}
+	if err := fixture.workspace.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.engine.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	checkpoint1, err := fixture.store.Effect(
+		fixture.ctx, fixture.owner.RunID, pausedHandoffCheckpointID(fixture.cycle.DispatchEffect),
+	)
+	if err != nil {
+		t.Fatalf("checkpoint after pause 1: %v", err)
+	}
+	if dispatchEffect, err := fixture.store.Effect(
+		fixture.ctx, fixture.owner.RunID, fixture.cycle.DispatchEffect,
+	); err != nil || dispatchEffect.State != journal.Claimed {
+		t.Fatalf("driver.dispatch after pause 1 = %#v, %v, want Claimed", dispatchEffect, err)
+	}
+	if _, err := fixture.store.Effect(
+		fixture.ctx, fixture.owner.RunID, fixture.cycle.PreparedEffect,
+	); !journal.IsCode(err, "EFFECT_NOT_FOUND") {
+		t.Fatalf("git.seal.prepared admitted before any check.host effect exists: err=%v", err)
+	}
+
+	// Resume 1: release, apply Resume, take over with a fresh owner and a
+	// Service whose driver fails the test if invoked.
+	if err := fixture.store.ReleaseOwner(fixture.ctx, fixture.owner, fixture.now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.store.ApplyControl(fixture.ctx, journal.ControlCommand{
+		RunID: fixture.owner.RunID, ID: "resume-1", Kind: journal.Resume,
+		ExpectedGeneration: 1,
+	}, fixture.now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	owner2, err := fixture.store.AcquireOwner(
+		fixture.ctx, fixture.owner.RunID, fixture.now.Add(2*time.Second), time.Minute, false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	production2, err := newProductionDriverRuntime(fixture.config, driver.DriverFactoryOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted1 := &Service{
+		journal: fixture.store, dispatcher: failIfInvokedDispatcher(t, "resume 1"),
+		production: production2, gitExecutable: fixture.gitExecutable,
+		now: func() time.Time { return fixture.now.Add(2 * time.Second) },
+	}
+	engine2, err := restarted1.openEngine(fixture.manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Pause 2: the seal step - after the second check has also succeeded on
+	// resume, before the git.seal.prepared claim.
+	type recoverResult struct {
+		retry bool
+		err   error
+	}
+	done2 := make(chan recoverResult, 1)
+	go func() {
+		_, retry, err := restarted1.recoverImplementationCycle(
+			fixture.ctx, engine2, owner2, fixture.cycle, fixture.outer,
+			fixture.trackKey(), fixture.coordinates,
+		)
+		done2 <- recoverResult{retry, err}
+	}()
+	gate.waitRunning(t, "check2")
+	if _, err := fixture.store.ApplyControl(fixture.ctx, journal.ControlCommand{
+		RunID: fixture.owner.RunID, ID: "pause-2", Kind: journal.Pause,
+		ExpectedGeneration: 2,
+	}, fixture.now.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	gate.release(t, "check2")
+	if r := <-done2; !IsCode(r.err, "RUN_STOPPED") {
+		t.Fatalf("recovery after pause 2 = %v, want RUN_STOPPED", r.err)
+	}
+	if err := engine2.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	checkpoint2, err := fixture.store.Effect(
+		fixture.ctx, fixture.owner.RunID, pausedHandoffCheckpointID(fixture.cycle.DispatchEffect),
+	)
+	if err != nil {
+		t.Fatalf("checkpoint after pause 2: %v", err)
+	}
+	if checkpoint2.ResultDigest != checkpoint1.ResultDigest {
+		t.Fatalf(
+			"checkpoint body changed across the second pause at a different stop point: %s != %s",
+			checkpoint2.ResultDigest, checkpoint1.ResultDigest,
+		)
+	}
+	if dispatchEffect, err := fixture.store.Effect(
+		fixture.ctx, fixture.owner.RunID, fixture.cycle.DispatchEffect,
+	); err != nil || dispatchEffect.State != journal.Claimed {
+		t.Fatalf("driver.dispatch after pause 2 = %#v, %v, want still Claimed", dispatchEffect, err)
+	}
+	if _, err := fixture.store.Effect(
+		fixture.ctx, fixture.owner.RunID, journal.AttemptEffectID(fixture.cycle.DispatchWork, 1, 2),
+	); !journal.IsCode(err, "EFFECT_NOT_FOUND") {
+		t.Fatalf("a second try's driver.dispatch effect exists after two pauses: err=%v", err)
+	}
+
+	// Resume 2: unobstructed - seals the candidate on the same try, with no
+	// further model invocation.
+	if err := fixture.store.ReleaseOwner(fixture.ctx, owner2, fixture.now.Add(3*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.store.ApplyControl(fixture.ctx, journal.ControlCommand{
+		RunID: fixture.owner.RunID, ID: "resume-2", Kind: journal.Resume,
+		ExpectedGeneration: 3,
+	}, fixture.now.Add(3*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	owner3, err := fixture.store.AcquireOwner(
+		fixture.ctx, fixture.owner.RunID, fixture.now.Add(3*time.Second), time.Minute, false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	production3, err := newProductionDriverRuntime(fixture.config, driver.DriverFactoryOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted2 := &Service{
+		journal: fixture.store, dispatcher: failIfInvokedDispatcher(t, "resume 2"),
+		production: production3, gitExecutable: fixture.gitExecutable,
+		now: func() time.Time { return fixture.now.Add(3 * time.Second) },
+	}
+	engine3, err := restarted2.openEngine(fixture.manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine3.Close()
+
+	recovered, retry, err := restarted2.recoverImplementationCycle(
+		fixture.ctx, engine3, owner3, fixture.cycle, fixture.outer,
+		fixture.trackKey(), fixture.coordinates,
+	)
+	if err != nil {
+		t.Fatalf("final resume recovery = %v", err)
+	}
+	if retry {
+		t.Fatal("final resume recovery asked for another try instead of completing this one")
+	}
+	if invocations.Load() != 1 {
+		t.Fatalf("invocations after two pauses and two resumes = %d, want 1 (no re-invocation)", invocations.Load())
+	}
+	if !sealedRecordMatchesCycle(recovered, fixture.cycle) {
+		t.Fatalf("recovered record = %#v", recovered)
+	}
+	for _, effectID := range []string{fixture.cycle.DispatchEffect, fixture.cycle.PreparedEffect, fixture.outerID} {
+		effect, err := fixture.store.Effect(fixture.ctx, owner3.RunID, effectID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if effect.State != journal.Succeeded {
+			t.Fatalf("effect %s after final resume = %#v, want Succeeded", effectID, effect)
+		}
+	}
+}
+
+// A2 (i): a production-mode pause that lands while a declared host check's
+// process is actually running lets that check finish and records its
+// result; the check after it is never admitted; resume runs the remaining
+// check and seals the candidate.
+func TestPauseWhileADeclaredHostCheckIsRunningFinishesItAndResumesTheNextCheck(t *testing.T) {
+	gate := newMarkerGate(t)
+	runningCheck := gate.check("running-check")
+	secondCheck := "echo second check ok"
+	var invocations atomic.Int64
+	fixture := newPauseSafeHostCheckFixture(
+		t, []string{runningCheck, secondCheck}, pauseSafeModelDispatcher(t, &invocations),
+	)
+
+	type dispatchResult struct{ err error }
+	done := make(chan dispatchResult, 1)
+	go func() {
+		_, _, err := fixture.service.runProductionImplementationDispatch(
+			fixture.ctx, fixture.engine, fixture.owner, fixture.workspace,
+			fixture.cycle, fixture.coordinates,
+		)
+		done <- dispatchResult{err}
+	}()
+	gate.waitRunning(t, "running-check")
+	if _, err := fixture.store.ApplyControl(fixture.ctx, journal.ControlCommand{
+		RunID: fixture.owner.RunID, ID: "pause-mid-check", Kind: journal.Pause,
+		ExpectedGeneration: 0,
+	}, fixture.now); err != nil {
+		t.Fatal(err)
+	}
+	gate.release(t, "running-check")
+	if r := <-done; !IsCode(r.err, "RUN_STOPPED") {
+		t.Fatalf("dispatch while a check was running = %v, want RUN_STOPPED", r.err)
+	}
+	if err := fixture.workspace.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.engine.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot, err := fixture.store.Snapshot(fixture.ctx, fixture.owner.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	succeededHostChecks := 0
+	for _, effect := range snapshot.Effects {
+		if effect.Kind != "check.host" {
+			continue
+		}
+		succeededHostChecks++
+		if effect.State != journal.Succeeded {
+			t.Fatalf(
+				"check.host effect %s across the pause = %#v, want Succeeded (a running check must finish)",
+				effect.ID, effect,
+			)
+		}
+	}
+	if succeededHostChecks != 1 {
+		t.Fatalf("succeeded check.host effects while paused = %d, want 1", succeededHostChecks)
+	}
+
+	if err := fixture.store.ReleaseOwner(fixture.ctx, fixture.owner, fixture.now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.store.ApplyControl(fixture.ctx, journal.ControlCommand{
+		RunID: fixture.owner.RunID, ID: "resume-1", Kind: journal.Resume,
+		ExpectedGeneration: 1,
+	}, fixture.now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	freshOwner, err := fixture.store.AcquireOwner(
+		fixture.ctx, fixture.owner.RunID, fixture.now.Add(2*time.Second), time.Minute, false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restartedProduction, err := newProductionDriverRuntime(fixture.config, driver.DriverFactoryOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted := &Service{
+		journal: fixture.store, dispatcher: failIfInvokedDispatcher(t, "resume"),
+		production: restartedProduction, gitExecutable: fixture.gitExecutable,
+		now: func() time.Time { return fixture.now.Add(2 * time.Second) },
+	}
+	restartedEngine, err := restarted.openEngine(fixture.manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restartedEngine.Close()
+
+	recovered, retry, err := restarted.recoverImplementationCycle(
+		fixture.ctx, restartedEngine, freshOwner, fixture.cycle, fixture.outer,
+		fixture.trackKey(), fixture.coordinates,
+	)
+	if err != nil {
+		t.Fatalf("resume recovery = %v", err)
+	}
+	if retry {
+		t.Fatal("resume recovery asked for another try instead of completing this one")
+	}
+	if invocations.Load() != 1 {
+		t.Fatalf("invocations after resume = %d, want 1 (no re-invocation)", invocations.Load())
+	}
+	if !sealedRecordMatchesCycle(recovered, fixture.cycle) {
+		t.Fatalf("recovered record = %#v", recovered)
+	}
+	finalSnapshot, err := fixture.store.Snapshot(fixture.ctx, freshOwner.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalSucceeded := 0
+	for _, effect := range finalSnapshot.Effects {
+		if effect.Kind == "check.host" && effect.State == journal.Succeeded {
+			finalSucceeded++
+		}
+	}
+	if finalSucceeded != 2 {
+		t.Fatalf("succeeded check.host effects after resume = %d, want 2 (the second check ran on resume)", finalSucceeded)
+	}
+	for _, effectID := range []string{fixture.cycle.DispatchEffect, fixture.cycle.PreparedEffect, fixture.outerID} {
+		effect, err := fixture.store.Effect(fixture.ctx, freshOwner.RunID, effectID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if effect.State != journal.Succeeded {
+			t.Fatalf("effect %s after resume = %#v, want Succeeded", effectID, effect)
+		}
+	}
+}
+
+// A2 (ii): a context cancelled exactly at the git.seal.prepared claim (not a
+// journal.Pause control command) is reported as RUN_STOPPED layered over
+// OPERATION_CANCELLED, not as a failure of the work: the driver.dispatch,
+// git.seal.prepared and outer git.seal effects stay Claimed/Pending, never
+// OperationalFailed. No host checks are declared, so runHostChecks' own
+// ctx.Err() boundary never intercepts the cancellation first.
+func TestCancelledContextAtGitSealPreparedClaimReportsRunStoppedFromOperationCancelled(t *testing.T) {
+	gate := newMarkerGate(t)
+	onlyCheck := gate.check("only-check")
+	var invocations atomic.Int64
+	fixture := newPauseSafeHostCheckFixture(t, []string{onlyCheck}, pauseSafeModelDispatcher(t, &invocations))
+
+	dispatchCtx, cancelDispatch := context.WithCancel(context.Background())
+	defer cancelDispatch()
+
+	type dispatchResult struct{ err error }
+	done := make(chan dispatchResult, 1)
+	go func() {
+		_, _, err := fixture.service.runProductionImplementationDispatch(
+			dispatchCtx, fixture.engine, fixture.owner, fixture.workspace,
+			fixture.cycle, fixture.coordinates,
+		)
+		done <- dispatchResult{err}
+	}()
+	// The declared check is admitted and starts running on a live context;
+	// only once it is confirmed running is the context cancelled, so the
+	// cancellation lands after the check (and prepareHandoff's own earlier
+	// reads) and before the git.seal.prepared claim that follows - not
+	// inside runHostChecks' own ctx.Err() boundary, which is never
+	// re-checked once the only declared check has been admitted.
+	gate.waitRunning(t, "only-check")
+	cancelDispatch()
+	gate.release(t, "only-check")
+
+	r := <-done
+	if !IsCode(r.err, "RUN_STOPPED") {
+		t.Fatalf("dispatch across a cancelled context = %v, want RUN_STOPPED", r.err)
+	}
+	if !journal.IsCode(r.err, "OPERATION_CANCELLED") {
+		t.Fatalf(
+			"dispatch error chain = %v, want RUN_STOPPED layered over OPERATION_CANCELLED (not CONTROL_STOPPED)",
+			r.err,
+		)
+	}
+	if err := fixture.workspace.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// The check that was already running when the cancel landed still
+	// finished and its result is recorded - exec.Command carries no
+	// context, so the process itself is unaffected by the cancel.
+	snapshot, err := fixture.store.Snapshot(fixture.ctx, fixture.owner.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	succeededHostChecks := 0
+	for _, effect := range snapshot.Effects {
+		if effect.Kind == "check.host" {
+			succeededHostChecks++
+			if effect.State != journal.Succeeded {
+				t.Fatalf("check.host effect %s across the cancel = %#v, want Succeeded", effect.ID, effect)
+			}
+		}
+	}
+	if succeededHostChecks != 1 {
+		t.Fatalf("succeeded check.host effects across the cancel = %d, want 1", succeededHostChecks)
+	}
+
+	dispatchEffect, err := fixture.store.Effect(fixture.ctx, fixture.owner.RunID, fixture.cycle.DispatchEffect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dispatchEffect.State != journal.Claimed {
+		t.Fatalf("driver.dispatch across the cancel = %#v, want Claimed, never a failure of the work", dispatchEffect)
+	}
+	// The cancelled context reaches whichever of git.seal.prepared's own
+	// EnsureAttempt or ClaimOwned runs first; either way the effect is
+	// never completed as a failure of the work - it is either never
+	// admitted at all, or admitted but never claimed.
+	preparedEffect, preparedErr := fixture.store.Effect(fixture.ctx, fixture.owner.RunID, fixture.cycle.PreparedEffect)
+	switch {
+	case journal.IsCode(preparedErr, "EFFECT_NOT_FOUND"):
+		// Never admitted: EnsureAttempt itself observed the cancelled
+		// context.
+	case preparedErr == nil && preparedEffect.State == journal.Pending:
+		// Admitted but never claimed: EnsureAttempt succeeded before the
+		// cancellation, ClaimOwned observed it.
+	default:
+		t.Fatalf("git.seal.prepared across the cancel = %#v, %v, want absent or Pending, never a failure", preparedEffect, preparedErr)
+	}
+	outerEffect, err := fixture.store.Effect(fixture.ctx, fixture.owner.RunID, fixture.outerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outerEffect.State != journal.Claimed {
+		t.Fatalf("outer git.seal across the cancel = %#v, want still Claimed", outerEffect)
+	}
+	if invocations.Load() != 1 {
+		t.Fatalf("invocations = %d, want 1", invocations.Load())
+	}
+}
+
+// A3: a pause or a cancel that lands during the start-of-cycle recovery
+// sweep (recoverClaimedEffects, including recoverImplementationCycle's own
+// resumePausedProductionDispatch continuation) is treated as a stop, exactly
+// as the drive loop treats it: driveOwned - the primitive Start, Resume and
+// Serve all share - does not return it as an error, and the run stays
+// resumable on a later, unobstructed resume.
+func TestPauseOrCancelDuringTheRecoverySweepIsAStopNotAnErrorAndTheRunStaysResumable(t *testing.T) {
+	for _, kind := range []string{"pause", "cancel"} {
+		t.Run(kind, func(t *testing.T) {
+			gate := newMarkerGate(t)
+			boundaryCheck := gate.check("boundary")
+			resumeCheck := gate.check("resume-sweep")
+			var invocations atomic.Int64
+			fixture := newPauseSafeHostCheckFixture(
+				t, []string{boundaryCheck, resumeCheck}, pauseSafeModelDispatcher(t, &invocations),
+			)
+			// driveOwned (unlike a direct runProductionImplementationDispatch
+			// or recoverImplementationCycle call) re-derives its manifest
+			// from the journal, so the run's start command must be durably
+			// recorded for it to find.
+			if err := fixture.store.RecordCommand(fixture.ctx, journal.Command{
+				RunID: fixture.owner.RunID, ReplayKey: "manifest", Kind: "start",
+				Payload: fixture.manifest.raw, CreatedAt: fixture.now,
+			}); err != nil {
+				t.Fatal(err)
+			}
+
+			// Pause 1: an ordinary check-boundary stop. This leaves a
+			// Claimed driver.dispatch with a durable paused-handoff
+			// checkpoint - exactly the state a resume's recovery sweep
+			// must continue from via resumePausedProductionDispatch.
+			type dispatchResult struct{ err error }
+			done1 := make(chan dispatchResult, 1)
+			go func() {
+				_, _, err := fixture.service.runProductionImplementationDispatch(
+					fixture.ctx, fixture.engine, fixture.owner, fixture.workspace,
+					fixture.cycle, fixture.coordinates,
+				)
+				done1 <- dispatchResult{err}
+			}()
+			gate.waitRunning(t, "boundary")
+			if _, err := fixture.store.ApplyControl(fixture.ctx, journal.ControlCommand{
+				RunID: fixture.owner.RunID, ID: "pause-1", Kind: journal.Pause,
+				ExpectedGeneration: 0,
+			}, fixture.now); err != nil {
+				t.Fatal(err)
+			}
+			gate.release(t, "boundary")
+			if r := <-done1; !IsCode(r.err, "RUN_STOPPED") {
+				t.Fatalf("dispatch after pause 1 = %v, want RUN_STOPPED", r.err)
+			}
+			if err := fixture.workspace.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if err := fixture.engine.Close(); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := fixture.store.ReleaseOwner(fixture.ctx, fixture.owner, fixture.now.Add(time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := fixture.store.ApplyControl(fixture.ctx, journal.ControlCommand{
+				RunID: fixture.owner.RunID, ID: "resume-1", Kind: journal.Resume,
+				ExpectedGeneration: 1,
+			}, fixture.now.Add(time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			owner2, err := fixture.store.AcquireOwner(
+				fixture.ctx, fixture.owner.RunID, fixture.now.Add(2*time.Second), time.Minute, false,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			production2, err := newProductionDriverRuntime(fixture.config, driver.DriverFactoryOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			restarted := &Service{
+				journal:    fixture.store,
+				dispatcher: failIfInvokedDispatcher(t, "the recovery sweep's resume"),
+				production: production2, gitExecutable: fixture.gitExecutable,
+				now: func() time.Time { return fixture.now.Add(2 * time.Second) },
+			}
+
+			// The second stop lands inside driveOwned's own recovery sweep,
+			// while ownedCtx is live and the resumed continuation is
+			// blocked on the gated check - not through a direct
+			// recoverClaimedEffects call.
+			driveCtx, cancelDrive := context.WithCancel(context.Background())
+			defer cancelDrive()
+			type driveResult struct {
+				status RunStatus
+				err    error
+			}
+			done2 := make(chan driveResult, 1)
+			go func() {
+				status, err := restarted.driveOwned(driveCtx, fixture.owner.RunID, owner2)
+				done2 <- driveResult{status, err}
+			}()
+			gate.waitRunning(t, "resume-sweep")
+			switch kind {
+			case "pause":
+				if _, err := fixture.store.ApplyControl(fixture.ctx, journal.ControlCommand{
+					RunID: fixture.owner.RunID, ID: "pause-2", Kind: journal.Pause,
+					ExpectedGeneration: 2,
+				}, fixture.now.Add(3*time.Second)); err != nil {
+					t.Fatal(err)
+				}
+			case "cancel":
+				cancelDrive()
+			}
+			gate.release(t, "resume-sweep")
+			result := <-done2
+			if result.err != nil {
+				t.Fatalf(
+					"driveOwned across a %s landing inside the recovery sweep = %v, want nil (a stop, not a CLI error)",
+					kind, result.err,
+				)
+			}
+
+			// driveOwned released owner2 itself (ReleaseOwnerIfIdle) before
+			// returning; a later, unobstructed resume proves the run stays
+			// resumable and seals on the same try, with no further model
+			// invocation.
+			if kind == "pause" {
+				if _, err := fixture.store.ApplyControl(fixture.ctx, journal.ControlCommand{
+					RunID: fixture.owner.RunID, ID: "resume-2", Kind: journal.Resume,
+					ExpectedGeneration: 3,
+				}, fixture.now.Add(4*time.Second)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			owner3, err := fixture.store.AcquireOwner(
+				fixture.ctx, fixture.owner.RunID, fixture.now.Add(5*time.Second), time.Minute, false,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			finalProduction, err := newProductionDriverRuntime(fixture.config, driver.DriverFactoryOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			final := &Service{
+				journal:    fixture.store,
+				dispatcher: failIfInvokedDispatcher(t, "the final resume"),
+				production: finalProduction, gitExecutable: fixture.gitExecutable,
+				now: func() time.Time { return fixture.now.Add(5 * time.Second) },
+			}
+			finalEngine, err := final.openEngine(fixture.manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer finalEngine.Close()
+			recovered, retry, err := final.recoverImplementationCycle(
+				fixture.ctx, finalEngine, owner3, fixture.cycle, fixture.outer,
+				fixture.trackKey(), fixture.coordinates,
+			)
+			if err != nil {
+				t.Fatalf("final resume recovery = %v", err)
+			}
+			if retry {
+				t.Fatal("final resume recovery asked for another try instead of completing this one")
+			}
+			if invocations.Load() != 1 {
+				t.Fatalf("invocations after the %s and both resumes = %d, want 1", kind, invocations.Load())
+			}
+			if !sealedRecordMatchesCycle(recovered, fixture.cycle) {
+				t.Fatalf("recovered record = %#v", recovered)
+			}
+			for _, effectID := range []string{fixture.cycle.DispatchEffect, fixture.cycle.PreparedEffect, fixture.outerID} {
+				effect, err := fixture.store.Effect(fixture.ctx, owner3.RunID, effectID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if effect.State != journal.Succeeded {
+					t.Fatalf("effect %s after final resume = %#v, want Succeeded", effectID, effect)
+				}
+			}
+		})
+	}
+}
