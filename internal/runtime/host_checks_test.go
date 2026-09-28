@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/swornagent/sworn/internal/gitx"
+	"github.com/swornagent/sworn/internal/journal"
 	"github.com/swornagent/sworn/internal/protocol"
 )
 
@@ -218,6 +219,14 @@ func TestHostCheckCommandWordSkipsLeadingAssignments(t *testing.T) {
 		"test -z \"$(gofmt -l ./cmd)\"":                         "test",
 		"":                                                      "",
 		"FOO=bar":                                               "",
+		// S6-host-environment-park-projection A5(i): shell grouping
+		// syntax - a subshell or a brace group - is honestly
+		// unclassifiable, never a false environment-failure positive
+		// naming the literal opener as a missing command.
+		"(cd dir && make)":  "",
+		"{ a; b; }":         "",
+		"(cd dir && make) ": "",
+		"{true;}":           "",
 	}
 	for check, want := range cases {
 		if got := hostCheckCommandWord(check); got != want {
@@ -296,5 +305,80 @@ func TestHostCommandResolvesPathShapedWordUsesStat(t *testing.T) {
 	}
 	if hostCommandResolves(shell, filepath.Join(dir, "absent.sh")) {
 		t.Fatal("path-shaped absent script resolved")
+	}
+}
+
+// TestExecuteHostCheckFailsClosedWithTypedCodeWhenHostShellIsUnavailable is
+// A5(ii)'s exact required proof for the fresh-claim site: when the host
+// shell itself cannot be resolved, executeHostCheck (via runHostChecks)
+// fails closed with the identical typed code validateHostCheckEnvironment
+// (the run-start gate) already uses, instead of silently skipping
+// classification and running the command unclassified. Nothing is ever
+// completed for this failure, so it cannot spend a try or become repair
+// input: the check.host effect stays exactly Claimed, never Succeeded or
+// OperationalFailed.
+func TestExecuteHostCheckFailsClosedWithTypedCodeWhenHostShellIsUnavailable(t *testing.T) {
+	check := "true"
+	fixture := newHostCheckFixture(t, []string{check})
+	t.Setenv("SWORN_SH", filepath.Join(t.TempDir(), "no-such-shell"))
+
+	_, err := fixture.service.runHostChecks(
+		fixture.ctx, fixture.engine, fixture.owner, fixture.plan,
+		"S1", fixture.candidate, fixture.targetHead, fixture.releaseHead)
+	if !IsCode(err, "HOST_SHELL_UNAVAILABLE") {
+		t.Fatalf("runHostChecks() error = %v, want HOST_SHELL_UNAVAILABLE", err)
+	}
+	work := hostCheckWork("S1", fixture.candidate, fixture.contractDgst, check)
+	effect, err := fixture.store.Effect(fixture.ctx, fixture.owner.RunID, hostCheckEffectID(work))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effect.State != journal.Claimed || len(effect.Result) != 0 || effect.ErrorCode != "" {
+		t.Fatalf("effect after HOST_SHELL_UNAVAILABLE = %#v, want Claimed and never completed", effect)
+	}
+}
+
+// TestRecoverHostCheckClaimsFailsClosedWithTypedCodeWhenHostShellIsUnavailable
+// is A5(ii)'s exact required proof for the crash-recovery site: a claimed
+// check.host effect from a crashed prior attempt fails closed with the
+// identical typed code instead of silently skipping classification and
+// falling through to executeHostCheckFromRecovery.
+func TestRecoverHostCheckClaimsFailsClosedWithTypedCodeWhenHostShellIsUnavailable(t *testing.T) {
+	fixture := newHostCheckFixture(t, []string{"true"})
+	work := hostCheckWork("S1", fixture.candidate, fixture.contractDgst, "true")
+	effectID := hostCheckEffectID(work)
+	command := hostCheckCommand{
+		SchemaVersion: hostCheckSchemaVersion, Slice: "S1",
+		Candidate: fixture.candidate, ContractDigest: fixture.contractDgst,
+		Check: "true", OutputBytes: hostCheckOutputBytes, TimeoutMillis: 30_000,
+	}
+	payload := mustJSON(command)
+	if err := fixture.store.EnsureAttempt(fixture.ctx,
+		journal.Command{RunID: fixture.owner.RunID, ReplayKey: effectID,
+			Kind: "check.host", Payload: payload, CreatedAt: fixture.service.now().UTC()},
+		journal.Effect{RunID: fixture.owner.RunID, ID: effectID, ReplayKey: effectID,
+			Kind: "check.host", BeforeDigest: work,
+			ExpectedDigest: sha256Digest(payload), UpdatedAt: fixture.service.now().UTC()},
+		journal.EffectAttempt{WorkID: work, Epoch: 1, Try: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.store.ClaimOwned(
+		fixture.ctx, fixture.owner, effectID, fixture.service.now().UTC(), effectLease,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("SWORN_SH", filepath.Join(t.TempDir(), "no-such-shell"))
+	if _, err := fixture.service.recoverHostCheckClaims(
+		fixture.ctx, fixture.engine, fixture.owner,
+	); !IsCode(err, "HOST_SHELL_UNAVAILABLE") {
+		t.Fatalf("recoverHostCheckClaims() error = %v, want HOST_SHELL_UNAVAILABLE", err)
+	}
+	effect, err := fixture.store.Effect(fixture.ctx, fixture.owner.RunID, effectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effect.State != journal.Claimed || len(effect.Result) != 0 || effect.ErrorCode != "" {
+		t.Fatalf("effect after HOST_SHELL_UNAVAILABLE = %#v, want Claimed and never completed", effect)
 	}
 }

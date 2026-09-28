@@ -732,21 +732,43 @@ missing command): it spends no implementer try, is never handed to the
 implementer as repair input, and is never stored as the candidate's result
 or replayed. It stays claimed until the environment is fixed and the same
 work resumes, at which point the identical check re-executes normally. The
-status projection's host-check environment fact
-(`sworn.host-check-environment-fact/v1`, served on `EffectStatus` and
-`PinnedWork` beside, never replacing, the unchanged host-check failure fact
-above) names the check and the missing command for as long as the park is
-active, and clears itself the moment the check actually runs.
+run itself projects as parked with this same cause and code - never
+running, never uncertain - both while the serve process that hit the park
+still holds the run's owner lease and after it releases that lease; a
+Claimed `check.host` effect, and the one `git.seal` or
+`protocol.prepare_assembly` effect it is nested inside, are never counted
+as active work while they belong to this park. The status projection's
+host-check environment fact (`sworn.host-check-environment-fact/v1`,
+served on `EffectStatus` and `PinnedWork` beside, never replacing, the
+unchanged host-check failure fact above) names the check and the missing
+command for as long as the park is active, and clears itself the moment
+the check actually runs.
 
-At run start, and at serve start when it drives a run, the engine also
-resolves the first word of every declared `checks` and `host_checks` entry
-of every slice's approved contract (the deduplicated union of both lists)
-against the host runner's own environment, before any dispatch, and
-refuses to start with the same `HOST_CHECK_ENVIRONMENT` code naming every
-unresolved command. Fix the host's `PATH` (or the systemd unit's
-`Environment=PATH=...`), then resume the run with the identical run id;
-no plan, contract, or manifest change is needed or admitted for this
+At run start, and at the top of every drive-loop pass afterward for as
+long as the run keeps advancing (not only once at the run's opening
+boundary), the engine also resolves the first word of every declared
+`checks` and `host_checks` entry of every slice's approved contract (the
+deduplicated union of both lists) against the host runner's own
+environment, before any dispatch, and refuses to make further progress
+with the same `HOST_CHECK_ENVIRONMENT` code naming every unresolved
+command. This re-validation on every pass, not merely at start or resume,
+is what catches a `PATH` regression an operator makes partway through a
+run, before the very next dispatch. Fix the host's `PATH` (or the systemd
+unit's `Environment=PATH=...`), then resume the run with the identical run
+id; no plan, contract, or manifest change is needed or admitted for this
 cause.
+
+A host shell that cannot be resolved at all (`SWORN_SH` names an invalid
+executable, or no `sh` is found on `PATH`) is a distinct, typed failure,
+code `HOST_SHELL_UNAVAILABLE`: the run-start gate above already fails
+closed with it before any dispatch, and a mid-run check.host classification
+(a fresh claim or a crash-recovered one) fails closed with the identical
+code instead of silently skipping classification and running the command
+unclassified. Because nothing is ever journaled for this failure, it can
+never spend an implementer try or become repair input; it surfaces as a
+plain error from `sworn start` or `sworn resume`, exactly like the
+run-start gate's own refusal. Fix the host's shell configuration, then
+resume.
 
 ### Pause-safe host checks
 

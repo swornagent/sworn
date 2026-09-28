@@ -545,6 +545,26 @@ func TestWebhookMapsAttentionAndTurnRecoveryToContentFreeRecovery(t *testing.T) 
 	}
 }
 
+// TestWebhookMapsHostEnvironmentEventKindsAsS1AndTheLeadRequired is A4's
+// exact required proof: both event kinds S1 introduced are admitted
+// explicitly rather than falling through to the generic default -
+// host_check_environment_classified as an attempt-completion fact, and
+// runtimepkg.HostEnvironmentResolvedEventKind (host_check_environment_
+// resolved) as a clearing/self-heal fact that never reads as park_updated.
+func TestWebhookMapsHostEnvironmentEventKindsAsS1AndTheLeadRequired(t *testing.T) {
+	t.Parallel()
+
+	if got := safeWebhookEventKind("host_check_environment_classified"); got != webhookAttemptUpdated {
+		t.Errorf("host_check_environment_classified = %q, want %q", got, webhookAttemptUpdated)
+	}
+	if got := safeWebhookEventKind(runtimepkg.HostEnvironmentResolvedEventKind); got != webhookRecoveryUpdated {
+		t.Errorf("%q = %q, want %q", runtimepkg.HostEnvironmentResolvedEventKind, got, webhookRecoveryUpdated)
+	}
+	if got := safeWebhookEventKind(runtimepkg.HostEnvironmentResolvedEventKind); got == webhookParkUpdated {
+		t.Errorf("%q must never read as %q", runtimepkg.HostEnvironmentResolvedEventKind, webhookParkUpdated)
+	}
+}
+
 func TestWebhookRetriesWithFixedCodesAndNeverStoresResponses(t *testing.T) {
 	t.Parallel()
 

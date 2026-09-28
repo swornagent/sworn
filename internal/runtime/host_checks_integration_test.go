@@ -1449,3 +1449,146 @@ func TestHostChecksStopAtTheNextCheckBoundaryOnPauseAndKeepAlreadyPassedResults(
 		t.Fatalf("second check after resume = %#v", results[1])
 	}
 }
+
+// TestHostCheckExitOneTwentySevenParksThroughPostRunDefenseInDepth is A2's
+// required proof of the post-run "defense in depth" branch
+// (host_checks.go's `if result.ExitCode == 127` after runHostCommand),
+// distinct from the pre-spawn classification: the check's first word
+// resolves (a real, executable file on PATH), so classifyHostCheckExecution
+// finds nothing wrong before the process ever starts, and only the
+// genuine exit 127 the shell reports for a missing interpreter parks it.
+func TestHostCheckExitOneTwentySevenParksThroughPostRunDefenseInDepth(t *testing.T) {
+	const scriptName = "sworn-exit-127-bad-interpreter"
+	check := scriptName
+	fixture := newHostCheckFixture(t, []string{check})
+	work := hostCheckWork("S1", fixture.candidate, fixture.contractDgst, check)
+	effectID := hostCheckEffectID(work)
+
+	fixDir := t.TempDir()
+	scriptPath := filepath.Join(fixDir, scriptName)
+	if err := os.WriteFile(
+		scriptPath, []byte("#!/no/such/interpreter\nexit 0\n"), 0o755,
+	); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fixDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	// command -v resolves the script (it is a real, executable file), so
+	// classifyHostCheckExecution's pre-spawn check finds nothing wrong;
+	// only the shell's own exit 127 for the missing interpreter, caught by
+	// the post-run branch, parks this.
+	if word := hostCheckCommandWord(check); word == "" {
+		t.Fatalf("hostCheckCommandWord(%q) = %q, want %q", check, word, scriptName)
+	}
+	shell, shellErr := hostShell()
+	if shellErr != nil {
+		t.Fatal(shellErr)
+	}
+	if failure, _ := classifyHostCheckExecution(shell, check); failure {
+		t.Fatal("pre-spawn classification wrongly caught the bad-interpreter script")
+	}
+
+	_, err := fixture.service.runHostChecks(
+		fixture.ctx, fixture.engine, fixture.owner, fixture.plan,
+		"S1", fixture.candidate, fixture.targetHead, fixture.releaseHead)
+	if err == nil || !IsCode(err, "EFFECT_PARKED") {
+		t.Fatalf("runHostChecks() error = %v, want EFFECT_PARKED", err)
+	}
+	effect, err := fixture.store.Effect(fixture.ctx, fixture.owner.RunID, effectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effect.Kind != "check.host" || effect.State != journal.Claimed ||
+		effect.CurrentClaim == "" || len(effect.Result) != 0 {
+		t.Fatalf("parked effect = %#v", effect)
+	}
+	snapshot, err := fixture.store.Snapshot(fixture.ctx, fixture.owner.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	crossings := hostEnvironmentParkCrossings(snapshot)
+	if len(crossings) != 1 || crossings[0].Check != check ||
+		crossings[0].MissingCommand != scriptName || crossings[0].HostEffect != effectID {
+		t.Fatalf("crossings = %#v", crossings)
+	}
+}
+
+// TestHostCheckEnvironmentFailureOnRerunIsReadableByCrossingScan is A3's
+// exact required proof: an environment failure that classifies on the
+// #296 bounded re-execution - not the first execution - is journaled under
+// the rerun identity (journalHostEnvironmentClassification is called with
+// the rerun's boundWork/effectID, matching how the rerun's own check.host
+// effect is journaled), and hostEnvironmentParkCrossings (the one reader
+// both pinCrossingLanes and Status use) must still parse and report it,
+// never silently drop it because it recomputed only the first-execution
+// identity.
+func TestHostCheckEnvironmentFailureOnRerunIsReadableByCrossingScan(t *testing.T) {
+	counter := filepath.Join(t.TempDir(), "runs")
+	const absentCommand = "sworn-genuinely-absent-command-rerun"
+	// First invocation plainly fails (exit 1, no deterministic signature,
+	// so #296 makes it rerun-eligible); the second invocation (the rerun)
+	// execs an absent binary, which the shell reports as exit 127 - the
+	// check's own first word is unclassifiable ("n=$(cat..." contains '('
+	// so hostCheckCommandWord returns "", never a false pre-spawn
+	// positive), so only the post-run defense in depth on the rerun
+	// itself catches this.
+	check := fmt.Sprintf(
+		"n=$(cat %s 2>/dev/null || echo 0); n=$((n+1)); echo $n > %s; "+
+			"if [ \"$n\" -eq 1 ]; then exit 1; else exec %s; fi",
+		counter, counter, absentCommand,
+	)
+	fixture := newHostCheckFixture(t, []string{check})
+	run := func() ([]hostCheckResult, error) {
+		return fixture.service.runHostChecks(
+			fixture.ctx, fixture.engine, fixture.owner, fixture.plan,
+			"S1", fixture.candidate, fixture.targetHead, fixture.releaseHead)
+	}
+	if _, err := run(); !IsCode(err, "HOST_CHECK_FAILED") {
+		t.Fatalf("first execution = %v, want HOST_CHECK_FAILED", err)
+	}
+	work := hostCheckWork("S1", fixture.candidate, fixture.contractDgst, check)
+	rerunEffectID := hostCheckRerunEffectID(work)
+
+	if _, err := run(); err == nil || !IsCode(err, "EFFECT_PARKED") {
+		t.Fatalf("rerun = %v, want EFFECT_PARKED", err)
+	}
+	effect, err := fixture.store.Effect(fixture.ctx, fixture.owner.RunID, rerunEffectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effect.Kind != "check.host" || effect.State != journal.Claimed ||
+		effect.BeforeDigest != hostCheckRerunWork(work) || len(effect.Result) != 0 {
+		t.Fatalf("rerun effect = %#v", effect)
+	}
+	snapshot, err := fixture.store.Snapshot(fixture.ctx, fixture.owner.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	crossings := hostEnvironmentParkCrossings(snapshot)
+	if len(crossings) != 1 {
+		t.Fatalf("crossings = %#v, want exactly one (the rerun's environment failure must not be silently dropped)", crossings)
+	}
+	// The exit-127 branch's diagnostic names the check's own resolved
+	// first word (unrelated to this test's identity assertion, and
+	// unclassifiable here since the check's first field is a shell
+	// assignment expression), never the absent command execed from deep
+	// inside the script - that diagnostic shape is pre-existing and
+	// unchanged by this fix.
+	if crossings[0].HostEffect != rerunEffectID ||
+		crossings[0].MissingCommand != hostCheckCommandWord(check) ||
+		crossings[0].Check != check {
+		t.Fatalf("crossing = %#v, want HostEffect %q", crossings[0], rerunEffectID)
+	}
+
+	// Status()'s hostEnvironmentParkFactsByOwner (the same reader,
+	// state-scoped) must also see it.
+	state, err := protocol.ReadState(fixture.engine.git, fixture.manifest.value.Release, fixture.engine.inertness)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byOwner := hostEnvironmentParkFactsByOwner(state, snapshot)
+	owner := hostEnvironmentCrossingOwner(state, crossings[0])
+	if _, ok := byOwner[owner]; !ok {
+		t.Fatalf("hostEnvironmentParkFactsByOwner missed the rerun crossing under owner %q: %#v", owner, byOwner)
+	}
+}

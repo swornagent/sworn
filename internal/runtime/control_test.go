@@ -1163,6 +1163,685 @@ func TestHostCheckEnvironmentGateParksResolvesAndReparksWithDistinctOffsets(t *t
 	}
 }
 
+// TestHostEnvironmentSlicePathParksThroughStartStatusAndResume is A1/A2's
+// exact required proof through the real entry points, never
+// implementSlice, driveHostCheckEnvironmentGate, or any other internal
+// helper: a slice-scoped host-environment crossing, created mid-run inside
+// claimPreparedImplementation's own host-check step. The declared check's
+// first word is a real, executable file the whole test long (a script
+// with a bad shebang), so it resolves via `command -v` throughout - the
+// run-start gate passes cleanly and never confuses this with the
+// run-scoped refusal - and only the actual spawn's genuine exit 127
+// (host_checks.go's post-run defense in depth) parks it, with no
+// environment mutation needed mid-test. The run projects as parked -
+// never running or uncertain - from Start() itself (captured while
+// driveOwned still holds the owner lease), from a separate Status() call
+// made after driveOwned has released it, and from Control(Resume) driven
+// to settlement via Wait; the git.seal effect never advances past its
+// first try.
+func TestHostEnvironmentSlicePathParksThroughStartStatusAndResume(t *testing.T) {
+	ctx := context.Background()
+	repository := productionRepository(t)
+	gitExecutable, err := resolveGitExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const scriptName = "sworn-slicepath-bad-interpreter"
+	check := scriptName
+	shell, shellErr := hostShell()
+	if shellErr != nil {
+		t.Fatal(shellErr)
+	}
+	fixDir := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(fixDir, scriptName),
+		[]byte("#!/no/such/interpreter\nexit 0\n"), 0o755,
+	); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fixDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if failure, _ := classifyHostCheckExecution(shell, check); failure {
+		t.Fatal("pre-spawn classification wrongly caught the bad-interpreter script")
+	}
+
+	manifest, _, plan := fixtureManifest(t)
+	manifest.Repository = repository
+	metadata := plan.Metadata()
+	metadata.Tracks = metadata.Tracks[:1]
+	metadata.Tracks[0].Slices[0].Checks = append(
+		append([]string(nil), metadata.Tracks[0].Slices[0].Checks...), check,
+	)
+	metadata.Tracks[0].Slices[0].HostChecks = []string{check}
+	metadataBody, err := json.MarshalIndent(metadata, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	planBytes := []byte(
+		"```protocol-plan-v2\n" + string(metadataBody) +
+			"\n```\n\nHost-environment slice-path fixture.\n",
+	)
+	plan, err = protocol.ParsePlan(planBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := plan.Digest()
+	manifest.Authority.BootstrapApprovedPlanDigest = &digest
+
+	submission := func(
+		slice string,
+		responsibility driver.Responsibility,
+		protocolAttempt int64,
+	) driver.Submission {
+		script := ScriptedAttempt{Slice: slice, Responsibility: responsibility,
+			ProtocolAttempt: protocolAttempt, Epoch: 1, Try: 1}
+		return driver.Submission{
+			SchemaVersion:  driver.SubmissionSchemaVersion,
+			InvocationID:   invocationID(manifest.RunID, script),
+			Responsibility: responsibility,
+			Summary:        "Exact " + string(responsibility) + ".",
+			Detail:         "Bounded fixture detail.",
+		}
+	}
+	planner := submission("", driver.PlannerProposal, 1)
+	planner.Plan, _ = driver.NewPlanBytes(planBytes)
+	design := submission("S1", driver.ImplementerDesign, 1)
+	lead := submission("S1", driver.LeadReview, 1)
+	lead.Decision, _ = driver.NewDecision(driver.DecisionProceed)
+	implementation := submission("S1", driver.ImplementerImplementation, 1)
+	implementation.Checks, _ = driver.NewCheckBytes([]byte("implementation checks\n"))
+	work := submission("S1", driver.WorkVerification, 1)
+	work.Checks, _ = driver.NewCheckBytes([]byte("work checks\n"))
+	work.Decision, _ = driver.NewDecision(driver.DecisionPass)
+	assembly := submission("", driver.AssemblyVerification, 1)
+	assembly.Checks, _ = driver.NewCheckBytes([]byte("assembly checks\n"))
+	assembly.Decision, _ = driver.NewDecision(driver.DecisionPass)
+	manifest.Scripts = []ScriptedAttempt{
+		{Responsibility: driver.AssemblyVerification, ProtocolAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
+		{Slice: "S1", Responsibility: driver.LeadReview, ProtocolAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
+		{Slice: "S1", Responsibility: driver.ImplementerDesign, ProtocolAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
+		{Slice: "S1", Responsibility: driver.ImplementerImplementation, ProtocolAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
+		{Responsibility: driver.PlannerProposal, ProtocolAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
+		{Slice: "S1", Responsibility: driver.WorkVerification, ProtocolAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit"},
+	}
+	manifest.Scripts[0].Submission = encodeSubmission(t, assembly)
+	manifest.Scripts[1].Submission = encodeSubmission(t, lead)
+	manifest.Scripts[2].Submission = encodeSubmission(t, design)
+	manifest.Scripts[3].Submission = encodeSubmission(t, implementation)
+	manifest.Scripts[4].Submission = encodeSubmission(t, planner)
+	manifest.Scripts[5].Submission = encodeSubmission(t, work)
+	body, err := canonicalManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	repoView, err := gitx.Open(repository, gitExecutable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetP := runRuntimeGit(t, repository, "rev-parse", "refs/heads/main")
+	inertness := func(request gitx.RecordRootRequest) (gitx.RecordRootDecision, error) {
+		return gitx.RecordRootDecision{Kind: request.Kind, Repository: request.Repository,
+			RecordRoot: request.RecordRoot, Commit: request.Commit, Decision: "inert"}, nil
+	}
+	actions, err := protocol.NewActions(protocol.UseGitRepository(repoView), inertness, manifest.GitIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installer := newAuthorityInstaller(actions)
+	admission := approvalAdmission{
+		planBytes:  plan.Bytes(),
+		planDigest: plan.Digest(),
+		reference:  plan.Metadata().ApprovalRef,
+	}
+	if _, err := installer.install(admission, targetP); err != nil {
+		t.Fatal(err)
+	}
+
+	submissions := make(map[string][]byte, len(manifest.Scripts))
+	for _, script := range manifest.Scripts {
+		encoded, decodeErr := base64.StdEncoding.DecodeString(script.Submission)
+		if decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		submissions[invocationID(manifest.RunID, script)] = encoded
+	}
+
+	dispatcher := fixtureDriver(func(
+		_ context.Context,
+		invocation driver.Invocation,
+	) (driver.Observation, error) {
+		if invocation.Request.Role == driver.RoleImplementer &&
+			invocation.Request.Workspace.Access == driver.ReadWrite {
+			if err := os.WriteFile(
+				filepath.Join(invocation.HostWorkspace, "one.txt"),
+				[]byte("implemented one\n"),
+				0o600,
+			); err != nil {
+				return driver.Observation{}, err
+			}
+		}
+		sub := submissions[invocation.Request.InvocationID]
+		return driver.Observation{
+			TransportStatus: driver.Completed,
+			Usage: driver.UsageReceipt{
+				TokenStatus: driver.UsageUnavailable,
+				CostStatus:  driver.UsageUnavailable,
+			},
+			Diagnostic: driver.Diagnostic{Code: "none"},
+			Handoff: &driver.SealedHandoff{
+				SubmissionBytes:  sub,
+				SubmissionDigest: driver.Digest(sub),
+			},
+		}, nil
+	})
+
+	store, err := journal.Open(ctx, filepath.Join(t.TempDir(), "slice-path.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	now := time.Date(2026, 9, 27, 5, 6, 7, 0, time.UTC)
+	service := &Service{
+		journal:       store,
+		dispatcher:    dispatcher,
+		gitExecutable: gitExecutable,
+		now:           func() time.Time { return now },
+	}
+
+	requireParkedFacts := func(t *testing.T, label string, status RunStatus) {
+		t.Helper()
+		if status.State != "parked" {
+			t.Fatalf("%s State = %q, want parked", label, status.State)
+		}
+		if status.Park == nil || status.Park.Cause != ParkCauseHostEnvironment {
+			t.Fatalf("%s Park = %#v, want cause host_environment", label, status.Park)
+		}
+		if status.Park.FailureCode != "HOST_CHECK_ENVIRONMENT" {
+			t.Fatalf("%s Park.FailureCode = %q", label, status.Park.FailureCode)
+		}
+		if !strings.Contains(status.Park.FailureDetail, check) {
+			t.Fatalf("%s Park.FailureDetail = %q", label, status.Park.FailureDetail)
+		}
+	}
+
+	status, err := service.Start(ctx, body)
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	requireParkedFacts(t, "Start()", status)
+	if status.Park.Work == "" || !runtimeDigestPattern.MatchString(status.Park.Work) {
+		t.Fatalf("Start() Park.Work = %q, want a work identity", status.Park.Work)
+	}
+	gitSealWork := status.Park.Work
+	sealEffectID := journal.AttemptEffectID(gitSealWork, 1, 1)
+	sealEffect, err := store.Effect(ctx, manifest.RunID, sealEffectID)
+	if err != nil {
+		t.Fatalf("git.seal try-1 effect lookup = %v", err)
+	}
+	if sealEffect.Kind != "git.seal" || sealEffect.State != journal.Claimed {
+		t.Fatalf("git.seal try-1 effect = %#v", sealEffect)
+	}
+	for _, try := range []int64{2, 3} {
+		if _, err := store.Effect(
+			ctx, manifest.RunID, journal.AttemptEffectID(gitSealWork, 1, try),
+		); !journal.IsCode(err, "EFFECT_NOT_FOUND") {
+			t.Fatalf("git.seal try-%d effect lookup = %v, want EFFECT_NOT_FOUND", try, err)
+		}
+	}
+
+	// A4: the park event is written on the pass that parked - not a
+	// later cycle or Resume. Count work-scoped host_environment park
+	// events directly from the journal right after Start() returns.
+	countHostEnvironmentParkEvents := func(t *testing.T) int {
+		t.Helper()
+		snap, err := store.Snapshot(ctx, manifest.RunID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		count := 0
+		for _, event := range snap.Events {
+			if event.Kind != ParkEventKind {
+				continue
+			}
+			parsed, err := ParseDegradationParkEvent(event.Body)
+			if err != nil || parsed.Cause != ParkCauseHostEnvironment || parsed.Work != gitSealWork {
+				continue
+			}
+			count++
+		}
+		return count
+	}
+	if got := countHostEnvironmentParkEvents(t); got != 1 {
+		t.Fatalf("host_environment park events after Start() = %d, want exactly 1", got)
+	}
+
+	// After Start() returns, driveOwned's ReleaseOwnerIfIdle has already
+	// run (the captured Start() status came from Status() called while
+	// the owner lease was still held); a separate Status() call now
+	// proves the "after serve lets go" half of A1.
+	afterRelease, err := service.Status(ctx, manifest.RunID)
+	if err != nil {
+		t.Fatalf("Status() after release error = %v", err)
+	}
+	requireParkedFacts(t, "Status() after release", afterRelease)
+	if afterRelease.Park.Work != gitSealWork {
+		t.Fatalf("Status() after release Park.Work = %q, want %q",
+			afterRelease.Park.Work, gitSealWork)
+	}
+
+	// Resume, driven through Control and Wait (never driveOwned or
+	// driveLoop directly): the check's first word still resolves the
+	// whole test long, so the run-scoped A4 gate never fires on this
+	// fresh drive pass either - Resume proves the identical lane-scoped
+	// facts, including the exact same Park.Work.
+	if _, err := service.Control(ctx, journal.ControlCommand{
+		RunID: manifest.RunID, ID: "resume-1",
+		Kind: journal.Resume, ExpectedGeneration: 0,
+	}); err != nil {
+		t.Fatalf("Control(Resume) error = %v", err)
+	}
+	resumed, err := service.Wait(ctx, manifest.RunID)
+	if err != nil {
+		t.Fatalf("Wait() after Resume error = %v", err)
+	}
+	requireParkedFacts(t, "Resume", resumed)
+	if resumed.Park.Work != gitSealWork {
+		t.Fatalf("Resume Park.Work = %q, want %q", resumed.Park.Work, gitSealWork)
+	}
+	// A4: appendParkEventOnce's content-addressing makes the identical,
+	// unchanged crossing's repeat a no-op - Resume must add no further
+	// host_environment park event for the same work.
+	if got := countHostEnvironmentParkEvents(t); got != 1 {
+		t.Fatalf("host_environment park events after Resume = %d, want still exactly 1", got)
+	}
+}
+
+// TestHostEnvironmentRunStartRefusalThroughStart is A1/A2's exact required
+// proof for the run-start refusal path through the real entry point: a
+// plan whose declared check is unresolvable on the host from the very
+// first Start() call refuses to make any progress - Start() returns the
+// parked status with no error, and no driver.dispatch effect is ever
+// journaled for the run.
+func TestHostEnvironmentRunStartRefusalThroughStart(t *testing.T) {
+	ctx := context.Background()
+	repository := productionRepository(t)
+	gitExecutable, err := resolveGitExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const absentCommand = "sworn-genuinely-absent-command-runstart"
+	check := absentCommand + " --version"
+
+	manifest, _, plan := fixtureManifest(t)
+	manifest.Repository = repository
+	metadata := plan.Metadata()
+	metadata.Tracks = metadata.Tracks[:1]
+	metadata.Tracks[0].Slices[0].Checks = append(
+		append([]string(nil), metadata.Tracks[0].Slices[0].Checks...), check,
+	)
+	metadata.Tracks[0].Slices[0].HostChecks = []string{check}
+	metadataBody, err := json.MarshalIndent(metadata, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	planBytes := []byte(
+		"```protocol-plan-v2\n" + string(metadataBody) +
+			"\n```\n\nHost-environment run-start refusal fixture.\n",
+	)
+	plan, err = protocol.ParsePlan(planBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := plan.Digest()
+	manifest.Authority.BootstrapApprovedPlanDigest = &digest
+	// manifest.Scripts is left as fixtureManifest built it (referencing
+	// the original plan) rather than cleared: the run-start gate refuses
+	// before any dispatch, so no script is ever consulted, and an empty
+	// Scripts list fails manifest admission independently of this test.
+	body, err := canonicalManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	repoView, err := gitx.Open(repository, gitExecutable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetP := runRuntimeGit(t, repository, "rev-parse", "refs/heads/main")
+	inertness := func(request gitx.RecordRootRequest) (gitx.RecordRootDecision, error) {
+		return gitx.RecordRootDecision{Kind: request.Kind, Repository: request.Repository,
+			RecordRoot: request.RecordRoot, Commit: request.Commit, Decision: "inert"}, nil
+	}
+	actions, err := protocol.NewActions(protocol.UseGitRepository(repoView), inertness, manifest.GitIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installer := newAuthorityInstaller(actions)
+	admission := approvalAdmission{
+		planBytes:  plan.Bytes(),
+		planDigest: plan.Digest(),
+		reference:  plan.Metadata().ApprovalRef,
+	}
+	if _, err := installer.install(admission, targetP); err != nil {
+		t.Fatal(err)
+	}
+
+	// The command is never made resolvable: the dispatcher fails the test
+	// outright if it is ever invoked, proving no driver.dispatch effect is
+	// even attempted.
+	dispatcher := fixtureDriver(func(
+		_ context.Context,
+		invocation driver.Invocation,
+	) (driver.Observation, error) {
+		t.Fatalf("dispatcher invoked for %s, want no dispatch before the run-start refusal", invocation.Request.InvocationID)
+		return driver.Observation{}, nil
+	})
+
+	store, err := journal.Open(ctx, filepath.Join(t.TempDir(), "run-start-refusal.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	now := time.Date(2026, 9, 27, 5, 6, 7, 0, time.UTC)
+	service := &Service{
+		journal:       store,
+		dispatcher:    dispatcher,
+		gitExecutable: gitExecutable,
+		now:           func() time.Time { return now },
+	}
+
+	status, err := service.Start(ctx, body)
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if status.State != "parked" {
+		t.Fatalf("Start() State = %q, want parked", status.State)
+	}
+	if status.Park == nil || status.Park.Cause != ParkCauseHostEnvironment {
+		t.Fatalf("Start() Park = %#v, want cause host_environment", status.Park)
+	}
+	if status.Park.FailureCode != "HOST_CHECK_ENVIRONMENT" {
+		t.Fatalf("Start() Park.FailureCode = %q", status.Park.FailureCode)
+	}
+	if !strings.Contains(status.Park.FailureDetail, check) ||
+		!strings.Contains(status.Park.FailureDetail, absentCommand) {
+		t.Fatalf("Start() Park.FailureDetail = %q", status.Park.FailureDetail)
+	}
+	if status.Park.Work != "" {
+		t.Fatalf("Start() Park.Work = %q, want empty (run-scoped refusal)", status.Park.Work)
+	}
+
+	snapshot, err := store.Snapshot(ctx, manifest.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, effect := range snapshot.Effects {
+		if effect.Kind == "driver.dispatch" {
+			t.Fatalf("driver.dispatch effect exists: %#v", effect)
+		}
+	}
+}
+
+// TestHostEnvironmentAssemblyPathParksThroughStartStatusAndResume is A1/A2's
+// exact required proof for the assembly path through the real entry
+// points: two independent slices declare a check whose first word ("test")
+// is always resolvable - the run-start gate passes cleanly the whole test
+// long, with no environment mutation needed - and whose body execs an
+// absent absolute path only when both slices' files are present in the
+// workspace: never true for either slice's own single-file candidate, only
+// true for the assembled tree, which composes both. So each slice's own
+// implement-stage host check passes normally, and prepareAssembly's own
+// fresh check.host effect (the reuse rule cannot apply: the composed tree
+// differs from either slice's own tree) hits a genuine exit 127 - the
+// post-run defense in depth, not the pre-spawn classification. The run
+// projects as parked - never running or uncertain - from Start() (owner
+// still held), from a separate Status() (owner released), and from
+// Control(Resume) driven to settlement via Wait; the protocol.
+// prepare_assembly effect never advances past its first try.
+func TestHostEnvironmentAssemblyPathParksThroughStartStatusAndResume(t *testing.T) {
+	ctx := context.Background()
+	repository := productionRepository(t)
+	gitExecutable, err := resolveGitExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	check := "test ! -f one.txt || test ! -f two.txt || exec /no/such/absolute/path-sworn-assembly-xyz"
+	shell, shellErr := hostShell()
+	if shellErr != nil {
+		t.Fatal(shellErr)
+	}
+	if failure, _ := classifyHostCheckExecution(shell, check); failure {
+		t.Fatal("pre-spawn classification wrongly caught the composed-tree-only check")
+	}
+
+	manifest, _, plan := fixtureManifest(t)
+	manifest.Repository = repository
+	metadata := plan.Metadata()
+	for trackIndex := range metadata.Tracks {
+		for sliceIndex := range metadata.Tracks[trackIndex].Slices {
+			slice := &metadata.Tracks[trackIndex].Slices[sliceIndex]
+			slice.Checks = append(append([]string(nil), slice.Checks...), check)
+			slice.HostChecks = []string{check}
+		}
+	}
+	metadataBody, err := json.MarshalIndent(metadata, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	planBytes := []byte(
+		"```protocol-plan-v2\n" + string(metadataBody) +
+			"\n```\n\nHost-environment assembly-path fixture.\n",
+	)
+	plan, err = protocol.ParsePlan(planBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := plan.Digest()
+	manifest.Authority.BootstrapApprovedPlanDigest = &digest
+
+	submission := func(
+		slice string,
+		responsibility driver.Responsibility,
+		protocolAttempt int64,
+	) driver.Submission {
+		script := ScriptedAttempt{Slice: slice, Responsibility: responsibility,
+			ProtocolAttempt: protocolAttempt, Epoch: 1, Try: 1}
+		return driver.Submission{
+			SchemaVersion:  driver.SubmissionSchemaVersion,
+			InvocationID:   invocationID(manifest.RunID, script),
+			Responsibility: responsibility,
+			Summary:        "Exact " + string(responsibility) + " for " + slice + ".",
+			Detail:         "Bounded fixture detail.",
+		}
+	}
+	planner := submission("", driver.PlannerProposal, 1)
+	planner.Plan, _ = driver.NewPlanBytes(planBytes)
+	manifest.Scripts = []ScriptedAttempt{
+		{Responsibility: driver.PlannerProposal, ProtocolAttempt: 1, Epoch: 1, Try: 1,
+			Behavior: "submit", Submission: encodeSubmission(t, planner)},
+	}
+	sliceFile := map[string]string{"S1": "one.txt", "S2": "two.txt"}
+	for _, sliceID := range []string{"S1", "S2"} {
+		design := submission(sliceID, driver.ImplementerDesign, 1)
+		lead := submission(sliceID, driver.LeadReview, 1)
+		lead.Decision, _ = driver.NewDecision(driver.DecisionProceed)
+		implementation := submission(sliceID, driver.ImplementerImplementation, 1)
+		implementation.Checks, _ = driver.NewCheckBytes([]byte("implementation checks\n"))
+		work := submission(sliceID, driver.WorkVerification, 1)
+		work.Checks, _ = driver.NewCheckBytes([]byte("work checks\n"))
+		work.Decision, _ = driver.NewDecision(driver.DecisionPass)
+		manifest.Scripts = append(manifest.Scripts,
+			ScriptedAttempt{Slice: sliceID, Responsibility: driver.ImplementerDesign,
+				ProtocolAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit",
+				Submission: encodeSubmission(t, design)},
+			ScriptedAttempt{Slice: sliceID, Responsibility: driver.LeadReview,
+				ProtocolAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit",
+				Submission: encodeSubmission(t, lead)},
+			ScriptedAttempt{Slice: sliceID, Responsibility: driver.ImplementerImplementation,
+				ProtocolAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit",
+				Submission: encodeSubmission(t, implementation)},
+			ScriptedAttempt{Slice: sliceID, Responsibility: driver.WorkVerification,
+				ProtocolAttempt: 1, Epoch: 1, Try: 1, Behavior: "submit",
+				Submission: encodeSubmission(t, work)},
+		)
+	}
+	body, err := canonicalManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	repoView, err := gitx.Open(repository, gitExecutable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetP := runRuntimeGit(t, repository, "rev-parse", "refs/heads/main")
+	inertness := func(request gitx.RecordRootRequest) (gitx.RecordRootDecision, error) {
+		return gitx.RecordRootDecision{Kind: request.Kind, Repository: request.Repository,
+			RecordRoot: request.RecordRoot, Commit: request.Commit, Decision: "inert"}, nil
+	}
+	actions, err := protocol.NewActions(protocol.UseGitRepository(repoView), inertness, manifest.GitIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installer := newAuthorityInstaller(actions)
+	admission := approvalAdmission{
+		planBytes:  plan.Bytes(),
+		planDigest: plan.Digest(),
+		reference:  plan.Metadata().ApprovalRef,
+	}
+	if _, err := installer.install(admission, targetP); err != nil {
+		t.Fatal(err)
+	}
+
+	submissions := make(map[string][]byte, len(manifest.Scripts))
+	for _, script := range manifest.Scripts {
+		encoded, decodeErr := base64.StdEncoding.DecodeString(script.Submission)
+		if decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		submissions[invocationID(manifest.RunID, script)] = encoded
+	}
+
+	dispatcher := fixtureDriver(func(
+		_ context.Context,
+		invocation driver.Invocation,
+	) (driver.Observation, error) {
+		if invocation.Request.Role == driver.RoleImplementer &&
+			invocation.Request.Workspace.Access == driver.ReadWrite {
+			for sliceID, file := range sliceFile {
+				want := invocationID(manifest.RunID, ScriptedAttempt{
+					Slice: sliceID, Responsibility: driver.ImplementerImplementation,
+					ProtocolAttempt: 1, Epoch: 1, Try: 1,
+				})
+				if invocation.Request.InvocationID != want {
+					continue
+				}
+				if err := os.WriteFile(
+					filepath.Join(invocation.HostWorkspace, file),
+					[]byte("implemented "+sliceID+"\n"), 0o600,
+				); err != nil {
+					return driver.Observation{}, err
+				}
+			}
+		}
+		sub := submissions[invocation.Request.InvocationID]
+		return driver.Observation{
+			TransportStatus: driver.Completed,
+			Usage: driver.UsageReceipt{
+				TokenStatus: driver.UsageUnavailable,
+				CostStatus:  driver.UsageUnavailable,
+			},
+			Diagnostic: driver.Diagnostic{Code: "none"},
+			Handoff: &driver.SealedHandoff{
+				SubmissionBytes:  sub,
+				SubmissionDigest: driver.Digest(sub),
+			},
+		}, nil
+	})
+
+	store, err := journal.Open(ctx, filepath.Join(t.TempDir(), "assembly-path.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	now := time.Date(2026, 9, 27, 6, 7, 8, 0, time.UTC)
+	service := &Service{
+		journal:       store,
+		dispatcher:    dispatcher,
+		gitExecutable: gitExecutable,
+		now:           func() time.Time { return now },
+	}
+
+	requireParkedFacts := func(t *testing.T, label string, status RunStatus) {
+		t.Helper()
+		if status.State != "parked" {
+			t.Fatalf("%s State = %q, want parked", label, status.State)
+		}
+		if status.Park == nil || status.Park.Cause != ParkCauseHostEnvironment {
+			t.Fatalf("%s Park = %#v, want cause host_environment", label, status.Park)
+		}
+		if status.Park.FailureCode != "HOST_CHECK_ENVIRONMENT" {
+			t.Fatalf("%s Park.FailureCode = %q", label, status.Park.FailureCode)
+		}
+		if !strings.Contains(status.Park.FailureDetail, check) {
+			t.Fatalf("%s Park.FailureDetail = %q", label, status.Park.FailureDetail)
+		}
+	}
+
+	status, err := service.Start(ctx, body)
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	requireParkedFacts(t, "Start()", status)
+	if status.Park.Work == "" || !runtimeDigestPattern.MatchString(status.Park.Work) {
+		t.Fatalf("Start() Park.Work = %q, want a work identity", status.Park.Work)
+	}
+	prepareWork := status.Park.Work
+	prepareEffectID := journal.AttemptEffectID(prepareWork, 1, 1)
+	prepareEffect, err := store.Effect(ctx, manifest.RunID, prepareEffectID)
+	if err != nil {
+		t.Fatalf("prepare_assembly try-1 effect lookup = %v", err)
+	}
+	if prepareEffect.Kind != "protocol.prepare_assembly" || prepareEffect.State != journal.Claimed {
+		t.Fatalf("prepare_assembly try-1 effect = %#v", prepareEffect)
+	}
+	for _, try := range []int64{2, 3} {
+		if _, err := store.Effect(
+			ctx, manifest.RunID, journal.AttemptEffectID(prepareWork, 1, try),
+		); !journal.IsCode(err, "EFFECT_NOT_FOUND") {
+			t.Fatalf("prepare_assembly try-%d effect lookup = %v, want EFFECT_NOT_FOUND", try, err)
+		}
+	}
+
+	afterRelease, err := service.Status(ctx, manifest.RunID)
+	if err != nil {
+		t.Fatalf("Status() after release error = %v", err)
+	}
+	requireParkedFacts(t, "Status() after release", afterRelease)
+	if afterRelease.Park.Work != prepareWork {
+		t.Fatalf("Status() after release Park.Work = %q, want %q",
+			afterRelease.Park.Work, prepareWork)
+	}
+
+	if _, err := service.Control(ctx, journal.ControlCommand{
+		RunID: manifest.RunID, ID: "resume-1",
+		Kind: journal.Resume, ExpectedGeneration: 0,
+	}); err != nil {
+		t.Fatalf("Control(Resume) error = %v", err)
+	}
+	resumed, err := service.Wait(ctx, manifest.RunID)
+	if err != nil {
+		t.Fatalf("Wait() after Resume error = %v", err)
+	}
+	requireParkedFacts(t, "Resume", resumed)
+	if resumed.Park.Work != prepareWork {
+		t.Fatalf("Resume Park.Work = %q, want %q", resumed.Park.Work, prepareWork)
+	}
+}
+
 // A2/A4 (S2-pause-safe-host-checks): a pause that lands after the model has
 // already answered and the candidate is already git-sealed - at the
 // git.seal.prepared claim, the #357 production journey's exact window -

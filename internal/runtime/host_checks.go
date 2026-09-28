@@ -322,7 +322,15 @@ func isShellAssignmentWord(field string) bool {
 // the assignment's own value as if it were the command. An unclassifiable
 // check is never treated as a false environment-failure positive; its
 // actual exit code (including a genuine 127) is still what
-// executeHostCheck's post-run defense in depth reads.
+// executeHostCheck's post-run defense in depth reads. A first non-
+// assignment word that opens a POSIX compound command - '(' (a subshell,
+// for example "(cd dir && make)") or '{' (a brace group, for example
+// "{ a; b; }") - is also honestly unclassifiable rather than a false
+// environment-failure positive naming that literal opener as a missing
+// command (S6-host-environment-park-projection A5(i)): the shell resolves
+// the compound command as a whole, not a leading simple-command word, so
+// this returns "" and defers entirely to the real exit code, the same way
+// an unclassifiable assignment value already does.
 func hostCheckCommandWord(check string) string {
 	for _, field := range strings.Fields(check) {
 		if isShellAssignmentWord(field) {
@@ -330,6 +338,9 @@ func hostCheckCommandWord(check string) string {
 				return ""
 			}
 			continue
+		}
+		if strings.HasPrefix(field, "(") || strings.HasPrefix(field, "{") {
+			return ""
 		}
 		return field
 	}
@@ -690,16 +701,25 @@ func (s *Service) executeHostCheck(
 			return parseHostCheckResult(sliceID, candidate, contractDigest, check, effectID, recorded)
 		}
 	}
-	if shell, shellErr := hostShell(); shellErr == nil {
-		if environmentFailure, missingCommand := classifyHostCheckExecution(shell, check); environmentFailure {
-			if journalErr := s.journalHostEnvironmentClassification(
-				ctx, engine, owner, boundWork, effectID,
-				sliceID, candidate, contractDigest, check, missingCommand,
-			); journalErr != nil {
-				return hostCheckResult{}, journalErr
-			}
-			return hostCheckResult{}, runtimeFail("EFFECT_PARKED", nil)
+	shell, shellErr := hostShell()
+	if shellErr != nil {
+		// S6-host-environment-park-projection A5(ii): fail closed with the
+		// identical typed code validateHostCheckEnvironment (the run-start
+		// gate) already uses for the same resolution failure, instead of
+		// silently skipping classification and falling through to a plain
+		// execution attempt. This is a synthetic in-memory error - nothing
+		// is journaled for it - so it cannot spend this try or become
+		// repair input; see implementSlice's and runAction's catch chains.
+		return hostCheckResult{}, runtimeFail("HOST_SHELL_UNAVAILABLE", shellErr)
+	}
+	if environmentFailure, missingCommand := classifyHostCheckExecution(shell, check); environmentFailure {
+		if journalErr := s.journalHostEnvironmentClassification(
+			ctx, engine, owner, boundWork, effectID,
+			sliceID, candidate, contractDigest, check, missingCommand,
+		); journalErr != nil {
+			return hostCheckResult{}, journalErr
 		}
+		return hostCheckResult{}, runtimeFail("EFFECT_PARKED", nil)
 	}
 	oid, err := gitx.ParseOID(engine.repository.ObjectFormat(), candidate)
 	if err != nil {
@@ -1344,19 +1364,28 @@ func (s *Service) recoverHostCheckClaims(
 			// genuinely needs recovering, so this function never returns
 			// true (and drives an unbounded rescan) for a claim that is
 			// staying Claimed on purpose.
-			if shell, shellErr := hostShell(); shellErr == nil {
-				if environmentFailure, missingCommand := classifyHostCheckExecution(
-					shell, commandValue.Check,
-				); environmentFailure {
-					if journalErr := s.journalHostEnvironmentClassification(
-						ctx, engine, owner, boundWork, effect.ID,
-						commandValue.Slice, commandValue.Candidate,
-						commandValue.ContractDigest, commandValue.Check, missingCommand,
-					); journalErr != nil {
-						return true, journalErr
-					}
-					continue
+			shell, shellErr := hostShell()
+			if shellErr != nil {
+				// S6-host-environment-park-projection A5(ii): fail closed
+				// with the identical typed code the fresh-claim path and
+				// the run-start gate both use, instead of silently
+				// skipping classification and falling through to
+				// executeHostCheckFromRecovery. This effect stays exactly
+				// Claimed - nothing here completes it - so returning this
+				// error cannot spend a try or become repair input.
+				return true, runtimeFail("HOST_SHELL_UNAVAILABLE", shellErr)
+			}
+			if environmentFailure, missingCommand := classifyHostCheckExecution(
+				shell, commandValue.Check,
+			); environmentFailure {
+				if journalErr := s.journalHostEnvironmentClassification(
+					ctx, engine, owner, boundWork, effect.ID,
+					commandValue.Slice, commandValue.Candidate,
+					commandValue.ContractDigest, commandValue.Check, missingCommand,
+				); journalErr != nil {
+					return true, journalErr
 				}
+				continue
 			}
 			result, runErr := s.executeHostCheckFromRecovery(
 				ctx, engine, owner, effect, commandValue)
