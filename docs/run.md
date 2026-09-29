@@ -836,7 +836,12 @@ start-of-cycle recovery sweep, and the assembly host-check path inside
 `prepare_assembly`. It is always layered over the lower-level
 `CONTROL_STOPPED` (the run's desired state) or `OPERATION_CANCELLED` (a
 cancelled context observed mid-write) that first detected the stop, never
-raised on its own. `RUN_STOPPED` is never itself journaled as an effect's
+raised on its own. A recovery whose outcome is unknown is not a stop, even
+when the stop caused it: in the recovery sweep, `RECOVERY_UNCERTAIN`,
+`RECOVERY_FAILED` and `REF_TRANSACTION_RECOVERY_REQUIRED` keep their own
+codes, because a ref transaction interrupted mid-write is exactly what the
+operator must see, and a step's own timeout is reported as itself.
+`RUN_STOPPED` is never itself journaled as an effect's
 error code: wherever it is returned, the effect it stopped is left exactly
 where the stop found it - Claimed, not completed as operationally failed -
 so the try it was on is never spent and a later resume continues the same

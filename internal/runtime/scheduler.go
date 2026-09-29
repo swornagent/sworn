@@ -6308,26 +6308,59 @@ func (s *Service) recoverImplementationClaims(ctx context.Context, engine *engin
 	return false, nil
 }
 
-// normalizeRecoveryStop maps a raw CONTROL_STOPPED, OPERATION_CANCELLED, or
-// bare context cancellation surfacing from one of recoverClaimedEffects'
-// steps onto the same RUN_STOPPED code the drive loop and prepareHandoff
-// already use for a pause or cancel mid-flight, so a stop that lands during
-// the start-of-cycle recovery sweep (recoverImplementationCycle in
-// particular, which journals through ordinary owned primitives) is
-// recognisable as a stop rather than an opaque error
-// (S7-pause-safe-host-checks-repair A3). An error already carrying
-// RUN_STOPPED, or any other error, passes through unchanged.
-func normalizeRecoveryStop(err error) error {
-	if err == nil || IsCode(err, "RUN_STOPPED") {
+// normalizeRecoveryStop maps a stop the run itself requested, surfacing raw
+// from one of recoverClaimedEffects' steps, onto the same RUN_STOPPED code the
+// drive loop and prepareHandoff already use for a pause or cancel mid-flight,
+// so a stop that lands during the start-of-cycle recovery sweep
+// (recoverImplementationCycle in particular, which journals through ordinary
+// owned primitives) is recognisable as a stop rather than an opaque error
+// (S7-pause-safe-host-checks-repair A3). A stop the run requested is a
+// CONTROL_STOPPED or OPERATION_CANCELLED journal refusal, or a cancellation
+// while the run's own context is cancelled. A recovery whose outcome is
+// unknown keeps its own code even when a cancellation sits inside it: a
+// `git update-ref` killed mid-transaction is exactly the ambiguous state the
+// operator must see (#373). A deadline is a step's own timeout, never a stop.
+// An error already carrying RUN_STOPPED, or any other error, passes through
+// unchanged.
+func normalizeRecoveryStop(ctx context.Context, err error) error {
+	if err == nil || IsCode(err, "RUN_STOPPED") || recoveryOutcomeUnknown(err) {
 		return err
 	}
 	if journal.IsCode(err, "CONTROL_STOPPED") ||
 		journal.IsCode(err, "OPERATION_CANCELLED") ||
-		errors.Is(err, context.Canceled) ||
-		errors.Is(err, context.DeadlineExceeded) {
+		(errors.Is(err, context.Canceled) && ctx.Err() != nil) {
 		return runtimeFail("RUN_STOPPED", err)
 	}
 	return err
+}
+
+// recoveryOutcomeUnknown reports whether any error in err's chain, joined
+// errors included, says an effect's or a ref transaction's recovery outcome
+// is uncertain or failed.
+func recoveryOutcomeUnknown(err error) bool {
+	switch e := err.(type) {
+	case nil:
+		return false
+	case *Error:
+		if e.Code == "RECOVERY_UNCERTAIN" || e.Code == "RECOVERY_FAILED" {
+			return true
+		}
+	case *gitx.Error:
+		if e.Code == "REF_TRANSACTION_RECOVERY_REQUIRED" {
+			return true
+		}
+	}
+	switch wrapped := err.(type) {
+	case interface{ Unwrap() error }:
+		return recoveryOutcomeUnknown(wrapped.Unwrap())
+	case interface{ Unwrap() []error }:
+		for _, inner := range wrapped.Unwrap() {
+			if recoveryOutcomeUnknown(inner) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (s *Service) recoverClaimedEffects(
@@ -6342,21 +6375,21 @@ func (s *Service) recoverClaimedEffects(
 			owner,
 		)
 		if err != nil {
-			return normalizeRecoveryStop(err)
+			return normalizeRecoveryStop(ctx, err)
 		}
 		if recovered {
 			continue
 		}
 		recovered, err = s.recoverImplementationClaims(ctx, engine, owner)
 		if err != nil {
-			return normalizeRecoveryStop(err)
+			return normalizeRecoveryStop(ctx, err)
 		}
 		if recovered {
 			continue
 		}
 		recovered, err = s.recoverClaimedProtocolAction(ctx, engine, owner)
 		if err != nil {
-			return normalizeRecoveryStop(err)
+			return normalizeRecoveryStop(ctx, err)
 		}
 		if recovered {
 			continue
@@ -6364,7 +6397,7 @@ func (s *Service) recoverClaimedEffects(
 		recovered, err = s.recoverStaleClaimedDispatches(
 			ctx, engine, owner)
 		if err != nil {
-			return normalizeRecoveryStop(err)
+			return normalizeRecoveryStop(ctx, err)
 		}
 		if recovered {
 			continue
@@ -6372,7 +6405,7 @@ func (s *Service) recoverClaimedEffects(
 		recovered, err = s.recoverHostCheckClaims(
 			ctx, engine, owner)
 		if err != nil {
-			return normalizeRecoveryStop(err)
+			return normalizeRecoveryStop(ctx, err)
 		}
 		if recovered {
 			continue
