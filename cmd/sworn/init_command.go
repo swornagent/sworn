@@ -1091,21 +1091,7 @@ func agentReportedVersion(
 	family driver.ProfileFamily,
 	output string,
 ) (string, bool) {
-	trimmed := strings.TrimSuffix(output, "\n")
-	var value string
-	var ok bool
-	switch family {
-	case driver.ProfileCodex:
-		value, ok = strings.CutPrefix(trimmed, "codex-cli ")
-	case driver.ProfileClaude:
-		value, ok = strings.CutSuffix(trimmed, " (Claude Code)")
-	}
-	// Cut returns the input unchanged when it does not match, which would hand
-	// a caller a plausible-looking version that was never reported.
-	if !ok || value == "" {
-		return "", false
-	}
-	return value, true
+	return driver.NativeCLIVersion(family, strings.TrimSuffix(output, "\n"))
 }
 
 func agentCredentialSource(family driver.ProfileFamily) string {

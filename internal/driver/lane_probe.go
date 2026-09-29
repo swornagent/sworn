@@ -50,6 +50,9 @@ type LaneProbeResult struct {
 	Message             string         `json:"message,omitempty"`
 	RequestID           string         `json:"request_id,omitempty"`
 	LatencyMillis       int64          `json:"latency_ms"`
+	// CLICompatibility is present for native CLI lanes only, exactly as
+	// doctor and certify report it.
+	CLICompatibility *NativeCLICompatibility `json:"cli_compatibility,omitempty"`
 }
 
 // ProbeLane sends one minimal, bounded live request to an explicitly named
@@ -98,6 +101,7 @@ func ProbeLane(
 			probeLoopAdapter(probeCtx, adapter, selected.Profile.CredentialRef, model)
 	case *nativeAdapter:
 		result.Family = adapter.profileFamily()
+		result.CLICompatibility = adapter.cliCompatibility()
 		result.Ready, result.Code =
 			probeNativeAdapter(probeCtx, adapter, selected.Profile.CredentialRef)
 	case *ProcessAdapter:

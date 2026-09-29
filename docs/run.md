@@ -602,6 +602,24 @@ files and no longer changes admission. To move to a new CLI release, point
 `version_output`; the new configuration digest then goes into the next run's
 manifest.
 
+A CLI that updates itself does not need a frozen copy. Set
+`"cli_resolution":"run_snapshot"` on the native adapter, point `cli.path` at
+the installed command by absolute path (a symlink such as
+`/home/you/.local/bin/claude` is followed; a bare command name is refused),
+and leave out `cli.digest`, `cli_version` and `version_output`. When a run
+starts, Sworn copies the CLI into a read-only store under
+`$SWORN_ARTEFACT_HOME/native-cli-snapshots` (default
+`~/.local/share/sworn/native-cli-snapshots`), names the copy by its SHA-256,
+and records its path, digest and `--version` output as a
+`native_cli_snapshot` event before the first dispatch. Every dispatch, restart
+and `sworn retry` in that run uses that copy and never reads the installed CLI
+again. A run that cannot take the copy stops with
+`NATIVE_CLI_SNAPSHOT_UNAVAILABLE`; a copy that later goes missing or changes
+stops it with `NATIVE_CLI_SNAPSHOT_INVALID` and is never replaced.
+`sworn driver doctor`, `probe` and `certify` read the installed CLI the same
+way, without copying it, and report the version a run would take in
+`cli_compatibility`.
+
 A header credential file may end in a line ending, which is ignored. A file
 that is otherwise empty, or that holds any other control byte, is refused as
 `CREDENTIAL_MALFORMED`, and `sworn driver doctor` fails it as

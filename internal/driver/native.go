@@ -32,6 +32,13 @@ const (
 	NativePinModeMinor = "minor"
 )
 
+// NativeCLIResolutionRunSnapshot opts a native adapter in to a run-start
+// snapshot of its host CLI instead of a hand-maintained pinned copy. The
+// adapter then names the host binary by path alone; each run copies the bytes
+// once into a content-addressed store, records the copy as a run fact, and
+// every dispatch in that run executes the copy.
+const NativeCLIResolutionRunSnapshot = "run_snapshot"
+
 type PinnedRuntimeFile struct {
 	Path   string `json:"path"`
 	Target string `json:"target"`
@@ -65,8 +72,8 @@ type NativeAdapterConfig struct {
 	Version                string              `json:"version"`
 	Family                 ProfileFamily       `json:"family"`
 	CLI                    ExecutableIdentity  `json:"cli"`
-	CLIVersion             string              `json:"cli_version"`
-	VersionOutput          string              `json:"version_output"`
+	CLIVersion             string              `json:"cli_version,omitempty"`
+	VersionOutput          string              `json:"version_output,omitempty"`
 	RuntimeFiles           []PinnedRuntimeFile `json:"runtime_files"`
 	RequiredRuntimeTargets []string            `json:"required_runtime_targets"`
 	CredentialTarget       string              `json:"credential_target"`
@@ -79,6 +86,12 @@ type NativeAdapterConfig struct {
 	// self-reported version shares the pinned major.minor. The credential
 	// target stays an exact comparison in both modes.
 	PinMode string `json:"pin_mode,omitempty"`
+	// CLIResolution is additive and omitempty like PinMode. Absent, the CLI
+	// fields above pin one exact binary. NativeCLIResolutionRunSnapshot
+	// instead names the host binary by cli.path alone and leaves cli.digest,
+	// cli_version and version_output absent: each run binds them from its
+	// own snapshot fact (see NativeCLISnapshot).
+	CLIResolution string `json:"cli_resolution,omitempty"`
 }
 
 // NativeSmokeInvocations supplies the separately authorized invocations used
@@ -192,12 +205,8 @@ func NewNativeAdapter(
 	if resolver == nil {
 		return nil, failWithDetail("INVALID_ADAPTER", "credential_resolver")
 	}
-	if err := validateNativeConfig(config); err != nil {
-		var contractErr *ContractError
-		if errors.As(err, &contractErr) && contractErr.Detail != "" {
-			return nil, failWithDetail("INVALID_ADAPTER", contractErr.Detail)
-		}
-		return nil, fail("INVALID_ADAPTER")
+	if err := admitNativeConfig(config); err != nil {
+		return nil, err
 	}
 	refs := make(map[string]struct{}, len(config.CredentialRefs))
 	for _, ref := range config.CredentialRefs {
@@ -230,12 +239,47 @@ func NewNativeAdapter(
 	}, nil
 }
 
+// admitNativeConfig reports a validation refusal as INVALID_ADAPTER, keeping
+// the refusal's own detail.
+func admitNativeConfig(config NativeAdapterConfig) error {
+	if err := validateNativeConfig(config); err != nil {
+		var contractErr *ContractError
+		if errors.As(err, &contractErr) && contractErr.Detail != "" {
+			return failWithDetail("INVALID_ADAPTER", contractErr.Detail)
+		}
+		return fail("INVALID_ADAPTER")
+	}
+	return nil
+}
+
 func validateNativeConfig(config NativeAdapterConfig) error {
-	if validateExecutableIdentity(config.CLI) != nil {
-		return failWithDetail("NATIVE_NOT_CERTIFIED", "cli_identity")
+	snapshot := false
+	switch config.CLIResolution {
+	case "":
+		if validateExecutableIdentity(config.CLI) != nil {
+			return failWithDetail("NATIVE_NOT_CERTIFIED", "cli_identity")
+		}
+	case NativeCLIResolutionRunSnapshot:
+		// The host path is the only CLI fact a snapshot declaration carries.
+		// It must be absolute: a bare name would resolve through the PATH of
+		// whichever process read the file, so doctor and serve could bind
+		// different binaries. It need not exist yet; each run resolves it at
+		// start. A digest, version or version output beside the opt-in is
+		// refused, never ignored.
+		if config.CLI.Path == "" || !filepath.IsAbs(config.CLI.Path) ||
+			filepath.Clean(config.CLI.Path) != config.CLI.Path {
+			return failWithDetail("NATIVE_NOT_CERTIFIED", "cli_identity")
+		}
+		if config.CLI.Digest != "" || config.CLIVersion != "" ||
+			config.VersionOutput != "" {
+			return failWithDetail("NATIVE_NOT_CERTIFIED", "cli_resolution_pinned")
+		}
+		snapshot = true
+	default:
+		return failWithDetail("NATIVE_NOT_CERTIFIED", "cli_resolution")
 	}
 	if config.MaxCredentialBytes < 1 || config.MaxCredentialBytes > 1_048_576 ||
-		config.VersionOutput == "" || len(config.VersionOutput) > 256 {
+		(!snapshot && (config.VersionOutput == "" || len(config.VersionOutput) > 256)) {
 		return failWithDetail("NATIVE_NOT_CERTIFIED", "cli_admission_bounds")
 	}
 	switch config.PinMode {
@@ -257,10 +301,10 @@ func validateNativeConfig(config NativeAdapterConfig) error {
 	if config.CredentialTarget != credentialTarget {
 		return failWithDetail("NATIVE_NOT_CERTIFIED", "credential_target")
 	}
-	if !versionPattern.MatchString(config.CLIVersion) {
+	if !snapshot && !versionPattern.MatchString(config.CLIVersion) {
 		return failWithDetail("NATIVE_NOT_CERTIFIED", "version")
 	}
-	if config.VersionOutput != versionOutput {
+	if !snapshot && config.VersionOutput != versionOutput {
 		return failWithDetail("NATIVE_NOT_CERTIFIED", "version_output")
 	}
 	if !filepath.IsAbs(config.CredentialTarget) ||

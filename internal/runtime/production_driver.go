@@ -61,25 +61,59 @@ func manifestProfiles(manifest Manifest) []string {
 	return slices.Compact(profiles)
 }
 
-func (runtime *productionDriverRuntime) registryFor(
+// checkManifestBinding refuses a manifest bound to a different driver config.
+func (runtime *productionDriverRuntime) checkManifestBinding(
 	manifest admittedManifest,
-) (*configuredRuntimeRegistry, error) {
+) error {
 	if runtime == nil {
-		return nil, runtimeFail("DRIVER_CONFIG_UNAVAILABLE", nil)
+		return runtimeFail("DRIVER_CONFIG_UNAVAILABLE", nil)
 	}
 	if manifest.value.DriverConfigDigest != runtime.digest ||
 		sha256Digest(runtime.body) != runtime.digest {
-		return nil, runtimeFail("DRIVER_CONFIG_DRIFT", nil)
+		return runtimeFail("DRIVER_CONFIG_DRIFT", nil)
+	}
+	return nil
+}
+
+// nativeCLISnapshotAdapters names the run-snapshot native adapters the
+// manifest's profiles use.
+func (runtime *productionDriverRuntime) nativeCLISnapshotAdapters(
+	manifest admittedManifest,
+) ([]string, error) {
+	if err := runtime.checkManifestBinding(manifest); err != nil {
+		return nil, err
+	}
+	return runtime.config.NativeCLISnapshotAdapters(
+		manifestProfiles(manifest.value),
+	), nil
+}
+
+// registryFor builds, once per profile set and bound snapshot set, the
+// registry a run dispatches through. snapshots holds the run's verified
+// native CLI snapshot facts by adapter key.
+func (runtime *productionDriverRuntime) registryFor(
+	manifest admittedManifest,
+	snapshots map[string]driver.NativeCLISnapshot,
+) (*configuredRuntimeRegistry, error) {
+	if err := runtime.checkManifestBinding(manifest); err != nil {
+		return nil, err
 	}
 	profiles := manifestProfiles(manifest.value)
 	key := strings.Join(profiles, "\x00")
+	for _, adapter := range slices.Sorted(maps.Keys(snapshots)) {
+		snapshot := snapshots[adapter]
+		key += "\x00" + adapter + "\x00" + snapshot.SnapshotPath +
+			"\x00" + snapshot.Digest + "\x00" + snapshot.VersionOutput
+	}
+	options := runtime.options
+	options.NativeCLISnapshots = snapshots
 
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
 	if existing := runtime.registries[key]; existing != nil {
 		return existing, nil
 	}
-	registry, err := runtime.config.BuildRegistry(profiles, runtime.options)
+	registry, err := runtime.config.BuildRegistry(profiles, options)
 	if err != nil || registry.ConfigurationDigest() != runtime.digest {
 		return nil, runtimeFail("DRIVER_UNAVAILABLE", err)
 	}

@@ -328,6 +328,30 @@ func TestReconcileManyIsAtomicAcrossRelatedClaims(t *testing.T) {
 	}
 }
 
+func TestCommandReadsOneRecordedCommandAndRejectsCorruption(t *testing.T) {
+	store, run, command, _ := journalFixture(t)
+	ctx := context.Background()
+	read, err := store.Command(ctx, run.ID, command.ReplayKey)
+	if err != nil || read.RunID != run.ID || read.ReplayKey != command.ReplayKey ||
+		read.Kind != command.Kind || !bytes.Equal(read.Payload, command.Payload) ||
+		!read.CreatedAt.Equal(command.CreatedAt) {
+		t.Fatalf("Command() = %+v, %v; want %+v", read, err, command)
+	}
+	if _, err := store.Command(ctx, run.ID, "absent"); !IsCode(err, "COMMAND_NOT_FOUND") {
+		t.Fatalf("absent command error = %v, want COMMAND_NOT_FOUND", err)
+	}
+	if _, err := store.conn.ExecContext(
+		ctx,
+		`UPDATE commands SET payload = ? WHERE run_id = ? AND replay_key = ?`,
+		[]byte("mutated"), run.ID, command.ReplayKey,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Command(ctx, run.ID, command.ReplayKey); !IsCode(err, "CORRUPT_JOURNAL") {
+		t.Fatalf("corrupt command error = %v, want CORRUPT_JOURNAL", err)
+	}
+}
+
 func TestSnapshotRejectsCorruptCommandPayloadBinding(t *testing.T) {
 	for _, test := range []struct {
 		name  string
