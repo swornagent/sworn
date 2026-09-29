@@ -495,6 +495,171 @@ func TestNativeBrokerConnectionLimitIsFixed(t *testing.T) {
 	}
 }
 
+// TestNativeBrokerCallBudgetCrossingMovesBrokerTerminal pins A1
+// (S4-broker-budget-and-turn-cap): the exact request whose own count
+// crosses MaxBrokerCalls moves the broker to brokerTerminal, closes
+// Terminal(), and records the crossing so runNative can build its typed
+// failure - all as one atomic step under the broker's own lock, mirroring
+// finish()'s own transition rather than merely answering "closed" without
+// ever transitioning state (the bug this fix closes).
+func TestNativeBrokerCallBudgetCrossingMovesBrokerTerminal(t *testing.T) {
+	invocation, _, _ := memoryInvocationFixture(t)
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	broker, err := newNativeBroker(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer broker.Close()
+	capability := broker.capability()
+	defer clearBytes(capability)
+	openNativeBrokerForTest(t, broker, capability)
+
+	select {
+	case <-broker.Terminal():
+		t.Fatal("broker already terminal after handshake")
+	default:
+	}
+	if broker.BudgetExhausted() {
+		t.Fatal("BudgetExhausted before any crossing")
+	}
+
+	// The handshake in openNativeBrokerForTest already spent 3 calls
+	// (initialize, notifications/initialized, tools/list). Drive the
+	// remaining calls up to and past MaxBrokerCalls with cheap,
+	// already-listed tools/list requests: the top gate counts every
+	// request regardless of what it asks, so the exact response each of
+	// these gets (a "state_invalid" conflict, since the broker is already
+	// listed) is irrelevant to the crossing itself.
+	listRequest := map[string]any{
+		"jsonrpc": "2.0", "id": 200, "method": "tools/list",
+		"params": map[string]any{},
+	}
+	const handshakeCalls = 3
+	needed := MaxBrokerCalls - handshakeCalls + 1
+	var lastStatus int
+	var lastBody []byte
+	for index := 0; index < needed; index++ {
+		lastStatus, lastBody = brokerRequestWithContext(
+			t, context.Background(), broker, capability, listRequest,
+		)
+	}
+	if lastStatus != http.StatusConflict ||
+		!bytes.Contains(lastBody, []byte(`"message":"closed"`)) {
+		t.Fatalf("crossing request = %d %s", lastStatus, lastBody)
+	}
+	select {
+	case <-broker.Terminal():
+	default:
+		t.Fatal("budget crossing did not close broker")
+	}
+	if !broker.BudgetExhausted() {
+		t.Fatal("BudgetExhausted stayed false after crossing")
+	}
+	if got := broker.BudgetExhaustedCalls(); got != MaxBrokerCalls+1 {
+		t.Fatalf("BudgetExhaustedCalls = %d, want %d", got, MaxBrokerCalls+1)
+	}
+	broker.mu.Lock()
+	state := broker.state
+	broker.mu.Unlock()
+	if state != brokerTerminal {
+		t.Fatalf("state = %v, want brokerTerminal", state)
+	}
+}
+
+// TestNativeBrokerStrayRequestAfterUnrelatedTerminalNeverSetsBudgetFlag
+// pins A1's other half: a request that arrives after the broker is
+// already terminal for an unrelated reason (an accepted submission, a
+// RECOVERY_STEP_REFUSED close) with the calls counter already past
+// MaxBrokerCalls must never retroactively claim the budget crossing -
+// BudgetExhausted stays false, because this exact request's own crossing
+// is not what moved the broker into terminal.
+func TestNativeBrokerStrayRequestAfterUnrelatedTerminalNeverSetsBudgetFlag(t *testing.T) {
+	invocation, _, _ := memoryInvocationFixture(t)
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	broker, err := newNativeBroker(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer broker.Close()
+	capability := broker.capability()
+	defer clearBytes(capability)
+	openNativeBrokerForTest(t, broker, capability)
+
+	// Simulate the broker finishing for an unrelated reason (as an
+	// accepted submission or a RECOVERY_STEP_REFUSED close would) while
+	// the calls counter is already past MaxBrokerCalls.
+	broker.mu.Lock()
+	broker.calls = MaxBrokerCalls + 1
+	broker.mu.Unlock()
+	broker.finish(brokerTerminal)
+	if broker.BudgetExhausted() {
+		t.Fatal("finishing for an unrelated reason set BudgetExhausted")
+	}
+
+	status, body := brokerRequestWithContext(
+		t,
+		context.Background(),
+		broker,
+		capability,
+		toolCallRequest(999, "Read", map[string]any{
+			"path": GuestWorkspacePath,
+		}),
+	)
+	if status != http.StatusConflict ||
+		!bytes.Contains(body, []byte(`"message":"closed"`)) {
+		t.Fatalf("stray request = %d %s", status, body)
+	}
+	if broker.BudgetExhausted() {
+		t.Fatal("stray request after unrelated terminal set BudgetExhausted")
+	}
+	if got := broker.BudgetExhaustedCalls(); got != 0 {
+		t.Fatalf("BudgetExhaustedCalls = %d, want 0", got)
+	}
+}
+
+// TestNativeBrokerRefusedCallCounterSaturatesAtMaxRefusedBrokerCalls pins
+// A3's saturating source-side ceiling: requests keep arriving (and would
+// keep counting as refused) after the broker goes terminal until the
+// engine's SIGTERM actually lands, so the counter must stop growing well
+// before UsageReceipt.RefusedToolCalls' own encode-time bound - the same
+// MaxRefusedBrokerCalls constant - could ever reject the failure receipt
+// that carries it.
+func TestNativeBrokerRefusedCallCounterSaturatesAtMaxRefusedBrokerCalls(t *testing.T) {
+	invocation, _, _ := memoryInvocationFixture(t)
+	session, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	broker, err := newNativeBroker(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer broker.Close()
+	capability := broker.capability()
+	defer clearBytes(capability)
+	openNativeBrokerForTest(t, broker, capability)
+	broker.Cancel()
+
+	request := toolCallRequest(300, "Read", map[string]any{
+		"path": GuestWorkspacePath,
+	})
+	for index := 0; index < MaxRefusedBrokerCalls+50; index++ {
+		brokerRequestWithContext(t, context.Background(), broker, capability, request)
+	}
+	if got := broker.refusedCallTotal(); got != MaxRefusedBrokerCalls {
+		t.Fatalf("refusedCallTotal = %d, want saturated at %d", got, MaxRefusedBrokerCalls)
+	}
+}
+
 type brokerHTTPResult struct {
 	status int
 	body   []byte
@@ -608,5 +773,301 @@ func toolCallRequest(id int, name string, arguments any) map[string]any {
 	return map[string]any{
 		"jsonrpc": "2.0", "id": id, "method": "tools/call",
 		"params": map[string]any{"name": name, "arguments": arguments},
+	}
+}
+
+// stubBrokerSession is a minimal nativeBrokerSession whose tool schema can
+// be flipped malformed on demand, so a test can deterministically drive
+// listTools' own -32603 "internal" branch (A3, S9-broker-budget-and-
+// turn-cap-repair) without needing a real, always-valid toolSession.
+type stubBrokerSession struct {
+	malformedSchema bool
+}
+
+func (session *stubBrokerSession) brokerToolDefinitions() []providerToolDefinition {
+	schema := json.RawMessage(`{"type":"object"}`)
+	if session.malformedSchema {
+		schema = json.RawMessage(`{`)
+	}
+	return []providerToolDefinition{
+		{Name: "Probe", Description: "probe", InputSchema: schema},
+	}
+}
+
+func (session *stubBrokerSession) execute(
+	context.Context,
+	providerToolCall,
+) providerToolResult {
+	return providerToolResult{Content: []byte("ok")}
+}
+
+func (session *stubBrokerSession) terminated() (bool, error) { return false, nil }
+func (session *stubBrokerSession) observeToolResultTurn(int64, []providerToolResult) {
+}
+func (session *stubBrokerSession) observeWorkerTurn(WorkerTurn) {}
+func (session *stubBrokerSession) dropWorkerTurnEvent()         {}
+func (session *stubBrokerSession) redactionSecrets() [][]byte   { return nil }
+
+// TestNativeBrokerCountsEveryRefusalKindAndExcludesPreAuthRequests pins A3
+// (S9-broker-budget-and-turn-cap-repair): every broker request that spends
+// a calls unit is counted as executed, refused, or handshake, so the
+// counts add up to the calls made - including the three real gaps this
+// slice closes (initialize's protocol_refused/invalid_params/state_invalid
+// branches, the notifications/initialized error branch, and listTools'
+// state_invalid and -32603 internal branches, none of which called
+// incrementRefused before this fix) - while the two pre-auth request
+// shapes that spend no calls unit at all (a malformed transport request,
+// an unauthorized request) are proven to land in neither total.
+func TestNativeBrokerCountsEveryRefusalKindAndExcludesPreAuthRequests(t *testing.T) {
+	// Broker 1 never completes the handshake: it exercises the pre-auth
+	// exclusions, method_not_found, initialize's protocol_refused and
+	// invalid_params branches (both repeatable, since a failed initialize
+	// never sets broker.initialized), and tools/call's not_open.
+	invocation, _, _ := memoryInvocationFixture(t)
+	session1, err := newToolSession(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session1.Close()
+	broker1, err := newNativeBroker(session1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer broker1.Close()
+	capability1 := broker1.capability()
+	defer clearBytes(capability1)
+
+	badContentType := rawBrokerRequest(
+		broker1, capability1,
+		map[string]any{
+			"jsonrpc": "2.0", "id": 1, "method": "tools/list",
+			"params": map[string]any{},
+		},
+		"", "", "text/plain",
+	)
+	if badContentType.err != nil || badContentType.status != http.StatusBadRequest {
+		t.Fatalf("pre-auth transport-shape rejection = %#v", badContentType)
+	}
+	badAuth := rawBrokerRequestWithAuthorization(
+		broker1, "Bearer wrong-token-value",
+		map[string]any{
+			"jsonrpc": "2.0", "id": 2, "method": "tools/list",
+			"params": map[string]any{},
+		},
+	)
+	if badAuth.err != nil || badAuth.status != http.StatusUnauthorized {
+		t.Fatalf("pre-auth unauthorized rejection = %#v", badAuth)
+	}
+	broker1.mu.Lock()
+	preAuthCalls := broker1.calls
+	broker1.mu.Unlock()
+	if preAuthCalls != 0 {
+		t.Fatalf(
+			"pre-auth rejections spent a calls unit: calls = %d, want 0",
+			preAuthCalls,
+		)
+	}
+	if got := broker1.refusedCallTotal(); got != 0 {
+		t.Fatalf(
+			"pre-auth rejections counted as refused: refusedCallTotal = %d, want 0",
+			got,
+		)
+	}
+
+	var wantRefused1 int64
+
+	status, body := brokerRequest(t, broker1, capability1, map[string]any{
+		"jsonrpc": "2.0", "id": 3, "method": "unknown/method",
+		"params": map[string]any{},
+	})
+	if status != http.StatusNotFound ||
+		!bytes.Contains(body, []byte(`"message":"method_not_found"`)) {
+		t.Fatalf("method_not_found = %d %s", status, body)
+	}
+	wantRefused1++
+
+	for index := 0; index < 2; index++ {
+		status, body = brokerRequest(t, broker1, capability1, map[string]any{
+			"jsonrpc": "2.0", "id": 10 + index, "method": "initialize",
+			"params": map[string]any{
+				"protocolVersion": "1999-01-01",
+				"capabilities":    map[string]any{},
+				"clientInfo": map[string]any{
+					"name": "probe", "version": "1",
+				},
+			},
+		})
+		if status != http.StatusBadRequest ||
+			!bytes.Contains(body, []byte(`"message":"protocol_refused"`)) {
+			t.Fatalf("protocol_refused = %d %s", status, body)
+		}
+		wantRefused1++
+	}
+
+	status, body = brokerRequest(t, broker1, capability1, map[string]any{
+		"jsonrpc": "2.0", "id": 12, "method": "initialize",
+		"params": map[string]any{
+			"protocolVersion": "2025-06-18",
+			"capabilities":    map[string]any{"ambient": map[string]any{}},
+			"clientInfo":      map[string]any{"name": "probe", "version": "1"},
+		},
+	})
+	if status != http.StatusBadRequest ||
+		!bytes.Contains(body, []byte(`"message":"invalid_params"`)) {
+		t.Fatalf("initialize invalid_params = %d %s", status, body)
+	}
+	wantRefused1++
+
+	status, body = brokerRequest(
+		t, broker1, capability1,
+		toolCallRequest(13, "Read", map[string]any{"path": GuestWorkspacePath}),
+	)
+	if status != http.StatusConflict ||
+		!bytes.Contains(body, []byte(`"message":"not_open"`)) {
+		t.Fatalf("not_open = %d %s", status, body)
+	}
+	wantRefused1++
+
+	if got := broker1.refusedCallTotal(); got != wantRefused1 {
+		t.Fatalf("broker1 refusedCallTotal = %d, want %d", got, wantRefused1)
+	}
+	broker1.mu.Lock()
+	calls1 := broker1.calls
+	broker1.mu.Unlock()
+	if int64(calls1) != wantRefused1 {
+		t.Fatalf(
+			"broker1 calls = %d, want %d (every counted request here was refused)",
+			calls1, wantRefused1,
+		)
+	}
+
+	// Broker 2 completes a real handshake around a deliberately malformed
+	// tool schema, exercising the state_invalid and internal branches this
+	// slice's A3 fix now counts.
+	session2 := &stubBrokerSession{malformedSchema: true}
+	broker2, err := newNativeBroker(session2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer broker2.Close()
+	capability2 := broker2.capability()
+	defer clearBytes(capability2)
+	if err := broker2.Arm(); err != nil {
+		t.Fatal(err)
+	}
+
+	initializeRequest := map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "initialize",
+		"params": map[string]any{
+			"protocolVersion": "2025-06-18",
+			"capabilities":    map[string]any{},
+			"clientInfo":      map[string]any{"name": "probe", "version": "1"},
+		},
+	}
+	status, body = brokerRequest(t, broker2, capability2, initializeRequest)
+	if status != http.StatusOK {
+		t.Fatalf("broker2 initialize = %d %s", status, body)
+	}
+	notifyRequest := map[string]any{
+		"jsonrpc": "2.0", "method": "notifications/initialized",
+		"params": map[string]any{},
+	}
+	status, body = brokerRequest(t, broker2, capability2, notifyRequest)
+	if status != http.StatusAccepted {
+		t.Fatalf("broker2 notify = %d %s", status, body)
+	}
+	status, body = brokerRequest(t, broker2, capability2, map[string]any{
+		"jsonrpc": "2.0", "id": 2, "method": "tools/list",
+		"params": map[string]any{},
+	})
+	if status != http.StatusInternalServerError ||
+		!bytes.Contains(body, []byte(`"message":"internal"`)) {
+		t.Fatalf("tools/list internal = %d %s", status, body)
+	}
+	var wantRefused2 int64 = 1
+
+	status, body = brokerRequest(t, broker2, capability2, notifyRequest)
+	if status != http.StatusConflict ||
+		!bytes.Contains(body, []byte(`"message":"state_invalid"`)) {
+		t.Fatalf("notifications/initialized repeat = %d %s", status, body)
+	}
+	wantRefused2++
+
+	status, body = brokerRequest(t, broker2, capability2, initializeRequest)
+	if status != http.StatusConflict ||
+		!bytes.Contains(body, []byte(`"message":"state_invalid"`)) {
+		t.Fatalf("initialize repeat = %d %s", status, body)
+	}
+	wantRefused2++
+
+	if got := broker2.refusedCallTotal(); got != wantRefused2 {
+		t.Fatalf(
+			"broker2 refusedCallTotal before real handshake = %d, want %d",
+			got, wantRefused2,
+		)
+	}
+
+	session2.malformedSchema = false
+	status, body = brokerRequest(t, broker2, capability2, map[string]any{
+		"jsonrpc": "2.0", "id": 4, "method": "tools/list",
+		"params": map[string]any{},
+	})
+	if status != http.StatusOK {
+		t.Fatalf("broker2 tools/list = %d %s", status, body)
+	}
+	if !broker2.Ready() {
+		t.Fatal("broker2 not ready after completing its handshake")
+	}
+
+	status, body = brokerRequest(t, broker2, capability2, map[string]any{
+		"jsonrpc": "2.0", "id": 5, "method": "tools/list",
+		"params": map[string]any{},
+	})
+	if status != http.StatusConflict ||
+		!bytes.Contains(body, []byte(`"message":"state_invalid"`)) {
+		t.Fatalf("tools/list repeat = %d %s", status, body)
+	}
+	wantRefused2++
+
+	status, body = brokerRequest(t, broker2, capability2, map[string]any{
+		"jsonrpc": "2.0", "id": 6, "method": "tools/call",
+		"params": map[string]any{
+			"name": "Probe", "arguments": map[string]any{},
+			"unexpected": true,
+		},
+	})
+	if status != http.StatusBadRequest ||
+		!bytes.Contains(body, []byte(`"message":"invalid_params"`)) {
+		t.Fatalf("tools/call invalid_params = %d %s", status, body)
+	}
+	wantRefused2++
+
+	if got := broker2.refusedCallTotal(); got != wantRefused2 {
+		t.Fatalf("broker2 refusedCallTotal = %d, want %d", got, wantRefused2)
+	}
+	broker2.mu.Lock()
+	calls2 := broker2.calls
+	executedProbeCalls := broker2.callsByName["Probe"]
+	broker2.mu.Unlock()
+	const broker2SuccessfulHandshakeCalls = 3 // initialize, notify, the successful tools/list
+	if int64(calls2) != wantRefused2+broker2SuccessfulHandshakeCalls {
+		t.Fatalf(
+			"broker2 calls = %d, want %d (refused + %d successful handshake)",
+			calls2, wantRefused2+broker2SuccessfulHandshakeCalls,
+			broker2SuccessfulHandshakeCalls,
+		)
+	}
+	if executedProbeCalls != 0 {
+		t.Fatalf(
+			"broker2 executed Probe calls = %d, want 0 (no tools/call ever executed)",
+			executedProbeCalls,
+		)
+	}
+
+	if total := wantRefused1 + wantRefused2; total >= MaxRefusedBrokerCalls {
+		t.Fatalf(
+			"flood total %d reaches the saturating MaxRefusedBrokerCalls bound %d; the sum would no longer be exact",
+			total, MaxRefusedBrokerCalls,
+		)
 	}
 }

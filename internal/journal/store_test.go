@@ -1661,3 +1661,61 @@ func TestDerivedWorkInheritsParentCycleRetryEpoch(t *testing.T) {
 		t.Fatalf("stale derived dispatch replay = %v, want STALE_RETRY_EPOCH", err)
 	}
 }
+
+// A3 (S2-pause-safe-host-checks): a write attempted on an already-cancelled
+// context returns a typed OPERATION_CANCELLED, never DATABASE_BUSY or
+// JOURNAL_WRITE_FAILED, and the store keeps working normally afterward on a
+// live context - cancellation is a per-call classification, not a fault
+// that outlives the call whose context it belongs to.
+func TestStoreClassifiesCancelledContextAsOperationCancelled(t *testing.T) {
+	t.Parallel()
+
+	store, run, _, _ := journalFixture(t)
+	ctx := context.Background()
+	cancelledCtx, cancel := context.WithCancel(ctx)
+	cancel()
+
+	command := Command{
+		RunID: run.ID, ReplayKey: "cancelled-write", Kind: "test",
+		Payload: []byte("payload"), CreatedAt: time.Now().UTC(),
+	}
+	if err := store.RecordCommand(cancelledCtx, command); !IsCode(err, "OPERATION_CANCELLED") {
+		t.Fatalf("RecordCommand on a cancelled context = %v, want OPERATION_CANCELLED", err)
+	}
+	if _, err := store.Snapshot(cancelledCtx, run.ID); !IsCode(err, "OPERATION_CANCELLED") {
+		t.Fatalf("Snapshot on a cancelled context = %v, want OPERATION_CANCELLED", err)
+	}
+
+	// The same write and read succeed on a live context immediately after:
+	// the store itself is untouched by the cancelled call.
+	if err := store.RecordCommand(ctx, command); err != nil {
+		t.Fatalf("RecordCommand on a live context after a cancelled one: %v", err)
+	}
+	if _, err := store.Snapshot(ctx, run.ID); err != nil {
+		t.Fatalf("Snapshot on a live context after a cancelled one: %v", err)
+	}
+}
+
+// A3: a genuine write-claim conflict on a live context - the store's own
+// connection is already mid-transaction, so the nested BEGIN IMMEDIATE
+// fails for a real SQL reason, not a cancellation - still reports
+// DATABASE_BUSY. This proves the new cancellation classification does not
+// swallow a real conflict.
+func TestStoreLiveContextBeginFailureStaysDatabaseBusy(t *testing.T) {
+	t.Parallel()
+
+	store, run, _, _ := journalFixture(t)
+	ctx := context.Background()
+	if _, err := store.conn.ExecContext(ctx, "BEGIN"); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _, _ = store.conn.ExecContext(context.Background(), "ROLLBACK") }()
+
+	command := Command{
+		RunID: run.ID, ReplayKey: "busy-write", Kind: "test",
+		Payload: []byte("payload"), CreatedAt: time.Now().UTC(),
+	}
+	if err := store.RecordCommand(ctx, command); !IsCode(err, "DATABASE_BUSY") {
+		t.Fatalf("RecordCommand with an already-open transaction on a live context = %v, want DATABASE_BUSY", err)
+	}
+}

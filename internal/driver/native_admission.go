@@ -86,14 +86,19 @@ type NativeCredentialLivenessProbeEvent struct {
 // so no other dispatch path gains a new journal event or refusal.
 //
 // When applicable, it resolves the credential and reuses
-// nativeCredentialLivenessCheck under this probe's own bound. The honesty
-// floor is load-bearing: a bound expiry, a resolve failure, or a read that
-// cannot positively evaluate the credential is honestly-unevaluable, never a
-// refusal - only a positive read of expiry refuses, with zero dispatch burn.
+// nativeCredentialDispatchLivenessCheck under this probe's own bound,
+// evaluated against a deadline of now plus timeoutMillis (the dispatch's own
+// declared timeout the caller is about to use) plus the fixed dispatch
+// margin (A1). The honesty floor is load-bearing: a bound expiry, a resolve
+// failure, or a read that cannot positively evaluate the credential is
+// honestly-unevaluable, never a refusal - only a positive read of expiry (
+// already expired, or due to expire before the deadline) refuses, with zero
+// dispatch burn.
 func ProbeNativeCredentialLiveness(
 	ctx context.Context,
 	selected SelectedProfile,
 	runID string,
+	timeoutMillis int64,
 ) ([]byte, error) {
 	native, ok := selected.adapter.(*nativeAdapter)
 	if !ok || native == nil || selected.Profile.CredentialRef == nil {
@@ -109,13 +114,23 @@ func ProbeNativeCredentialLiveness(
 	outcome := nativeAdmissionProbeUnevaluable
 	var refusal error
 	if probeCtx.Err() == nil && resolveErr == nil {
-		stale, evaluated := nativeCredentialLivenessCheck(
-			native.config.Family, pathValue, native.config.MaxCredentialBytes,
-		)
+		nowMillis := time.Now().UnixMilli()
+		deadlineMillis := nowMillis + timeoutMillis + nativeCredentialDispatchMarginMillis
+		stale, expiresDuringDispatch, expiresAtMillis, evaluated :=
+			nativeCredentialDispatchLivenessCheck(
+				native.config.Family, pathValue, native.config.MaxCredentialBytes,
+				nowMillis, deadlineMillis,
+			)
 		switch {
 		case evaluated && stale:
 			outcome = nativeAdmissionProbeRefused
 			refusal = fail("CREDENTIAL_STALE")
+		case evaluated && expiresDuringDispatch:
+			outcome = nativeAdmissionProbeRefused
+			refusal = failWithDetail(
+				"CREDENTIAL_EXPIRES_DURING_DISPATCH",
+				nativeCredentialDispatchDetail(nowMillis, expiresAtMillis, deadlineMillis),
+			)
 		case evaluated:
 			outcome = nativeAdmissionProbePassed
 		}

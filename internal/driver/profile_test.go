@@ -176,6 +176,11 @@ func TestCertificationFailureCodesAreClosedAndSecretFree(t *testing.T) {
 	}{
 		{"setup", fail("LIVE_PROBE_FAILED"), "certification_setup_failed"},
 		{"credential", fail("CREDENTIAL_UNAVAILABLE"), "certification_credential_failed"},
+		{
+			"credential expires during dispatch",
+			fail("CREDENTIAL_EXPIRES_DURING_DISPATCH"),
+			"certification_credential_failed",
+		},
 		{"runtime", fail("PROCESS_START_FAILED"), "certification_runtime_failed"},
 		{"transport", fail("PROVIDER_TRANSPORT_FAILED"), "certification_provider_transport_failed"},
 		{"rejected", fail("PROVIDER_ERROR"), "certification_provider_rejected"},
@@ -189,6 +194,11 @@ func TestCertificationFailureCodesAreClosedAndSecretFree(t *testing.T) {
 		{"usage", fail("INVALID_USAGE"), "certification_usage_failed"},
 		{"tool", fail("TOOL_NOT_ALLOWED"), "certification_tool_failed"},
 		{"resource", fail("RESOURCE_LIMIT"), "certification_resource_limited"},
+		// S4-broker-budget-and-turn-cap: both new codes get an explicit
+		// certification_resource_limited case, named rather than left to
+		// fall to the default certification_contract_failed bucket.
+		{"broker call budget exhausted", fail("BROKER_CALL_BUDGET_EXHAUSTED"), "certification_resource_limited"},
+		{"native turn cap exceeded", fail("NATIVE_TURN_CAP_EXCEEDED"), "certification_resource_limited"},
 		{"timeout", context.DeadlineExceeded, "certification_timeout"},
 		{"cancelled", context.Canceled, "certification_cancelled"},
 		{"wrapped", fmt.Errorf("secret-canary: %w", fail("PROVIDER_ERROR")), "certification_provider_rejected"},

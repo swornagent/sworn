@@ -353,6 +353,116 @@ func TestProjectNeedsYouNamesProviderStallPark(t *testing.T) {
 	}
 }
 
+// TestProjectNeedsYouNamesReviewParkForCredentialLifetimePinnedWork pins
+// S8-credential-lifetime-repair A3's exact reason text over the real shape
+// credentialLifetimeParkFactsByOwner produces: no board control exists for
+// this cause (refreshing the credential and re-driving clears it, not a
+// retry or a grant), so the needs-you row names "review_park", and the
+// reason names retry-refusal exactly - by exact string equality, not
+// containment, per the criterion's own instruction.
+func TestProjectNeedsYouNamesReviewParkForCredentialLifetimePinnedWork(t *testing.T) {
+	t.Parallel()
+
+	expiring := []DiscoveredRunStatus{
+		{
+			Binding: journal.Run{
+				ID:      "run-credential-lifetime",
+				Release: "release-credential-lifetime",
+			},
+			Status: runtimepkg.RunStatus{
+				RunID: "run-credential-lifetime",
+				State: "parked",
+				PinnedWork: []runtimepkg.PinnedWork{
+					{
+						WorkID: "sha256:" + strings.Repeat("a", 64),
+						Lane:   "T1",
+						Cause:  runtimepkg.ParkCauseCredentialLifetime,
+						Code:   "CREDENTIAL_EXPIRES_DURING_DISPATCH",
+						Detail: "remaining 4m30s, required 5m0s",
+					},
+				},
+			},
+		},
+	}
+	needsYou := ProjectNeedsYou(expiring)
+	if len(needsYou) != 1 {
+		t.Fatalf("needsYou = %#v", needsYou)
+	}
+	item := needsYou[0]
+	wantReason := "Review the pinned work below; retry cannot clear any of it. " +
+		"T1: credential_lifetime (CREDENTIAL_EXPIRES_DURING_DISPATCH) - " +
+		"remaining 4m30s, required 5m0s. Retry does not apply to this " +
+		"entry: any interactive use of the CLI on this host refreshes " +
+		"the credential."
+	if item.Action != "review_park" ||
+		item.State != "parked" ||
+		item.WorkID != "sha256:"+strings.Repeat("a", 64) ||
+		item.Reason != wantReason {
+		t.Fatalf("credential-lifetime needs-you item = %#v, want reason %q",
+			item, wantReason)
+	}
+}
+
+// TestProjectNeedsYouScopesRetryAwayFromCredentialLifetimeInMixedPark pins
+// S8-credential-lifetime-repair A3's mixed-park case: a park with both a
+// retry-eligible entry (provider_stall, mirroring
+// TestProjectNeedsYouNamesProviderStallPark's own fixture shape) and a
+// credential_lifetime entry never asks the operator to retry the
+// credential_lifetime entry, whether directly or by a leading sentence
+// written for the rest of the park - the lead sentence scopes retry to the
+// entries that can use it, and the credential_lifetime entry states on its
+// own that retry does not apply to it. Action selection is unaffected (it
+// still reads only PinnedWork[0].Cause).
+func TestProjectNeedsYouScopesRetryAwayFromCredentialLifetimeInMixedPark(t *testing.T) {
+	t.Parallel()
+
+	mixed := []DiscoveredRunStatus{
+		{
+			Binding: journal.Run{
+				ID:      "run-mixed-park",
+				Release: "release-mixed-park",
+			},
+			Status: runtimepkg.RunStatus{
+				RunID: "run-mixed-park",
+				State: "parked",
+				PinnedWork: []runtimepkg.PinnedWork{
+					{
+						WorkID: "sha256:" + strings.Repeat("a", 64),
+						Lane:   "T1",
+						Cause:  runtimepkg.ParkCauseProviderStall,
+						Code:   "PROVIDER_UNAVAILABLE",
+						Detail: "waited 30m0s, last probe live_probe_passed",
+					},
+					{
+						WorkID: "sha256:" + strings.Repeat("b", 64),
+						Lane:   "T2",
+						Cause:  runtimepkg.ParkCauseCredentialLifetime,
+						Code:   "CREDENTIAL_STALE",
+					},
+				},
+			},
+		},
+	}
+	needsYou := ProjectNeedsYou(mixed)
+	if len(needsYou) != 1 {
+		t.Fatalf("needsYou = %#v", needsYou)
+	}
+	item := needsYou[0]
+	wantReason := "Review the pinned work, then retry the entries below " +
+		"that retry can clear, using the latest action. " +
+		"T1: provider_stall (PROVIDER_UNAVAILABLE) - waited 30m0s, last " +
+		"probe live_probe_passed; T2: credential_lifetime " +
+		"(CREDENTIAL_STALE). Retry does not apply to this entry: any " +
+		"interactive use of the CLI on this host refreshes the credential."
+	if item.Action != "retry" ||
+		item.State != "parked" ||
+		item.WorkID != "sha256:"+strings.Repeat("a", 64) ||
+		item.Reason != wantReason {
+		t.Fatalf("mixed-park needs-you item = %#v, want reason %q",
+			item, wantReason)
+	}
+}
+
 // TestProjectNeedsYouNamesRetryForEconomyContextExhaustedPinnedWork anchors
 // A3's own named catalog test: economy_context_window is never
 // Grant-eligible (economyGrantUnit returns "" for it, unlike the two

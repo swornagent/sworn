@@ -862,8 +862,19 @@ func safeWebhookEventKind(kind string) string {
 		kind == journal.RecoveryParkedEvent ||
 		kind == "turn_recovery.outcome.recovered" ||
 		kind == "turn_recovery.outcome.human_escalation" ||
-		kind == "turn_recovery.outcome.false_acceptance":
+		kind == "turn_recovery.outcome.false_acceptance" ||
+		// S6-host-environment-park-projection A4: the resolution half of
+		// a host-environment park (S1's HostEnvironmentResolvedEventKind)
+		// is a clearing/self-heal fact, never a park - the Lead's S1
+		// correction 2 required this kind be admitted here rather than
+		// fall through to the generic default.
+		kind == runtimepkg.HostEnvironmentResolvedEventKind:
 		return webhookRecoveryUpdated
+	case kind == "host_check_environment_classified":
+		// S1's effect-completion fact for a host-environment
+		// classification: an attempt-completion event, same family as the
+		// existing dispatch_-prefix case below.
+		return webhookAttemptUpdated
 	case strings.Contains(kind, "uncertain") ||
 		strings.Contains(kind, "reconciled") ||
 		strings.Contains(kind, "recovered") ||

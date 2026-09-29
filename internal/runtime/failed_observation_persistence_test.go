@@ -520,14 +520,14 @@ func TestFailureTurnContextUncertainLiveVsNoLiveTail(t *testing.T) {
 	service.feedFailureTailTool(liveID, driver.ToolResultTurn{
 		Turn: 1, Results: []driver.ToolResultRecord{{Sequence: 1, ToolCallID: "c1", Tool: "Read", TotalBytes: 1}},
 	})
-	liveBody := service.failureEventBodyFor(EventAssociation{EffectID: liveID, WorkID: "work-live"}, nil, liveID)
+	liveBody := service.failureEventBodyFor(EventAssociation{EffectID: liveID, WorkID: "work-live"}, nil, liveID, nil, nil)
 	_, liveStored := parseFailureEventBody(liveBody)
 	if liveStored == nil || liveStored.Status != FailureTurnContextPresent {
 		t.Fatalf("live uncertain = %#v, want present", liveStored)
 	}
 	// No live tail: no init, no feed.
 	deadID := "attempt/work-dead/e1/t1"
-	deadBody := service.failureEventBodyFor(EventAssociation{EffectID: deadID, WorkID: "work-dead"}, nil, deadID)
+	deadBody := service.failureEventBodyFor(EventAssociation{EffectID: deadID, WorkID: "work-dead"}, nil, deadID, nil, nil)
 	_, deadStored := parseFailureEventBody(deadBody)
 	if deadStored == nil || deadStored.Status != FailureTurnContextUnavailable || deadStored.Reason != FailureTurnContextNoLiveTail {
 		t.Fatalf("dead uncertain = %#v, want unavailable/no_live_tail", deadStored)

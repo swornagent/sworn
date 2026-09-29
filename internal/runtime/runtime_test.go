@@ -26,7 +26,14 @@ func runtimePlan(t *testing.T, release, repository, target, marker string) ([]by
 			ID: id, Outcome: "Deliver " + id + ".",
 			Scope:      protocol.Scope{Include: []string{path}, Exclude: []string{}},
 			Acceptance: []protocol.Criterion{{ID: "A-" + id, Text: id + " is exact."}},
-			Checks:     []string{"check " + id}, Constraints: []string{"deterministic"},
+			// A resolvable first word ("true"): S1-host-check-environment-
+			// failures A4 now resolves every declared check's first word
+			// on the host runner's own environment, before any dispatch,
+			// even for a worker-only Checks entry with no declared
+			// host_checks (a conservative superset by contract). This
+			// fixture's checks are never actually run anywhere, host or
+			// worker; the comment keeps each slice's check text distinct.
+			Checks: []string{"true # check " + id}, Constraints: []string{"deterministic"},
 			DependsOn: []string{}, Consumes: []string{},
 		}
 	}
@@ -76,7 +83,7 @@ func runtimeSingleTrackPlan(t *testing.T, release, repository, target, marker st
 				ID: "S1", Outcome: "Deliver S1.",
 				Scope:      protocol.Scope{Include: []string{"one.txt"}, Exclude: []string{}},
 				Acceptance: []protocol.Criterion{{ID: "A-S1", Text: "S1 is exact."}},
-				Checks:     []string{"check S1"}, Constraints: []string{"deterministic"},
+				Checks:     []string{"true # check S1"}, Constraints: []string{"deterministic"},
 				DependsOn: []string{}, Consumes: []string{},
 			}}},
 		},

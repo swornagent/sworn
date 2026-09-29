@@ -646,6 +646,7 @@ func (adapter *nativeAdapter) nativeRuntime(
 		adapter.config.Family,
 		pathValue,
 		adapter.config.MaxCredentialBytes,
+		invocation.Request.Limits.TimeoutMillis,
 	); err != nil {
 		return nativeSurfaceCertificate{}, "", err
 	}
@@ -671,10 +672,16 @@ func (adapter *nativeAdapter) nativeAutomationRuntime(
 		return nativeAutomationSurfaceCertificate{}, "",
 			fail("CREDENTIAL_NOT_CERTIFIED")
 	}
+	// AutomationInvocation carries no per-call timeout, so the lookahead
+	// window here is the fixed margin alone: a small, conservative check
+	// that cannot turn any passing automation-gate fixture (none sit inside
+	// a 5-minute window) into a refusal, and is strictly better than a
+	// stale-only check.
 	if err := nativeCredentialPreflight(
 		adapter.config.Family,
 		pathValue,
 		adapter.config.MaxCredentialBytes,
+		0,
 	); err != nil {
 		return nativeAutomationSurfaceCertificate{}, "", err
 	}

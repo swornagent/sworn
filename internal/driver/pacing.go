@@ -226,12 +226,25 @@ func detailPreservingCode(code string) bool {
 		"PROVIDER_TRANSPORT_FAILED",
 		"NATIVE_SURFACE_INVALID",
 		"PROCESS_START_FAILED",
+		// CREDENTIAL_EXPIRES_DURING_DISPATCH carries the same plain,
+		// single-line, control-free text as the provider codes above: A1's
+		// duration-only "remaining <duration>, required <duration>" detail,
+		// built entirely inside this package from int64 duration
+		// arithmetic - never a credential byte.
+		"CREDENTIAL_EXPIRES_DURING_DISPATCH",
 		// ECONOMY_CONTEXT_EXHAUSTED carries the same plain, single-line,
 		// control-free text validateText governs (the window, the last
 		// input tokens, the ceiling, and the fixing knob), built entirely
 		// inside this package and never adapter-provided wrapping text
 		// (S6-context-window-clamp A3).
 		"ECONOMY_CONTEXT_EXHAUSTED",
+		// BROKER_CALL_BUDGET_EXHAUSTED and NATIVE_TURN_CAP_EXCEEDED each
+		// carry the same plain, single-line, engine-built detail naming
+		// only the crossing's own counted figures ("calls 513, budget
+		// 512"; "turn cap 1000") - never the CLI's own result text
+		// (S4-broker-budget-and-turn-cap A1/A2).
+		"BROKER_CALL_BUDGET_EXHAUSTED",
+		"NATIVE_TURN_CAP_EXCEEDED",
 		// CONTINUATION_INVALID carries engine vocabulary only: a site label
 		// or the correlate envelope, both structurally re-validated by
 		// revalidateContinuationDetail at the funnel. It is here so a

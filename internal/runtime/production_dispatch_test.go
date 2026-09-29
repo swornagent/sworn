@@ -848,6 +848,31 @@ func TestProductionWorkContextProjectsPlanReceiptCandidateAndEvidence(
 		request.Inputs[3].Path != productionReceiptDetailPath {
 		t.Fatalf("production inputs = %#v", request.Inputs)
 	}
+	// S10-repair-input-across-epochs-repair A3: productionRequestForContext
+	// (via productionRequestForContextFreshness) copies workContext's own
+	// AnchorDeclared onto the built driver.Request unchanged, for both
+	// false (contextValue's own default) and true - the one line the
+	// prompt's anchor_substitutes advertisement chains through.
+	if request.AnchorDeclared != contextValue.AnchorDeclared {
+		t.Fatalf(
+			"request.AnchorDeclared = %v, want %v (copied from workContext.AnchorDeclared)",
+			request.AnchorDeclared, contextValue.AnchorDeclared,
+		)
+	}
+	anchorDeclaredContext := contextValue
+	anchorDeclaredContext.AnchorDeclared = true
+	anchorDeclaredRequest, err := productionRequestForContext(
+		manifest, anchorDeclaredContext,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if anchorDeclaredRequest.AnchorDeclared != true {
+		t.Fatalf(
+			"request.AnchorDeclared = %v, want true when workContext.AnchorDeclared is true",
+			anchorDeclaredRequest.AnchorDeclared,
+		)
+	}
 	requestBody, err := driver.EncodeRequest(request)
 	if err != nil {
 		t.Fatal(err)
@@ -3321,6 +3346,14 @@ func TestProductionImplementationHandoffRecoversItsDurablePreparedCandidate(
 		owner,
 		cycle,
 		outer,
+		gitx.TrackKey{Release: state.Release, Track: track.ID},
+		dispatchCoordinates{
+			Slice:           "S1",
+			Responsibility:  driver.ImplementerImplementation,
+			ProtocolAttempt: slice.Attempt,
+			Epoch:           1,
+			Try:             1,
+		},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -3923,5 +3956,376 @@ func TestPreparedDispatchRevalidationTreatsItsOwnHistoryAsHistoryNotAuthority(
 	)
 	if err := revalidate(); !IsCode(err, "STALE_DISPATCH") {
 		t.Fatalf("moved authority revalidation = %v, want STALE_DISPATCH", err)
+	}
+}
+
+// TestFailedDispatchProjectsExecutedAndRefusedToolCallsOntoStatus pins A3
+// (S4-broker-budget-and-turn-cap): a native dispatch's own stamped
+// UsageReceipt.ToolCalls/RefusedToolCalls survive an operational failure
+// onto the dispatch effect's FailureTurnContext, exactly as
+// ExecutedToolCalls/RefusedToolCalls, readable from Status() without a
+// journal read; a dispatch whose usage carries neither field projects both
+// as nil, never coerced to zero.
+func TestFailedDispatchProjectsExecutedAndRefusedToolCallsOntoStatus(t *testing.T) {
+	t.Parallel()
+
+	executed := int64(9)
+	refused := int64(3)
+	turns := int64(1)
+	dispatcher := fixtureDriver(func(
+		_ context.Context,
+		_ driver.Invocation,
+	) (driver.Observation, error) {
+		return driver.Observation{
+			TransportStatus: driver.RunnerError,
+			Usage: driver.UsageReceipt{
+				SchemaVersion:    driver.UsageSchemaV2,
+				Surface:          "sworn.native-claude",
+				TokenStatus:      driver.UsageUnavailable,
+				CostStatus:       driver.UsageUnavailable,
+				CacheStatus:      driver.UsageUnavailable,
+				RefusedToolCalls: &refused,
+				Turns:            &turns,
+				ToolCalls:        &executed,
+			},
+			Diagnostic: driver.Diagnostic{Code: "broker_call_budget_exhausted"},
+		}, &driver.ContractError{Code: "BROKER_CALL_BUDGET_EXHAUSTED"}
+	})
+	fixture := newProductionImplementationRecoveryFixture(t, dispatcher)
+	runID := fixture.manifest.value.RunID
+	// The production fixture does not journal the manifest command (its
+	// tests never project Status); record it so Status can read this run.
+	if err := fixture.store.RecordCommand(fixture.ctx, journal.Command{
+		RunID: runID, ReplayKey: "manifest", Kind: "start",
+		Payload: fixture.manifest.raw, CreatedAt: fixture.now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, dispatchErr := fixture.service.runDriverEffectWithPreparation(
+		fixture.ctx,
+		fixture.engine,
+		fixture.workspace,
+		driver.RoleImplementer,
+		fixture.coordinates,
+		journal.EffectAttempt{
+			WorkID: fixture.cycle.DispatchWork,
+			Epoch:  fixture.coordinates.Epoch,
+			Try:    1,
+		},
+		fixture.cycle.Before,
+		fixture.owner,
+		nil,
+		true,
+	)
+	if !IsCode(dispatchErr, "DRIVER_OPERATIONAL_FAILURE") {
+		t.Fatalf("dispatch error = %v, want DRIVER_OPERATIONAL_FAILURE", dispatchErr)
+	}
+	status, err := fixture.service.Status(fixture.ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *EffectStatus
+	for index := range status.Effects {
+		if status.Effects[index].ID == fixture.cycle.DispatchEffect {
+			found = &status.Effects[index]
+			break
+		}
+	}
+	if found == nil || found.FailureTurnContext == nil {
+		t.Fatalf(
+			"dispatch effect %s FailureTurnContext missing, effects = %#v",
+			fixture.cycle.DispatchEffect,
+			status.Effects,
+		)
+	}
+	if got := found.FailureTurnContext.ExecutedToolCalls; got == nil || *got != executed {
+		t.Fatalf("ExecutedToolCalls = %#v, want %d", got, executed)
+	}
+	if got := found.FailureTurnContext.RefusedToolCalls; got == nil || *got != refused {
+		t.Fatalf("RefusedToolCalls = %#v, want %d", got, refused)
+	}
+}
+
+// TestFailedDispatchProjectsExecutedToolCallsWhenTurnsUnknown pins A1
+// (S9-broker-budget-and-turn-cap-repair): the runtime cannot dispatch
+// through the real native driver (fixtureDriver replaces the whole
+// adapter), so this test uses the exact receipt shape the real path
+// produces on a broker-budget or turn-cap crossing whose CLI final result
+// event never arrived - Turns and ToolCalls absent (turn count unknown),
+// ExecutedToolCalls present at the hundreds scale, RefusedToolCalls
+// present - and proves that shape (not the Turns/ToolCalls-keyed one
+// TestFailedDispatchProjectsExecutedAndRefusedToolCallsOntoStatus already
+// covers as the fallback path) survives EncodeUsageReceipt validation,
+// StampAttemptFacts, journaling through failureEventBodyFor, and the
+// Status() dispatch view unchanged. That this is the shape the real
+// adapter path actually produces is proven independently by
+// TestNativeBrokerCallBudgetExhaustionEndsDispatchAtRealAdapterDispatch
+// (internal/driver), which asserts Turns/ToolCalls absent and
+// ExecutedToolCalls at the hundreds scale through a real flood of
+// executed tools/call requests, never a hand-built receipt.
+func TestFailedDispatchProjectsExecutedToolCallsWhenTurnsUnknown(t *testing.T) {
+	t.Parallel()
+
+	executed := int64(511)
+	refused := int64(1)
+	dispatcher := fixtureDriver(func(
+		_ context.Context,
+		_ driver.Invocation,
+	) (driver.Observation, error) {
+		return driver.Observation{
+			TransportStatus: driver.RunnerError,
+			Usage: driver.UsageReceipt{
+				SchemaVersion:     driver.UsageSchemaV2,
+				Surface:           "sworn.native-claude",
+				TokenStatus:       driver.UsageUnavailable,
+				CostStatus:        driver.UsageUnavailable,
+				CacheStatus:       driver.UsageUnavailable,
+				RefusedToolCalls:  &refused,
+				ExecutedToolCalls: &executed,
+			},
+			Diagnostic: driver.Diagnostic{Code: "broker_call_budget_exhausted"},
+		}, &driver.ContractError{Code: "BROKER_CALL_BUDGET_EXHAUSTED"}
+	})
+	fixture := newProductionImplementationRecoveryFixture(t, dispatcher)
+	runID := fixture.manifest.value.RunID
+	if err := fixture.store.RecordCommand(fixture.ctx, journal.Command{
+		RunID: runID, ReplayKey: "manifest", Kind: "start",
+		Payload: fixture.manifest.raw, CreatedAt: fixture.now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, dispatchErr := fixture.service.runDriverEffectWithPreparation(
+		fixture.ctx,
+		fixture.engine,
+		fixture.workspace,
+		driver.RoleImplementer,
+		fixture.coordinates,
+		journal.EffectAttempt{
+			WorkID: fixture.cycle.DispatchWork,
+			Epoch:  fixture.coordinates.Epoch,
+			Try:    1,
+		},
+		fixture.cycle.Before,
+		fixture.owner,
+		nil,
+		true,
+	)
+	if !IsCode(dispatchErr, "DRIVER_OPERATIONAL_FAILURE") {
+		t.Fatalf("dispatch error = %v, want DRIVER_OPERATIONAL_FAILURE", dispatchErr)
+	}
+	status, err := fixture.service.Status(fixture.ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *EffectStatus
+	for index := range status.Effects {
+		if status.Effects[index].ID == fixture.cycle.DispatchEffect {
+			found = &status.Effects[index]
+			break
+		}
+	}
+	if found == nil || found.FailureTurnContext == nil {
+		t.Fatalf(
+			"dispatch effect %s FailureTurnContext missing, effects = %#v",
+			fixture.cycle.DispatchEffect,
+			status.Effects,
+		)
+	}
+	if got := found.FailureTurnContext.ExecutedToolCalls; got == nil || *got != executed {
+		t.Fatalf("ExecutedToolCalls = %#v, want %d", got, executed)
+	}
+	if got := found.FailureTurnContext.RefusedToolCalls; got == nil || *got != refused {
+		t.Fatalf("RefusedToolCalls = %#v, want %d", got, refused)
+	}
+}
+
+// TestFailedDispatchWithNoBrokerCountsProjectsNilNeverZero extends A3's
+// honest-absence discipline: a non-native (or native-without-broker-usage)
+// dispatch failure carries no ExecutedToolCalls/RefusedToolCalls, and the
+// projection must read back nil, never a coerced 0.
+func TestFailedDispatchWithNoBrokerCountsProjectsNilNeverZero(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := fixtureDriver(func(
+		_ context.Context,
+		_ driver.Invocation,
+	) (driver.Observation, error) {
+		return driver.Observation{
+			TransportStatus: driver.RunnerError,
+			Usage: driver.UsageReceipt{
+				SchemaVersion: driver.UsageSchemaV2,
+				Surface:       "sworn.test",
+				TokenStatus:   driver.UsageUnavailable,
+				CostStatus:    driver.UsageUnavailable,
+				CacheStatus:   driver.UsageUnavailable,
+			},
+			Diagnostic: driver.Diagnostic{Code: "adapter_failed"},
+		}, &driver.ContractError{Code: "PROVIDER_TRANSPORT_FAILED"}
+	})
+	fixture := newProductionImplementationRecoveryFixture(t, dispatcher)
+	runID := fixture.manifest.value.RunID
+	if err := fixture.store.RecordCommand(fixture.ctx, journal.Command{
+		RunID: runID, ReplayKey: "manifest", Kind: "start",
+		Payload: fixture.manifest.raw, CreatedAt: fixture.now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, dispatchErr := fixture.service.runDriverEffectWithPreparation(
+		fixture.ctx,
+		fixture.engine,
+		fixture.workspace,
+		driver.RoleImplementer,
+		fixture.coordinates,
+		journal.EffectAttempt{
+			WorkID: fixture.cycle.DispatchWork,
+			Epoch:  fixture.coordinates.Epoch,
+			Try:    1,
+		},
+		fixture.cycle.Before,
+		fixture.owner,
+		nil,
+		true,
+	)
+	if !IsCode(dispatchErr, "DRIVER_OPERATIONAL_FAILURE") {
+		t.Fatalf("dispatch error = %v, want DRIVER_OPERATIONAL_FAILURE", dispatchErr)
+	}
+	status, err := fixture.service.Status(fixture.ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *EffectStatus
+	for index := range status.Effects {
+		if status.Effects[index].ID == fixture.cycle.DispatchEffect {
+			found = &status.Effects[index]
+			break
+		}
+	}
+	if found == nil || found.FailureTurnContext == nil {
+		t.Fatalf(
+			"dispatch effect %s FailureTurnContext missing, effects = %#v",
+			fixture.cycle.DispatchEffect,
+			status.Effects,
+		)
+	}
+	if found.FailureTurnContext.ExecutedToolCalls != nil {
+		t.Fatalf(
+			"ExecutedToolCalls = %#v, want nil",
+			found.FailureTurnContext.ExecutedToolCalls,
+		)
+	}
+	if found.FailureTurnContext.RefusedToolCalls != nil {
+		t.Fatalf(
+			"RefusedToolCalls = %#v, want nil",
+			found.FailureTurnContext.RefusedToolCalls,
+		)
+	}
+}
+
+// TestRefusalPathsScopeViolationCarriedAcrossFreshEpochFirstTry pins A1: an
+// operator retry that starts a new epoch (Epoch bumps, Try resets to 1, the
+// exact same before) must receive the immediately preceding try's seal
+// refusal exactly as a same-epoch retry would, not silently drop it because
+// capturePriorRefusal's old guard only ever looked at the current epoch's
+// own Try-1.
+func TestRefusalPathsScopeViolationCarriedAcrossFreshEpochFirstTry(t *testing.T) {
+	dispatcher := fixtureDriver(func(
+		_ context.Context,
+		invocation driver.Invocation,
+	) (driver.Observation, error) {
+		return productionImplementationObservation(t, invocation), nil
+	})
+	fixture := newProductionImplementationRecoveryFixture(t, dispatcher)
+
+	outPaths := []string{"outside_scope_a.txt"}
+	for _, p := range outPaths {
+		full := filepath.Join(fixture.workspace.Path(), p)
+		if err := os.WriteFile(full, []byte("outside\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	_, _, dispatchErr := fixture.service.runProductionImplementationDispatch(
+		fixture.ctx,
+		fixture.engine,
+		fixture.owner,
+		fixture.workspace,
+		fixture.cycle,
+		fixture.coordinates,
+	)
+	if dispatchErr == nil {
+		t.Fatal("expected dispatch to fail on scope violation, got nil")
+	}
+	if err := fixture.service.completeImplementationFailure(
+		fixture.ctx,
+		fixture.owner,
+		fixture.outer.ID,
+		fixture.outer.CurrentClaim,
+		stableErrorCode(dispatchErr),
+		extractRefusalResult(dispatchErr),
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	// A fresh epoch's first try, over the exact same before an epoch bump
+	// never changes: it must see epoch 1/try 1's refusal exactly as a
+	// same-epoch try 2 would.
+	retryCoords := fixture.coordinates
+	retryCoords.Epoch, retryCoords.Try = 2, 1
+
+	retryWorkContext, contextBytes, err := captureProductionWorkContext(
+		fixture.ctx,
+		fixture.engine,
+		retryCoords,
+		fixture.cycle.Before,
+		driver.ReadWrite,
+	)
+	if err != nil {
+		t.Fatalf("captureProductionWorkContext failed: %v", err)
+	}
+	if retryWorkContext.Refusal == nil {
+		t.Fatal("expected epoch-2 try-1 work context to have non-nil Refusal")
+	}
+	if retryWorkContext.Refusal.Code != "SLICE_OUTSIDE_SCOPE" {
+		t.Fatalf(
+			"refusal code = %s, want SLICE_OUTSIDE_SCOPE",
+			retryWorkContext.Refusal.Code,
+		)
+	}
+	if len(retryWorkContext.Refusal.Paths) != len(outPaths) {
+		t.Fatalf(
+			"refusal paths = %v, want %v",
+			retryWorkContext.Refusal.Paths, outPaths,
+		)
+	}
+	for i, p := range outPaths {
+		if retryWorkContext.Refusal.Paths[i] != p {
+			t.Fatalf(
+				"refusal paths = %v, want %v",
+				retryWorkContext.Refusal.Paths, outPaths,
+			)
+		}
+	}
+	if retryWorkContext.Refusal.TotalPaths != len(outPaths) {
+		t.Fatalf(
+			"refusal total paths = %d, want %d",
+			retryWorkContext.Refusal.TotalPaths, len(outPaths),
+		)
+	}
+	if err := validateProductionWorkContext(
+		fixture.manifest, retryWorkContext,
+	); err != nil {
+		t.Fatalf("epoch-crossing refusal context refused: %v", err)
+	}
+
+	var jsonMap map[string]any
+	if err := json.Unmarshal(contextBytes, &jsonMap); err != nil {
+		t.Fatal(err)
+	}
+	refusalMap, ok := jsonMap["refusal"].(map[string]any)
+	if !ok {
+		t.Fatalf("work-context.json missing refusal object: %s", string(contextBytes))
+	}
+	if refusalMap["code"] != "SLICE_OUTSIDE_SCOPE" {
+		t.Fatalf("work-context.json refusal code = %v", refusalMap["code"])
 	}
 }

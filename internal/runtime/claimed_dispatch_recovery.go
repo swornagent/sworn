@@ -649,6 +649,21 @@ func snapshotHasPendingDriverRecoveryExcept(
 	snapshot journal.Snapshot,
 	parked map[string]journal.AttentionProjection,
 ) bool {
+	// A Claimed driver.dispatch with a durable paused-handoff checkpoint
+	// (dispatch.go's persistPausedHandoffCheckpoint) stopped cleanly at a
+	// host-check or git.seal.prepared boundary and is resumable without an
+	// operator answer: it must not fence the scheduler the way a genuinely
+	// unresolved external side effect does. Built from this same snapshot,
+	// so no extra journal read.
+	paused := make(map[string]bool)
+	for _, checkpoint := range snapshot.Effects {
+		if checkpoint.Kind != "driver.handoff" || checkpoint.State != journal.Succeeded {
+			continue
+		}
+		if parent, ok := strings.CutSuffix(checkpoint.ID, "/paused-handoff"); ok {
+			paused[parent] = true
+		}
+	}
 	for _, effect := range snapshot.Effects {
 		if effect.Kind != "driver.dispatch" {
 			continue
@@ -658,6 +673,9 @@ func snapshotHasPendingDriverRecoveryExcept(
 				if _, laneParked := parked[work]; laneParked {
 					continue
 				}
+			}
+			if paused[effect.ID] {
+				continue
 			}
 			return true
 		}
@@ -1134,7 +1152,7 @@ func (s *Service) reconcileOwnerlessClaimedDispatch(
 					Track:          track,
 					Slice:          slice,
 					Responsibility: responsibility,
-				}, nil, effect.ID),
+				}, nil, effect.ID, nil, nil),
 				At: now,
 			},
 			journal.RecoveryAmbiguous,

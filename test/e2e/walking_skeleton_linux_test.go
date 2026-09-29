@@ -40,17 +40,30 @@ func moduleRoot(t *testing.T) string {
 }
 
 func cleanEnvironment(overrides map[string]string) []string {
-	result := make([]string, 0, len(os.Environ())+len(overrides))
+	merged := make(map[string]string, len(overrides)+1)
+	for key, value := range overrides {
+		merged[key] = value
+	}
+	path, explicit := merged["PATH"]
+	if !explicit {
+		path = os.Getenv("PATH")
+	}
+	// declaredCheckCommandDir always leads PATH, even under a deliberately
+	// narrowed override (for example a fixture's git-only PATH): it adds
+	// exactly one resolvable name, "check", and widens nothing else a test
+	// relies on staying undiscoverable.
+	merged["PATH"] = declaredCheckCommandDir + string(os.PathListSeparator) + path
+	result := make([]string, 0, len(os.Environ())+len(merged))
 	for _, entry := range os.Environ() {
 		key, _, found := strings.Cut(entry, "=")
 		if found {
-			if _, replaced := overrides[key]; replaced {
+			if _, replaced := merged[key]; replaced {
 				continue
 			}
 		}
 		result = append(result, entry)
 	}
-	for key, value := range overrides {
+	for key, value := range merged {
 		result = append(result, key+"="+value)
 	}
 	return result

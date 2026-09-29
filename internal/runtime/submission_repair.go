@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"unicode/utf8"
 
@@ -97,7 +98,7 @@ func captureSubmissionRepair(
 		refusal.SourceEpoch != prior.Epoch || refusal.SourceTry != prior.Try {
 		return nil, nil
 	}
-	superseded, err := priorTryHasAcceptedSubmission(
+	superseded, err := priorTryResolvedInSession(
 		ctx, engine, coordinates, before, prior.Epoch, prior.Try,
 	)
 	if err != nil {
@@ -132,14 +133,25 @@ func captureSubmissionRepair(
 	return repair, nil
 }
 
-// priorTryHasAcceptedSubmission reports whether the implementer attempt at
-// (epoch, try) sealed a decodable submission, over the same candidate
-// dispatch-effect identities capturePriorSubmission's own per-try scan
-// probes. A decodable submission at that exact prior try means whatever
-// refusal preceded it was corrected in-session (Lead correction C1): the
-// next continuation must not be told an already-resolved refusal is still
-// outstanding.
-func priorTryHasAcceptedSubmission(
+// priorTryResolvedInSession reports whether the implementer attempt at
+// (epoch, try) resolved its own outstanding submission refusal in-session,
+// over the same candidate dispatch-effect identities capturePriorSubmission's
+// own per-try scan probes. That try either sealed a decodable submission, or
+// its correction got past submission-time validation and reached seal
+// preparation (the anchor gate, host checks, contract resolution or
+// git.seal itself). A seal-preparation failure is detected by the dispatch
+// effect's own recorded event kind, "dispatch_preparation_failed" (Lead
+// correction C1), never by decoding its Result: dispatch.go's prepareHandoff
+// branch writes extractRefusalResult(err) as Result, which is empty for
+// several real seal-time codes (EMPTY_CANDIDATE, ANCHOR_GATE_UNREADABLE,
+// CANDIDATE_SEAL_FAILED, CONTRACT_RESOLUTION_FAILED), so a Result-shape test
+// silently missed exactly those. The event kind is the accepted-handoff
+// signal the dispatch already records: prepareHandoff runs, and can only
+// fail there, after driver.DecodeSubmission and every earlier field-level
+// check already passed. Either shape - an accepted submission or a
+// seal-preparation failure - means the next continuation must not be told
+// an already-resolved refusal is still outstanding.
+func priorTryResolvedInSession(
 	ctx context.Context,
 	engine *engine,
 	coordinates dispatchCoordinates,
@@ -161,20 +173,64 @@ func priorTryHasAcceptedSubmission(
 	dispatchWorkOuter := workIdentity(priorOuterID, "driver.dispatch")
 	dispatchEffectOuter := journal.AttemptEffectID(dispatchWorkOuter, 1, 1)
 
+	snapshot, err := engineSnapshot(ctx, engine)
+	if err != nil {
+		return false, err
+	}
+	effects := make(map[string]journal.Effect, len(snapshot.Effects))
+	for _, effect := range snapshot.Effects {
+		effects[effect.ID] = effect
+	}
+
 	for _, effectID := range []string{
 		dispatchEffectRec, dispatchEffectOuter, dispatchEffect, priorOuterID,
 	} {
-		effect, err := engine.journal.Effect(
-			ctx, engine.manifest.value.RunID, effectID,
-		)
-		if err != nil || len(effect.Result) == 0 {
+		effect, found := effects[effectID]
+		if !found {
 			continue
 		}
-		if _, decErr := driver.DecodeSubmission(effect.Result); decErr == nil {
+		if len(effect.Result) > 0 {
+			if _, decErr := driver.DecodeSubmission(effect.Result); decErr == nil {
+				return true, nil
+			}
+		}
+		if effect.State != journal.OperationalFailed {
+			continue
+		}
+		if len(effect.Result) > 0 {
+			var hostRepair productionHostRepair
+			if json.Unmarshal(effect.Result, &hostRepair) == nil &&
+				hostRepair.SchemaVersion == hostRepairVersion {
+				return true, nil
+			}
+		}
+		if dispatchEffectReachedSealPreparation(snapshot, effectID) {
 			return true, nil
 		}
 	}
 	return false, nil
+}
+
+// dispatchEffectReachedSealPreparation reports whether effectID's dispatch
+// attempt failed inside prepareHandoff: the journal records this as an event
+// whose kind carries the "dispatch_preparation_failed" prefix (a
+// continuation suffix may extend it, mirroring isFailureTurnContextKind's
+// own prefix test) and whose association names this exact effect. This is
+// the same EventAssociation/EffectID pairing failure_turn_context.go already
+// reads for an unrelated purpose, not a new signal.
+func dispatchEffectReachedSealPreparation(
+	snapshot journal.Snapshot, effectID string,
+) bool {
+	for _, event := range snapshot.Events {
+		if !strings.HasPrefix(event.Kind, "dispatch_preparation_failed") {
+			continue
+		}
+		assoc, _ := parseFailureEventBody(event.Body)
+		if assoc.EffectID == effectID {
+			return true
+		}
+	}
+	return false
 }
 
 func validateSubmissionRepair(repair productionSubmissionRepair) error {

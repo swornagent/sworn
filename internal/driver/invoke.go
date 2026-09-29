@@ -294,6 +294,8 @@ func validDiagnosticCode(code string) bool {
 		"economy_turn_budget",
 		"economy_output_budget",
 		"economy_output_budget_bytes",
+		"broker_call_budget_exhausted",
+		"native_turn_cap",
 		"stdout_overflow",
 		"post_result_stdout",
 		"extra_stdout",
@@ -330,6 +332,8 @@ func validFatalDiagnosticCode(code string) bool {
 		"economy_turn_budget",
 		"economy_output_budget",
 		"economy_output_budget_bytes",
+		"broker_call_budget_exhausted",
+		"native_turn_cap",
 		"invalid_usage",
 		"late_submission",
 		"submission_protocol_failed",
@@ -480,13 +484,16 @@ func preservedDiagnosticCode(code string) (string, bool) {
 // preservesUsageDiagnostic reports whether an adapter failure's diagnostic
 // entitles its accumulated usage receipt to survive the failure-sanitization
 // seam. It is the closed family of measured-failure diagnostics, never
-// inferred from the error: truncation (provider ceiling) and the economy
+// inferred from the error: truncation (provider ceiling), the economy
 // budget crossings (turn, output-token, and native output-stream byte),
-// whose spent-vs-budget evidence the runtime park gate depends on.
+// and the native broker/turn-cap crossings (S4-broker-budget-and-turn-cap),
+// whose spent-vs-budget or executed/refused evidence a runtime or status
+// surface depends on.
 func preservesUsageDiagnostic(code string) bool {
 	switch code {
 	case "provider_truncated", "economy_turn_budget", "economy_output_budget",
-		"economy_output_budget_bytes":
+		"economy_output_budget_bytes", "broker_call_budget_exhausted",
+		"native_turn_cap":
 		return true
 	default:
 		return false
@@ -503,6 +510,7 @@ func classifyKind(code string, hardLimit bool) RefusalKind {
 	switch code {
 	case "PROVIDER_AUTHORIZATION_FAILED",
 		"CREDENTIAL_STALE",
+		"CREDENTIAL_EXPIRES_DURING_DISPATCH",
 		"CREDENTIAL_UNAVAILABLE",
 		"CREDENTIAL_MALFORMED",
 		"CREDENTIAL_NOT_CERTIFIED",
@@ -684,10 +692,13 @@ func validAdapterErrorCode(code string) bool {
 		"CREDENTIAL_NOT_CERTIFIED",
 		"CREDENTIAL_IDENTITY_CHANGED",
 		"CREDENTIAL_STALE",
+		"CREDENTIAL_EXPIRES_DURING_DISPATCH",
 		"NATIVE_NOT_CERTIFIED",
 		"NATIVE_SURFACE_INVALID",
 		"INVALID_BROKER",
 		"BROKER_STATE_INVALID",
+		"BROKER_CALL_BUDGET_EXHAUSTED",
+		"NATIVE_TURN_CAP_EXCEEDED",
 		"AWS_CONFIGURATION_INVALID",
 		"AWS_NOT_CERTIFIED",
 		"AWS_CREDENTIAL_EXPORT_INVALID",

@@ -700,6 +700,16 @@ Linux production execution requires root-owned `bwrap` discoverable on PATH
 `driver certify`, `driver probe`, and production runs can
 consume provider usage; the ordinary Go test suite does not make live provider
 requests.
+
+A host check runs through the shell configured by `SWORN_SH` (or the first
+`sh` discovered on the serve process's own `PATH`), in the serve process's
+own environment - never the operator's interactive shell. Under a systemd
+user unit with no explicit `PATH=`, that shell's builtin lookup can differ
+sharply from an operator's login shell; see "Host-check environment
+failures" below. A check that itself further manipulates `PATH` before
+invoking a subcommand can still exit 127 for that subcommand: only the
+check's own first word is resolved ahead of running it.
+
 ## Host-check repair input
 
 When an implementation's host check fails, Sworn retains the exact failed
@@ -716,6 +726,230 @@ gate, with a retained-candidate diagnostic, so configured notification
 consumers can observe the stop without waiting for another scheduler tick.
 This does not invent a human approval question or authorize an automatic
 budget increase.
+
+### Host-check environment failures
+
+A host check whose process exits 127, or whose command's first word does
+not resolve on the host runner's own `PATH`, is a **host environment
+failure**, not a candidate failure. The engine classifies this the same
+way the shell that runs the check itself would: `command -v` on the
+check's first simple-command word (skipping any leading `NAME=value`
+assignments), which POSIX specifies to report an alias, a keyword, a
+function, and a builtin as found - so `cd`, `export`, `set`, `:`, `[`,
+`if`, and `!` are never misclassified as missing. Classification runs only
+in the serve process, at most once per currently-claimed `check.host`
+effect on every drive-loop pass (the same pass that recovers a
+crash-orphaned claim) plus once per fresh `check.host` admission and once
+per declared check at the top of every run start or resume - never in
+`sworn status`, the board, or the cockpit, which read only already-
+journaled facts and never resolve a command themselves.
+
+The affected `check.host` effect parks at once (typed cause
+`host_environment`, code `HOST_CHECK_ENVIRONMENT`, naming the check and the
+missing command): it spends no implementer try, is never handed to the
+implementer as repair input, and is never stored as the candidate's result
+or replayed. It stays claimed until the environment is fixed and the same
+work resumes, at which point the identical check re-executes normally. The
+run itself projects as parked with this same cause and code - never
+running, never uncertain - both while the serve process that hit the park
+still holds the run's owner lease and after it releases that lease; a
+Claimed `check.host` effect, and the one `git.seal` or
+`protocol.prepare_assembly` effect it is nested inside, are never counted
+as active work while they belong to this park. The status projection's
+host-check environment fact (`sworn.host-check-environment-fact/v1`,
+served on `EffectStatus` and `PinnedWork` beside, never replacing, the
+unchanged host-check failure fact above) names the check and the missing
+command for as long as the park is active, and clears itself the moment
+the check actually runs.
+
+At run start, and at the top of every drive-loop pass afterward for as
+long as the run keeps advancing (not only once at the run's opening
+boundary), the engine also resolves the first word of every declared
+`checks` and `host_checks` entry of every slice's approved contract (the
+deduplicated union of both lists) against the host runner's own
+environment, before any dispatch, and refuses to make further progress
+with the same `HOST_CHECK_ENVIRONMENT` code naming every unresolved
+command. This re-validation on every pass, not merely at start or resume,
+is what catches a `PATH` regression an operator makes partway through a
+run, before the very next dispatch. Fix the host's `PATH` (or the systemd
+unit's `Environment=PATH=...`), then resume the run with the identical run
+id; no plan, contract, or manifest change is needed or admitted for this
+cause.
+
+A host shell that cannot be resolved at all (`SWORN_SH` names an invalid
+executable, or no `sh` is found on `PATH`) is a distinct, typed failure,
+code `HOST_SHELL_UNAVAILABLE`: the run-start gate above already fails
+closed with it before any dispatch, and a mid-run check.host classification
+(a fresh claim or a crash-recovered one) fails closed with the identical
+code instead of silently skipping classification and running the command
+unclassified. Because nothing is ever journaled for this failure, it can
+never spend an implementer try or become repair input; it surfaces as a
+plain error from `sworn start` or `sworn resume`, exactly like the
+run-start gate's own refusal. Fix the host's shell configuration, then
+resume.
+
+### Pause-safe host checks
+
+A `sworn pause` or `sworn cancel` that arrives while a slice's host checks
+are running stops cleanly at the next check boundary, never mid-check: the
+already-passing check.host effects keep their exact recorded results, the
+implementer's dispatch and the candidate's seal are not marked
+operationally failed, and the implementer try is not spent. The check that
+is already running when the stop lands still finishes and its result is
+still recorded; only the check *after* it is held back. `sworn resume` -
+including from a fresh process against the same journal, exactly as an
+operator invoking it after a restart - completes the candidate's remaining
+checks and seals it on the same epoch and try it started with; nothing is
+replayed that already succeeded, and the model is never re-invoked to
+produce a candidate it already produced.
+
+Underneath this, the check loop observes the run's desired state fresh
+before admitting each declared check, and the driver dispatch that is
+running the checks stops with a durable, self-contained record of exactly
+where it stopped (which candidate, and the driver's already-decoded
+result) instead of being journaled as a failure. That record, not a
+re-invocation of the model, is what a resume - in this process or a fresh
+one - uses to pick the check loop back up. A pause or cancel that lands
+after every declared check has already passed, while the candidate's own
+seal is being claimed, is held to the identical guarantee: the seal
+resumes from that same claim rather than being marked failed.
+
+A journal write attempted on a context a pause or cancel already cancelled
+reports a typed cancellation (`OPERATION_CANCELLED`), never `DATABASE_BUSY`
+or a generic write failure: only a real, live write-claim conflict is ever
+reported as busy. Callers on the host-check and seal paths treat that
+cancellation, and the run's own desired state going to anything other than
+`running`, as this same clean stop - never as a candidate or dispatch
+failure.
+
+A cancelled run is never resumed by this mechanism: `sworn resume` only
+ever asks a run whose desired state is `paused` to go back to `running`, a
+control-layer decision this behavior does not change. If a run is
+cancelled instead of resumed, its stopped dispatch and the candidate it was
+mid-check on are left exactly as they stopped, inert, like any other
+in-flight work a cancel leaves behind.
+
+`RUN_STOPPED` is the single code every stop point reports once it has
+recognised a pause or cancel: a host-check boundary, the candidate's seal
+claim, a pause or cancel that lands during `sworn resume`'s own
+start-of-cycle recovery sweep, and the assembly host-check path inside
+`prepare_assembly`. It is always layered over the lower-level
+`CONTROL_STOPPED` (the run's desired state) or `OPERATION_CANCELLED` (a
+cancelled context observed mid-write) that first detected the stop, never
+raised on its own. `RUN_STOPPED` is never itself journaled as an effect's
+error code: wherever it is returned, the effect it stopped is left exactly
+where the stop found it - Claimed, not completed as operationally failed -
+so the try it was on is never spent and a later resume continues the same
+try rather than starting a new one. Pausing the same candidate more than
+once, at any mix of stop points, is safe for the same reason: every stop
+point records the same checkpoint body under its replay key, so a second
+or later pause never conflicts with the first.
+
+### Credential lifetime
+
+At dispatch preparation, a native Claude credential is refused before any
+implementer try is spent when it positively reads as expired
+(`CREDENTIAL_STALE`, unchanged from before this release), or when it is not
+yet expired but will expire before the dispatch's own declared timeout plus
+a fixed 5-minute margin elapses (`CREDENTIAL_EXPIRES_DURING_DISPATCH`). The
+same lookahead runs once more, against the same deadline, as the last gate
+immediately before the CLI actually launches, closing the gap between
+admission and a queued launch that starts materially later. An
+automation launch (which carries no per-call timeout) uses the fixed margin
+alone as its lookahead window. Unparseable, missing, or other-family
+credentials keep today's fail-open behavior: nothing here refuses a dispatch
+the engine cannot positively read as expiring.
+
+Either code spends no provider turn: the refusal returns before any attempt
+is journaled, exactly like `CREDENTIAL_STALE` always has. Its detail names
+only the remaining and required lifetime as durations (for example
+"remaining 4m30s, required 5m0s") - never a credential byte or an absolute
+timestamp.
+
+The refusal is also recorded as a `credential_lifetime` park entry on the
+affected work, visible on the status board beside the still-running lanes
+with the code and duration detail above, and with the guidance: any
+interactive use of the CLI on this host refreshes the credential. This park
+takes **no `retry` or `grant` action** - refreshing the credential is
+sufficient. The engine keeps re-evaluating the same admission on every
+drive round (the lane is never excluded from dispatch), so a fresh
+credential clears the entry and lets the dispatch proceed automatically,
+with no operator control needed; `sworn resume` or another drive is what
+actually re-checks it. The entry is currently shown only for a slice's
+`implementer_design`, `implementer_implementation`, `lead_review`,
+`work_verification`, or the release's `assembly_verification` work; a
+refusal on a `planner_proposal` or `lead_plan_review` dispatch is not yet
+projected onto the board and is visible only in the run's own operational
+error at the time it occurs.
+
+Visibility follows the run's approved park precedence exactly. In a run
+with only one active lane, the run's own `State` reads `parked` once no
+other lane holds it, with this entry named as the `Park` cause. In a run
+with more than one lane, this entry stays visible in `PinnedWork` beside
+the still-running lanes even while `State` reads `running`, because a
+credential-lifetime crossing is deliberately excluded from the lanes
+`pinCrossingLanes` itself pins, so it never by itself forces every lane
+into park.
+
+The CLI's own authentication failure is recognised in either of two
+sequences it actually produces, never from ordinary model prose: its own
+terminal result event naming the failure (for example "Failed to
+authenticate" or "OAuth session expired" in the result text), or - only
+when no result event ever arrives - its own synthesized assistant turn,
+marked `message.model` equal to the literal `"<synthetic>"` (the CLI's own
+convention for a turn it generates itself rather than the model), carrying
+the identical closed phrase vocabulary. This second sequence is asserted
+from the CLI's documented source convention, not from a captured event log
+in this repository. Either sequence fails the dispatch with
+`PROVIDER_AUTHORIZATION_FAILED` instead of `PROVIDER_TRANSPORT_FAILED`,
+whether the CLI process exited non-zero or exited cleanly without a
+submission. An ordinary model turn - any `message.model` other than that
+synthetic marker - is never read as an authentication failure, however its
+text reads.
+
+### Broker budget and turn cap
+
+A native dispatch's tool broker still enforces `MaxBrokerCalls` (512,
+unchanged) across every MCP request the CLI sends it. Exhausting that
+budget now ends the dispatch at once: the broker moves to its terminal
+state on the exact request that crosses the count, the CLI process is
+terminated immediately, and the dispatch fails with
+`BROKER_CALL_BUDGET_EXHAUSTED` - instead of the broker answering `closed`
+silently while the model kept pinging it until the CLI's own turn cap gave
+up minutes later.
+
+Separately, the CLI's own fixed `--max-turns` (currently 1000, unchanged)
+can end the CLI's result with subtype `error_max_turns`. That result now
+fails the dispatch with `NATIVE_TURN_CAP_EXCEEDED`, whether the CLI process
+exited non-zero or exited cleanly without a submission - never
+`PROVIDER_TRANSPORT_FAILED` and never `PROVIDER_LIMITED`. This is a
+different budget from, and is not grant-eligible like, the HTTP lanes'
+`ECONOMY_TURN_BUDGET_EXCEEDED`: that code reports a manifest-governed
+per-work turn figure a `grant` action can raise, but the native CLI's own
+turn cap is a fixed process flag no manifest value changes.
+
+Both codes carry a short, bounded, secret-free detail (for example "calls
+513, budget 512" or "turn cap 1000") and park like any other operational
+failure - after a work's third failed try, or sooner on repeated identical
+failures - clearing with a bare `retry`. Neither offers a `grant` action:
+nothing manifest-governed can raise either budget. A retry after
+exhaustion is a fresh dispatch against a fresh broker with a fresh
+`MaxBrokerCalls` budget, not a resumption of the exhausted one.
+
+A tool call that arrives while another is still executing waits for the
+open call slot instead of being refused (sworn#360): this was already the
+broker's behavior and is documented here for the first time. A refused
+request - `not_open`, `closed`, `cancelled`, any `invalid` shape, a
+rejected protocol version, an out-of-order or repeated handshake step, or
+the tool-list reply itself failing to build - is counted separately from
+executed tool calls. Both counts are stamped onto the dispatch's failure
+record and shown in the status projection's dispatch view, so a budget
+that is approaching or has already crossed is legible without reading the
+journal, even when the CLI's own turn count is unknown because its final
+result event never arrived. Two request shapes spend no budget and are
+counted in neither total: a malformed transport request (wrong method,
+path, host, or content type) and an unauthorized request, both rejected
+before the broker's own call counter advances.
 
 ### Transient provider stall backoff
 
@@ -835,7 +1069,16 @@ receives that exact refusal and matching checkpoint provenance as
 input**, never a candidate receipt or a verifier PASS - so it can complete
 the handoff on the retained code instead of an empty commit or a blind
 regeneration. A refusal already corrected by an accepted submission in the
-same or a later try is not replayed as outstanding.
+same or a later try is not replayed as outstanding, nor is one whose own
+try instead reached seal preparation and was refused there (an anchor,
+scope or other seal-time gate) - reaching the seal means the field-level
+refusal that preceded it was itself corrected in-session, even though that
+try's own dispatch effect never decodes as an accepted submission. This
+holds equally for a seal-time refusal that carries no named paths, such as
+an empty candidate, an unreadable anchor gate, a candidate-seal failure or
+a contract-resolution failure: reaching the seal is detected from the
+dispatch effect's own recorded event, never from the shape of its stored
+result, so a path-less refusal is not replayed as outstanding either.
 
 ## Seal-time gates and their repair input
 
@@ -862,16 +1105,29 @@ attempt is never re-flagged as untouched - and refuses the seal with
 `ANCHOR_NOT_TOUCHED` when a criterion's declared anchors, and no valid
 declared substitute, appear in the candidate's diff from that base. The
 refusal names the base it used, every criterion still missing an anchor and
-its files, and separately, as a distinct fact, any declared substitute that
-failed and why (untouched, or outside the slice's approved scope). It is
-captured as repair context for the next same-authority implementer dispatch,
-so the cost is one further dispatch, not a full evidence round. An
-implementer may declare a substitute anchor for a criterion via
+its files, separately, as a distinct fact, any declared substitute that
+failed and why (untouched, or outside the slice's approved scope), and,
+always, the `anchor_substitutes` route itself - whether or not a substitute
+was attempted. It is captured as repair context for the next same-authority
+implementer dispatch, so the cost is one further dispatch, not a full
+evidence round; the refusal survives into the first try of a fresh epoch
+exactly as a same-epoch retry would receive it, not only a same-epoch one.
+An implementer may declare a substitute anchor for a criterion via
 `anchor_substitutes` on its `implementer_implementation` submission
 (criterion ID to path); a substitute the candidate honours is recorded on
 the seal itself (criterion ID to file), so a reader does not have to
-reconstruct it from the dispatch effect. An unreadable base tree or an
+reconstruct it from the dispatch effect. The implementer's own prompt
+advertises `anchor_substitutes` in its result fields, and names it as the
+correction route, only when the slice's approved contract declares an
+Anchor for at least one acceptance criterion - it is never a hidden field
+the model has to already know to reach for. An unreadable base tree or an
 ambiguous diff refuses `ANCHOR_GATE_UNREADABLE` instead of silently passing.
+The `ANCHOR_NOT_TOUCHED` detail handed to the implementer is bounded to
+2048 bytes, matching the existing host-repair refusal-detail convention:
+only the variable part (the missing-criteria list, anchor base and any
+substitute failures) is truncated, deterministically and on a valid UTF-8
+boundary, so the fixed closing sentence naming the `anchor_substitutes`
+route is never the part that gets cut off.
 
 **Degenerate submission body.** At the same author-side boundary that
 already refuses a self-declared probe, Sworn also measures a submission's

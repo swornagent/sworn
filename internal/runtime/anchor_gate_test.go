@@ -2,10 +2,12 @@ package runtime
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/protocol"
@@ -189,6 +191,15 @@ func TestAnchorPresenceGateRefusesUntouchedAnchorAndAdmitsDirectTouch(t *testing
 		!strings.Contains(recordErr.Msg, "A2") || !strings.Contains(recordErr.Msg, "anchor base") {
 		t.Fatalf("unexpected refusal shape: %#v", recordErr)
 	}
+	// C2: the message itself names the failing criterion's anchor path
+	// (not only the union Paths field) and the anchor_substitutes route,
+	// even though no substitute was declared here.
+	if !strings.Contains(recordErr.Msg, "A2 (README.md)") {
+		t.Fatalf("refusal message does not name the criterion's anchor path: %s", recordErr.Msg)
+	}
+	if !strings.Contains(recordErr.Msg, "anchor_substitutes") {
+		t.Fatalf("refusal message does not name the anchor_substitutes route: %s", recordErr.Msg)
+	}
 
 	touching := writeAndCommitAnchorFixture(t, repository, "README.md", "covers the anchor\n")
 	if honored, err := anchorPresenceGate(engine, contract, base, touching, nil); err != nil || len(honored) != 0 {
@@ -270,5 +281,134 @@ func TestAnchorPresenceGateFailsClosedOnUnreadableOID(t *testing.T) {
 	}
 	if _, err := anchorPresenceGate(engine, contract, base, "not-an-oid", nil); !IsCode(err, "ANCHOR_GATE_UNREADABLE") {
 		t.Fatalf("unreadable candidate error = %v, want ANCHOR_GATE_UNREADABLE", err)
+	}
+}
+
+// TestSliceDeclaresAnchorDetectsTrailingAnchorClause pins sliceDeclaresAnchor
+// directly (S10-repair-input-across-epochs-repair A3): it is true exactly
+// when at least one criterion carries a trailing "Anchor:" clause, false for
+// no criteria at all and for criteria that carry none, so a mutant that
+// hardcodes it to always-true or always-false is caught at this layer
+// rather than only downstream in the prompt.
+func TestSliceDeclaresAnchorDetectsTrailingAnchorClause(t *testing.T) {
+	tests := []struct {
+		name     string
+		criteria []protocol.Criterion
+		want     bool
+	}{
+		{"no criteria at all", nil, false},
+		{
+			"single criterion with no anchor clause",
+			[]protocol.Criterion{{ID: "A1", Text: "No anchor clause at all."}},
+			false,
+		},
+		{
+			"single criterion with a trailing anchor clause",
+			[]protocol.Criterion{{ID: "A1", Text: "Some text. Anchor: docs/run.md."}},
+			true,
+		},
+		{
+			"only the second of two criteria declares an anchor",
+			[]protocol.Criterion{
+				{ID: "A1", Text: "No anchor clause at all."},
+				{ID: "A2", Text: "Some text. Anchor: docs/run.md."},
+			},
+			true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := sliceDeclaresAnchor(tc.criteria); got != tc.want {
+				t.Fatalf("sliceDeclaresAnchor(...) = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// writeAndCommitAnchorFixtures writes every file in files into repository
+// and commits them all in one commit on top of the current HEAD, returning
+// the new commit's OID string.
+func writeAndCommitAnchorFixtures(
+	t *testing.T, repository string, files map[string]string,
+) string {
+	t.Helper()
+	for name, content := range files {
+		path := filepath.Join(repository, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		runRuntimeGit(t, repository, "add", "--", name)
+	}
+	runRuntimeGit(
+		t, repository,
+		"-c", "user.name=Production Fixture",
+		"-c", "user.email=production@example.invalid",
+		"commit", "--quiet", "-m", "anchor gate fixture: batch",
+	)
+	return runRuntimeGit(t, repository, "rev-parse", "HEAD")
+}
+
+// TestAnchorPresenceGateRefusalDetailTruncatesDeterministically pins C3: a
+// candidate missing enough anchor criteria to push the built message past
+// anchorNotTouchedDetailMaxBytes is returned truncated to that bound, still
+// valid UTF-8, still ending in the fixed anchor_substitutes guidance (the
+// variable part is bounded, never the fixed suffix), and byte-identical
+// across two calls with the same input.
+func TestAnchorPresenceGateRefusalDetailTruncatesDeterministically(t *testing.T) {
+	engine, base := newAnchorGateEngineFixture(t)
+	repository := engine.repository.Root()
+
+	const criterionCount = 120
+	criteria := make([]protocol.Criterion, 0, criterionCount)
+	files := make(map[string]string, criterionCount)
+	for i := 0; i < criterionCount; i++ {
+		name := fmt.Sprintf(
+			"anchor-fixtures/deliberately-long-anchor-file-name-%03d.txt", i,
+		)
+		files[name] = "anchor fixture content\n"
+		criteria = append(criteria, protocol.Criterion{
+			ID:   fmt.Sprintf("A%03d", i),
+			Text: "Truncation bound test criterion. Anchor: " + name + ".",
+		})
+	}
+	base = writeAndCommitAnchorFixtures(t, repository, files)
+	contract := protocol.Slice{
+		ID:         "S1",
+		Scope:      protocol.Scope{Include: []string{"one.txt"}, Exclude: []string{}},
+		Acceptance: criteria,
+	}
+	candidate := writeAndCommitAnchorFixture(t, repository, "one.txt", "unrelated change\n")
+
+	_, err := anchorPresenceGate(engine, contract, base, candidate, nil)
+	var recordErr *protocol.RecordError
+	if !errors.As(err, &recordErr) || recordErr.Code != "ANCHOR_NOT_TOUCHED" {
+		t.Fatalf("expected ANCHOR_NOT_TOUCHED, got %v", err)
+	}
+	if len([]byte(recordErr.Msg)) > anchorNotTouchedDetailMaxBytes {
+		t.Fatalf(
+			"refusal detail = %d bytes, want <= %d",
+			len([]byte(recordErr.Msg)), anchorNotTouchedDetailMaxBytes,
+		)
+	}
+	if !utf8.ValidString(recordErr.Msg) {
+		t.Fatalf("refusal detail is not valid UTF-8: %q", recordErr.Msg)
+	}
+	if !strings.HasSuffix(recordErr.Msg, anchorNotTouchedGuidanceSuffix) {
+		t.Fatalf("refusal detail lost its guidance suffix: %s", recordErr.Msg)
+	}
+
+	_, err2 := anchorPresenceGate(engine, contract, base, candidate, nil)
+	var recordErr2 *protocol.RecordError
+	if !errors.As(err2, &recordErr2) {
+		t.Fatalf("expected ANCHOR_NOT_TOUCHED on second call, got %v", err2)
+	}
+	if recordErr.Msg != recordErr2.Msg {
+		t.Fatalf(
+			"refusal detail not deterministic across calls:\n%s\nvs\n%s",
+			recordErr.Msg, recordErr2.Msg,
+		)
 	}
 }

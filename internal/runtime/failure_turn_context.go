@@ -170,6 +170,14 @@ type FailureTurnContext struct {
 	Omitted           int64         `json:"omitted,omitempty"`
 	DroppedMaxVisible int64         `json:"dropped_max_visible,omitempty"`
 	Reason            string        `json:"reason,omitempty"`
+	// ExecutedToolCalls and RefusedToolCalls are the dispatch's native
+	// broker tool-call counts (A3, S4-broker-budget-and-turn-cap): the
+	// attempt's own stamped UsageReceipt.ToolCalls/RefusedToolCalls,
+	// carried here so a budget crossing is legible without a journal
+	// read. Nil is honest absence (a non-native dispatch, or a native one
+	// whose usage never stamped these facts), never coerced to zero.
+	ExecutedToolCalls *int64 `json:"executed_tool_calls,omitempty"`
+	RefusedToolCalls  *int64 `json:"refused_tool_calls,omitempty"`
 }
 
 // failureTurnStored is the journaled turn-event: the same bounded
@@ -195,6 +203,12 @@ type failureContextStored struct {
 	Omitted           int64               `json:"omitted,omitempty"`
 	DroppedMaxVisible int64               `json:"dropped_max_visible,omitempty"`
 	Reason            string              `json:"reason,omitempty"`
+	// ExecutedToolCalls and RefusedToolCalls mirror the served
+	// FailureTurnContext's own fields (A3, S4-broker-budget-and-turn-cap):
+	// stamped by failureEventBodyFor from the attempt's own usage receipt,
+	// never inferred here.
+	ExecutedToolCalls *int64 `json:"executed_tool_calls,omitempty"`
+	RefusedToolCalls  *int64 `json:"refused_tool_calls,omitempty"`
 }
 
 // failureEventBody is the versioned failure envelope for non-continuation
@@ -366,13 +380,23 @@ func (s *Service) feedFailureTailWorker(effectID string, turn driver.WorkerTurn)
 // reason when no live tail exists or assembly itself fails. It never
 // returns nil for a new write (absent is reserved for pre-S3 records and
 // sweep reconciles that never held the dispatch), never fails, and never
-// reads the provider stream or the journal.
-func (s *Service) assembleFailureContextStored(effectID string) (stored *failureContextStored) {
+// reads the provider stream or the journal. executedToolCalls and
+// refusedToolCalls (A3, S4-broker-budget-and-turn-cap) are the attempt's
+// own already-stamped usage facts, carried onto every returned shape
+// unchanged (nil stays nil); the byte-budget reservation below accounts
+// for their widest possible width so their presence can never push the
+// final marshal over FailureTurnContextMaxBytes.
+func (s *Service) assembleFailureContextStored(
+	effectID string,
+	executedToolCalls, refusedToolCalls *int64,
+) (stored *failureContextStored) {
 	stored = &failureContextStored{
-		SchemaVersion: FailureTurnContextSchemaVersion,
-		Status:        FailureTurnContextUnavailable,
-		Turns:         []failureTurnStored{},
-		Reason:        FailureTurnContextNoLiveTail,
+		SchemaVersion:     FailureTurnContextSchemaVersion,
+		Status:            FailureTurnContextUnavailable,
+		Turns:             []failureTurnStored{},
+		Reason:            FailureTurnContextNoLiveTail,
+		ExecutedToolCalls: executedToolCalls,
+		RefusedToolCalls:  refusedToolCalls,
 	}
 	if s == nil || effectID == "" {
 		return stored
@@ -380,10 +404,12 @@ func (s *Service) assembleFailureContextStored(effectID string) (stored *failure
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			stored = &failureContextStored{
-				SchemaVersion: FailureTurnContextSchemaVersion,
-				Status:        FailureTurnContextUnavailable,
-				Turns:         []failureTurnStored{},
-				Reason:        FailureTurnContextTailEncodeFailed,
+				SchemaVersion:     FailureTurnContextSchemaVersion,
+				Status:            FailureTurnContextUnavailable,
+				Turns:             []failureTurnStored{},
+				Reason:            FailureTurnContextTailEncodeFailed,
+				ExecutedToolCalls: executedToolCalls,
+				RefusedToolCalls:  refusedToolCalls,
 			}
 		}
 	}()
@@ -417,6 +443,8 @@ func (s *Service) assembleFailureContextStored(effectID string) (stored *failure
 			Status:            FailureTurnContextEmpty,
 			Turns:             []failureTurnStored{},
 			DroppedMaxVisible: droppedMax,
+			ExecutedToolCalls: executedToolCalls,
+			RefusedToolCalls:  refusedToolCalls,
 		}
 	}
 	// Walk newest-first, accumulating exact compact-JSON sizes, stopping
@@ -427,17 +455,22 @@ func (s *Service) assembleFailureContextStored(effectID string) (stored *failure
 	// with the dropped count carried loudly on the turn. Empty therefore
 	// only ever means "no turns observed".
 	//
-	// The envelope overhead reserves the omitted field at its widest
-	// (10 digits), so the per-turn budget already leaves room for the
-	// final omitted count: selection never admits a turn that the final
+	// The envelope overhead reserves the omitted field, and the executed/
+	// refused tool-call counts (A3, S4-broker-budget-and-turn-cap), at
+	// their widest (10 digits each, always reserved regardless of whether
+	// the real values are nil or narrower), so the per-turn budget already
+	// leaves room for them: selection never admits a turn that the final
 	// marshal would then push over budget. The final marshal below is
 	// still the exact gate.
+	worstCaseCount := int64(9999999999)
 	overhead := int64(len(mustJSON(failureContextStored{
 		SchemaVersion:     FailureTurnContextSchemaVersion,
 		Status:            FailureTurnContextPresent,
 		Turns:             []failureTurnStored{},
 		Omitted:           9999999999,
 		DroppedMaxVisible: droppedMax,
+		ExecutedToolCalls: &worstCaseCount,
+		RefusedToolCalls:  &worstCaseCount,
 	})))
 	// The turns array itself costs 2 (brackets); each additional turn
 	// costs 1 (comma) plus its marshaled length. Overhead above already
@@ -484,10 +517,12 @@ func (s *Service) assembleFailureContextStored(effectID string) (stored *failure
 			truncated, droppedParts, ok := truncateStoredTurn(full, remaining)
 			if !ok {
 				return &failureContextStored{
-					SchemaVersion: FailureTurnContextSchemaVersion,
-					Status:        FailureTurnContextUnavailable,
-					Turns:         []failureTurnStored{},
-					Reason:        FailureTurnContextOverBudget,
+					SchemaVersion:     FailureTurnContextSchemaVersion,
+					Status:            FailureTurnContextUnavailable,
+					Turns:             []failureTurnStored{},
+					Reason:            FailureTurnContextOverBudget,
+					ExecutedToolCalls: executedToolCalls,
+					RefusedToolCalls:  refusedToolCalls,
 				}
 			}
 			truncated.OmittedParts = droppedParts
@@ -509,24 +544,30 @@ func (s *Service) assembleFailureContextStored(effectID string) (stored *failure
 		Turns:             selected,
 		Omitted:           omitted,
 		DroppedMaxVisible: droppedMax,
+		ExecutedToolCalls: executedToolCalls,
+		RefusedToolCalls:  refusedToolCalls,
 	}
 	// Defensive exact check: the marshaled context must fit the declared
 	// bound, or the write stays unavailable rather than over-budget.
 	body, err := json.Marshal(result)
 	if err != nil {
 		return &failureContextStored{
-			SchemaVersion: FailureTurnContextSchemaVersion,
-			Status:        FailureTurnContextUnavailable,
-			Turns:         []failureTurnStored{},
-			Reason:        FailureTurnContextTailEncodeFailed,
+			SchemaVersion:     FailureTurnContextSchemaVersion,
+			Status:            FailureTurnContextUnavailable,
+			Turns:             []failureTurnStored{},
+			Reason:            FailureTurnContextTailEncodeFailed,
+			ExecutedToolCalls: executedToolCalls,
+			RefusedToolCalls:  refusedToolCalls,
 		}
 	}
 	if len(body) > FailureTurnContextMaxBytes {
 		return &failureContextStored{
-			SchemaVersion: FailureTurnContextSchemaVersion,
-			Status:        FailureTurnContextUnavailable,
-			Turns:         []failureTurnStored{},
-			Reason:        FailureTurnContextOverBudget,
+			SchemaVersion:     FailureTurnContextSchemaVersion,
+			Status:            FailureTurnContextUnavailable,
+			Turns:             []failureTurnStored{},
+			Reason:            FailureTurnContextOverBudget,
+			ExecutedToolCalls: executedToolCalls,
+			RefusedToolCalls:  refusedToolCalls,
 		}
 	}
 	return result
@@ -615,16 +656,26 @@ func truncateStoredTurn(full failureTurnStored, remaining int64) (failureTurnSto
 // continuation-fallback body with the same additive context when the
 // dispatch fell back. It never returns nil and never fails the dispatch:
 // on any assembly or marshal error it carries unavailable with a named
-// reason instead of failing.
-func (s *Service) failureEventBodyFor(assoc EventAssociation, fact *continuationDispatchFact, effectID string) []byte {
+// reason instead of failing. executedToolCalls and refusedToolCalls (A3,
+// S4-broker-budget-and-turn-cap) are the attempt's own stamped usage
+// facts, when one exists - nil for every call site that writes before an
+// observation exists (a prior-process reconciliation).
+func (s *Service) failureEventBodyFor(
+	assoc EventAssociation,
+	fact *continuationDispatchFact,
+	effectID string,
+	executedToolCalls, refusedToolCalls *int64,
+) []byte {
 	fallback := func() []byte {
 		body, _ := json.Marshal(failureEventBody{
 			EventAssociation: assoc,
 			FailureTurnContext: &failureContextStored{
-				SchemaVersion: FailureTurnContextSchemaVersion,
-				Status:        FailureTurnContextUnavailable,
-				Turns:         []failureTurnStored{},
-				Reason:        FailureTurnContextTailEncodeFailed,
+				SchemaVersion:     FailureTurnContextSchemaVersion,
+				Status:            FailureTurnContextUnavailable,
+				Turns:             []failureTurnStored{},
+				Reason:            FailureTurnContextTailEncodeFailed,
+				ExecutedToolCalls: executedToolCalls,
+				RefusedToolCalls:  refusedToolCalls,
 			},
 		})
 		if len(body) == 0 {
@@ -635,7 +686,9 @@ func (s *Service) failureEventBodyFor(assoc EventAssociation, fact *continuation
 	defer func() {
 		_ = recover()
 	}()
-	stored := s.assembleFailureContextStored(effectID)
+	stored := s.assembleFailureContextStored(
+		effectID, executedToolCalls, refusedToolCalls,
+	)
 	if stored == nil {
 		return fallback()
 	}
@@ -705,6 +758,8 @@ func decodeFailureContextStored(stored *failureContextStored) *FailureTurnContex
 		Omitted:           stored.Omitted,
 		DroppedMaxVisible: stored.DroppedMaxVisible,
 		Reason:            stored.Reason,
+		ExecutedToolCalls: stored.ExecutedToolCalls,
+		RefusedToolCalls:  stored.RefusedToolCalls,
 	}
 	for _, turn := range stored.Turns {
 		decoded := FailureTurn{

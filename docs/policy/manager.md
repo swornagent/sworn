@@ -123,30 +123,51 @@ fenced tree, record the reason.
 
 ### M10. A host check that cannot find its command
 
-Situation: the pinned work's failure code is `HOST_CHECK_FAILED` with exit
-code 127 (command not found), or the check's own output names a missing
-command, and the missing command is confirmed absent from the `PATH` of the
-serve unit that runs the checks (compare `/proc/<serve pid>/environ` with a
-shell where the command resolves).
-Decision: the failure belongs to the host, not the candidate. Do not answer
-the implementer and do not revise anything. A retry in the same run does not
-help: the journal stores the failed result for that candidate, contract and
-check, and replays it whenever the unchanged candidate is resealed, so the
-check never executes again. Pause the run, fix the environment for the
-next serve unit (`systemd-run --user -E PATH=...`), cancel the run, and
-relaunch on a manifest that differs only in `run_id`, with a fresh journal;
-verify the new serve process's `PATH` before the start. The track's
-receipts carry over; the unverified candidate does not. Cite the exit code,
-the missing command, the old and new `PATH`, and both run ids.
-Bounds: only the serve unit's environment and the run id change. Never
-change the plan, the contracts, the checks, the roster, the drivers config
-or the binary under this entry. If the command is missing from the host
-itself (not only from the unit's `PATH`), or the relaunched run fails the
-same check with the same exit code, this is Type-1.
+Situation: the run is parked with cause `host_environment` (a pinned
+work's `HOST_CHECK_ENVIRONMENT` code naming a check and a missing command,
+or the run-scoped start-time refusal naming one or more unresolved
+commands), or a pinned work's failure code still reads `HOST_CHECK_FAILED`
+with exit code 127 on a pre-S1-host-check-environment-failures journal.
+Decision: the failure belongs to the host, not the candidate. Do not
+answer the implementer and do not revise anything. The engine already
+recognizes this cause on its own: it never spends an implementer try, never
+stores or replays the environment failure, and re-executes the check
+automatically once its own environment classification succeeds. Pause or
+wait for the automatic `host_environment` park, fix the environment for the
+serve process (for example `systemd-run --user -E PATH=...`, or the
+running unit's `Environment=PATH=...`), then resume the same run id - no
+cancel and no relaunch is needed for this cause. Cite the missing command
+and the fixed `PATH`.
+Bounds: only the serve process's environment changes. Never change the
+plan, the contracts, the checks, the roster, the drivers config or the
+binary under this entry. If the command is missing from the host itself
+(not only from the serve process's `PATH`), or the resumed run parks again
+on the identical missing command after a claimed fix, this is Type-1.
 Origin: 2026-09-24, run 2026-09-23-launch-legibility-r3 (three implementer
 tries spent on `go: not found` because the systemd user manager's PATH lacked
 /usr/local/go/bin; a retry on a fixed PATH replayed the stored failure;
-sworn#355). Proposed at the Principal's request; ratified when this entry merges.
+sworn#355). Proposed at the Principal's request; ratified when this entry
+merges. Revised for 2026-09-25-recovery-robustness S1-host-check-
+environment-failures, which replaced the relaunch-on-a-new-run-id
+workaround with the engine's own typed `host_environment` park and
+automatic re-execution.
+
+### M11. A native credential that will expire before the dispatch can finish
+
+Situation: the run is parked with cause `credential_lifetime` (a pinned
+work's `CREDENTIAL_STALE` or `CREDENTIAL_EXPIRES_DURING_DISPATCH` code,
+naming the remaining and required lifetime as durations).
+Decision: this is an environment fact, not a candidate or contract defect,
+and takes no `retry` or `grant` action - both are inadmissible for this
+cause. Any interactive use of the native CLI on the host that refreshes the
+credential is sufficient; the engine re-checks the same admission on every
+drive round with no operator control needed. Resume or re-issue a drive
+after refreshing. Do not answer the implementer and do not revise anything.
+Bounds: only the credential on the host changes. Never change the plan, the
+contracts, the roster, the drivers config or the binary under this entry.
+If the same work parks again on the identical cause after a claimed
+refresh, this is Type-1.
+Origin: 2026-09-25-recovery-robustness S3-credential-lifetime (sworn#358).
 
 ## Type-1 (always the Principal)
 

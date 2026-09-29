@@ -342,6 +342,44 @@ func (f *economyGuardFixture) failedDispatchAttempt(
 	}
 }
 
+// claimedDispatchAttempt journals a driver.dispatch effect claimed but never
+// completed, the shape of a try that is genuinely in flight, so a caller can
+// exercise Status()'s active-drive precedence against a run that would
+// otherwise read parked from an earlier try's crossing.
+func (f *economyGuardFixture) claimedDispatchAttempt(
+	t *testing.T,
+	work string,
+	epoch, try int64,
+) {
+	t.Helper()
+	effectID := journal.AttemptEffectID(work, epoch, try)
+	payload, err := json.Marshal(map[string]string{"work": work})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.RecordCommandEffect(f.ctx, journal.Command{
+		RunID:     f.manifest.value.RunID,
+		ReplayKey: effectID,
+		Kind:      "driver.dispatch",
+		Payload:   payload,
+		CreatedAt: f.now,
+	}, journal.Effect{
+		RunID:          f.manifest.value.RunID,
+		ID:             effectID,
+		ReplayKey:      effectID,
+		Kind:           "driver.dispatch",
+		State:          journal.Pending,
+		BeforeDigest:   sha256Digest(payload),
+		ExpectedDigest: "sha256:" + strings.Repeat("d", 64),
+		UpdatedAt:      f.now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.store.Claim(f.ctx, f.manifest.value.RunID, effectID, f.now, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // failedDispatchAttemptWithDiagnostic is failedDispatchAttempt's sibling: it
 // journals the same shape of completed operational failure, but synthesizes
 // the durable observation body with an explicit diagnostic code instead of
@@ -805,8 +843,8 @@ func TestIdenticalFailureParkBeforeTryExhaustion(t *testing.T) {
 		codes      []string
 		details    []string
 		threshold  int64
-		park       bool
 		claimTry3  bool
+		park       bool
 		wantCode   string
 		wantDetail string
 	}{
@@ -849,8 +887,8 @@ func TestIdenticalFailureParkBeforeTryExhaustion(t *testing.T) {
 			name:      "claimed third try breaks the run",
 			codes:     []string{code, code},
 			details:   []string{detail, detail},
-			park:      false,
 			claimTry3: true,
+			park:      false,
 		},
 	} {
 		test := test
@@ -875,39 +913,7 @@ func TestIdenticalFailureParkBeforeTryExhaustion(t *testing.T) {
 				)
 			}
 			if test.claimTry3 {
-				// A claimed, still-in-flight third try breaks the
-				// consecutive suffix: the work is making progress.
-				effectID := journal.AttemptEffectID(work, 1, 3)
-				payload, _ := json.Marshal(map[string]string{"work": work})
-				if err := fixture.store.RecordCommandEffect(
-					fixture.ctx,
-					journal.Command{
-						RunID: fixture.manifest.value.RunID, ReplayKey: effectID,
-						Kind: "driver.dispatch", Payload: payload,
-						CreatedAt: fixture.now,
-					},
-					journal.Effect{
-						RunID:          fixture.manifest.value.RunID,
-						ID:             effectID,
-						ReplayKey:      effectID,
-						Kind:           "driver.dispatch",
-						State:          journal.Pending,
-						BeforeDigest:   sha256Digest(payload),
-						ExpectedDigest: "sha256:" + strings.Repeat("d", 64),
-						UpdatedAt:      fixture.now,
-					},
-				); err != nil {
-					t.Fatal(err)
-				}
-				if _, err := fixture.store.Claim(
-					fixture.ctx,
-					fixture.manifest.value.RunID,
-					effectID,
-					fixture.now,
-					time.Minute,
-				); err != nil {
-					t.Fatal(err)
-				}
+				fixture.claimedDispatchAttempt(t, work, 1, int64(len(test.codes)+1))
 			}
 			status, err := fixture.service.Status(
 				fixture.ctx,
@@ -920,6 +926,9 @@ func TestIdenticalFailureParkBeforeTryExhaustion(t *testing.T) {
 				if status.State == "parked" && status.Park != nil &&
 					status.Park.Cause == ParkCauseIdenticalFailure {
 					t.Fatalf("unexpected identical-failure park: %#v", status.Park)
+				}
+				if test.claimTry3 && status.State != "running" {
+					t.Fatalf("status = %#v, want running while the claimed try is in flight", status)
 				}
 				return
 			}

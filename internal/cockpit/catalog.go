@@ -100,7 +100,23 @@ func BuildProjectCatalog(
 // generic "review the failed item" string with the actual affected-work
 // evidence (A2).
 func pinnedWorkNeedsYouReason(pinned []runtimepkg.PinnedWork) string {
+	// S8-credential-lifetime-repair A3: retry cannot clear a
+	// credential_lifetime entry (it self-clears on the next drive once the
+	// credential is refreshed), so the guidance must never ask for one -
+	// not even implicitly, through a leading sentence written for the rest
+	// of a mixed park. Each credential_lifetime entry states this on its
+	// own, and the leading sentence is scoped to whether any other cause is
+	// present to retry at all.
 	reasons := make([]string, 0, len(pinned))
+	hasCredentialLifetime := false
+	hasOtherCause := false
+	for _, work := range pinned {
+		if work.Cause == runtimepkg.ParkCauseCredentialLifetime {
+			hasCredentialLifetime = true
+		} else {
+			hasOtherCause = true
+		}
+	}
 	for _, work := range pinned {
 		reason := work.Lane + ": " + work.Cause
 		if work.Code != "" {
@@ -109,10 +125,22 @@ func pinnedWorkNeedsYouReason(pinned []runtimepkg.PinnedWork) string {
 		if work.Detail != "" {
 			reason += " - " + work.Detail
 		}
+		if work.Cause == runtimepkg.ParkCauseCredentialLifetime {
+			reason += ". Retry does not apply to this entry: any " +
+				"interactive use of the CLI on this host refreshes the " +
+				"credential."
+		}
 		reasons = append(reasons, reason)
 	}
-	return "Review the pinned work, then retry it using the latest action. " +
-		strings.Join(reasons, "; ")
+	lead := "Review the pinned work, then retry it using the latest action. "
+	switch {
+	case hasCredentialLifetime && !hasOtherCause:
+		lead = "Review the pinned work below; retry cannot clear any of it. "
+	case hasCredentialLifetime && hasOtherCause:
+		lead = "Review the pinned work, then retry the entries below that " +
+			"retry can clear, using the latest action. "
+	}
+	return lead + strings.Join(reasons, "; ")
 }
 
 // ProjectNeedsYou extracts human-action-required items across runs with precedence:
@@ -169,7 +197,15 @@ func ProjectNeedsYou(runs []DiscoveredRunStatus) []NeedsYouItem {
 		if run.Status.State == "parked" {
 			if len(run.Status.PinnedWork) != 0 {
 				action := "retry"
-				if economyGrantUnit(run.Status.PinnedWork[0].Cause) != "" {
+				switch {
+				case run.Status.PinnedWork[0].Cause == runtimepkg.ParkCauseHostEnvironment,
+					run.Status.PinnedWork[0].Cause == runtimepkg.ParkCauseCredentialLifetime:
+					// No board control exists for either cause: fixing the
+					// host environment, or refreshing the credential, and
+					// resuming/re-driving clears it - never a retry or a
+					// grant (S3-credential-lifetime A2).
+					action = "review_park"
+				case economyGrantUnit(run.Status.PinnedWork[0].Cause) != "":
 					// The first pinned work crossed an economy budget:
 					// retry alone is refused (ECONOMY_GRANT_REQUIRED), so
 					// the needs-you row must name the verb that actually
@@ -194,6 +230,12 @@ func ProjectNeedsYou(runs []DiscoveredRunStatus) []NeedsYouItem {
 					run.Status.Park.FallbackCount,
 					run.Status.Park.Budget,
 					run.Status.Park.UnblockKnob,
+				)
+			} else if run.Status.Park != nil &&
+				run.Status.Park.Cause == runtimepkg.ParkCauseHostEnvironment {
+				reason = fmt.Sprintf(
+					"Sworn refused to start because a declared check's command does not resolve on the host that will run it: %s. Set PATH on the host or the systemd unit, then resume the run.",
+					run.Status.Park.FailureDetail,
 				)
 			}
 			items = append(items, NeedsYouItem{

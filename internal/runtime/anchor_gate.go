@@ -14,6 +14,23 @@ import (
 // carries no such clause is never gated.
 const anchorClauseMarker = "Anchor:"
 
+// anchorNotTouchedDetailMaxBytes bounds the ANCHOR_NOT_TOUCHED refusal
+// message the implementer reads, matching the existing host-repair
+// convention (refusalDetail's 2048-byte bound, economy_guards.go) rather
+// than introducing a new one (S10-repair-input-across-epochs-repair C3,
+// documented in docs/run.md next to the anchor-presence gate).
+const anchorNotTouchedDetailMaxBytes = 2_048
+
+// anchorNotTouchedGuidanceSuffix is the fixed, always-present closing
+// sentence naming the anchor_substitutes correction route. Truncation
+// bounds only the variable part of the message (the missing-criteria list,
+// anchor base and substitute failures) so this guidance is never cut off
+// in the long case, where the implementer needs it most (C3).
+const anchorNotTouchedGuidanceSuffix = "; declare anchor_substitutes " +
+	"(criterion id to file) on the implementer_implementation submission " +
+	"naming where a listed criterion's evidence actually lives, if not at " +
+	"its anchor file"
+
 // criterionAnchorTokens extracts the candidate path tokens named in one
 // criterion's trailing "Anchor:" clause, in the order they were written.
 // This is a fixed, documented predicate over contract bytes the engine
@@ -42,6 +59,22 @@ func criterionAnchorTokens(text string) []string {
 		tokens = append(tokens, token)
 	}
 	return tokens
+}
+
+// sliceDeclaresAnchor reports whether any of the slice's acceptance
+// criteria carry a trailing "Anchor:" clause at all
+// (S5-repair-input-across-epochs A3), a coarser, pre-diff signal than
+// resolveAnchorRequirements: it never filters by base-tree membership, so
+// it stays true even for a criterion whose sole anchor is a wholly new file
+// the candidate is expected to add. It exists only to decide whether the
+// implementer's own prompt should ever mention anchor_substitutes at all.
+func sliceDeclaresAnchor(criteria []protocol.Criterion) bool {
+	for _, criterion := range criteria {
+		if len(criterionAnchorTokens(criterion.Text)) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // anchorCriterionRequirement names one acceptance criterion's declared
@@ -186,7 +219,8 @@ func anchorPresenceGate(
 			}
 		}
 		if !satisfied {
-			missingCriteria = append(missingCriteria, requirement.id)
+			missingCriteria = append(missingCriteria,
+				requirement.id+" ("+strings.Join(requirement.paths, ", ")+")")
 			for _, path := range requirement.paths {
 				missingPaths[path] = struct{}{}
 			}
@@ -207,11 +241,16 @@ func anchorPresenceGate(
 	if len(bounded) > 20 {
 		bounded = append([]string(nil), bounded[:20]...)
 	}
-	msg := "criteria " + strings.Join(missingCriteria, ", ") +
+	variable := "criteria " + strings.Join(missingCriteria, ", ") +
 		" touch none of their declared anchor files (anchor base " + base + ")"
 	if len(substituteFailures) > 0 {
-		msg += "; " + strings.Join(substituteFailures, "; ")
+		variable += "; " + strings.Join(substituteFailures, "; ")
 	}
+	variableBound := anchorNotTouchedDetailMaxBytes - len(anchorNotTouchedGuidanceSuffix)
+	if variableBound < 0 {
+		variableBound = 0
+	}
+	msg := truncateUTF8(variable, variableBound) + anchorNotTouchedGuidanceSuffix
 	return nil, &protocol.RecordError{
 		Code:       "ANCHOR_NOT_TOUCHED",
 		Msg:        msg,

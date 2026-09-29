@@ -246,7 +246,7 @@ func anchorGatePlanBytes(t *testing.T, release, repository, target string) []byt
 		ID: "S1", Outcome: "Deliver S1.",
 		Scope:      protocol.Scope{Include: []string{"one.txt", "README.md"}, Exclude: []string{}},
 		Acceptance: []protocol.Criterion{{ID: "A2", Text: "Anchor presence test. Anchor: README.md."}},
-		Checks:     []string{"check S1"}, Constraints: []string{"deterministic"},
+		Checks:     []string{"true # check S1"}, Constraints: []string{"deterministic"},
 		DependsOn: []string{}, Consumes: []string{},
 	}
 	metadata := protocol.Metadata{

@@ -1,0 +1,75 @@
+{
+  "outcome": "Pausing the same candidate more than once, at any mix of stop points, never fails the dispatch or spends the try; a pause during a resume's recovery sweep is a stop, not a CLI error; and every stop code is documented and never recorded as an effect's error code.",
+  "scope": {
+    "include": [
+      "cmd/sworn",
+      "internal/runtime",
+      "internal/journal",
+      "internal/gitx",
+      "internal/driver",
+      "internal/cockpit",
+      "internal/observe",
+      "internal/tui",
+      "internal/skill",
+      "internal/protocol",
+      "tools/protocolgolden",
+      "test/e2e",
+      "docs/run.md",
+      "docs/launch.md",
+      "docs/policy/manager.md",
+      "skills/sworn-orchestrate/SKILL.md"
+    ],
+    "exclude": []
+  },
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "A second or later pause of the same candidate that stops at a different point than the first (a check boundary, then the seal step, or the reverse) neither fails the implementer dispatch nor spends the try: every stop point records the same checkpoint body under its replay key, and a resume after any sequence of such pauses seals the candidate on the same try. A production-mode test pauses twice across both stop points with real host checks declared. Anchor: internal/runtime/control_test.go."
+    },
+    {
+      "id": "A2",
+      "text": "The proofs S2's Lead required exist: a production-mode control test that pauses while a declared host check is running and asserts the running check finishes, records its result and the next check runs on resume; and a test that cancels the context at the git.seal.prepared claim and asserts the stop is reported as RUN_STOPPED (from OPERATION_CANCELLED), not as a failure of the work. Anchor: internal/runtime/control_test.go."
+    },
+    {
+      "id": "A3",
+      "text": "A pause or cancel that lands during the start-of-cycle recovery sweep (recoverClaimedEffects, including recoverImplementationCycle) is treated as a stop, exactly as the drive loop treats it: sworn run, resume and serve do not return it as an error, and the run stays resumable. Anchor: internal/runtime/control_test.go."
+    },
+    {
+      "id": "A4",
+      "text": "RUN_STOPPED (or any other stop code the engine returns) is documented in docs/run.md beside OPERATION_CANCELLED, and is never recorded as an effect's error code, including on the assembly host check path (prepare_assembly). Anchor: docs/run.md and internal/runtime/assembly_host_checks_test.go."
+    }
+  ],
+  "checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=8 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race -timeout=20m ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "test -z \"$(gofmt -l ./cmd ./internal ./tools)\"",
+    "go mod tidy -diff",
+    "git diff --check",
+    "GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build ./..."
+  ],
+  "host_checks": [
+    "GOFLAGS=-buildvcs=false go test -count=1 ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go test -count=1 -parallel=8 -timeout=60m ./test/e2e",
+    "GOFLAGS=-buildvcs=false go test -count=1 -race -timeout=20m ./cmd/sworn ./internal/... ./tools/...",
+    "GOFLAGS=-buildvcs=false go vet ./...",
+    "test -z \"$(gofmt -l ./cmd ./internal ./tools)\"",
+    "go mod tidy -diff",
+    "git diff --check",
+    "GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build ./..."
+  ],
+  "constraints": [
+    "S2's delivered behaviour stays exactly: a single pause stops at the next check boundary, keeps passing results and the try, and a cancelled context is never reported as DATABASE_BUSY or JOURNAL_WRITE_FAILED. This slice fixes what a blind shadow verification of S2 found; re-derive every location from the current tree.",
+    "The e2e host check runs at -parallel=8 on the host (measured twice on this suite: 21 and 23 minutes, no failures, against 43 minutes serially). Do not change e2e tests' parallelism in this slice.",
+    "Every listed check is a host check: contained implementers and verifiers consume engine-bound host evidence and never attempt nested containment or claim to have executed these commands. Each long process suite runs once per candidate in the phase order the engine defines.",
+    "This release changes no roster, model selection, budget, timeout, retry cap or fallback behaviour except where an acceptance criterion of this slice names the change exactly. The broad supporting package scope admits only this promised mechanism and its affected regression fixtures, adapters, status projections and documentation.",
+    "Known contained-workspace facts, not defects of this slice: cmd/sworn's TestTUIActionDriveSurvivesActionReturn fails in the sandbox with CREDENTIAL_UNAVAILABLE and prints roughly 90 KB of DEBUG output; it passes on the host. Do not chase it and do not run it in the workspace. internal/runtime exceeds Go's implicit 10-minute package deadline in the sandbox; pass -timeout=20m on your own package runs. The sandbox shell is dash without `which`. Never build a binary into the workspace root: an out-of-scope file at the root makes checkpoint capture refuse with CHECKPOINT_SCOPE_VIOLATION and fences the workspace; build into a temporary directory.",
+    "Long package runs in the workspace (internal/runtime takes 7 to 10 minutes) outlive the native CLI's tool wait; do not poll the shell while one runs. Prefer targeted `go test -run` on the packages and tests you changed; the host checks run the full suites.",
+    "If a criterion's evidence belongs in a test file other than its named anchor, either add it to the anchor or declare the substitute in the submission's `anchor_substitutes` map (criterion id to file); an undeclared substitute is refused at seal time as ANCHOR_NOT_TOUCHED.",
+    "internal/protocol is the embedded protocol package. This slice needs no change to its receipt vocabulary, check outcomes, operation assets, snapshot or pinned digests (internal/protocol/assets.go, release.json, tools/protocolgolden); if a design appears to need one, report it rather than re-pinning the bundle.",
+    "Every new failure or refusal code is admitted everywhere codes are enumerated (driver adapter error allowlist and kind classification, certification mapping where relevant, runtime park causes, status projection, cockpit catalog), carries a bounded detail with no secret, credential, absolute operator path or raw provider body, and is documented in docs/run.md."
+  ],
+  "depends_on": [],
+  "consumes": []
+}

@@ -130,7 +130,8 @@ func certificationFailureCode(err error) string {
 		return "certification_setup_failed"
 	case "CREDENTIAL_UNAVAILABLE", "CREDENTIAL_MALFORMED",
 		"CREDENTIAL_NOT_CERTIFIED", "CREDENTIAL_IDENTITY_CHANGED",
-		"CREDENTIAL_STALE", "AWS_CREDENTIAL_EXPORT_INVALID":
+		"CREDENTIAL_STALE", "CREDENTIAL_EXPIRES_DURING_DISPATCH",
+		"AWS_CREDENTIAL_EXPORT_INVALID":
 		return "certification_credential_failed"
 	case "PROCESS_START_FAILED", "PROCESS_FAILED", "ISOLATION_UNAVAILABLE",
 		"PROCESS_TREE_NOT_QUIESCENT", "INVALID_WORKSPACE",
@@ -169,7 +170,8 @@ func certificationFailureCode(err error) string {
 	case "TOOL_NOT_ALLOWED", "INVALID_TOOL_ARGUMENT", "TOOL_PATH_INVALID",
 		"TOOL_READ_FAILED", "TOOL_WRITE_FAILED", "TOOL_EDIT_FAILED":
 		return "certification_tool_failed"
-	case "RESOURCE_LIMIT", "OUTPUT_OVERFLOW":
+	case "RESOURCE_LIMIT", "OUTPUT_OVERFLOW",
+		"BROKER_CALL_BUDGET_EXHAUSTED", "NATIVE_TURN_CAP_EXCEEDED":
 		return "certification_resource_limited"
 	default:
 		return "certification_contract_failed"

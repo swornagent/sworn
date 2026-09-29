@@ -95,6 +95,32 @@ type UsageReceipt struct {
 	// (S3-output-stream-economy A3). Nil is honest absence: every receipt
 	// but the native byte-budget failure omits it.
 	NativeStreamBytes *int64 `json:"native_stream_bytes,omitempty"`
+	// RefusedToolCalls is a native dispatch's own MCP broker refused-call
+	// count (A3, S4-broker-budget-and-turn-cap; completed by
+	// S9-broker-budget-and-turn-cap-repair A3): not_open, closed,
+	// cancelled, invalid_params/invalid_request/invalid_json,
+	// method_not_found, protocol_refused, state_invalid, and the
+	// listTools internal (-32603) reply - every wire refusal that spent a
+	// broker calls unit. A pre-auth transport-shape rejection (bad
+	// method/path/host/content-type) or an unauthorized request spends no
+	// calls unit and is counted in neither this field nor ExecutedToolCalls.
+	// Saturates at MaxRefusedBrokerCalls. Independent of Turns/ToolCalls -
+	// a refusal can occur before any turn ever completes - and stamped on
+	// every native dispatch, not only a failing one. Nil is honest
+	// absence: every non-native receipt omits it.
+	RefusedToolCalls *int64 `json:"refused_tool_calls,omitempty"`
+	// ExecutedToolCalls is a native dispatch's own MCP broker executed
+	// tools/call count (A1, S9-broker-budget-and-turn-cap-repair),
+	// independent of the turn-derived ToolCalls: applyTurnEconomics ties
+	// ToolCalls to Turns*MaxToolCalls, so a broker-budget or turn-cap
+	// crossing whose final result event the CLI never emitted (turns
+	// unknown, stays 0) would otherwise drop the executed count entirely.
+	// This field is never bound to Turns, bounded only by MaxBrokerCalls
+	// (the broker request-count budget itself). Stamped only by the
+	// counted-failure path (nativeCountedFailure); nil elsewhere,
+	// including on a successful native dispatch, which already carries
+	// the executed count on ToolCalls.
+	ExecutedToolCalls *int64 `json:"executed_tool_calls,omitempty"`
 }
 
 // Zero reports whether the receipt carries no fact at all, field by field.
@@ -113,7 +139,8 @@ func (receipt UsageReceipt) Zero() bool {
 		receipt.Turns == nil && receipt.ToolCalls == nil &&
 		receipt.ToolCallsByName == nil && receipt.DurationMillis == nil &&
 		receipt.Profile == nil && receipt.Model == nil &&
-		receipt.ExecutedDigest == nil && receipt.NativeStreamBytes == nil
+		receipt.ExecutedDigest == nil && receipt.NativeStreamBytes == nil &&
+		receipt.RefusedToolCalls == nil && receipt.ExecutedToolCalls == nil
 }
 
 // carriesV2Facts reports whether the receipt carries any v2 field. Receipts
@@ -125,7 +152,8 @@ func (receipt UsageReceipt) carriesV2Facts() bool {
 		receipt.ToolCalls != nil || receipt.ToolCallsByName != nil ||
 		receipt.DurationMillis != nil || receipt.Profile != nil ||
 		receipt.Model != nil || receipt.ExecutedDigest != nil ||
-		receipt.NativeStreamBytes != nil
+		receipt.NativeStreamBytes != nil || receipt.RefusedToolCalls != nil ||
+		receipt.ExecutedToolCalls != nil
 }
 
 func validUnavailableReason(value string) bool {
@@ -512,5 +540,47 @@ func validateV2UsageReceipt(receipt UsageReceipt) error {
 			*receipt.NativeStreamBytes > MaxSafeInteger) {
 		return fail("INVALID_USAGE")
 	}
+	if receipt.RefusedToolCalls != nil &&
+		(*receipt.RefusedToolCalls < 0 ||
+			*receipt.RefusedToolCalls > MaxRefusedBrokerCalls) {
+		return fail("INVALID_USAGE")
+	}
+	if receipt.ExecutedToolCalls != nil &&
+		(*receipt.ExecutedToolCalls < 0 ||
+			*receipt.ExecutedToolCalls > MaxBrokerCalls) {
+		return fail("INVALID_USAGE")
+	}
 	return nil
+}
+
+// stampRefusedToolCalls records a native broker's refused-request count
+// onto a usage receipt (A3, S4-broker-budget-and-turn-cap), independent of
+// applyTurnEconomics: a refusal can occur before any turn ever completes,
+// so it is not gated on Turns/ToolCalls being present or valid. Out-of-
+// range input is dropped rather than stamped, matching the other bounded
+// fields' own honest-absence discipline.
+func stampRefusedToolCalls(receipt *UsageReceipt, refused int64) {
+	if receipt == nil || receipt.Surface == "" ||
+		refused < 0 || refused > MaxRefusedBrokerCalls {
+		return
+	}
+	receipt.RefusedToolCalls = &refused
+}
+
+// stampExecutedToolCalls records a native broker's executed tools/call
+// count onto a usage receipt (A1, S9-broker-budget-and-turn-cap-repair),
+// independent of applyTurnEconomics/Turns: on a broker-budget or turn-cap
+// crossing the CLI's final result event may never arrive, leaving turns
+// unknown (0), and applyTurnEconomics's turns*MaxToolCalls bound would
+// otherwise drop the executed count silently even though the broker
+// itself counted every call exactly. Out-of-range input is dropped rather
+// than stamped, matching stampRefusedToolCalls's own honest-absence
+// discipline; the bound is MaxBrokerCalls (the broker's own request-count
+// budget), never MaxRefusedBrokerCalls.
+func stampExecutedToolCalls(receipt *UsageReceipt, executed int64) {
+	if receipt == nil || receipt.Surface == "" ||
+		executed < 0 || executed > MaxBrokerCalls {
+		return
+	}
+	receipt.ExecutedToolCalls = &executed
 }

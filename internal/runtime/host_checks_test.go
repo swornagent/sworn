@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/swornagent/sworn/internal/gitx"
+	"github.com/swornagent/sworn/internal/journal"
 	"github.com/swornagent/sworn/internal/protocol"
 )
 
@@ -204,3 +206,179 @@ func TestParseHostCheckResultRejectsSubstitution(t *testing.T) {
 }
 
 var _ = context.Background
+
+// TestHostCheckCommandWordSkipsLeadingAssignments is A1's parse-layer
+// proof: the classifier's word is the check's first non-assignment token,
+// exactly as the shell that runs the check would resolve it.
+func TestHostCheckCommandWordSkipsLeadingAssignments(t *testing.T) {
+	t.Parallel()
+	cases := map[string]string{
+		"go test ./...":                                         "go",
+		"GOFLAGS=-buildvcs=false go test ./...":                 "go",
+		"GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build ./...": "go",
+		"test -z \"$(gofmt -l ./cmd)\"":                         "test",
+		"":                                                      "",
+		"FOO=bar":                                               "",
+		// S6-host-environment-park-projection A5(i): shell grouping
+		// syntax - a subshell or a brace group - is honestly
+		// unclassifiable, never a false environment-failure positive
+		// naming the literal opener as a missing command.
+		"(cd dir && make)":  "",
+		"{ a; b; }":         "",
+		"(cd dir && make) ": "",
+		"{true;}":           "",
+	}
+	for check, want := range cases {
+		if got := hostCheckCommandWord(check); got != want {
+			t.Fatalf("hostCheckCommandWord(%q) = %q, want %q", check, got, want)
+		}
+	}
+}
+
+// TestClassifyHostCheckExecutionResolvesShellBuiltinsAndReservedWords is
+// A1's exact required proof: the shell's own builtin/keyword/function/
+// alias resolution, via `command -v`, never misclassifies a builtin or a
+// reserved word as a missing command, with no maintained list.
+func TestClassifyHostCheckExecutionResolvesShellBuiltinsAndReservedWords(t *testing.T) {
+	t.Parallel()
+	shell, err := hostShell()
+	if err != nil {
+		t.Skip("no POSIX shell discoverable in this sandbox")
+	}
+	for _, word := range []string{"cd", "export", "set", ":", "[", "if", "!"} {
+		environmentFailure, missing := classifyHostCheckExecution(shell, word+" true")
+		if environmentFailure {
+			t.Fatalf("builtin/reserved word %q misclassified as missing (missing=%q)", word, missing)
+		}
+	}
+}
+
+// TestClassifyHostCheckExecutionRecognizesAGenuinelyAbsentCommand proves
+// the negative case still refuses: a command that genuinely does not
+// resolve is classified as an environment failure naming it.
+func TestClassifyHostCheckExecutionRecognizesAGenuinelyAbsentCommand(t *testing.T) {
+	t.Parallel()
+	shell, err := hostShell()
+	if err != nil {
+		t.Skip("no POSIX shell discoverable in this sandbox")
+	}
+	const absent = "sworn-genuinely-absent-command-xyz"
+	environmentFailure, missing := classifyHostCheckExecution(shell, absent+" ./...")
+	if !environmentFailure || missing != absent {
+		t.Fatalf("classify(%q) = (%v, %q), want (true, %q)", absent, environmentFailure, missing, absent)
+	}
+}
+
+// TestClassifyHostCheckExecutionResolvesRealCommandsAndAssignmentPrefixes
+// proves the positive case for a real, resolvable command, including one
+// prefixed by NAME=value assignments, exactly like this release's own
+// contract checks.
+func TestClassifyHostCheckExecutionResolvesRealCommandsAndAssignmentPrefixes(t *testing.T) {
+	t.Parallel()
+	shell, err := hostShell()
+	if err != nil {
+		t.Skip("no POSIX shell discoverable in this sandbox")
+	}
+	for _, check := range []string{"true", "FOO=bar BAZ=qux true"} {
+		if environmentFailure, missing := classifyHostCheckExecution(shell, check); environmentFailure {
+			t.Fatalf("classify(%q) misclassified true as missing (missing=%q)", check, missing)
+		}
+	}
+}
+
+// TestHostCommandResolvesPathShapedWordUsesStat proves a path-shaped word
+// (containing '/') is resolved by os.Stat, exactly as the shell would
+// attempt to execute it directly, not by a PATH search.
+func TestHostCommandResolvesPathShapedWordUsesStat(t *testing.T) {
+	t.Parallel()
+	shell, err := hostShell()
+	if err != nil {
+		t.Skip("no POSIX shell discoverable in this sandbox")
+	}
+	dir := t.TempDir()
+	script := filepath.Join(dir, "present.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\ntrue\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !hostCommandResolves(shell, script) {
+		t.Fatalf("path-shaped present script %q did not resolve", script)
+	}
+	if hostCommandResolves(shell, filepath.Join(dir, "absent.sh")) {
+		t.Fatal("path-shaped absent script resolved")
+	}
+}
+
+// TestExecuteHostCheckFailsClosedWithTypedCodeWhenHostShellIsUnavailable is
+// A5(ii)'s exact required proof for the fresh-claim site: when the host
+// shell itself cannot be resolved, executeHostCheck (via runHostChecks)
+// fails closed with the identical typed code validateHostCheckEnvironment
+// (the run-start gate) already uses, instead of silently skipping
+// classification and running the command unclassified. Nothing is ever
+// completed for this failure, so it cannot spend a try or become repair
+// input: the check.host effect stays exactly Claimed, never Succeeded or
+// OperationalFailed.
+func TestExecuteHostCheckFailsClosedWithTypedCodeWhenHostShellIsUnavailable(t *testing.T) {
+	check := "true"
+	fixture := newHostCheckFixture(t, []string{check})
+	t.Setenv("SWORN_SH", filepath.Join(t.TempDir(), "no-such-shell"))
+
+	_, err := fixture.service.runHostChecks(
+		fixture.ctx, fixture.engine, fixture.owner, fixture.plan,
+		"S1", fixture.candidate, fixture.targetHead, fixture.releaseHead)
+	if !IsCode(err, "HOST_SHELL_UNAVAILABLE") {
+		t.Fatalf("runHostChecks() error = %v, want HOST_SHELL_UNAVAILABLE", err)
+	}
+	work := hostCheckWork("S1", fixture.candidate, fixture.contractDgst, check)
+	effect, err := fixture.store.Effect(fixture.ctx, fixture.owner.RunID, hostCheckEffectID(work))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effect.State != journal.Claimed || len(effect.Result) != 0 || effect.ErrorCode != "" {
+		t.Fatalf("effect after HOST_SHELL_UNAVAILABLE = %#v, want Claimed and never completed", effect)
+	}
+}
+
+// TestRecoverHostCheckClaimsFailsClosedWithTypedCodeWhenHostShellIsUnavailable
+// is A5(ii)'s exact required proof for the crash-recovery site: a claimed
+// check.host effect from a crashed prior attempt fails closed with the
+// identical typed code instead of silently skipping classification and
+// falling through to executeHostCheckFromRecovery.
+func TestRecoverHostCheckClaimsFailsClosedWithTypedCodeWhenHostShellIsUnavailable(t *testing.T) {
+	fixture := newHostCheckFixture(t, []string{"true"})
+	work := hostCheckWork("S1", fixture.candidate, fixture.contractDgst, "true")
+	effectID := hostCheckEffectID(work)
+	command := hostCheckCommand{
+		SchemaVersion: hostCheckSchemaVersion, Slice: "S1",
+		Candidate: fixture.candidate, ContractDigest: fixture.contractDgst,
+		Check: "true", OutputBytes: hostCheckOutputBytes, TimeoutMillis: 30_000,
+	}
+	payload := mustJSON(command)
+	if err := fixture.store.EnsureAttempt(fixture.ctx,
+		journal.Command{RunID: fixture.owner.RunID, ReplayKey: effectID,
+			Kind: "check.host", Payload: payload, CreatedAt: fixture.service.now().UTC()},
+		journal.Effect{RunID: fixture.owner.RunID, ID: effectID, ReplayKey: effectID,
+			Kind: "check.host", BeforeDigest: work,
+			ExpectedDigest: sha256Digest(payload), UpdatedAt: fixture.service.now().UTC()},
+		journal.EffectAttempt{WorkID: work, Epoch: 1, Try: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.store.ClaimOwned(
+		fixture.ctx, fixture.owner, effectID, fixture.service.now().UTC(), effectLease,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("SWORN_SH", filepath.Join(t.TempDir(), "no-such-shell"))
+	if _, err := fixture.service.recoverHostCheckClaims(
+		fixture.ctx, fixture.engine, fixture.owner,
+	); !IsCode(err, "HOST_SHELL_UNAVAILABLE") {
+		t.Fatalf("recoverHostCheckClaims() error = %v, want HOST_SHELL_UNAVAILABLE", err)
+	}
+	effect, err := fixture.store.Effect(fixture.ctx, fixture.owner.RunID, effectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effect.State != journal.Claimed || len(effect.Result) != 0 || effect.ErrorCode != "" {
+		t.Fatalf("effect after HOST_SHELL_UNAVAILABLE = %#v, want Claimed and never completed", effect)
+	}
+}

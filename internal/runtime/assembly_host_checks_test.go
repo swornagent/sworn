@@ -500,3 +500,125 @@ func TestAssemblyChecksEvidenceGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A4 (S7-pause-safe-host-checks-repair): RUN_STOPPED on the assembly host
+// check path inside prepare_assembly is never recorded as the
+// prepare_assembly effect's error code and never spends a try - exactly
+// like EFFECT_PARKED and HOST_SHELL_UNAVAILABLE already are.
+func TestPrepareAssemblyPauseIsRunStoppedNotAnEffectErrorCodeAndSpendsNoTry(t *testing.T) {
+	t.Run("pause_before_the_call", func(t *testing.T) {
+		// A pause already applied before prepareAssembly is even called
+		// must be reported as RUN_STOPPED from the prepare_assembly
+		// effect's own ClaimOwned, not as EFFECT_CLAIM_FAILED.
+		hostCheck := "true"
+		f := newAssemblyHostEvidenceFixture(t, [][]string{{"S1"}}, []string{hostCheck})
+		f.sealByHand(t, "S1", "T1")
+		f.passByVerifier(t, "S1")
+		state := f.readState(t)
+		if state.Assembly.NextRole != "merge" {
+			t.Fatalf("assembly not ready to prepare: %#v", state.Assembly)
+		}
+		if _, err := f.store.ApplyControl(f.ctx, journal.ControlCommand{
+			RunID: f.owner.RunID, ID: "pause-before", Kind: journal.Pause,
+			ExpectedGeneration: 0,
+		}, f.service.now()); err != nil {
+			t.Fatal(err)
+		}
+		err := f.service.prepareAssembly(f.ctx, f.engine, f.owner, state)
+		if !IsCode(err, "RUN_STOPPED") {
+			t.Fatalf(
+				"prepareAssembly with a pause already applied = %v, want RUN_STOPPED, not EFFECT_CLAIM_FAILED",
+				err,
+			)
+		}
+	})
+
+	t.Run("pause_mid_host_check", func(t *testing.T) {
+		// A single-slice assembly takes PrepareAssembly's degenerate Direct
+		// path (the assembly candidate is literally the one slice's own
+		// candidate, so no host checks are ever composed); two slices force
+		// a real composed candidate and real assembly host-check execution.
+		gate := newMarkerGate(t)
+		firstCheck := gate.check("assembly-check-1")
+		secondCheck := "true"
+		f := newAssemblyHostEvidenceFixture(t, [][]string{{"S1", "S2"}}, []string{firstCheck, secondCheck})
+		f.sealByHand(t, "S1", "T1")
+		f.passByVerifier(t, "S1")
+		f.sealByHand(t, "S2", "T1")
+		f.passByVerifier(t, "S2")
+		state := f.readState(t)
+		if state.Assembly.NextRole != "merge" {
+			t.Fatalf("assembly not ready to prepare: %#v", state.Assembly)
+		}
+		before := workIdentity(state.Plan.OID, state.Refs.Release.Head, state.Refs.Target.Head,
+			state.Assembly.Outcome, state.Assembly.InputPins)
+		work := workIdentity(before, "prepare")
+		try1 := journal.AttemptEffectID(work, 1, 1)
+
+		done := make(chan error, 1)
+		go func() {
+			done <- f.service.prepareAssembly(f.ctx, f.engine, f.owner, state)
+		}()
+		gate.waitRunning(t, "assembly-check-1")
+		if _, err := f.store.ApplyControl(f.ctx, journal.ControlCommand{
+			RunID: f.owner.RunID, ID: "pause-mid", Kind: journal.Pause,
+			ExpectedGeneration: 0,
+		}, f.service.now()); err != nil {
+			t.Fatal(err)
+		}
+		gate.release(t, "assembly-check-1")
+		err := <-done
+		if !IsCode(err, "RUN_STOPPED") {
+			t.Fatalf("prepareAssembly across a pause mid host check = %v, want RUN_STOPPED", err)
+		}
+
+		// The first check, already running when the pause landed, still
+		// finished and is recorded; the prepare_assembly try-1 effect
+		// stays Claimed with no error code - never OperationalFailed - and
+		// no try-2 effect exists: the pause spent no try.
+		effects := f.assemblyHostCheckEffects(t)
+		if effect, ok := effects[firstCheck]; !ok || effect.State != journal.Succeeded {
+			t.Fatalf("assembly check.host effect for the gated check = %#v (found=%v), want Succeeded", effect, ok)
+		}
+		if _, ok := effects[secondCheck]; ok {
+			t.Fatalf("second assembly host check was admitted while paused: %#v", effects[secondCheck])
+		}
+		effect, err := f.store.Effect(f.ctx, f.owner.RunID, try1)
+		if err != nil {
+			t.Fatalf("prepare_assembly try 1 effect: %v", err)
+		}
+		if effect.State != journal.Claimed || effect.ErrorCode != "" {
+			t.Fatalf("prepare_assembly try 1 after the pause = %#v, want Claimed with no ErrorCode", effect)
+		}
+		if _, err := f.store.Effect(f.ctx, f.owner.RunID, journal.AttemptEffectID(work, 1, 2)); !journal.IsCode(err, "EFFECT_NOT_FOUND") {
+			t.Fatalf("a second try's prepare_assembly effect exists after the pause: err=%v", err)
+		}
+
+		// Resume: unobstructed - the same try completes, with the first
+		// check's already-recorded result reused, not re-executed.
+		if _, err := f.store.ApplyControl(f.ctx, journal.ControlCommand{
+			RunID: f.owner.RunID, ID: "resume-mid", Kind: journal.Resume,
+			ExpectedGeneration: 1,
+		}, f.service.now()); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.service.prepareAssembly(f.ctx, f.engine, f.owner, f.readState(t)); err != nil {
+			t.Fatalf("prepareAssembly after resume: %v", err)
+		}
+		final, err := f.store.Effect(f.ctx, f.owner.RunID, try1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if final.State != journal.Succeeded {
+			t.Fatalf("prepare_assembly try 1 after resume = %#v, want Succeeded (same try)", final)
+		}
+		after := f.readState(t)
+		if after.Assembly.NextRole != "verifier" || after.Assembly.Candidate == nil {
+			t.Fatalf("assembly not awaiting verification after resume: %#v", after.Assembly)
+		}
+		finalEffects := f.assemblyHostCheckEffects(t)
+		if effect, ok := finalEffects[firstCheck]; !ok || effect.ID != effects[firstCheck].ID {
+			t.Fatalf("the gated check's effect changed identity across the pause and resume: %#v -> %#v", effects[firstCheck], effect)
+		}
+	})
+}

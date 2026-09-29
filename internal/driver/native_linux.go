@@ -232,6 +232,16 @@ type nativeEventState struct {
 	resultErrored     bool
 	resultSubtype     string
 	resultErrorDetail string
+	// resultSeen and workerTurnAuthFailureDetail retain the CLI's own
+	// authentication-failure worker-turn fallback (S8-credential-lifetime-
+	// repair A4): resultSeen is set unconditionally by every terminal
+	// "result" event, success or error, so a genuine result can never be
+	// overridden; workerTurnAuthFailureDetail (first match wins) is
+	// captured only from the CLI's own synthesized assistant turn (never
+	// ordinary model prose - see captureWorkerTurnAuthFailureLocked) and is
+	// used by resultError() only when no result event ever arrived.
+	resultSeen                  bool
+	workerTurnAuthFailureDetail string
 }
 
 // nativeResultError is the retained error result handed to the spontaneous
@@ -2243,6 +2253,7 @@ func platformRunNative(
 			crossingHasUsage,
 			crossingTurns,
 			broker.toolCallTotal(),
+			broker.refusedCallTotal(),
 			broker.toolCallsByName(),
 			crossingBytes,
 		), fail("ECONOMY_OUTPUT_BUDGET_EXCEEDED")
@@ -2357,6 +2368,32 @@ func platformRunNative(
 		return Observation{}, terminalErr
 	}
 	if !terminated {
+		// A1 (S4-broker-budget-and-turn-cap): the broker's own call-count
+		// crossing outranks every exit-status/result classification below,
+		// universally - including an automation dispatch, since
+		// MaxBrokerCalls guards every broker HTTP request regardless of
+		// session kind. This check must stay strictly inside !terminated:
+		// terminated reflects the tool session's own submit/yield
+		// protocol, a fact independent of the broker's request-count
+		// state, and an accepted submission always wins regardless of
+		// what the broker's calls counter later did.
+		if broker.BudgetExhausted() {
+			state.mu.Lock()
+			turns := state.turns
+			state.mu.Unlock()
+			detail := fmt.Sprintf(
+				"calls %d, budget %d",
+				broker.BudgetExhaustedCalls(),
+				MaxBrokerCalls,
+			)
+			return nativeCountedFailure(
+					started, invocation.Selected.Adapter.ID,
+					usageValue, hasUsage, turns,
+					broker.toolCallTotal(), broker.refusedCallTotal(),
+					broker.toolCallsByName(), "broker_call_budget_exhausted",
+				),
+				failWithDetail("BROKER_CALL_BUDGET_EXHAUSTED", detail)
+		}
 		if waitErr != nil {
 			// The retained stderr tail rides the transport refusal only
 			// when neither leak guard ever fired (fail-closed): a detected
@@ -2377,16 +2414,61 @@ func platformRunNative(
 				transportTail, _ = redactToolResultSpan(tail, secrets)
 				clearBytes(tail)
 			}
-			return Observation{}, nativeSpontaneousExitFailure(
+			exitErr := nativeSpontaneousExitFailure(
 				staleCredential,
 				config.Family,
 				waitErr,
 				transportTail,
 				state.resultError(),
 			)
+			if IsCode(exitErr, "NATIVE_TURN_CAP_EXCEEDED") {
+				state.mu.Lock()
+				turns := state.turns
+				state.mu.Unlock()
+				detail := fmt.Sprintf(
+					"turn cap %d", nativeMaximumTurns(definitions),
+				)
+				return nativeCountedFailure(
+						started, invocation.Selected.Adapter.ID,
+						usageValue, hasUsage, turns,
+						broker.toolCallTotal(), broker.refusedCallTotal(),
+						broker.toolCallsByName(), "native_turn_cap",
+					),
+					failWithDetail("NATIVE_TURN_CAP_EXCEEDED", detail)
+			}
+			return Observation{}, exitErr
+		}
+		// A2 (S4-broker-budget-and-turn-cap): a clean exit (no waitErr)
+		// bypasses nativeSpontaneousExitFailure entirely, so the same
+		// CLI-reported turn-cap check runs here too, ahead of the
+		// automationRun branch (matching the waitErr != nil path above,
+		// which already runs nativeSpontaneousExitFailure - and now this
+		// exact check - for automation runs too: keeping the clean-exit
+		// branch's classification consistent regardless of exit status).
+		if result := state.resultError(); result.errored &&
+			result.subtype == "error_max_turns" {
+			state.mu.Lock()
+			turns := state.turns
+			state.mu.Unlock()
+			detail := fmt.Sprintf(
+				"turn cap %d", nativeMaximumTurns(definitions),
+			)
+			return nativeCountedFailure(
+					started, invocation.Selected.Adapter.ID,
+					usageValue, hasUsage, turns,
+					broker.toolCallTotal(), broker.refusedCallTotal(),
+					broker.toolCallsByName(), "native_turn_cap",
+				),
+				failWithDetail("NATIVE_TURN_CAP_EXCEEDED", detail)
 		}
 		if automationRun != nil {
 			return Observation{}, fail("AUTOMATION_PROTOCOL_FAILED")
+		}
+		// A3: a clean exit (no waitErr) bypasses nativeSpontaneousExitFailure
+		// entirely, so the same CLI-reported authentication failure check
+		// runs here too, before the MISSING_SUBMISSION fallback.
+		if nativeAuthFailureReported(config.Family, state.resultError()) {
+			return Observation{}, fail("PROVIDER_AUTHORIZATION_FAILED")
 		}
 		return Observation{}, fail("MISSING_SUBMISSION")
 	}
@@ -2416,6 +2498,7 @@ func platformRunNative(
 			broker.toolCallTotal(),
 			broker.toolCallsByName(),
 		)
+		stampRefusedToolCalls(&usage, broker.refusedCallTotal())
 	}
 	if automationRun != nil {
 		automationRun.observation, err = automationSession.complete(usage)
@@ -2473,12 +2556,16 @@ func platformRunNative(
 // NATIVE_SURFACE_INVALID.
 //
 // The CLI's own error result outranks a plain transport reading (#310):
-// when the final result event reported an error naming a provider limit
-// (nativeLimitReached), the exit is PROVIDER_LIMITED as a hard wall, so
-// the funnel classifies it hard exhaustion and the engine can park on it
-// rather than spend tries; any other error result rides
-// PROVIDER_TRANSPORT_FAILED's Detail, with the exit status, whenever the
-// stderr tail has nothing to say.
+// a result naming the CLI's own fixed turn cap (error_max_turns) is
+// NATIVE_TURN_CAP_EXCEEDED, checked first because that subtype's message
+// can otherwise match the provider-limit phrase table below it (A2,
+// S4-broker-budget-and-turn-cap - the CLI's own cap is never a provider
+// limit, whatever its message says). Otherwise, when the final result
+// event reported an error naming a provider limit (nativeLimitReached),
+// the exit is PROVIDER_LIMITED as a hard wall, so the funnel classifies it
+// hard exhaustion and the engine can park on it rather than spend tries;
+// any other error result rides PROVIDER_TRANSPORT_FAILED's Detail, with
+// the exit status, whenever the stderr tail has nothing to say.
 func nativeSpontaneousExitFailure(
 	staleCredential bool,
 	family ProfileFamily,
@@ -2504,15 +2591,26 @@ func nativeSpontaneousExitFailure(
 			return failNativeSurface("dispatch.process_signaled")
 		}
 	}
-	// The CLI's own turn cap (error_max_turns) is never a provider limit,
-	// whatever its message says about limits.
-	if result.errored && result.subtype != "error_max_turns" &&
-		nativeLimitReached(result.detail) {
+	// The CLI's own turn cap (error_max_turns) is never a provider limit
+	// and never a plain transport failure, whatever its message says
+	// about limits (A2, S4-broker-budget-and-turn-cap): the caller
+	// recognizes this exact code and attaches the bounded "turn cap N"
+	// detail and the receipt-bearing usage this function cannot build
+	// (it returns only error, with no access to the broker/turn counts).
+	if result.errored && result.subtype == "error_max_turns" {
+		return fail("NATIVE_TURN_CAP_EXCEEDED")
+	}
+	if result.errored && nativeLimitReached(result.detail) {
 		return &ContractError{
 			Code:      "PROVIDER_LIMITED",
 			Detail:    result.detail,
 			HardLimit: true,
 		}
+	}
+	// The CLI's own result naming an authentication failure (A3) outranks a
+	// plain transport reading, exactly like the provider-limit check above.
+	if nativeAuthFailureReported(family, result) {
+		return fail("PROVIDER_AUTHORIZATION_FAILED")
 	}
 	detail := normalizeProviderErrorDetail(string(stderrTail))
 	if detail == "" && result.errored {
@@ -3413,7 +3511,7 @@ func nativeStreamBudgetFailure(
 	adapterID string,
 	usageValue Usage,
 	hasUsage bool,
-	turns, toolCalls int64,
+	turns, toolCalls, refusedToolCalls int64,
 	toolCallsByName map[string]int64,
 	spentBytes int64,
 ) Observation {
@@ -3428,11 +3526,50 @@ func nativeStreamBudgetFailure(
 	if spentBytes >= 0 && spentBytes <= MaxSafeInteger {
 		usage.NativeStreamBytes = &spentBytes
 	}
+	stampRefusedToolCalls(&usage, refusedToolCalls)
 	return Observation{
 		TransportStatus: RunnerError,
 		DurationMillis:  time.Since(started).Milliseconds(),
 		Usage:           usage,
 		Diagnostic:      Diagnostic{Code: "economy_output_budget_bytes"},
+	}
+}
+
+// nativeCountedFailure builds the receipt-bearing failure Observation
+// shared by a native broker call-budget crossing (A1,
+// BROKER_CALL_BUDGET_EXHAUSTED, diagnostic "broker_call_budget_exhausted")
+// and the CLI's own fixed turn-cap crossing (A2, NATIVE_TURN_CAP_EXCEEDED,
+// diagnostic "native_turn_cap"): both are engine-counted, receipt-bearing
+// facts with no provider text, mirroring nativeStreamBudgetFailure's shape
+// exactly but for the executed/refused broker counts (A3) instead of a
+// byte total. ExecutedToolCalls (S9-broker-budget-and-turn-cap-repair A1)
+// is stamped independently of applyTurnEconomics's Turns-gated ToolCalls,
+// so the exact broker-counted executed total survives even when the CLI's
+// final result event never arrived and turns reads 0.
+func nativeCountedFailure(
+	started time.Time,
+	adapterID string,
+	usageValue Usage,
+	hasUsage bool,
+	turns, toolCalls, refusedToolCalls int64,
+	toolCallsByName map[string]int64,
+	diagnosticCode string,
+) Observation {
+	usage, err := NormalizeUsage(nil, nil, adapterID)
+	if hasUsage {
+		usage, err = NormalizeUsage(&usageValue, nil, adapterID)
+	}
+	if err != nil {
+		usage, _ = NormalizeUsage(nil, nil, adapterID)
+	}
+	applyTurnEconomics(&usage, turns, toolCalls, toolCallsByName)
+	stampRefusedToolCalls(&usage, refusedToolCalls)
+	stampExecutedToolCalls(&usage, toolCalls)
+	return Observation{
+		TransportStatus: RunnerError,
+		DurationMillis:  time.Since(started).Milliseconds(),
+		Usage:           usage,
+		Diagnostic:      Diagnostic{Code: diagnosticCode},
 	}
 }
 
@@ -3569,6 +3706,11 @@ func (state *nativeEventState) accept(body []byte) error {
 			// its present meaning exactly.
 			state.flushPendingWorkerTurnLocked(state.observationTurn)
 			state.observationTurn++
+			// A4 (S8-credential-lifetime-repair): runs independently of
+			// appendClaudeMessageContentLocked, which returns early when
+			// state.broker is nil - this capture must not depend on a
+			// broker being present.
+			state.captureWorkerTurnAuthFailureLocked(root)
 			state.appendClaudeMessageContentLocked(root)
 		}
 		if eventType == "user" {
@@ -3712,6 +3854,52 @@ func (state *nativeEventState) dropWorkerTurnEventLocked() {
 	}
 }
 
+// nativeClaudeSyntheticMessageModel is the Claude CLI's own convention for
+// an assistant turn it generates itself rather than the model: message.model
+// carries this literal value instead of a real model id. This is the CLI's
+// documented source convention, not an event shape captured from a run in
+// this repository (S8-credential-lifetime-repair A4).
+const nativeClaudeSyntheticMessageModel = "<synthetic>"
+
+// captureWorkerTurnAuthFailureLocked recognizes the CLI's own synthesized
+// authentication-failure assistant turn (A4): the fallback for a dispatch
+// where the auth text reaches the journal as worker-turn text before a
+// non-zero exit, with no terminal "result" event ever following it.
+// Recognition is gated on the CLI's own message.model ==
+// nativeClaudeSyntheticMessageModel marker, never on text content alone -
+// an ordinary model turn (any other message.model value, including a real
+// model reporting an unrelated failure in its own words) can never trip
+// this, so the signal never depends on unaudited model prose. Only the
+// first match wins; runs independently of state.broker and of
+// appendClaudeMessageContentLocked. Callers hold state.mu.
+func (state *nativeEventState) captureWorkerTurnAuthFailureLocked(root map[string]any) {
+	if state.workerTurnAuthFailureDetail != "" {
+		return
+	}
+	message, ok := root["message"].(map[string]any)
+	if !ok || message["model"] != nativeClaudeSyntheticMessageModel {
+		return
+	}
+	content, ok := message["content"].([]any)
+	if !ok {
+		return
+	}
+	for _, raw := range content {
+		block, ok := raw.(map[string]any)
+		if !ok || block["type"] != "text" {
+			continue
+		}
+		text, ok := block["text"].(string)
+		if !ok {
+			continue
+		}
+		if nativeClaudeAuthFailureMatch(text) {
+			state.workerTurnAuthFailureDetail = nativeResultErrorDetail("", text)
+			return
+		}
+	}
+}
+
 // appendClaudeMessageContentLocked walks one Claude "assistant" or "user"
 // event's message.content blocks (both events carry content under the same
 // field) and appends a bounded, redacted WorkerTurnPart to the pending
@@ -3851,6 +4039,12 @@ func (state *nativeEventState) acceptSessionID(body []byte) error {
 // result text prefixed by the subtype, normalized and bounded exactly like
 // an HTTP provider error message, so it can ride a refusal's Detail.
 func (state *nativeEventState) captureResultError(root map[string]any) {
+	// A4 (S8-credential-lifetime-repair): set unconditionally, before the
+	// early return below, so any terminal "result" event - success or
+	// error - marks that one arrived. resultError() only ever synthesizes
+	// its worker-turn fallback when this stays false, so a genuine result
+	// can never be overridden by a stale worker-turn capture.
+	state.resultSeen = true
 	subtype, _ := root["subtype"].(string)
 	isError, _ := root["is_error"].(bool)
 	if !isError && (subtype == "" || subtype == "success") {
@@ -3880,6 +4074,17 @@ func nativeResultErrorDetail(subtype, text string) string {
 func (state *nativeEventState) resultError() nativeResultError {
 	state.mu.Lock()
 	defer state.mu.Unlock()
+	// A4 (S8-credential-lifetime-repair): only when no terminal "result"
+	// event of any kind ever arrived does a captured worker-turn auth
+	// failure stand in for one - the fallback for a dispatch that exits
+	// non-zero (or cleanly, without a submission) after the CLI's own
+	// synthesized assistant turn but before any result event.
+	if !state.resultSeen && state.workerTurnAuthFailureDetail != "" {
+		return nativeResultError{
+			errored: true,
+			detail:  state.workerTurnAuthFailureDetail,
+		}
+	}
 	return nativeResultError{
 		errored: state.resultErrored,
 		subtype: state.resultSubtype,
@@ -3912,6 +4117,47 @@ func nativeLimitReached(detail string) bool {
 		}
 	}
 	return hardLimitExhausted(detail)
+}
+
+// nativeClaudeAuthFailurePhrases is the closed, Claude-only phrase table
+// (A3, S3-credential-lifetime) recognized as reporting an authentication
+// failure, in either of the CLI's own two produced sequences - its terminal
+// result text, or its own synthesized assistant turn - never in ordinary
+// assistant or model prose (S8-credential-lifetime-repair A4:
+// captureWorkerTurnAuthFailureLocked gates the second sequence on the CLI's
+// own message.model synthetic marker before this table is ever consulted).
+var nativeClaudeAuthFailurePhrases = []string{
+	"failed to authenticate",
+	"oauth session expired",
+}
+
+// nativeClaudeAuthFailureMatch reports whether text names an authentication
+// failure from the closed nativeClaudeAuthFailurePhrases table,
+// case-insensitively. Shared by nativeAuthFailureReported (the CLI's
+// terminal result text) and captureWorkerTurnAuthFailureLocked (the CLI's
+// synthesized assistant turn), so the vocabulary has one source of truth
+// regardless of which of the CLI's two sequences carries it.
+func nativeClaudeAuthFailureMatch(text string) bool {
+	lower := strings.ToLower(text)
+	for _, phrase := range nativeClaudeAuthFailurePhrases {
+		if strings.Contains(lower, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+// nativeAuthFailureReported reports whether result - the CLI's own terminal
+// result event, or (through resultError()'s own fallback) its synthesized
+// assistant turn when no result event ever arrived, never ordinary
+// assistant/model prose - names an authentication failure. Bounded to
+// ProfileClaude: other families ship no vocabulary and stay fail-open,
+// exactly like nativeAuthExitCode.
+func nativeAuthFailureReported(family ProfileFamily, result nativeResultError) bool {
+	if family != ProfileClaude || !result.errored || result.detail == "" {
+		return false
+	}
+	return nativeClaudeAuthFailureMatch(result.detail)
 }
 
 func (state *nativeEventState) captureUsage(value any) {

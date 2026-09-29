@@ -249,6 +249,211 @@ func hostShell() (string, error) {
 	return gitx.ResolveShellExecutable()
 }
 
+// hostEnvironmentClassificationSchemaVersion versions the durable
+// classification record a host runner journals the instant it recognizes a
+// check.host command as a host environment failure (S1-host-check-
+// environment-failures). It is a new, additive record kind: it never
+// changes check.host's own effect or hostCheckResult's outcome vocabulary.
+const hostEnvironmentClassificationSchemaVersion = "sworn.host-check-environment/v1"
+
+// hostEnvironmentClassification is the durable payload a host runner
+// journals (via journalHostEnvironmentClassification) the moment it
+// classifies a check.host command as unresolvable on its own host: the
+// check's first word does not resolve, or the command exited 127. It names
+// the check.host effect it concerns (HostEffect) so every reader - the
+// self-clearing crossing scan, the A5 fact, the cockpit - derives currency
+// from that effect's own current journal state instead of re-classifying.
+type hostEnvironmentClassification struct {
+	SchemaVersion  string `json:"schema_version"`
+	Slice          string `json:"slice"`
+	Candidate      string `json:"candidate"`
+	ContractDigest string `json:"contract_digest"`
+	Check          string `json:"check"`
+	MissingCommand string `json:"missing_command"`
+	HostEffect     string `json:"host_effect"`
+}
+
+// hostEnvironmentClassificationWork is the work identity of one check.host
+// work's environment-classification record: derived from the check.host
+// work identity itself, so it can never collide with any other check.host
+// work's record and is exactly-once per check.host work by construction.
+func hostEnvironmentClassificationWork(checkHostWork string) string {
+	return workIdentity(checkHostWork, "environment")
+}
+
+// isShellAssignmentWord reports whether field is a POSIX-shaped NAME=value
+// assignment word (a leading portable variable-name character class, then
+// '='), the same predicate hostCheckCommandWord uses to skip leading
+// assignments before the check's actual command word.
+func isShellAssignmentWord(field string) bool {
+	equals := strings.IndexByte(field, '=')
+	if equals <= 0 {
+		return false
+	}
+	name := field[:equals]
+	for index, character := range name {
+		switch {
+		case character == '_' ||
+			(character >= 'a' && character <= 'z') ||
+			(character >= 'A' && character <= 'Z'):
+			continue
+		case index > 0 && character >= '0' && character <= '9':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// hostCheckCommandWord returns the first simple-command word of check,
+// skipping any leading NAME=value assignments (for example "GOFLAGS=... go
+// test ./..." resolves to "go"). It inspects only the approved command
+// string by whitespace splitting, exactly as isLongSuiteHostCheck already
+// inspects only the command string; it is not a shell parser, and every
+// declared check in this release's own contracts is a plain leading-word
+// command, optionally preceded by simple, single-token assignments.
+// Honestly unclassifiable (empty) rather than guessed for anything this
+// whitespace split cannot safely handle: no non-assignment word at all, or
+// a leading assignment whose own value involves a subshell or expansion
+// ('(', ')', or '$' in the value) - such a value can itself span further
+// whitespace-separated tokens, which this split would otherwise
+// mis-consume as if they followed the assignment, picking a fragment of
+// the assignment's own value as if it were the command. An unclassifiable
+// check is never treated as a false environment-failure positive; its
+// actual exit code (including a genuine 127) is still what
+// executeHostCheck's post-run defense in depth reads. A first non-
+// assignment word that opens a POSIX compound command - '(' (a subshell,
+// for example "(cd dir && make)") or '{' (a brace group, for example
+// "{ a; b; }") - is also honestly unclassifiable rather than a false
+// environment-failure positive naming that literal opener as a missing
+// command (S6-host-environment-park-projection A5(i)): the shell resolves
+// the compound command as a whole, not a leading simple-command word, so
+// this returns "" and defers entirely to the real exit code, the same way
+// an unclassifiable assignment value already does.
+func hostCheckCommandWord(check string) string {
+	for _, field := range strings.Fields(check) {
+		if isShellAssignmentWord(field) {
+			if strings.ContainsAny(field, "()$") {
+				return ""
+			}
+			continue
+		}
+		if strings.HasPrefix(field, "(") || strings.HasPrefix(field, "{") {
+			return ""
+		}
+		return field
+	}
+	return ""
+}
+
+// shellQuote renders s as one single-quoted POSIX shell word, so a missing-
+// command classification can never itself become a command-injection
+// surface through an adversarial-looking check string.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// hostCommandResolves reports whether word resolves on the host that will
+// run it, exactly as the shell that runs check itself resolves its first
+// word: a path-shaped word (containing '/') is resolved by os.Stat, exactly
+// as the shell would attempt to execute it directly; otherwise shell is
+// asked via its own `command -v`, which POSIX specifies to report an
+// alias, a keyword, a function, and a builtin as found - so cd, export,
+// set, ':', '[', if, and '!' are never misclassified as missing, with no
+// maintained builtin list to fall out of date.
+func hostCommandResolves(shell, word string) bool {
+	if word == "" {
+		return true
+	}
+	if strings.ContainsRune(word, '/') {
+		_, err := os.Stat(word)
+		return err == nil
+	}
+	command := exec.Command(shell, "-c", "command -v -- "+shellQuote(word)+" >/dev/null 2>&1")
+	return command.Run() == nil
+}
+
+// classifyHostCheckExecution reports whether check is a host environment
+// failure on shell - its first word does not resolve there - and, when so,
+// the exact missing command name. It is pure and side-effect free; callers
+// journal the answer themselves. This is the one classification rule A1's
+// post-hoc exit-127 check, A4's start-time validation, and the recovery
+// sweep's re-classification all share, so a check can never be classified
+// three different ways.
+func classifyHostCheckExecution(shell, check string) (environmentFailure bool, missingCommand string) {
+	word := hostCheckCommandWord(check)
+	if word == "" || hostCommandResolves(shell, word) {
+		return false, ""
+	}
+	return true, word
+}
+
+// journalHostEnvironmentClassification admits and completes one durable
+// check.host.environment record (mirrors journalHostCheckRefusal's claim-
+// and-complete shape exactly), the moment the host runner recognizes
+// checkHostEffectID as a host environment failure. It never touches the
+// check.host effect itself, which stays Claimed: A2/A3 hold structurally,
+// not by a store-then-suppress step. Idempotent: MissingCommand is check's
+// own deterministic first word, so a given check.host work's record can
+// only ever carry one value and a later admission of the identical record
+// is a safe no-op.
+func (s *Service) journalHostEnvironmentClassification(
+	ctx context.Context,
+	engine *engine,
+	owner journal.OwnerLease,
+	checkHostWork, checkHostEffectID string,
+	sliceID, candidate, contractDigest, check, missingCommand string,
+) error {
+	work := hostEnvironmentClassificationWork(checkHostWork)
+	effectID := journal.AttemptEffectID(work, 1, 1)
+	record := hostEnvironmentClassification{
+		SchemaVersion: hostEnvironmentClassificationSchemaVersion,
+		Slice:         sliceID, Candidate: candidate, ContractDigest: contractDigest,
+		Check: check, MissingCommand: missingCommand, HostEffect: checkHostEffectID,
+	}
+	body := mustJSON(record)
+	now := s.now().UTC()
+	command := journal.Command{
+		RunID: engine.manifest.value.RunID, ReplayKey: effectID,
+		Kind: "check.host.environment", Payload: body, CreatedAt: now,
+	}
+	effect := journal.Effect{
+		RunID: engine.manifest.value.RunID, ID: effectID, ReplayKey: effectID,
+		Kind: "check.host.environment", BeforeDigest: work,
+		ExpectedDigest: sha256Digest(body), UpdatedAt: now,
+	}
+	if err := s.journal.EnsureAttempt(ctx, command, effect, journal.EffectAttempt{
+		WorkID: work, Epoch: 1, Try: 1,
+	}); err != nil {
+		return runtimeFail("JOURNAL_WRITE_FAILED", err)
+	}
+	stored, err := s.journal.Effect(ctx, engine.manifest.value.RunID, effectID)
+	if err != nil {
+		return runtimeFail("JOURNAL_READ_FAILED", err)
+	}
+	if stored.State == journal.Succeeded {
+		return nil
+	}
+	if stored.State != journal.Pending && stored.State != journal.Claimed {
+		return runtimeFail("RECOVERY_UNCERTAIN", nil)
+	}
+	claim, err := s.journal.ClaimOwned(ctx, owner, effectID, s.now().UTC(), effectLease)
+	if err != nil {
+		return runtimeFail("EFFECT_CLAIM_FAILED", err)
+	}
+	return s.journal.CompleteOwned(context.WithoutCancel(ctx), owner, journal.Completion{
+		RunID: engine.manifest.value.RunID, EffectID: effectID, Token: claim.Token,
+		State: journal.Succeeded, Result: body,
+		Receipts:  []journal.Receipt{{Kind: "host_check_environment", Body: body}},
+		EventKind: "host_check_environment_classified",
+		EventBody: MarshalAssociation(EventAssociation{
+			EffectID: effectID, WorkID: work, Slice: sliceID,
+		}),
+		At: s.now().UTC(),
+	})
+}
+
 // runHostCommand executes one approved check command via the fixed
 // sh -c surface in a defined bounded environment rooted at dir. Output
 // is captured into a bounded buffer with a truthful truncation marker; the
@@ -405,6 +610,9 @@ func (s *Service) journalHostCheckRefusal(
 	if err := s.journal.EnsureAttempt(ctx, command, effect, journal.EffectAttempt{
 		WorkID: work, Epoch: 1, Try: 1,
 	}); err != nil {
+		if journal.IsCode(err, "CONTROL_STOPPED") || journal.IsCode(err, "OPERATION_CANCELLED") {
+			return runtimeFail("RUN_STOPPED", err)
+		}
 		return runtimeFail("JOURNAL_WRITE_FAILED", err)
 	}
 	stored, err := s.journal.Effect(ctx, engine.manifest.value.RunID, effectID)
@@ -423,6 +631,9 @@ func (s *Service) journalHostCheckRefusal(
 	claim, err := s.journal.ClaimOwned(
 		ctx, owner, effectID, s.now().UTC(), effectLease)
 	if err != nil {
+		if journal.IsCode(err, "CONTROL_STOPPED") || journal.IsCode(err, "OPERATION_CANCELLED") {
+			return runtimeFail("RUN_STOPPED", err)
+		}
 		return runtimeFail("EFFECT_CLAIM_FAILED", err)
 	}
 	return s.journal.CompleteOwned(context.WithoutCancel(ctx), owner, journal.Completion{
@@ -490,6 +701,26 @@ func (s *Service) executeHostCheck(
 			return parseHostCheckResult(sliceID, candidate, contractDigest, check, effectID, recorded)
 		}
 	}
+	shell, shellErr := hostShell()
+	if shellErr != nil {
+		// S6-host-environment-park-projection A5(ii): fail closed with the
+		// identical typed code validateHostCheckEnvironment (the run-start
+		// gate) already uses for the same resolution failure, instead of
+		// silently skipping classification and falling through to a plain
+		// execution attempt. This is a synthetic in-memory error - nothing
+		// is journaled for it - so it cannot spend this try or become
+		// repair input; see implementSlice's and runAction's catch chains.
+		return hostCheckResult{}, runtimeFail("HOST_SHELL_UNAVAILABLE", shellErr)
+	}
+	if environmentFailure, missingCommand := classifyHostCheckExecution(shell, check); environmentFailure {
+		if journalErr := s.journalHostEnvironmentClassification(
+			ctx, engine, owner, boundWork, effectID,
+			sliceID, candidate, contractDigest, check, missingCommand,
+		); journalErr != nil {
+			return hostCheckResult{}, journalErr
+		}
+		return hostCheckResult{}, runtimeFail("EFFECT_PARKED", nil)
+	}
 	oid, err := gitx.ParseOID(engine.repository.ObjectFormat(), candidate)
 	if err != nil {
 		return hostCheckResult{}, runtimeFail("INVALID_CANDIDATE", err)
@@ -502,6 +733,20 @@ func (s *Service) executeHostCheck(
 	closeErr := workspace.Close()
 	if closeErr != nil {
 		return hostCheckResult{}, runtimeFail("WORKSPACE_CLEANUP_FAILED", closeErr)
+	}
+	// Defense in depth: the resolved word's own interpreter or script can
+	// still be missing (for example a shebang naming an absent
+	// interpreter), which only exit 127 itself reveals. This discards the
+	// just-produced result and parks exactly like the pre-spawn
+	// classification above, regardless of what the pre-spawn check found.
+	if result.ExitCode == 127 {
+		if journalErr := s.journalHostEnvironmentClassification(
+			ctx, engine, owner, boundWork, effectID,
+			sliceID, candidate, contractDigest, check, hostCheckCommandWord(check),
+		); journalErr != nil {
+			return hostCheckResult{}, journalErr
+		}
+		return hostCheckResult{}, runtimeFail("EFFECT_PARKED", nil)
 	}
 	result.Slice, result.Candidate, result.ContractDigest = sliceID, candidate, contractDigest
 	result.EffectID = effectID
@@ -555,6 +800,9 @@ func (s *Service) admitHostCheckEffect(
 			ReplayKey: effectID, Kind: "check.host", BeforeDigest: work,
 			ExpectedDigest: sha256Digest(payload), UpdatedAt: now},
 		journal.EffectAttempt{WorkID: work, Epoch: 1, Try: 1}); err != nil {
+		if journal.IsCode(err, "CONTROL_STOPPED") || journal.IsCode(err, "OPERATION_CANCELLED") {
+			return journal.Effect{}, nil, runtimeFail("RUN_STOPPED", err)
+		}
 		return journal.Effect{}, nil, runtimeFail("JOURNAL_WRITE_FAILED", err)
 	}
 	effect, err := s.journal.Effect(ctx, engine.manifest.value.RunID, effectID)
@@ -570,6 +818,9 @@ func (s *Service) admitHostCheckEffect(
 		claim, err := s.journal.ClaimOwned(
 			ctx, owner, effectID, s.now().UTC(), effectLease)
 		if err != nil {
+			if journal.IsCode(err, "CONTROL_STOPPED") || journal.IsCode(err, "OPERATION_CANCELLED") {
+				return journal.Effect{}, nil, runtimeFail("RUN_STOPPED", err)
+			}
 			return journal.Effect{}, nil, runtimeFail("EFFECT_CLAIM_FAILED", err)
 		}
 		effect.State, effect.CurrentClaim = journal.Claimed, claim.Token
@@ -655,6 +906,23 @@ func (s *Service) runHostChecks(
 	hostChecks = phaseOrderedHostChecks(hostChecks)
 	results := make([]hostCheckResult, 0, len(hostChecks))
 	for _, check := range hostChecks {
+		// A2 (S2-pause-safe-host-checks): observed fresh before admitting
+		// each check, never cached, so a pause or cancel that lands between
+		// two checks stops here - leaving every already-recorded result and
+		// the try intact - instead of admitting one more check.host effect.
+		if ctx.Err() != nil {
+			return nil, runtimeFail("RUN_STOPPED", ctx.Err())
+		}
+		projection, err := s.journal.ControlProjection(ctx, owner.RunID)
+		if err != nil {
+			if journal.IsCode(err, "OPERATION_CANCELLED") {
+				return nil, runtimeFail("RUN_STOPPED", err)
+			}
+			return nil, runtimeFail("JOURNAL_READ_FAILED", err)
+		}
+		if projection.Desired != "running" {
+			return nil, runtimeFail("RUN_STOPPED", nil)
+		}
 		result, err := s.runOneHostCheck(ctx, engine, owner, plan, sliceID, candidate, targetHead, releaseHead, check)
 		if err != nil {
 			return nil, err
@@ -824,6 +1092,169 @@ func hostOutputExcerpt(output string, outputTruncated bool) (string, bool) {
 	return excerpt, true
 }
 
+// hostCheckEnvironmentUnresolvedCheck names one declared check (from the
+// deduplicated union of every slice's approved checks and host_checks)
+// whose first word does not currently resolve on the host runner.
+type hostCheckEnvironmentUnresolvedCheck struct {
+	Check   string
+	Missing string
+}
+
+// validateHostCheckEnvironment resolves, for every track and slice in the
+// plan's own order, the deduplicated union of the approved contract's
+// checks and host_checks (A4's literal-text scope: a Checks-only entry
+// actually runs inside a contained dispatch's own sandboxed environment,
+// so this host-side check is a conservative superset for that subset, not
+// a narrowing), classifies each with the exact shared rule
+// classifyHostCheckExecution uses, and returns every currently-unresolved
+// one - a check text declared by more than one slice is reported once.
+func validateHostCheckEnvironment(
+	engine *engine,
+	plan protocol.Plan,
+	state protocol.State,
+) ([]hostCheckEnvironmentUnresolvedCheck, error) {
+	shell, err := hostShell()
+	if err != nil {
+		return nil, runtimeFail("HOST_SHELL_UNAVAILABLE", err)
+	}
+	seen := make(map[string]struct{})
+	var unresolved []hostCheckEnvironmentUnresolvedCheck
+	for _, track := range state.Tracks {
+		for _, slice := range track.Slices {
+			sliceID := slice.Location.Slice.ID
+			contract, err := plan.ResolveSliceContractAtHead(
+				engine.git, sliceID, state.Refs.Release.Head, state.Refs.Target.Head)
+			if err != nil {
+				return nil, runtimeFail("CONTRACT_RESOLUTION_FAILED", err)
+			}
+			union := make([]string, 0, len(contract.Checks)+len(contract.HostChecks))
+			union = append(union, contract.Checks...)
+			union = append(union, contract.HostChecks...)
+			for _, check := range union {
+				if _, duplicate := seen[check]; duplicate {
+					continue
+				}
+				seen[check] = struct{}{}
+				if environmentFailure, missing := classifyHostCheckExecution(shell, check); environmentFailure {
+					unresolved = append(unresolved, hostCheckEnvironmentUnresolvedCheck{
+						Check: check, Missing: missing,
+					})
+				}
+			}
+		}
+	}
+	return unresolved, nil
+}
+
+// hostCheckEnvironmentDetail renders A4's unresolved list as one bounded
+// park detail, "<check>: command not found: <missing>" per entry,
+// truncating trailing entries rather than emitting a detail
+// validParkDetail would reject - the same discipline scopeExhaustionDetail
+// already uses for its own multi-entry detail.
+func hostCheckEnvironmentDetail(unresolved []hostCheckEnvironmentUnresolvedCheck) string {
+	lines := make([]string, 0, len(unresolved))
+	for _, item := range unresolved {
+		lines = append(lines, item.Check+": command not found: "+item.Missing)
+	}
+	detail := strings.Join(lines, "; ")
+	for len(lines) > 0 && !validParkDetail(detail) {
+		lines = lines[:len(lines)-1]
+		detail = strings.Join(lines, "; ")
+	}
+	if !validParkDetail(detail) {
+		return ""
+	}
+	return detail
+}
+
+// hostCheckEnvironmentRunState is the pure journal projection of the A4
+// run-scoped host-environment park: among every ParkEventKind park event
+// with Cause==ParkCauseHostEnvironment && Work=="" and every
+// HostEnvironmentResolvedEventKind event in snapshot, the one with the
+// highest event.Offset - an already-monotonic, journal-assigned ordering
+// element, so no synthetic generation counter is needed - names the
+// current truth. Absent (neither kind ever journaled) reads as not
+// parked. Status reads this exact function; it is never re-derived by
+// re-running the classifier.
+func hostCheckEnvironmentRunState(snapshot journal.Snapshot) (parked bool, detail string) {
+	latestOffset := int64(-1)
+	for _, event := range snapshot.Events {
+		switch event.Kind {
+		case ParkEventKind:
+			parsed, err := ParseDegradationParkEvent(event.Body)
+			if err != nil || parsed.Cause != ParkCauseHostEnvironment || parsed.Work != "" {
+				continue
+			}
+			if event.Offset > latestOffset {
+				latestOffset, parked, detail = event.Offset, true, parsed.FailureDetail
+			}
+		case HostEnvironmentResolvedEventKind:
+			if event.Offset > latestOffset {
+				latestOffset, parked, detail = event.Offset, false, ""
+			}
+		}
+	}
+	return parked, detail
+}
+
+// driveHostCheckEnvironmentGate is A4's write side, run once at the top of
+// every driveLoop entry. It re-validates fresh (never trusting a stored
+// flag) and writes a new journal record only on a genuine transition from
+// the latest already-journaled record (hostCheckEnvironmentRunState),
+// using plain, non-deduplicated journal.Store.AppendEvent rather than the
+// content-addressed appendParkEventOnce: content-addressing (hash of
+// cause+body) would silently absorb a second, later occurrence of the
+// identical unresolved set as a duplicate of the first after an
+// intervening fix, which is exactly the ordering defect a break-fix-break
+// cycle must not hit. The resolved transition is journaled under a
+// distinct, non-park event kind (HostEnvironmentResolvedEventKind), never
+// as a ParkEventKind event, so it can never cross a park_updated webhook
+// or read as a park in cockpit history.
+func (s *Service) driveHostCheckEnvironmentGate(
+	ctx context.Context,
+	engine *engine,
+	owner journal.OwnerLease,
+	snapshot journal.Snapshot,
+	state protocol.State,
+) (bool, error) {
+	plan, err := planFromState(state)
+	if err != nil {
+		return false, err
+	}
+	unresolved, err := validateHostCheckEnvironment(engine, plan, state)
+	if err != nil {
+		return false, err
+	}
+	wasParked, priorDetail := hostCheckEnvironmentRunState(snapshot)
+	if len(unresolved) != 0 {
+		detail := hostCheckEnvironmentDetail(unresolved)
+		if !wasParked || priorDetail != detail {
+			body, err := hostEnvironmentParkEventBody(owner.RunID, "", detail)
+			if err != nil {
+				return false, err
+			}
+			if err := s.journal.AppendEvent(
+				ctx, owner.RunID, ParkEventKind, body, s.now().UTC(),
+			); err != nil {
+				return false, runtimeFail("JOURNAL_WRITE_FAILED", err)
+			}
+		}
+		return true, nil
+	}
+	if wasParked {
+		body, err := canonicalHostEnvironmentResolvedEvent(owner.RunID)
+		if err != nil {
+			return false, err
+		}
+		if err := s.journal.AppendEvent(
+			ctx, owner.RunID, HostEnvironmentResolvedEventKind, body, s.now().UTC(),
+		); err != nil {
+			return false, runtimeFail("JOURNAL_WRITE_FAILED", err)
+		}
+	}
+	return false, nil
+}
+
 // recoverHostCheckClaims reconciles in-flight check.host and check.refused
 // effects after a crash. These are engine-owned, re-runnable effects: a
 // claimed host check is re-run against the exact candidate and completed (or
@@ -925,9 +1356,43 @@ func (s *Service) recoverHostCheckClaims(
 			if effect.BeforeDigest != boundWork {
 				return true, runtimeFail("CORRUPT_JOURNAL", nil)
 			}
+			// Classify before re-running, exactly as executeHostCheck
+			// does on a fresh claim, so a crash-recovered claim classifies
+			// exactly as a live one. An environment failure is handled,
+			// not recovered: journal the durable fact and skip this
+			// effect, continuing the scan for any other effect that
+			// genuinely needs recovering, so this function never returns
+			// true (and drives an unbounded rescan) for a claim that is
+			// staying Claimed on purpose.
+			shell, shellErr := hostShell()
+			if shellErr != nil {
+				// S6-host-environment-park-projection A5(ii): fail closed
+				// with the identical typed code the fresh-claim path and
+				// the run-start gate both use, instead of silently
+				// skipping classification and falling through to
+				// executeHostCheckFromRecovery. This effect stays exactly
+				// Claimed - nothing here completes it - so returning this
+				// error cannot spend a try or become repair input.
+				return true, runtimeFail("HOST_SHELL_UNAVAILABLE", shellErr)
+			}
+			if environmentFailure, missingCommand := classifyHostCheckExecution(
+				shell, commandValue.Check,
+			); environmentFailure {
+				if journalErr := s.journalHostEnvironmentClassification(
+					ctx, engine, owner, boundWork, effect.ID,
+					commandValue.Slice, commandValue.Candidate,
+					commandValue.ContractDigest, commandValue.Check, missingCommand,
+				); journalErr != nil {
+					return true, journalErr
+				}
+				continue
+			}
 			result, runErr := s.executeHostCheckFromRecovery(
 				ctx, engine, owner, effect, commandValue)
 			if runErr != nil {
+				if IsCode(runErr, "EFFECT_PARKED") {
+					continue
+				}
 				return true, runErr
 			}
 			_ = result
@@ -965,6 +1430,20 @@ func (s *Service) executeHostCheckFromRecovery(
 	closeErr := workspace.Close()
 	if closeErr != nil {
 		return hostCheckResult{}, runtimeFail("WORKSPACE_CLEANUP_FAILED", closeErr)
+	}
+	// Defense in depth, mirroring executeHostCheck's own post-127 check:
+	// recoverHostCheckClaims already pre-classifies before calling this
+	// function, but the resolved word's own interpreter or script can
+	// still be missing only exit 127 itself reveals.
+	if result.ExitCode == 127 {
+		if journalErr := s.journalHostEnvironmentClassification(
+			ctx, engine, owner, effect.BeforeDigest, effect.ID,
+			command.Slice, command.Candidate, command.ContractDigest,
+			command.Check, hostCheckCommandWord(command.Check),
+		); journalErr != nil {
+			return hostCheckResult{}, journalErr
+		}
+		return hostCheckResult{}, runtimeFail("EFFECT_PARKED", nil)
 	}
 	result.Slice, result.Candidate, result.ContractDigest =
 		command.Slice, command.Candidate, command.ContractDigest

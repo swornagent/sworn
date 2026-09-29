@@ -734,7 +734,7 @@ func TestFailureTailHoldsOnlyDurablyJournaledProjections(t *testing.T) {
 	// Mutating the caller's Turn after the hook must not change the tail.
 	turn.Results[0].Tool = "Mutated"
 	turn.Results[0].Head = base64.StdEncoding.EncodeToString([]byte("mutated"))
-	stored := service.assembleFailureContextStored(effectID)
+	stored := service.assembleFailureContextStored(effectID, nil, nil)
 	if stored == nil || stored.Status != FailureTurnContextPresent || len(stored.Turns) != 1 {
 		t.Fatalf("stored = %#v", stored)
 	}
@@ -760,7 +760,7 @@ func TestFailureTailHoldsOnlyDurablyJournaledProjections(t *testing.T) {
 		t.Fatal("journal lacks the tool-result event the tail holds")
 	}
 	service.dropFailureTail(effectID)
-	if again := service.assembleFailureContextStored(effectID); again.Status != FailureTurnContextUnavailable || again.Reason != FailureTurnContextNoLiveTail {
+	if again := service.assembleFailureContextStored(effectID, nil, nil); again.Status != FailureTurnContextUnavailable || again.Reason != FailureTurnContextNoLiveTail {
 		t.Fatalf("dropped tail = %#v, want unavailable/no_live_tail", again)
 	}
 }
@@ -781,7 +781,7 @@ func TestFailureTailBoundsNewestWinsAndOmittedExact(t *testing.T) {
 			}},
 		})
 	}
-	stored := service.assembleFailureContextStored(effectID)
+	stored := service.assembleFailureContextStored(effectID, nil, nil)
 	if stored.Status != FailureTurnContextPresent {
 		t.Fatalf("stored status = %q", stored.Status)
 	}
@@ -825,7 +825,7 @@ func TestFailureContextWorstCaseSingleTurnTruncatesByWholeParts(t *testing.T) {
 		})
 	}
 	service.feedFailureTailTool(effectID, driver.ToolResultTurn{Turn: 3, Results: records})
-	stored := service.assembleFailureContextStored(effectID)
+	stored := service.assembleFailureContextStored(effectID, nil, nil)
 	if stored.Status != FailureTurnContextPresent {
 		t.Fatalf("stored status = %q, want present (never empty with turns observed)", stored.Status)
 	}
@@ -864,7 +864,7 @@ func TestFailureContextWorstCaseSingleTurnTruncatesByWholeParts(t *testing.T) {
 	// the journal bound with exact accounting.
 	event := service.failureEventBodyFor(EventAssociation{
 		EffectID: effectID, WorkID: "work-worst", Slice: "S3",
-	}, nil, effectID)
+	}, nil, effectID, nil, nil)
 	if len(event) >= journal.MaxEventBytes {
 		t.Fatalf("worst-case event = %d bytes, journal bound %d", len(event), journal.MaxEventBytes)
 	}
@@ -881,7 +881,7 @@ func TestFailureContextEmptyOnlyWhenNoTurns(t *testing.T) {
 	service, _, _ := toolResultRuntimeFixture(t)
 	emptyID := "attempt/work-empty/e1/t1"
 	service.initFailureTail(emptyID)
-	empty := service.assembleFailureContextStored(emptyID)
+	empty := service.assembleFailureContextStored(emptyID, nil, nil)
 	if empty.Status != FailureTurnContextEmpty || len(empty.Turns) != 0 || empty.Omitted != 0 {
 		t.Fatalf("empty tail = %#v, want explicit empty with turns:[] omitted 0", empty)
 	}
@@ -892,7 +892,7 @@ func TestFailureContextEmptyOnlyWhenNoTurns(t *testing.T) {
 	// No tail at all (a sweep reconcile that never held the dispatch, or a
 	// prior-process path) is unavailable, never empty and never absent for
 	// a new write.
-	missing := service.assembleFailureContextStored("attempt/work-missing/e1/t1")
+	missing := service.assembleFailureContextStored("attempt/work-missing/e1/t1", nil, nil)
 	if missing.Status != FailureTurnContextUnavailable || missing.Reason != FailureTurnContextNoLiveTail {
 		t.Fatalf("missing tail = %#v, want unavailable/no_live_tail", missing)
 	}
@@ -914,7 +914,7 @@ func TestFailureContextDroppedMaxVisible(t *testing.T) {
 		Turn: 2, DroppedEvents: 5,
 		Content: []driver.WorkerTurnPart{{Kind: driver.WorkerTurnPartText, TotalBytes: 1}},
 	})
-	stored := service.assembleFailureContextStored(effectID)
+	stored := service.assembleFailureContextStored(effectID, nil, nil)
 	if stored.DroppedMaxVisible != 5 {
 		t.Fatalf("dropped_max_visible = %d, want 5 (max across retained tail)", stored.DroppedMaxVisible)
 	}

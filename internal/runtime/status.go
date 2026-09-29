@@ -88,6 +88,18 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		return RunStatus{}, err
 	}
 	active, uncertain := false, false
+	// S6-host-environment-park-projection A1: every effect whose Claimed
+	// state would otherwise fold into active/uncertain is recorded here by
+	// ID first, never folded in directly, so a current host-environment
+	// crossing's own check.host effect (and its owning git.seal or
+	// protocol.prepare_assembly effect) can be excluded once state is
+	// known, before either switch below reads active/uncertain.
+	// activeFromRecovery is the recoveryClaims-deliberate branch's own
+	// direct contribution, unaffected by that exclusion (it never names a
+	// check.host or git.seal/prepare_assembly effect).
+	claimedActiveEffects := make(map[string]bool)
+	claimedUncertainEffects := make(map[string]bool)
+	activeFromRecovery := false
 	var exhausted map[string]struct{}
 	var exhaustionRefusals map[string]exhaustionRefusalFacts
 	attentionParked := false
@@ -146,13 +158,17 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 		}
 		result.Effects = append(result.Effects, status)
 		if state, deliberate := recoveryClaims[effect.ID]; deliberate {
-			active = active ||
+			activeFromRecovery = activeFromRecovery ||
 				(state == journal.AttentionAnswered && ownerActive)
 			continue
 		}
-		active = active || (effect.State == journal.Claimed && ownerActive)
-		uncertain = uncertain || effect.State == journal.Uncertain ||
-			(effect.State == journal.Claimed && !ownerActive)
+		if effect.State == journal.Claimed && ownerActive {
+			claimedActiveEffects[effect.ID] = true
+		}
+		if effect.State == journal.Uncertain ||
+			(effect.State == journal.Claimed && !ownerActive) {
+			claimedUncertainEffects[effect.ID] = true
+		}
 		if effect.Kind == "driver.dispatch" {
 			if recoveryWork, recoveryEpoch, _, coordErr :=
 				attemptCoordinates(effect.ID); coordErr == nil {
@@ -195,11 +211,20 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	// carries the check, outcome, exit and excerpt; the proposal-selected
 	// contract refines NotRun once it is available.
 	attachHostCheckFailureFacts(&result, snapshot, nil)
+	// S1-host-check-environment-failures A5: a pure journal projection,
+	// exactly like attachHostCheckFailureFacts above - never a shell call
+	// in this process.
+	attachHostEnvironmentFacts(&result, snapshot)
 	// Exhaustion is journal-derived, in the one place the drive loop reads it
 	// from too, so both surfaces name the same spent try budgets.
 	exhausted, exhaustionRefusals = exhaustedWorks(snapshot, control, recoveryClaims)
 	degradationCount := int64(len(degradationFallbacks(snapshot)))
 	degradationBudgetExceeded := degradationCount > manifest.value.EffectiveDegradationBudget()
+	// A4: a pure journal projection of the run-scoped host-environment
+	// park - the classifier itself never runs in this process; see
+	// driveHostCheckEnvironmentGate, the one place that writes what this
+	// reads.
+	hostEnvironmentRunParked, hostEnvironmentRunDetail := hostCheckEnvironmentRunState(snapshot)
 	// Economy and identical-failure guards (A1/A2) are evaluated over the
 	// same journal history as every park condition, so a re-drive of a
 	// journal that crossed re-parks with the same figures.
@@ -261,6 +286,7 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	exhaustionApplies := len(exhausted) != 0
 	var exhaustionCode, exhaustionDetail string
 	parked := attentionParked || degradationBudgetExceeded ||
+		hostEnvironmentRunParked ||
 		economyPark != nil || economyContextPark != nil ||
 		identicalPark != nil || providerStallPark != nil ||
 		exhaustionApplies
@@ -277,6 +303,28 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	}
 	state, stateErr := protocol.ReadState(protocol.UseGitRepository(repository),
 		manifest.value.Release, inertness)
+	// S6-host-environment-park-projection A1: exclude a current host-
+	// environment crossing's own check.host effect (and its owning
+	// git.seal/protocol.prepare_assembly effect once state confirms the
+	// owner) from active/uncertain before either switch below reads them,
+	// so the run projects parked - never running or uncertain - while
+	// that Claimed effect is the only thing in flight, both while the
+	// owning serve still holds the owner lease and after it releases it.
+	hostEnvironmentExcluded := hostEnvironmentExcludedEffects(snapshot, state, stateErr)
+	active = activeFromRecovery
+	for id := range claimedActiveEffects {
+		if !hostEnvironmentExcluded[id] {
+			active = true
+			break
+		}
+	}
+	uncertain = false
+	for id := range claimedUncertainEffects {
+		if !hostEnvironmentExcluded[id] {
+			uncertain = true
+			break
+		}
+	}
 	statusEngine := &engine{
 		manifest: manifest, repository: repository,
 		git: protocol.UseGitRepository(repository), inertness: inertness,
@@ -436,6 +484,8 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 			attentionParked:           attentionParked,
 			degradationBudgetExceeded: degradationBudgetExceeded,
 			degradationCount:          degradationCount,
+			hostEnvironmentRunParked:  hostEnvironmentRunParked,
+			hostEnvironmentRunDetail:  hostEnvironmentRunDetail,
 			bootstrapAuthority:        bootstrapAuthorityParked,
 			bootstrapReason:           bootstrapParkReason,
 			economy:                   economyPark,
@@ -487,6 +537,13 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	// candidate lane exists and every one of them is pinned, so a healthy
 	// lane's live candidate work is never masked by another lane's park.
 	lanes := readyLaneCandidates(manifest, selected, proposalActivated, state, snapshot)
+	// A1-A3/A5: a pure function of state and the current crossings, never
+	// re-classifying - see hostEnvironmentParkCrossings.
+	hostEnvironmentByOwner := hostEnvironmentParkFactsByOwner(state, snapshot)
+	// S3-credential-lifetime A2: a pure function of state and the current
+	// crossings, deliberately never wired into pinCrossingLanes - see
+	// credentialLifetimeParkCrossings.
+	credentialLifetimeByOwner := credentialLifetimeParkFactsByOwner(state, snapshot)
 	economyByOwner := make(map[string]economyParkFacts, len(economyCrossings))
 	for _, crossing := range economyCrossings {
 		owner := ownerWorkForDispatch(snapshot, crossing.work)
@@ -535,8 +592,8 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	)
 	pinnedWork, laneParks, allLanesPinned := resolveLanePins(
 		lanes, exhausted, exhaustionRefusals, economyByOwner,
-		economyContextByOwner, identicalByOwner,
-		providerStallParked, exhaustionParksByLane(state, exhaustionParks),
+		economyContextByOwner, hostEnvironmentByOwner, credentialLifetimeByOwner,
+		identicalByOwner, providerStallParked, exhaustionParksByLane(state, exhaustionParks),
 	)
 	// Zero candidate lanes is not progress: short of a merged release, Protocol
 	// state offers no work at all, so a standing exhaustion is the run's
@@ -545,16 +602,26 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	drained := len(lanes) == 0 && len(exhaustionParks) != 0 &&
 		state.Assembly.Outcome != "merged"
 	parked = humanAuthorityRequired || attentionParked ||
-		degradationBudgetExceeded || bootstrapAuthorityParked ||
+		degradationBudgetExceeded || hostEnvironmentRunParked ||
+		bootstrapAuthorityParked ||
 		(len(lanes) != 0 && allLanesPinned) || drained
-	if control.Desired == "running" && !uncertain && !parked {
+	// This recomputed parked can newly become true here (a lane-only park
+	// cause, e.g. credential-lifetime, has no run-scoped signal to make the
+	// earlier parked true) or newly become false (an economy/identical
+	// crossing existed somewhere but not every candidate lane is pinned).
+	// The switch below is the sole state-assignment site for a running
+	// desired state, so it must run unconditionally and re-derive parked
+	// as its own case, not only handle the "no longer parked" direction.
+	if control.Desired == "running" && !uncertain {
 		switch {
+		case active:
+			result.State = "running"
+		case parked:
+			result.State = "parked"
 		case proposalFound && !proposalActivated:
 			result.State = "awaiting_approval"
 		case state.Assembly.Outcome == "merged":
 			result.State = "complete"
-		case active:
-			result.State = "running"
 		case ownerExpired:
 			result.State = "takeover_required"
 		default:
@@ -586,12 +653,15 @@ func (s *Service) Status(ctx context.Context, runID string) (RunStatus, error) {
 	}
 	if result.State == "parked" {
 		switch {
-		case humanAuthorityRequired || attentionParked || degradationBudgetExceeded || bootstrapAuthorityParked:
+		case humanAuthorityRequired || attentionParked || degradationBudgetExceeded ||
+			hostEnvironmentRunParked || bootstrapAuthorityParked:
 			result.Park = parkStatusFor(manifest, parkFacts{
 				humanAuthorityRequired:    humanAuthorityRequired,
 				attentionParked:           attentionParked,
 				degradationBudgetExceeded: degradationBudgetExceeded,
 				degradationCount:          degradationCount,
+				hostEnvironmentRunParked:  hostEnvironmentRunParked,
+				hostEnvironmentRunDetail:  hostEnvironmentRunDetail,
 				bootstrapAuthority:        bootstrapAuthorityParked,
 				bootstrapReason:           bootstrapParkReason,
 			})
@@ -1131,6 +1201,8 @@ func resolveLanePins(
 	exhaustionRefusals map[string]exhaustionRefusalFacts,
 	economyByOwner map[string]economyParkFacts,
 	economyContextByOwner map[string]economyContextParkFacts,
+	hostEnvironmentByOwner map[string]hostEnvironmentParkFacts,
+	credentialLifetimeByOwner map[string]credentialLifetimeParkFacts,
 	identicalByOwner map[string]identicalFailureFacts,
 	providerStallByOwner map[string]providerStallParkFacts,
 	exhaustionByLane map[string]exhaustionParkFacts,
@@ -1169,6 +1241,42 @@ func resolveLanePins(
 				})
 				laneParks = append(laneParks, lanePinFacts{
 					work: work, facts: parkFacts{economyContext: &facts},
+				})
+				pinned = true
+				break
+			}
+		}
+		if !pinned {
+			for work := range lane.works {
+				facts, ok := hostEnvironmentByOwner[work]
+				if !ok {
+					continue
+				}
+				built := facts.fact
+				pinnedWork = append(pinnedWork, PinnedWork{
+					WorkID: work, Lane: lane.lane, Cause: ParkCauseHostEnvironment,
+					Code: facts.code, Detail: facts.detail,
+					HostEnvironmentFailure: &built,
+				})
+				laneParks = append(laneParks, lanePinFacts{
+					work: work, facts: parkFacts{hostEnvironment: &facts},
+				})
+				pinned = true
+				break
+			}
+		}
+		if !pinned {
+			for work := range lane.works {
+				facts, ok := credentialLifetimeByOwner[work]
+				if !ok {
+					continue
+				}
+				pinnedWork = append(pinnedWork, PinnedWork{
+					WorkID: work, Lane: lane.lane, Cause: ParkCauseCredentialLifetime,
+					Code: facts.code, Detail: facts.detail,
+				})
+				laneParks = append(laneParks, lanePinFacts{
+					work: work, facts: parkFacts{credentialLifetime: &facts},
 				})
 				pinned = true
 				break
@@ -1318,21 +1426,35 @@ type parkFacts struct {
 	attentionParked           bool
 	degradationBudgetExceeded bool
 	degradationCount          int64
-	bootstrapAuthority        bool
-	bootstrapReason           string
-	economy                   *economyParkFacts
-	economyContext            *economyContextParkFacts
-	identicalFailure          *identicalFailureFacts
-	providerStall             *providerStallParkFacts
-	exhaustionApplies         bool
-	exhaustionCode            string
-	exhaustionDetail          string
+	// hostEnvironmentRunParked/hostEnvironmentRunDetail carry the
+	// run-scoped A4 refusal (Work == "" in the journaled park event): no
+	// declared check's command resolves on the host, before any
+	// dispatch. Distinct from hostEnvironment below, which carries a
+	// mid-run, work-scoped crossing.
+	hostEnvironmentRunParked bool
+	hostEnvironmentRunDetail string
+	bootstrapAuthority       bool
+	bootstrapReason          string
+	economy                  *economyParkFacts
+	economyContext           *economyContextParkFacts
+	hostEnvironment          *hostEnvironmentParkFacts
+	credentialLifetime       *credentialLifetimeParkFacts
+	identicalFailure         *identicalFailureFacts
+	providerStall            *providerStallParkFacts
+	exhaustionApplies        bool
+	exhaustionCode           string
+	exhaustionDetail         string
 }
 
 // parkStatusFor names the park cause with the same precedence the final park
-// computation uses: human authority, attention, degradation, bootstrap
-// authority, economy, economy context window, identical failure, provider
-// stall, exhaustion. A degradation park
+// computation uses: human authority, attention, degradation, the run-scoped
+// A4 host-environment refusal, bootstrap authority, economy, economy
+// context window, the mid-run work-scoped host-environment crossing, the
+// credential-lifetime crossing (S3-credential-lifetime A2), identical
+// failure, provider stall, exhaustion. Precedence between the novel causes
+// (host-environment, economy context, credential-lifetime, identical
+// failure) is the implementer's own placement choice; no acceptance
+// criterion orders them against each other. A degradation park
 // carries the gated fallback count, the effective budget, and the manifest
 // knob that unblocks it; a bootstrap-authority park carries its Reason; an
 // economy park carries spent-versus-budget and its knob; an
@@ -1356,6 +1478,10 @@ func parkStatusFor(
 		status.FallbackCount = facts.degradationCount
 		status.Budget = manifest.value.EffectiveDegradationBudget()
 		status.UnblockKnob = DegradationUnblockKnob
+	case facts.hostEnvironmentRunParked:
+		status.Cause = ParkCauseHostEnvironment
+		status.FailureCode = "HOST_CHECK_ENVIRONMENT"
+		status.FailureDetail = facts.hostEnvironmentRunDetail
 	case facts.bootstrapAuthority:
 		status.Cause = ParkCauseBootstrapAuthority
 		status.Reason = facts.bootstrapReason
@@ -1368,6 +1494,14 @@ func parkStatusFor(
 		status.Cause = ParkCauseEconomyContext
 		status.FailureCode = facts.economyContext.code
 		status.FailureDetail = facts.economyContext.detail
+	case facts.hostEnvironment != nil:
+		status.Cause = ParkCauseHostEnvironment
+		status.FailureCode = facts.hostEnvironment.code
+		status.FailureDetail = facts.hostEnvironment.detail
+	case facts.credentialLifetime != nil:
+		status.Cause = ParkCauseCredentialLifetime
+		status.FailureCode = facts.credentialLifetime.code
+		status.FailureDetail = facts.credentialLifetime.detail
 	case facts.identicalFailure != nil:
 		status.Cause = ParkCauseIdenticalFailure
 		status.Consecutive = facts.identicalFailure.consecutive

@@ -166,3 +166,102 @@ func TestNativeCredentialStaleRefusesOnlyPositivelyExpired(t *testing.T) {
 		})
 	}
 }
+
+// TestNativeCredentialDispatchVerdict pins A1's timeout+margin lookahead:
+// already-expired keeps staying stale, a credential expiring inside the
+// deadline refuses as expiring-during-dispatch, one expiring after the
+// deadline (or unparseable, or from a family without the vocabulary, or at
+// the floor) is not evaluated as either and does not refuse.
+func TestNativeCredentialDispatchVerdict(t *testing.T) {
+	const now int64 = 2_000_000_000_000
+	const deadline int64 = now + 300_000 // now + 5 minute margin, no timeout
+
+	cases := []struct {
+		name                      string
+		family                    ProfileFamily
+		body                      string
+		now                       int64
+		deadline                  int64
+		wantStale                 bool
+		wantExpiresDuringDispatch bool
+		wantEvaluated             bool
+	}{
+		{
+			name:          "already expired stays stale",
+			family:        ProfileClaude,
+			body:          `{"claudeAiOauth":{"expiresAt":` + strconv.FormatInt(now-60_000, 10) + `}}`,
+			now:           now,
+			deadline:      deadline,
+			wantStale:     true,
+			wantEvaluated: true,
+		},
+		{
+			name:                      "expires inside the deadline refuses",
+			family:                    ProfileClaude,
+			body:                      `{"claudeAiOauth":{"expiresAt":` + strconv.FormatInt(now+120_000, 10) + `}}`,
+			now:                       now,
+			deadline:                  deadline,
+			wantExpiresDuringDispatch: true,
+			wantEvaluated:             true,
+		},
+		{
+			name:          "expires after the deadline passes",
+			family:        ProfileClaude,
+			body:          `{"claudeAiOauth":{"expiresAt":` + strconv.FormatInt(deadline+1, 10) + `}}`,
+			now:           now,
+			deadline:      deadline,
+			wantEvaluated: true,
+		},
+		{
+			name:     "unparseable body is unevaluated",
+			family:   ProfileClaude,
+			body:     `{"claudeAiOauth":{"expiresAt":`,
+			now:      now,
+			deadline: deadline,
+		},
+		{
+			name:     "codex has no expiry vocabulary",
+			family:   ProfileCodex,
+			body:     `{"claudeAiOauth":{"expiresAt":` + strconv.FormatInt(now+120_000, 10) + `}}`,
+			now:      now,
+			deadline: deadline,
+		},
+		{
+			name:     "now at the floor is unevaluated",
+			family:   ProfileClaude,
+			body:     `{"claudeAiOauth":{"expiresAt":` + strconv.FormatInt(now+120_000, 10) + `}}`,
+			now:      nativeCredentialEpochFloorMillis,
+			deadline: nativeCredentialEpochFloorMillis + 300_000,
+		},
+	}
+	for _, test := range cases {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			stale, expiresDuringDispatch, _, evaluated := nativeCredentialDispatchVerdict(
+				test.family, []byte(test.body), test.now, test.deadline,
+			)
+			if stale != test.wantStale ||
+				expiresDuringDispatch != test.wantExpiresDuringDispatch ||
+				evaluated != test.wantEvaluated {
+				t.Fatalf(
+					"nativeCredentialDispatchVerdict(%s, %q, %d, %d) = (%v, %v, _, %v), want (%v, %v, _, %v)",
+					test.family, test.body, test.now, test.deadline,
+					stale, expiresDuringDispatch, evaluated,
+					test.wantStale, test.wantExpiresDuringDispatch, test.wantEvaluated,
+				)
+			}
+		})
+	}
+}
+
+// TestNativeCredentialDispatchDetailIsDurationOnly pins A2's bounded,
+// duration-only detail: no credential byte, no absolute timestamp, only the
+// remaining and required durations rendered from the three int64 millis
+// this package already computed.
+func TestNativeCredentialDispatchDetailIsDurationOnly(t *testing.T) {
+	const now int64 = 1_000_000
+	detail := nativeCredentialDispatchDetail(now, now+90_000, now+300_000)
+	if detail != "remaining 1m30s, required 5m0s" {
+		t.Fatalf("nativeCredentialDispatchDetail = %q", detail)
+	}
+}

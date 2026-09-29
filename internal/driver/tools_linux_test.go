@@ -461,6 +461,70 @@ func TestModelPromptExplainsProjectedInputsAndExactSubmissionBinding(t *testing.
 	}
 }
 
+// TestModelPromptAdvertisesAnchorSubstitutesOnlyWhenContractDeclaresAnAnchor
+// pins S5-repair-input-across-epochs A3: an implementer_implementation
+// request whose AnchorDeclared is set carries anchor_substitutes in
+// result_fields and names it as the correction route in the instruction;
+// one with AnchorDeclared unset carries neither.
+func TestModelPromptAdvertisesAnchorSubstitutesOnlyWhenContractDeclaresAnAnchor(t *testing.T) {
+	for _, anchorDeclared := range []bool{true, false} {
+		invocation, _, _ := memoryInvocationFixture(t)
+		request, err := NewRequest(
+			invocation.Request.InvocationID,
+			RoleImplementer,
+			invocation.Selected.Profile.Key,
+			invocation.Selected.Model,
+			invocation.Request.Workspace,
+			[]Input{{
+				Name:   "certification",
+				Path:   "certification/request.json",
+				Digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			}},
+			true,
+			invocation.Request.Limits,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.AnchorDeclared = anchorDeclared
+		permission, err := NewSubmissionPermission(
+			request,
+			invocation.Selected,
+			ContainmentReadWrite,
+			ImplementerImplementation,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		invocation.Request, invocation.Permission = request, permission
+		body, err := modelPrompt(invocation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var prompt struct {
+			ResultFields []string `json:"result_fields"`
+			Instruction  string   `json:"instruction"`
+		}
+		if json.Unmarshal(body, &prompt) != nil {
+			t.Fatalf("model prompt = %s", body)
+		}
+		hasField := false
+		for _, field := range prompt.ResultFields {
+			if field == "anchor_substitutes" {
+				hasField = true
+			}
+		}
+		hasSentence := strings.Contains(prompt.Instruction, "anchor_substitutes") &&
+			strings.Contains(prompt.Instruction, "ANCHOR_NOT_TOUCHED")
+		if hasField != anchorDeclared || hasSentence != anchorDeclared {
+			t.Fatalf(
+				"anchorDeclared=%v: result_fields=%v instruction=%s",
+				anchorDeclared, prompt.ResultFields, prompt.Instruction,
+			)
+		}
+	}
+}
+
 func TestModelPromptCarriesRoleAssetAddendumForNonPlannerRolesAndOmitsItForPlanner(t *testing.T) {
 	invocation, _, _ := memoryInvocationFixture(t)
 	for _, tc := range []struct {
@@ -543,9 +607,32 @@ func TestSubmissionResultFieldsMatchResponsibility(t *testing.T) {
 		WorkVerification:          "summary,detail,checks,decision",
 		AssemblyVerification:      "summary,detail,checks,decision",
 	} {
-		if got := strings.Join(submissionResultFields(responsibility), ","); got != want {
+		if got := strings.Join(submissionResultFields(responsibility, false), ","); got != want {
 			t.Fatalf("%s result fields = %s, want %s", responsibility, got, want)
 		}
+	}
+}
+
+// TestSubmissionResultFieldsAdvertisesAnchorSubstitutesOnlyWhenDeclared pins
+// S5-repair-input-across-epochs A3: anchor_substitutes rides
+// implementer_implementation's result_fields only when the slice's
+// contract declares an Anchor, and every other responsibility is
+// unaffected by anchorDeclared.
+func TestSubmissionResultFieldsAdvertisesAnchorSubstitutesOnlyWhenDeclared(t *testing.T) {
+	if got := strings.Join(
+		submissionResultFields(ImplementerImplementation, true), ",",
+	); got != "summary,detail,checks,anchor_substitutes" {
+		t.Fatalf("anchor-declared implementer result fields = %s", got)
+	}
+	if got := strings.Join(
+		submissionResultFields(ImplementerImplementation, false), ",",
+	); got != "summary,detail,checks" {
+		t.Fatalf("anchor-undeclared implementer result fields = %s", got)
+	}
+	if got := strings.Join(
+		submissionResultFields(WorkVerification, true), ",",
+	); got != "summary,detail,checks,decision" {
+		t.Fatalf("anchorDeclared must not affect other responsibilities: %s", got)
 	}
 }
 

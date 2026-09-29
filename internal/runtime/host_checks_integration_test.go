@@ -478,6 +478,223 @@ func TestHostCheckRecoveryCompletesClaimedEffect(t *testing.T) {
 	}
 }
 
+// TestHostCheckEnvironmentFailureParksSpendsNoTryAndReExecutesAfterFix is
+// A1/A2/A3's exact required proof against the real host runner: an exit-127
+// classification parks the check.host effect at once (typed cause, never
+// stored, never a completed effect at all), a repeat while the environment
+// is still broken reproduces the identical park rather than storing or
+// replaying anything, and a retry after the environment is fixed
+// re-executes the check normally on the identical, still-Claimed effect.
+func TestHostCheckEnvironmentFailureParksSpendsNoTryAndReExecutesAfterFix(t *testing.T) {
+	const absentCommand = "sworn-genuinely-absent-command-xyz"
+	check := absentCommand + " --version"
+	fixture := newHostCheckFixture(t, []string{check})
+	work := hostCheckWork("S1", fixture.candidate, fixture.contractDgst, check)
+	effectID := hostCheckEffectID(work)
+
+	run := func() ([]hostCheckResult, error) {
+		return fixture.service.runHostChecks(
+			fixture.ctx, fixture.engine, fixture.owner, fixture.plan,
+			"S1", fixture.candidate, fixture.targetHead, fixture.releaseHead)
+	}
+	requireParked := func(t *testing.T) {
+		t.Helper()
+		if _, err := run(); err == nil || !IsCode(err, "EFFECT_PARKED") {
+			t.Fatalf("run() error = %v, want EFFECT_PARKED", err)
+		}
+		effect, err := fixture.store.Effect(fixture.ctx, fixture.owner.RunID, effectID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if effect.Kind != "check.host" || effect.State != journal.Claimed ||
+			effect.CurrentClaim == "" || len(effect.Result) != 0 {
+			// A2/A3: the effect is never completed - not Succeeded, not
+			// OperationalFailed, and it carries no stored result at all.
+			t.Fatalf("parked effect = %#v", effect)
+		}
+		snapshot, err := fixture.store.Snapshot(fixture.ctx, fixture.owner.RunID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		crossings := hostEnvironmentParkCrossings(snapshot)
+		if len(crossings) != 1 || crossings[0].Check != check ||
+			crossings[0].MissingCommand != absentCommand ||
+			crossings[0].HostEffect != effectID {
+			t.Fatalf("crossings = %#v", crossings)
+		}
+	}
+	// First encounter: parks at once, never spawning the process at all
+	// (the pre-spawn classification catches it).
+	requireParked(t)
+	// A2/A3: a repeat while still broken reproduces the identical park -
+	// it is not "stored then suppressed", so nothing about repeating it
+	// changes the effect's shape.
+	requireParked(t)
+
+	// Fix the environment (M10's own remedy): put a resolvable script
+	// ahead of PATH under the exact missing name, with the exact
+	// resolved shell as its own interpreter (never a hardcoded /bin/sh,
+	// which this sandbox does not have).
+	shell, shellErr := hostShell()
+	if shellErr != nil {
+		t.Fatal(shellErr)
+	}
+	fixDir := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(fixDir, absentCommand),
+		[]byte("#!"+shell+"\nexit 0\n"), 0o755,
+	); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fixDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	results, err := run()
+	if err != nil {
+		t.Fatalf("run() after fix = %v", err)
+	}
+	if len(results) != 1 || results[0].Outcome != protocol.CheckOutcomePass ||
+		results[0].EffectID != effectID {
+		t.Fatalf("fixed result = %#v", results)
+	}
+	effect, err := fixture.store.Effect(fixture.ctx, fixture.owner.RunID, effectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effect.State != journal.Succeeded {
+		t.Fatalf("fixed effect = %#v", effect)
+	}
+	snapshot, err := fixture.store.Snapshot(fixture.ctx, fixture.owner.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if crossings := hostEnvironmentParkCrossings(snapshot); len(crossings) != 0 {
+		t.Fatalf("crossing did not self-clear: %#v", crossings)
+	}
+}
+
+// TestAssemblyEnvironmentParkSpendsNoAdditionalTryAndRecoversWithoutLooping
+// is the Lead's two attempt-3 corrections proven together on the assembly
+// path, where the defect actually lived: a check.host effect nested inside
+// protocol.prepare_assembly that classifies as an environment failure must
+// never advance the outer prepare_assembly work past its first try - not on
+// the fresh claim, not on a plain repeat while already Claimed, and not
+// through the recovery sweep (recoverClaimedProtocolAction), which must
+// return promptly instead of spinning on the still-Claimed effect. Once the
+// environment is fixed, the same try-1 effect completes; no try 2 or 3 is
+// ever admitted.
+func TestAssemblyEnvironmentParkSpendsNoAdditionalTryAndRecoversWithoutLooping(t *testing.T) {
+	const absentCommand = "sworn-genuinely-absent-command-assembly-park"
+	check := absentCommand + " --version"
+	f := newAssemblyHostEvidenceFixture(t, [][]string{{"S1"}, {"S2"}}, []string{check})
+
+	shell, shellErr := hostShell()
+	if shellErr != nil {
+		t.Fatal(shellErr)
+	}
+	fixDir := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(fixDir, absentCommand), []byte("#!"+shell+"\nexit 0\n"), 0o755,
+	); err != nil {
+		t.Fatal(err)
+	}
+	originalPath := os.Getenv("PATH")
+	t.Setenv("PATH", fixDir+string(os.PathListSeparator)+originalPath)
+
+	// Seal both slices while the command resolves: each slice's own
+	// single-file tree passes its own host check as a real Succeeded
+	// effect, never an environment park.
+	for _, sliceID := range []string{"S1", "S2"} {
+		f.sealThroughHostRunner(t, sliceID)
+		f.passByVerifier(t, sliceID)
+	}
+
+	// Break the environment only now: the composed two-file tree differs
+	// from either slice's tree, so the reuse rule cannot apply and the
+	// assembly must run its own fresh check.host effect - which now
+	// classifies as an environment failure instead of executing.
+	t.Setenv("PATH", originalPath)
+
+	state := f.readState(t)
+	if state.Assembly.NextRole != "merge" {
+		t.Fatalf("assembly not ready to prepare: %#v", state.Assembly)
+	}
+	work := assemblyPrepareWork(state)
+	const epoch = int64(1)
+
+	assertNoFurtherTry := func(t *testing.T) {
+		t.Helper()
+		for _, try := range []int64{2, 3} {
+			if _, err := f.store.Effect(
+				f.ctx, f.owner.RunID, journal.AttemptEffectID(work, epoch, try),
+			); !journal.IsCode(err, "EFFECT_NOT_FOUND") {
+				t.Fatalf("try %d effect = %v, want EFFECT_NOT_FOUND", try, err)
+			}
+		}
+	}
+	try1State := func(t *testing.T) journal.EffectState {
+		t.Helper()
+		effect, err := f.store.Effect(
+			f.ctx, f.owner.RunID, journal.AttemptEffectID(work, epoch, 1))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return effect.State
+	}
+
+	// Fresh path: the Pending -> claim call site in runAction. The first
+	// encounter parks at once.
+	if err := f.service.prepareAssembly(f.ctx, f.engine, f.owner, state); !IsCode(err, "EFFECT_PARKED") {
+		t.Fatalf("prepareAssembly (fresh) = %v, want EFFECT_PARKED", err)
+	}
+	assertNoFurtherTry(t)
+	if got := try1State(t); got != journal.Claimed {
+		t.Fatalf("try 1 state after fresh park = %v, want Claimed", got)
+	}
+
+	// Already-Claimed path: the other call site in runAction, hit on a
+	// plain repeat while still broken. Still parks at once, still no new
+	// try.
+	if err := f.service.prepareAssembly(
+		f.ctx, f.engine, f.owner, f.readState(t),
+	); !IsCode(err, "EFFECT_PARKED") {
+		t.Fatalf("prepareAssembly (repeat, already-Claimed) = %v, want EFFECT_PARKED", err)
+	}
+	assertNoFurtherTry(t)
+	if got := try1State(t); got != journal.Claimed {
+		t.Fatalf("try 1 state after repeat park = %v, want Claimed", got)
+	}
+
+	// The recovery sweep (Resume's own path) must handle this benign park
+	// without spinning: it returns promptly, with no error, having
+	// advanced nothing.
+	done := make(chan error, 1)
+	go func() { done <- f.service.recoverClaimedEffects(f.ctx, f.engine, f.owner) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("recoverClaimedEffects = %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("recoverClaimedEffects did not return: the recovery sweep looped on the environment park")
+	}
+	assertNoFurtherTry(t)
+	if got := try1State(t); got != journal.Claimed {
+		t.Fatalf("try 1 state after the recovery sweep = %v, want still Claimed", got)
+	}
+
+	// Fix the environment: the identical try-1 effect completes; no try 2
+	// or 3 is ever admitted.
+	t.Setenv("PATH", fixDir+string(os.PathListSeparator)+originalPath)
+	final := f.prepareAssembly(t)
+	if final.Assembly.NextRole != "verifier" {
+		t.Fatalf("assembly not ready to verify after the fix: %#v", final.Assembly)
+	}
+	assertNoFurtherTry(t)
+	if got := try1State(t); got != journal.Succeeded {
+		t.Fatalf("try 1 state after the fix = %v, want Succeeded", got)
+	}
+}
+
 // countingHostCheck returns a shell check that records how many times it has
 // executed in counter and exits 0 only from the passAfter-th execution on
 // (never, when passAfter is 0). The counter lives outside the candidate
@@ -1156,5 +1373,222 @@ func journalDirectHostEffect(t *testing.T, fixture *hostCheckFixture, work strin
 		At:        fixture.service.now().UTC(),
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A1 (S2-pause-safe-host-checks): runHostChecks observes the run's desired
+// state fresh before admitting each declared check, never a cached flag. A
+// pause or cancel that already landed stops the loop before the very next
+// admission: a check that already succeeded keeps its exact recorded
+// result and is never re-admitted, and a check that has not yet run is
+// never admitted at all - the seal and the dispatch are not touched, so
+// the candidate stays resumable at the next unrun check on the same try.
+// Resuming (desired back to "running") completes the remaining check
+// without re-running the first.
+func TestHostChecksStopAtTheNextCheckBoundaryOnPauseAndKeepAlreadyPassedResults(t *testing.T) {
+	firstCheck, secondCheck := "true", "echo two"
+	fixture := newHostCheckFixture(t, []string{firstCheck, secondCheck})
+	firstResult, err := fixture.service.runOneHostCheck(
+		fixture.ctx, fixture.engine, fixture.owner, fixture.plan,
+		"S1", fixture.candidate, fixture.targetHead, fixture.releaseHead, firstCheck)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstResult.Outcome != protocol.CheckOutcomePass {
+		t.Fatalf("first result = %#v", firstResult)
+	}
+	if _, err := fixture.store.ApplyControl(fixture.ctx, journal.ControlCommand{
+		RunID: fixture.manifest.value.RunID, ID: "pause-1", Kind: journal.Pause,
+		ExpectedGeneration: 0,
+	}, fixture.service.now()); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := fixture.service.runHostChecks(
+		fixture.ctx, fixture.engine, fixture.owner, fixture.plan,
+		"S1", fixture.candidate, fixture.targetHead, fixture.releaseHead,
+	); !IsCode(err, "RUN_STOPPED") {
+		t.Fatalf("runHostChecks while paused = %v, want RUN_STOPPED", err)
+	}
+
+	firstWork := hostCheckWork("S1", fixture.candidate, fixture.contractDgst, firstCheck)
+	firstEffect, err := fixture.store.Effect(
+		fixture.ctx, fixture.manifest.value.RunID, hostCheckEffectID(firstWork))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstEffect.State != journal.Succeeded || firstEffect.ResultDigest != sha256Digest(mustJSON(firstResult)) {
+		t.Fatalf("first check.host effect changed across the stop: %#v", firstEffect)
+	}
+	secondWork := hostCheckWork("S1", fixture.candidate, fixture.contractDgst, secondCheck)
+	if _, err := fixture.store.Effect(
+		fixture.ctx, fixture.manifest.value.RunID, hostCheckEffectID(secondWork),
+	); !journal.IsCode(err, "EFFECT_NOT_FOUND") {
+		t.Fatalf("second check was admitted while paused: err=%v", err)
+	}
+
+	if _, err := fixture.store.ApplyControl(fixture.ctx, journal.ControlCommand{
+		RunID: fixture.manifest.value.RunID, ID: "resume-1", Kind: journal.Resume,
+		ExpectedGeneration: 1,
+	}, fixture.service.now()); err != nil {
+		t.Fatal(err)
+	}
+	results, err := fixture.service.runHostChecks(
+		fixture.ctx, fixture.engine, fixture.owner, fixture.plan,
+		"S1", fixture.candidate, fixture.targetHead, fixture.releaseHead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("results after resume = %d, want 2", len(results))
+	}
+	if results[0].EffectID != firstEffect.ID || results[0].OutputDigest != firstResult.OutputDigest {
+		t.Fatalf("first check was re-run on resume: %#v", results[0])
+	}
+	if results[1].Check != secondCheck || results[1].Outcome != protocol.CheckOutcomePass {
+		t.Fatalf("second check after resume = %#v", results[1])
+	}
+}
+
+// TestHostCheckExitOneTwentySevenParksThroughPostRunDefenseInDepth is A2's
+// required proof of the post-run "defense in depth" branch
+// (host_checks.go's `if result.ExitCode == 127` after runHostCommand),
+// distinct from the pre-spawn classification: the check's first word
+// resolves (a real, executable file on PATH), so classifyHostCheckExecution
+// finds nothing wrong before the process ever starts, and only the
+// genuine exit 127 the shell reports for a missing interpreter parks it.
+func TestHostCheckExitOneTwentySevenParksThroughPostRunDefenseInDepth(t *testing.T) {
+	const scriptName = "sworn-exit-127-bad-interpreter"
+	check := scriptName
+	fixture := newHostCheckFixture(t, []string{check})
+	work := hostCheckWork("S1", fixture.candidate, fixture.contractDgst, check)
+	effectID := hostCheckEffectID(work)
+
+	fixDir := t.TempDir()
+	scriptPath := filepath.Join(fixDir, scriptName)
+	if err := os.WriteFile(
+		scriptPath, []byte("#!/no/such/interpreter\nexit 0\n"), 0o755,
+	); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fixDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	// command -v resolves the script (it is a real, executable file), so
+	// classifyHostCheckExecution's pre-spawn check finds nothing wrong;
+	// only the shell's own exit 127 for the missing interpreter, caught by
+	// the post-run branch, parks this.
+	if word := hostCheckCommandWord(check); word == "" {
+		t.Fatalf("hostCheckCommandWord(%q) = %q, want %q", check, word, scriptName)
+	}
+	shell, shellErr := hostShell()
+	if shellErr != nil {
+		t.Fatal(shellErr)
+	}
+	if failure, _ := classifyHostCheckExecution(shell, check); failure {
+		t.Fatal("pre-spawn classification wrongly caught the bad-interpreter script")
+	}
+
+	_, err := fixture.service.runHostChecks(
+		fixture.ctx, fixture.engine, fixture.owner, fixture.plan,
+		"S1", fixture.candidate, fixture.targetHead, fixture.releaseHead)
+	if err == nil || !IsCode(err, "EFFECT_PARKED") {
+		t.Fatalf("runHostChecks() error = %v, want EFFECT_PARKED", err)
+	}
+	effect, err := fixture.store.Effect(fixture.ctx, fixture.owner.RunID, effectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effect.Kind != "check.host" || effect.State != journal.Claimed ||
+		effect.CurrentClaim == "" || len(effect.Result) != 0 {
+		t.Fatalf("parked effect = %#v", effect)
+	}
+	snapshot, err := fixture.store.Snapshot(fixture.ctx, fixture.owner.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	crossings := hostEnvironmentParkCrossings(snapshot)
+	if len(crossings) != 1 || crossings[0].Check != check ||
+		crossings[0].MissingCommand != scriptName || crossings[0].HostEffect != effectID {
+		t.Fatalf("crossings = %#v", crossings)
+	}
+}
+
+// TestHostCheckEnvironmentFailureOnRerunIsReadableByCrossingScan is A3's
+// exact required proof: an environment failure that classifies on the
+// #296 bounded re-execution - not the first execution - is journaled under
+// the rerun identity (journalHostEnvironmentClassification is called with
+// the rerun's boundWork/effectID, matching how the rerun's own check.host
+// effect is journaled), and hostEnvironmentParkCrossings (the one reader
+// both pinCrossingLanes and Status use) must still parse and report it,
+// never silently drop it because it recomputed only the first-execution
+// identity.
+func TestHostCheckEnvironmentFailureOnRerunIsReadableByCrossingScan(t *testing.T) {
+	counter := filepath.Join(t.TempDir(), "runs")
+	const absentCommand = "sworn-genuinely-absent-command-rerun"
+	// First invocation plainly fails (exit 1, no deterministic signature,
+	// so #296 makes it rerun-eligible); the second invocation (the rerun)
+	// execs an absent binary, which the shell reports as exit 127 - the
+	// check's own first word is unclassifiable ("n=$(cat..." contains '('
+	// so hostCheckCommandWord returns "", never a false pre-spawn
+	// positive), so only the post-run defense in depth on the rerun
+	// itself catches this.
+	check := fmt.Sprintf(
+		"n=$(cat %s 2>/dev/null || echo 0); n=$((n+1)); echo $n > %s; "+
+			"if [ \"$n\" -eq 1 ]; then exit 1; else exec %s; fi",
+		counter, counter, absentCommand,
+	)
+	fixture := newHostCheckFixture(t, []string{check})
+	run := func() ([]hostCheckResult, error) {
+		return fixture.service.runHostChecks(
+			fixture.ctx, fixture.engine, fixture.owner, fixture.plan,
+			"S1", fixture.candidate, fixture.targetHead, fixture.releaseHead)
+	}
+	if _, err := run(); !IsCode(err, "HOST_CHECK_FAILED") {
+		t.Fatalf("first execution = %v, want HOST_CHECK_FAILED", err)
+	}
+	work := hostCheckWork("S1", fixture.candidate, fixture.contractDgst, check)
+	rerunEffectID := hostCheckRerunEffectID(work)
+
+	if _, err := run(); err == nil || !IsCode(err, "EFFECT_PARKED") {
+		t.Fatalf("rerun = %v, want EFFECT_PARKED", err)
+	}
+	effect, err := fixture.store.Effect(fixture.ctx, fixture.owner.RunID, rerunEffectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effect.Kind != "check.host" || effect.State != journal.Claimed ||
+		effect.BeforeDigest != hostCheckRerunWork(work) || len(effect.Result) != 0 {
+		t.Fatalf("rerun effect = %#v", effect)
+	}
+	snapshot, err := fixture.store.Snapshot(fixture.ctx, fixture.owner.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	crossings := hostEnvironmentParkCrossings(snapshot)
+	if len(crossings) != 1 {
+		t.Fatalf("crossings = %#v, want exactly one (the rerun's environment failure must not be silently dropped)", crossings)
+	}
+	// The exit-127 branch's diagnostic names the check's own resolved
+	// first word (unrelated to this test's identity assertion, and
+	// unclassifiable here since the check's first field is a shell
+	// assignment expression), never the absent command execed from deep
+	// inside the script - that diagnostic shape is pre-existing and
+	// unchanged by this fix.
+	if crossings[0].HostEffect != rerunEffectID ||
+		crossings[0].MissingCommand != hostCheckCommandWord(check) ||
+		crossings[0].Check != check {
+		t.Fatalf("crossing = %#v, want HostEffect %q", crossings[0], rerunEffectID)
+	}
+
+	// Status()'s hostEnvironmentParkFactsByOwner (the same reader,
+	// state-scoped) must also see it.
+	state, err := protocol.ReadState(fixture.engine.git, fixture.manifest.value.Release, fixture.engine.inertness)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byOwner := hostEnvironmentParkFactsByOwner(state, snapshot)
+	owner := hostEnvironmentCrossingOwner(state, crossings[0])
+	if _, ok := byOwner[owner]; !ok {
+		t.Fatalf("hostEnvironmentParkFactsByOwner missed the rerun crossing under owner %q: %#v", owner, byOwner)
 	}
 }
