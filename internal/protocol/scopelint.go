@@ -182,7 +182,7 @@ func BuildPackageGraphAt(gitRepo GitRepository, commit string) (*PackageGraph, e
 			end = len(goFiles)
 		}
 		chunk := goFiles[i:end]
-		blobs, err := gitRepo.value.ReadBlobs(oid, chunk)
+		blobs, err := gitRepo.value.ReadSourceBlobs(oid, chunk)
 		if err != nil {
 			return nil, translateGitError("read go files", err)
 		}
