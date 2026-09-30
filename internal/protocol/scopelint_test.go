@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/swornagent/sworn/internal/gitx"
 )
 
 func TestBuildPackageGraphASTAndBuildConstraints(t *testing.T) {
@@ -755,5 +757,36 @@ func TestBuildPackageGraphAtForeignLayout(t *testing.T) {
 	recErr, ok := err.(*RecordError)
 	if !ok || recErr.Code != "UNDER_DERIVED_SCOPE" {
 		t.Fatalf("expected UNDER_DERIVED_SCOPE, got %v", err)
+	}
+}
+
+// #381: the scope lint reads a Go source larger than a Protocol record for its
+// imports instead of refusing the whole plan with RESOURCE_LIMIT.
+func TestBuildPackageGraphAtReadsASourceLargerThanARecord(t *testing.T) {
+	t.Parallel()
+	repoPath, _, actions := createActionHarness(t)
+
+	padding := strings.Repeat("// padding past the Protocol record size limit\n", gitx.MaxFileBytes/32)
+	caller := []byte("package caller\n\nimport \"example.com/large/inscope\"\n\nvar _ = inscope.Target{}\n\n" + padding)
+	if len(caller) <= gitx.MaxFileBytes {
+		t.Fatalf("fixture source is %d bytes, want more than %d", len(caller), gitx.MaxFileBytes)
+	}
+	base := actionGit(t, repoPath, nil, nil, "rev-parse", "refs/heads/main")
+	commit := prepareActionContractTree(t, repoPath, base, map[string][]byte{
+		"large/go.mod":            []byte("module example.com/large\n\ngo 1.26\n"),
+		"large/inscope/target.go": []byte("package inscope\n\ntype Target struct{}\n"),
+		"large/caller/caller.go":  caller,
+	})
+
+	graph, err := BuildPackageGraphAt(GitRepository{value: actions.repository.git}, commit)
+	if err != nil {
+		t.Fatalf("BuildPackageGraphAt with a %d-byte source = %v, want its imports read", len(caller), err)
+	}
+	callerPkg, ok := graph.Packages["large/caller"]
+	if !ok {
+		t.Fatal("missing package large/caller")
+	}
+	if !slices.Contains(callerPkg.ProdImports, "large/inscope") {
+		t.Fatalf("large/caller ProdImports = %v, want large/inscope", callerPkg.ProdImports)
 	}
 }

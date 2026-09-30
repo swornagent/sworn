@@ -39,6 +39,11 @@ const (
 	MaxRefusalPaths        = 20
 )
 
+// MaxSourceFileBytes bounds one repository source file read for analysis (the
+// plan scope lint's import graph). Sources are not Protocol records and may be
+// larger than MaxFileBytes; a batch stays within MaxBatchBytes.
+const MaxSourceFileBytes = 4 * 1024 * 1024
+
 type Error struct {
 	Code, Op   string
 	Err        error
@@ -698,6 +703,16 @@ func (r *Repository) ReadBlob(commit OID, relativePath string) ([]byte, error) {
 	return append([]byte(nil), values[relativePath]...), nil
 }
 func (r *Repository) ReadBlobs(commit OID, paths []string) (map[string][]byte, error) {
+	return r.readBlobs(commit, paths, MaxFileBytes)
+}
+
+// ReadSourceBlobs reads repository source files at commit for analysis, each
+// up to MaxSourceFileBytes rather than the Protocol record limit (#381).
+func (r *Repository) ReadSourceBlobs(commit OID, paths []string) (map[string][]byte, error) {
+	return r.readBlobs(commit, paths, MaxSourceFileBytes)
+}
+
+func (r *Repository) readBlobs(commit OID, paths []string, maxFileBytes int) (map[string][]byte, error) {
 	if err := r.validateOID(commit); err != nil {
 		return nil, err
 	}
@@ -748,8 +763,8 @@ func (r *Repository) ReadBlobs(commit OID, paths []string) (map[string][]byte, e
 		if err != nil || size < 0 {
 			return nil, fail("INVALID_GIT_OUTPUT", "read blobs", fmt.Errorf("invalid blob size %q", fields[2]))
 		}
-		if size > MaxFileBytes {
-			return nil, fail("RESOURCE_LIMIT", "read blobs", fmt.Errorf("%s exceeds %d bytes", name, MaxFileBytes))
+		if size > maxFileBytes {
+			return nil, fail("RESOURCE_LIMIT", "read blobs", fmt.Errorf("%s exceeds %d bytes", name, maxFileBytes))
 		}
 		total += size
 		if total > MaxBatchBytes || offset+size >= len(raw) {
