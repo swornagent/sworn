@@ -7,14 +7,16 @@ cross. Anything not listed is a Type-1 decision: escalate to the Principal
 with evidence identifiers and stop.
 
 Entries are proposed from the decision journal and ratified by the Principal.
-Version: 3 (2026-09-24).
+Version: 4 (2026-09-30).
 
 ## Authority the Manager holds
 
 Delegated only. The Manager may retry, cancel, pause, resume, answer an
 attention within an entry below, re-issue a start, and revise a plan when an
 entry permits it. The Manager never approves a plan revision, never merges to
-main, never changes a roster, and never moves a target ref.
+main, never changes a roster, and never moves a target ref, except the repair
+revision M12 records under the Principal's standing approval and the
+fast-forward of the release target it requires.
 
 ## Entries
 
@@ -169,10 +171,46 @@ If the same work parks again on the identical cause after a claimed
 refresh, this is Type-1.
 Origin: 2026-09-25-recovery-robustness S3-credential-lifetime (sworn#358).
 
+### M12. A repair revision for a defect found after a slice passed
+
+Situation: a slice of the current release that the in-run Verifier passed
+has a defect in behaviour one of its approved acceptance criteria promises,
+found afterwards (a blind second verification, a later Lead or Verifier
+record, or a host run) and reproduced by the seat with a test or probe on
+that slice's verified candidate. The slice is an original slice of the
+release, not a repair slice, and the release has not been promoted.
+Decision: prepare a plan revision that appends one repair slice for the
+defective slice on the same track after the last slice, with every approved
+slice contract byte-identical. The repair slice's outcome and criteria
+restate only the unmet promise of the original criteria and the evidence
+that would have caught it; its scope, checks, host checks and constraints
+copy the original slice's. Pin and lint it, write APPROVAL.md naming this
+entry and the evidence, and record it at a safe boundary: after the current
+slice's verdict, with no run active on the release target (cancel or let the
+run complete first), fast-forwarding the release target to the revision's
+prep commit, which adds only contract files. Then relaunch on a new run id
+and tell the Principal at once, with the new plan digest and the evidence.
+The Principal may revoke the revision before the repair slice's first
+dispatch; the seat then cancels at the next safe boundary.
+Bounds: never change an approved contract, the roster, the checks, the
+drivers config or the target beyond that fast-forward; never add scope a
+criterion did not promise; at most one repair slice per original slice per
+release (further defects in the same slice fold into it before its first
+dispatch, and after that are Type-1). A defect found in a repair slice is a
+follow-up issue, not another repair slice, unless it is a wrong verdict, lost
+work, a security issue or an unrecoverable run, which is Type-1.
+Evidence: the report or record that found the defect, the reproduction
+(command and output), the criterion ids, the new plan digest, the unchanged
+digests of the approved slices, and the release target before and after.
+Origin: 2026-09-25-recovery-robustness revision 2 (repair slices S6 to S10
+waited about 33 hours for approval while no run was active). Shape approved
+by the Principal on 2026-09-30; ratified when this entry merges.
+
 ## Type-1 (always the Principal)
 
-Plan approval and any revision that changes a slice contract; roster or model
-changes; moving a target ref; merging a release to main; deleting refs that
+Plan approval and any revision that changes a slice contract (other than an
+M12 repair revision); roster or model changes; moving a target ref (other
+than M12's fast-forward); merging a release to main; deleting refs that
 are not backed up; anything the engine reports as `human_authority`; anything
 this file does not name.
 
