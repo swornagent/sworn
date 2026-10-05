@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -715,8 +716,9 @@ func (state *nativeContinuationState) containsAny(
 			clearBytes(secret)
 		}
 	}()
+	exempt := nativeRetainedHomeIdentifierFields[state.family]
 	for _, value := range values {
-		secrets = append(secrets, nativeSecretFragments(value)...)
+		secrets = append(secrets, nativeSecretFragmentsExcept(value, exempt)...)
 	}
 	if len(secrets) == 0 {
 		return false
@@ -771,6 +773,22 @@ func (state *nativeContinuationState) containsAny(
 }
 
 func nativeSecretFragments(body []byte) [][]byte {
+	return nativeSecretFragmentsExcept(body, nil)
+}
+
+// nativeRetainedHomeIdentifierFields names, per family, the credential fields
+// that hold account identifiers rather than secrets. The vendor CLI records
+// them in its own session state (Codex 0.160.0 writes tokens.account_id into
+// the rollout metadata and its state database), so the retained-home scan
+// skips them. Every other field, including any field a vendor adds later,
+// stays a secret fragment; redaction keeps using the full set.
+var nativeRetainedHomeIdentifierFields = map[ProfileFamily][][]string{
+	ProfileCodex: {{"tokens", "account_id"}},
+}
+
+// nativeSecretFragmentsExcept is nativeSecretFragments without the string
+// values found at the exempt object-key paths.
+func nativeSecretFragmentsExcept(body []byte, exempt [][]string) [][]byte {
 	const minimum = 16
 	var result [][]byte
 	if len(body) >= minimum {
@@ -780,25 +798,34 @@ func nativeSecretFragments(body []byte) [][]byte {
 	if err != nil {
 		return result
 	}
-	var collect func(any)
-	collect = func(value any) {
+	var collect func(any, []string)
+	collect = func(value any, path []string) {
 		switch typed := value.(type) {
 		case string:
-			if len(typed) >= minimum {
+			if len(typed) >= minimum && !nativeFieldPathIn(path, exempt) {
 				result = append(result, []byte(typed))
 			}
 		case []any:
 			for _, child := range typed {
-				collect(child)
+				collect(child, path)
 			}
 		case map[string]any:
-			for _, child := range typed {
-				collect(child)
+			for key, child := range typed {
+				collect(child, append(path[:len(path):len(path)], key))
 			}
 		}
 	}
-	collect(value)
+	collect(value, nil)
 	return result
+}
+
+func nativeFieldPathIn(path []string, paths [][]string) bool {
+	for _, candidate := range paths {
+		if slices.Equal(path, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 func snapshotNativeCredential(
